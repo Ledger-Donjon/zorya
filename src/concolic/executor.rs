@@ -18,9 +18,9 @@ impl<'a> ConcolicExecutor<'a> {
         ConcolicExecutor { context, solver, state }
     }
 
-
     pub fn run(&mut self, instructions: Vec<Inst>) {
         for instruction in instructions {
+            println!("Executing instruction: {:?}", instruction);  // Added detailed logging
             self.execute_instruction(&instruction);
         }
     }
@@ -99,6 +99,7 @@ impl<'a> ConcolicExecutor<'a> {
         let destination_name = format!("{:?}", instruction.output.as_ref().unwrap().var);
 
         let source_var = self.state.get_or_create_concolic_var(&source_name, 32);
+        println!("---> Load: Source var {} \n", source_name);
         self.state.set_var(&destination_name, source_var);
     }
 
@@ -109,6 +110,9 @@ impl<'a> ConcolicExecutor<'a> {
 
         let mut op1_var = self.state.get_or_create_concolic_var(&operand1_name, 32);
         let op2_var = self.state.get_or_create_concolic_var(&operand2_name, 32);
+        
+        println!("---> IntCarry Operand 1 var {}", operand1_name);
+        println!("---> IntCarry Operand 2 var {} \n", operand2_name);
         // Perform the addition. Assuming `add` modifies op1_var in place
         op1_var.add(&op2_var, &self.context);
 
@@ -128,7 +132,9 @@ impl<'a> ConcolicExecutor<'a> {
 
         let op1_var = self.state.get_or_create_concolic_var(&operand1_name, 32);
         let op2_var = self.state.get_or_create_concolic_var(&operand2_name, 32);
-
+        
+        println!("---> IntSCarry Operand 1 var {}", operand1_name);
+        println!("---> IntSCarry Operand 2 var {} \n", operand2_name);
         // Calculate the signed addition and check for overflow
         let (result, signed_overflow) = op1_var.concrete.overflowing_add(op2_var.concrete);
 

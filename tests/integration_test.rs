@@ -31,9 +31,9 @@ mod integration_tests {
                     executor.execute_instruction(&inst);
 
                     // Print state and concolic variable values after each instruction
-                    println!("Current state: {:?}", state); // Adjust based on how State can be formatted
+                    println!("Current state: {:?} \n \n", state);
+                    println!("**********************************");
 
-                    // Assuming you have a method to retrieve all concolic variables' values
                     for (var_name, concolic_var) in state.get_all_concolic_vars() {
                         println!("Concolic variable {}: concrete = {}, symbolic = {:?}", 
                                  var_name, concolic_var.concrete, concolic_var.symbolic);
@@ -46,6 +46,5 @@ mod integration_tests {
         }
 
         // Assert the final state after execution
-        // ... [Your assertions here]
     }
 }
