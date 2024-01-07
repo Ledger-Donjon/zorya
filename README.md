@@ -1,5 +1,5 @@
 # Zorya
-Zorya implements a concolic execution methodology to find vulnerabilities in application binaries. It is using Ghidra's Pcode to be able to handle most of languages, including Go lang.
+Zorya implements a concolic execution methodology to find vulnerabilities in application binaries. It uses Ghidra's Pcode to handle most of languages, including Go lang.
 
 ### Structure of the repository
 ```
@@ -17,7 +17,8 @@ zorya/
 │   │
 │   └── state/
 │       ├── mod.rs            # Module declaration for state management
-│       ├── state_manager.rs  # State management of concolic/symbolic execution │       ├── memory_model.rs   # Memory model implementation
+│       ├── state_manager.rs  # State management of concolic/symbolic execution │                                                                                                                                                             
+|       ├── memory_model.rs   # Memory model implementation
 │       └── flags.rs          # Memory flags implementation
 │   
 ├── external/                 # External dependencies as submodules
