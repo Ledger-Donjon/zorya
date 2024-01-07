@@ -1,0 +1,115 @@
+use std::collections::HashMap;
+use crate::flags::Flags;
+use crate::memory_model::{MemoryModel, Address, Value};
+use crate::concolic_var::ConcolicVar;
+use z3::Context;
+
+#[derive(Debug)]
+pub struct State<'a> {
+    concolic_vars: HashMap<String, ConcolicVar<'a>>,
+    memory_model: MemoryModel,
+    flags: Flags,
+    ctx: &'a Context,
+}
+
+impl<'a> State<'a> {
+    pub fn new(ctx: &'a Context) -> Self {
+        State {
+            concolic_vars: HashMap::new(),
+            memory_model: MemoryModel::new(),
+            flags: Flags::default(),
+            ctx,
+        }
+    }
+
+    pub fn get_or_create_concolic_var(&mut self, var_name: &str, bitvector_size: u32) -> ConcolicVar<'a> {
+        self.concolic_vars.entry(var_name.to_string()).or_insert_with(|| {
+            ConcolicVar::new(0, var_name, self.ctx, bitvector_size)
+        }).clone()
+    }
+
+    // Method to get an iterator over all concolic variables
+    pub fn get_all_concolic_vars(&self) -> impl Iterator<Item = (&String, &ConcolicVar<'a>)> {
+        self.concolic_vars.iter()
+    }
+    
+    // Methods for interacting with memory model
+    pub fn read_memory(&self, address: Address) -> Option<Value> {
+        self.memory_model.read_memory(address)
+    }
+
+    pub fn write_memory(&mut self, address: Address, value: Value) {
+        self.memory_model.write_memory(address, value);
+    }
+
+    // Methods for interacting with flags
+    pub fn set_flag(&mut self, flag: impl FnOnce(&mut Flags)) {
+        flag(&mut self.flags);
+    }
+
+    pub fn set_var(&mut self, var_name: &str, concolic_var: ConcolicVar<'a>) {
+        self.concolic_vars.insert(var_name.to_string(), concolic_var);
+    }
+
+    // Arithmetic ADD operation on concolic variables
+    pub fn concolic_add(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
+        let mut var1 = self.get_or_create_concolic_var(var1_name, bitvector_size).clone();
+        let var2 = self.get_or_create_concolic_var(var2_name, bitvector_size);
+
+        // Modify var1 in place
+        var1.add(&var2, self.ctx);
+
+        // Update the state
+        self.set_var(result_var_name, var1);
+    }
+
+    // Bitwise AND operation on concolic variables
+    pub fn concolic_and(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
+        let var1 = self.get_or_create_concolic_var(var1_name, bitvector_size).clone();
+        let var2 = self.get_or_create_concolic_var(var2_name, bitvector_size);
+
+        var1.and(&var2);
+
+        self.set_var(result_var_name, var1);
+    }
+
+    // Evaluate a conditional statement based on a concolic variable
+    pub fn concolic_conditional(&mut self, var_name: &str, true_branch: impl FnOnce(&mut Self), false_branch: impl FnOnce(&mut Self)) {
+        let var = self.get_or_create_concolic_var(var_name, 1); // Assuming a 1-bit variable for condition
+
+        if var.concrete != 0 {
+            true_branch(self);
+        } else {
+            false_branch(self);
+        }
+    }
+
+    // Symbolic Memory Read
+    pub fn symbolic_read_memory(&mut self, address: Address, bitvector_size: u32) -> ConcolicVar<'a> {
+        // Read concrete value from memory
+        let concrete_value = self.memory_model.read_memory(address).unwrap_or(0); // Default to 0 if address not found
+
+        // create a symbolic variable representing the memory value
+        let symbolic_name = format!("mem_{}", address);
+        let symbolic_var = ConcolicVar::new(concrete_value as i32, &symbolic_name, self.ctx, bitvector_size);
+
+        // Update concolic_vars with the new symbolic variable
+        self.concolic_vars.insert(symbolic_name, symbolic_var.clone());
+
+        symbolic_var
+    }
+
+    // Symbolic Memory Write
+    pub fn symbolic_write_memory(&mut self, address: Address, value: ConcolicVar<'a>) {
+        // Write the concrete value to memory
+        self.memory_model.write_memory(address, value.concrete as Value);
+
+        // Update the symbolic representation
+        let symbolic_name = format!("mem_{}", address);
+        self.concolic_vars.insert(symbolic_name, value);
+    }
+
+
+
+    // others methods ?
+}

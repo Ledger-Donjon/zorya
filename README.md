@@ -7,19 +7,19 @@ zorya/
 │
 ├── Cargo.toml                
 ├── src/
-│   ├── main.rs               # Entry point 
+│   ├── main.rs                
+|   |── lib.rs
 │   ├── concolic/
 │   │   ├── mod.rs            # Module declaration for concolic execution logic
+│   │   ├── concolic_var.rs   # Concolic variables implementation
 │   │   ├── executor.rs       # Concolic executor implementation
 │   │   └── z3_integration.rs # Integration with Z3 SMT solver
 │   │
-│   ├── state/
-│   │   ├── mod.rs            # Module declaration for state management
-│   │   └── concolic_var.rs   # Concolic variable definition and operations
-│   │
-│   └── utils/                # Utility functions and common definitions
-│       └── mod.rs
-│
+│   └── state/
+│       ├── mod.rs            # Module declaration for state management
+│       ├── state_manager.rs  # State management of concolic/symbolic execution │       ├── memory_model.rs   # Memory model implementation
+│       └── flags.rs          # Memory flags implementation
+│   
 ├── external/                 # External dependencies as submodules
 │   └── pcode-parser/         # External Pcode parser repository
 │

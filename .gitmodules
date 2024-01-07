@@ -1,0 +1,3 @@
+[submodule "external/pcode-parser"]
+	path = external/pcode-parser
+	url = git@github.com:kajaaz/pcode-parser.git

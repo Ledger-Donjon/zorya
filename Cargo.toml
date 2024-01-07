@@ -1,0 +1,10 @@
+[package]
+name = "zorya"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+z3 = "0.12.1"
+parser = { git = "https://github.com/kajaaz/pcode-parser.git", branch = "main" }
