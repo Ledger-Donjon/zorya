@@ -117,3 +117,86 @@ impl<'a> ConcolicVar<'a> {
     }
 }
 
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use z3::{Config, Context, ast::{BV, Ast}};
+
+    #[test]
+    fn test_new_and_new_from_bv() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let symbolic = BV::new_const(&ctx, "x", 32);
+        let concolic_var = ConcolicVar::new(10, "x", &ctx, 32);
+        let concolic_var_from_bv = ConcolicVar::new_from_bv(10, symbolic.clone());
+
+        assert_eq!(concolic_var.concrete, 10);
+        assert_eq!(concolic_var_from_bv.concrete, 10);
+        assert!(concolic_var.symbolic._eq(&symbolic).simplify().as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_update_concrete() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let symbolic = BV::new_const(&ctx, "x", 32);
+        let mut concolic_var = ConcolicVar::new_from_bv(10, symbolic);
+
+        concolic_var.update_concrete(20);
+        assert_eq!(concolic_var.concrete, 20);
+        // Does not affect the symbolic part
+    }
+
+    #[test]
+    fn test_arithmetic_operations() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let symbolic_x = BV::new_const(&ctx, "x", 32);
+        let symbolic_y = BV::new_const(&ctx, "y", 32);
+        let mut concolic_var1 = ConcolicVar::new_from_bv(10, symbolic_x.clone());
+        let concolic_var2 = ConcolicVar::new_from_bv(5, symbolic_y.clone());
+
+        // Test for addition
+        concolic_var1.add(&concolic_var2, &ctx);
+        assert_eq!(concolic_var1.concrete, 15);
+        assert_eq!(concolic_var1.symbolic.simplify(),
+            symbolic_x.bvadd(&symbolic_y).simplify());
+
+        // Reset concolic_var1 for subtraction test
+        let mut concolic_var1 = ConcolicVar::new_from_bv(10, symbolic_x.clone());
+
+        // Test for subtraction
+        concolic_var1.sub(&concolic_var2, &ctx);
+        assert_eq!(concolic_var1.concrete, 10 - 5);
+        // subtraction is often represented as addition with a negated operand
+        let negated_y = symbolic_y.bvneg(); // Negating y
+        assert_eq!(concolic_var1.symbolic.simplify(),
+            symbolic_x.bvadd(&negated_y).simplify());
+    }
+
+    #[test]
+    fn test_bitwise_operations() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let symbolic_x = BV::new_const(&ctx, "x", 32);
+        let symbolic_y = BV::new_const(&ctx, "y", 32);
+        let concolic_var1 = ConcolicVar::new_from_bv(10, symbolic_x.clone());
+        let concolic_var2 = ConcolicVar::new_from_bv(5, symbolic_y.clone());
+
+        let result_not = concolic_var1.not();
+        assert_eq!(result_not.concrete, !10);
+        assert_eq!(result_not.symbolic.simplify(), symbolic_x.bvnot().simplify());
+        assert!(result_not.symbolic._eq(&symbolic_x.bvnot()).simplify().as_bool().expect("Failed to compare symbolic expressions in NOT operation"));
+
+        let result_and = concolic_var1.and(&concolic_var2);
+        assert_eq!(result_and.concrete, 10 & 5);
+        assert_eq!(result_and.symbolic.simplify(), symbolic_x.bvand(&symbolic_y).simplify());
+        assert!(result_and.symbolic._eq(&symbolic_x.bvand(&symbolic_y)).simplify().as_bool().expect("Failed to compare symbolic expressions in AND operation"));
+    }
+
+}
+
+
