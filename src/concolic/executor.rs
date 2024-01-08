@@ -1,7 +1,7 @@
 use crate::state::State;
-use super::concolic_var::ConcolicVar;
 use parser::parser::{Inst, Opcode};
 use z3::{Context, Solver};
+use crate::concolic::ConcolicVar;
 
 /// Represents the concolic executor
 pub struct ConcolicExecutor<'a> {
@@ -20,7 +20,7 @@ impl<'a> ConcolicExecutor<'a> {
 
     pub fn run(&mut self, instructions: Vec<Inst>) {
         for instruction in instructions {
-            println!("Executing instruction: {:?}", instruction);  // Added detailed logging
+            println!("Executing instruction: {:?}", instruction);
             self.execute_instruction(&instruction);
         }
     }
@@ -95,55 +95,90 @@ impl<'a> ConcolicExecutor<'a> {
     }
 
     fn handle_load(&mut self, instruction: &Inst) {
-        let source_name = format!("{:?}", instruction.inputs[0].var);
-        let destination_name = format!("{:?}", instruction.output.as_ref().unwrap().var);
+        if let (Some(output), Some(input)) = (&instruction.output, instruction.inputs.get(0)) {
+            let source_size = input.size.to_bitvector_size();
+            let source_name = format!("{:?}", input.var);
+            let destination_name = format!("{:?}", output.var);
 
-        let source_var = self.state.get_or_create_concolic_var(&source_name, 32);
-        println!("---> Load: Source var {} \n", source_name);
-        self.state.set_var(&destination_name, source_var);
+            let source_var = self.state.get_or_create_concolic_var(&source_name, source_size);
+            println!("---> Load: Source var {} \n", source_name);
+            self.state.set_var(&destination_name, source_var);
+        } else {
+            println!("Error: Load instruction missing output or input");
+        }
     }
 
     fn handle_int_carry(&mut self, instruction: &Inst) {
-        let operand1_name = format!("{:?}", instruction.inputs[0].var);
-        let operand2_name = format!("{:?}", instruction.inputs[1].var);
-        let output_name = format!("{:?}", instruction.output.as_ref().unwrap().var);
+        if let Some(output) = &instruction.output {
+            if instruction.inputs.len() >= 2 {
+                let operand1_name = format!("{:?}", instruction.inputs[0].var);
+                let operand2_name = format!("{:?}", instruction.inputs[1].var);
+                let output_name = format!("{:?}", output.var);
 
-        let mut op1_var = self.state.get_or_create_concolic_var(&operand1_name, 32);
-        let op2_var = self.state.get_or_create_concolic_var(&operand2_name, 32);
-        
-        println!("---> IntCarry Operand 1 var {}", operand1_name);
-        println!("---> IntCarry Operand 2 var {} \n", operand2_name);
-        // Perform the addition. Assuming `add` modifies op1_var in place
-        op1_var.add(&op2_var, &self.context);
+                let op1_var = self.state.get_or_create_concolic_var(&operand1_name, instruction.inputs[0].size.to_bitvector_size());
+                let op2_var = self.state.get_or_create_concolic_var(&operand2_name, instruction.inputs[1].size.to_bitvector_size());
+                println!("---> IntCarry Operand 1 var {}", operand1_name);
+                println!("---> IntCarry Operand 2 var {} \n", operand2_name);
 
-        // Determine if a carry occurred. Carry occurs if the result is smaller than any of the operands
-        let carry_flag = op1_var.concrete < op1_var.concrete.wrapping_add(op2_var.concrete);
+                let max_size = std::cmp::max(op1_var.symbolic.get_size(), op2_var.symbolic.get_size());
+                let mut op1_var_extended = self.zero_extend(&op1_var, max_size);
+                let op2_var_extended = self.zero_extend(&op2_var, max_size);
 
-        // Update the state with the result and the carry flag
-        self.state.set_var(&output_name, op1_var);
-        self.state.set_flag(|flags| flags.set_carry_flag(carry_flag));
+                op1_var_extended.add(&op2_var_extended, self.context);
 
+                let carry_flag = self.state.calculate_carry(&op1_var_extended, &op2_var_extended, max_size);
+                self.state.set_flag(|flags| flags.set_carry_flag(carry_flag));
+
+                self.state.set_var(&output_name, op1_var_extended);
+            } else {
+                println!("Error: IntCarry instruction missing input operands");
+            }
+        } else {
+            println!("Error: IntCarry instruction missing output");
+        }
     }
 
     fn handle_int_scarry(&mut self, instruction: &Inst) {
-        let operand1_name = format!("{:?}", instruction.inputs[0].var);
-        let operand2_name = format!("{:?}", instruction.inputs[1].var);
-        let output_name = format!("{:?}", instruction.output.as_ref().unwrap().var);
+        if let Some(output) = &instruction.output {
+            if instruction.inputs.len() >= 2 {
+                let operand1_name = format!("{:?}", instruction.inputs[0].var);
+                let operand2_name = format!("{:?}", instruction.inputs[1].var);
+                let output_name = format!("{:?}", output.var);
 
-        let op1_var = self.state.get_or_create_concolic_var(&operand1_name, 32);
-        let op2_var = self.state.get_or_create_concolic_var(&operand2_name, 32);
-        
-        println!("---> IntSCarry Operand 1 var {}", operand1_name);
-        println!("---> IntSCarry Operand 2 var {} \n", operand2_name);
-        // Calculate the signed addition and check for overflow
-        let (result, signed_overflow) = op1_var.concrete.overflowing_add(op2_var.concrete);
+                let op1_var = self.state.get_or_create_concolic_var(&operand1_name, instruction.inputs[0].size.to_bitvector_size());
+                let op2_var = self.state.get_or_create_concolic_var(&operand2_name, instruction.inputs[1].size.to_bitvector_size());
+                println!("---> IntCarry Operand 1 var {}", operand1_name);
+                println!("---> IntCarry Operand 2 var {} \n", operand2_name);
 
-        // Update the result variable
-        let result_var = ConcolicVar::new(result, &output_name, &self.context, 32);
-        self.state.set_var(&output_name, result_var);
+                let max_size = std::cmp::max(op1_var.symbolic.get_size(), op2_var.symbolic.get_size());
+                let mut op1_var_extended = self.zero_extend(&op1_var, max_size);
+                let op2_var_extended = self.zero_extend(&op2_var, max_size);
 
-        // Update the state with the signed carry flag
-        self.state.set_flag(|flags| flags.set_carry_flag(signed_overflow));
+                op1_var_extended.add(&op2_var_extended, self.context);
+
+                let carry_flag = self.state.calculate_signed_carry(&op1_var_extended, &op2_var_extended);
+                self.state.set_flag(|flags| flags.set_carry_flag(carry_flag));
+
+                self.state.set_var(&output_name, op1_var_extended);
+            } else {
+                println!("Error: IntCarry instruction missing input operands");
+            }
+        } else {
+            println!("Error: IntCarry instruction missing output");
+        }
     }
+    
+    // Helper method for zero extension
+    fn zero_extend(&self, var: &ConcolicVar<'a>, target_size: u32) -> ConcolicVar<'a> {
+        let current_size = var.symbolic.get_size() as u64; // Cast to larger type to avoid overflow
+        if current_size < target_size as u64 {
+            let extension_size = target_size - current_size as u32; // Safe as target_size is larger
+            let extended_symbolic = var.symbolic.zero_ext(extension_size);
 
+            // Use the extended symbolic BV to create the new ConcolicVar
+            ConcolicVar::new_from_bv(var.concrete, extended_symbolic)
+        } else {
+            var.clone()
+        }
+    }
 }

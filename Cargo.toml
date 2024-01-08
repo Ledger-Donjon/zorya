@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 z3 = "0.12.1"
-parser = { git = "https://github.com/kajaaz/pcode-parser.git", branch = "main" }
+parser = { path = "external/pcode-parser" }

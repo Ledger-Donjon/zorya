@@ -12,6 +12,10 @@ impl<'a> ConcolicVar<'a> {
         ConcolicVar { concrete, symbolic }
     }
 
+    pub fn new_from_bv(concrete: i32, symbolic: BV<'a>) -> Self {
+        ConcolicVar { concrete, symbolic }
+    }
+
     pub fn update_concrete(&mut self, new_value: i32) {
         self.concrete = new_value;
     }

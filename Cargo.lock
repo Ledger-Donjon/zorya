@@ -128,7 +128,6 @@ dependencies = [
 [[package]]
 name = "parser"
 version = "0.1.0"
-source = "git+https://github.com/kajaaz/pcode-parser.git?branch=main#02cd8016e2ae2a5fc6e215b55bc2a8123442744a"
 
 [[package]]
 name = "peeking_take_while"

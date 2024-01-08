@@ -51,16 +51,46 @@ impl<'a> State<'a> {
         self.concolic_vars.insert(var_name.to_string(), concolic_var);
     }
 
-    // Arithmetic ADD operation on concolic variables
+    // Arithmetic ADD operation on concolic variables with carry calculation
     pub fn concolic_add(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
         let mut var1 = self.get_or_create_concolic_var(var1_name, bitvector_size).clone();
         let var2 = self.get_or_create_concolic_var(var2_name, bitvector_size);
 
-        // Modify var1 in place
         var1.add(&var2, self.ctx);
 
-        // Update the state
+        // Check if a carry occurred
+        let carry_flag = self.calculate_carry(&var1, &var2, bitvector_size);
+
+        // Update the state with the result and the carry flag
         self.set_var(result_var_name, var1);
+        self.set_flag(|flags| flags.set_carry_flag(carry_flag));
+    }
+
+    // calculate if a carry occurred during addition
+    pub fn calculate_carry(&self, var1: &ConcolicVar<'a>, var2: &ConcolicVar<'a>, bitvector_size: u32) -> bool {
+        // Prevent shifting more than 63 bits in a u64 to avoid overflow
+        if bitvector_size >= 64 {
+            return false;
+        }
+
+        let max_value = (1u64 << bitvector_size) - 1;
+        let var1_value = var1.concrete as u64;
+        let var2_value = var2.concrete as u64;
+
+        var1_value + var2_value > max_value
+    }
+
+    pub fn calculate_signed_carry(&self, var1: &ConcolicVar<'a>, var2: &ConcolicVar<'a>) -> bool {
+        let var1_value = var1.concrete as i64; // Cast to a larger type to detect overflow
+        let var2_value = var2.concrete as i64;
+        let result_value = var1_value.wrapping_add(var2_value);
+
+        let sign_var1 = var1_value.signum();
+        let sign_var2 = var2_value.signum();
+        let sign_result = result_value.signum();
+
+        // check for overflow: if signs of operands are the same and the sign of the result is different
+        sign_var1 == sign_var2 && sign_var1 != sign_result
     }
 
     // Bitwise AND operation on concolic variables
