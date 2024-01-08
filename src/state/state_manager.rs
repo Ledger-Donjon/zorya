@@ -42,7 +42,7 @@ impl<'a> State<'a> {
         self.memory_model.write_memory(address, value);
     }
 
-    // Methods for interacting with flags
+    // Method for interacting with flags
     pub fn set_flag(&mut self, flag: impl FnOnce(&mut Flags)) {
         flag(&mut self.flags);
     }
