@@ -1,22 +1,22 @@
 use z3::{Context, ast::BV};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ConcolicVar<'a> {
-    pub concrete: i32,
+    pub concrete: u32,
     pub symbolic: BV<'a>, // to be able to do bitwise operations 
 }
 
 impl<'a> ConcolicVar<'a> {
-    pub fn new(concrete: i32, symbolic_name: &str, ctx: &'a Context, sz: u32) -> Self {
+    pub fn new(concrete: u32, symbolic_name: &str, ctx: &'a Context, sz: u32) -> Self {
         let symbolic: BV<'a> = BV::new_const(ctx, symbolic_name, sz);
         ConcolicVar { concrete, symbolic }
     }
 
-    pub fn new_from_bv(concrete: i32, symbolic: BV<'a>) -> Self {
+    pub fn new_from_bv(concrete: u32, symbolic: BV<'a>) -> Self {
         ConcolicVar { concrete, symbolic }
     }
 
-    pub fn update_concrete(&mut self, new_value: i32) {
+    pub fn update_concrete(&mut self, new_value: u32) {
         self.concrete = new_value;
     }
 
@@ -37,87 +37,71 @@ impl<'a> ConcolicVar<'a> {
     }
 
     // Bitwise NOT operation
-    pub fn not(&self) -> Self {
-        Self {
-            concrete: !self.concrete,
-            symbolic: self.symbolic.bvnot(),
-        }
+    pub fn not(&mut self) {
+        self.concrete = !self.concrete;
+        self.symbolic = self.symbolic.bvnot();
     }
 
     // Bitwise AND operation
-    pub fn and(&self, other: &Self) -> Self {
-        Self {
-            concrete: self.concrete & other.concrete,
-            symbolic: self.symbolic.bvand(&other.symbolic),
-        }
+    pub fn and(&mut self, other: &Self) {
+        self.concrete &= other.concrete;
+        self.symbolic = self.symbolic.bvand(&other.symbolic);
     }
 
     // Bitwise OR operation
-    pub fn or(&self, other: &Self) -> Self {
-        Self {
-            concrete: self.concrete | other.concrete,
-            symbolic: self.symbolic.bvor(&other.symbolic),
-        }
+    pub fn or(&self, other: &Self) {
+        let _ = self.concrete | other.concrete;
+        self.symbolic.bvor(&other.symbolic);
     }
 
     // Bitwise XOR operation
-    pub fn xor(&self, other: &Self) -> Self {
-        Self {
-            concrete: self.concrete ^ other.concrete,
-            symbolic: self.symbolic.bvxor(&other.symbolic),
-        }
+    pub fn xor(&self, other: &Self) {
+        let _ = self.concrete ^ other.concrete;
+        self.symbolic.bvxor(&other.symbolic);
     }
 
     // Bitwise NAND operation
-    pub fn nand(&self, other: &Self) -> Self {
-        Self {
-            concrete: !(self.concrete & other.concrete),
-            symbolic: self.symbolic.bvand(&other.symbolic).bvnot(),
-        }
+    pub fn nand(&mut self, other: &Self) {
+        self.concrete = !(self.concrete & other.concrete);
+        self.symbolic = self.symbolic.bvand(&other.symbolic).bvnot();
     }
 
     // Bitwise NOR operation
-    pub fn nor(&self, other: &Self) -> Self {
-        Self {
-            concrete: !(self.concrete | other.concrete),
-            symbolic: self.symbolic.bvor(&other.symbolic).bvnot(),
-        }
+    pub fn nor(&mut self, other: &Self) {
+        self.concrete = !(self.concrete | other.concrete);
+        self.symbolic = self.symbolic.bvor(&other.symbolic).bvnot();
     }
 
     // Bitwise XNOR operation
-    pub fn xnor(&self, other: &Self) -> Self {
-        Self {
-            concrete: !(self.concrete ^ other.concrete),
-            symbolic: self.symbolic.bvxor(&other.symbolic).bvnot(),
-        }
+    pub fn xnor(&mut self, other: &Self) {
+        self.concrete = !(self.concrete ^ other.concrete);
+        self.symbolic = self.symbolic.bvxor(&other.symbolic).bvnot();
     }
 
     // Bitwise left shift operation
-    pub fn shl(&self, other: &Self) -> Self {
-        Self {
-            concrete: self.concrete << other.concrete,
-            symbolic: self.symbolic.bvshl(&other.symbolic),
-        }
+    pub fn shl(&mut self, other: &Self) {
+        self.concrete = self.concrete << other.concrete;
+        self.symbolic = self.symbolic.bvshl(&other.symbolic);
     }
 
     // Bitwise logical right shift operation
-    pub fn lshr(&self, other: &Self) -> Self {
-        Self {
-            concrete: ((self.concrete as u64) >> other.concrete) as i32,  // Logical shift for unsigned values
-            symbolic: self.symbolic.bvlshr(&other.symbolic),
-        }
+    pub fn lshr(&mut self, other: &Self) {
+        self.concrete = ((self.concrete as u64) >> other.concrete) as u32;  // Logical shift for unsigned values
+        self.symbolic = self.symbolic.bvlshr(&other.symbolic);
     }
 
     // Bitwise arithmetic right shift operation
-    pub fn ashr(&self, other: &Self) -> Self {
-        Self {
-            concrete: self.concrete >> other.concrete,  // Arithmetic shift for signed values
-            symbolic: self.symbolic.bvashr(&other.symbolic),
-        }
+    pub fn ashr(&mut self, other: &Self) {
+        self.concrete = self.concrete >> other.concrete;  // Arithmetic shift for signed values
+        self.symbolic = self.symbolic.bvashr(&other.symbolic);
     }
+
+    // Bitwise equality operation
+    pub fn equals(&self, other: &Self) -> bool {
+        self.concrete == other.concrete && self.symbolic.eq(&other.symbolic)
+    }
+
 }
-
-
 
 
 #[cfg(test)]
@@ -183,20 +167,20 @@ mod tests {
         let ctx = Context::new(&cfg);
         let symbolic_x = BV::new_const(&ctx, "x", 32);
         let symbolic_y = BV::new_const(&ctx, "y", 32);
-        let concolic_var1 = ConcolicVar::new_from_bv(10, symbolic_x.clone());
+        let mut concolic_var1 = ConcolicVar::new_from_bv(10, symbolic_x.clone());
         let concolic_var2 = ConcolicVar::new_from_bv(5, symbolic_y.clone());
 
-        let result_not = concolic_var1.not();
-        assert_eq!(result_not.concrete, !10);
-        assert_eq!(result_not.symbolic.simplify(), symbolic_x.bvnot().simplify());
-        assert!(result_not.symbolic._eq(&symbolic_x.bvnot()).simplify().as_bool().expect("Failed to compare symbolic expressions in NOT operation"));
+        concolic_var1.not();
+        assert_eq!(concolic_var1.concrete, !10);
+        assert_eq!(concolic_var1.symbolic.simplify(), symbolic_x.bvnot().simplify());
+        assert!(concolic_var1.symbolic._eq(&symbolic_x.bvnot()).simplify().as_bool().expect("Failed to compare symbolic expressions in NOT operation"));
 
-        let result_and = concolic_var1.and(&concolic_var2);
-        assert_eq!(result_and.concrete, 10 & 5);
-        assert_eq!(result_and.symbolic.simplify(), symbolic_x.bvand(&symbolic_y).simplify());
-        assert!(result_and.symbolic._eq(&symbolic_x.bvand(&symbolic_y)).simplify().as_bool().expect("Failed to compare symbolic expressions in AND operation"));
+        let mut concolic_var1 = ConcolicVar::new_from_bv(10, symbolic_x.clone());
+        concolic_var1.and(&concolic_var2);
+        assert_eq!(concolic_var1.concrete, 10 & 5);
+        assert_eq!(concolic_var1.symbolic.simplify(), symbolic_x.bvand(&symbolic_y).simplify());
+        assert!(concolic_var1.symbolic._eq(&symbolic_x.bvand(&symbolic_y)).simplify().as_bool().expect("Failed to compare symbolic expressions in AND operation"));
     }
-
 }
 
 

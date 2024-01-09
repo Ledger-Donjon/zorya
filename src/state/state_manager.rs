@@ -8,7 +8,7 @@ use z3::Context;
 pub struct State<'a> {
     concolic_vars: HashMap<String, ConcolicVar<'a>>,
     memory_model: MemoryModel,
-    flags: Flags,
+    pub flags: Flags,
     ctx: &'a Context,
 }
 
@@ -22,15 +22,25 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn get_or_create_concolic_var(&mut self, var_name: &str, bitvector_size: u32) -> ConcolicVar<'a> {
-        self.concolic_vars.entry(var_name.to_string()).or_insert_with(|| {
-            ConcolicVar::new(0, var_name, self.ctx, bitvector_size)
-        }).clone()
+    // In both executor.rs and state_manager.rs
+    pub fn create_concolic_var(&mut self, var_name: &str, concrete_value: u32, bitvector_size: u32) -> &ConcolicVar<'a> {
+        let new_var = ConcolicVar::new(concrete_value, var_name, self.ctx, bitvector_size);
+        self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
+    }
+
+    // Method to get an existing concolic variable
+    pub fn get_concolic_var(&self, var_name: &str) -> Option<&ConcolicVar<'a>> {
+        self.concolic_vars.get(var_name)
     }
 
     // Method to get an iterator over all concolic variables
     pub fn get_all_concolic_vars(&self) -> impl Iterator<Item = (&String, &ConcolicVar<'a>)> {
         self.concolic_vars.iter()
+    }
+
+    // Method to get a concolic variable's concrete value by its identifier
+    pub fn get_concrete_var(&self, var_name: &str) -> Option<u32> {
+        self.concolic_vars.get(var_name).map(|var| var.concrete)
     }
     
     // Methods for interacting with memory model
@@ -51,10 +61,11 @@ impl<'a> State<'a> {
         self.concolic_vars.insert(var_name.to_string(), concolic_var);
     }
 
+
     // Arithmetic ADD operation on concolic variables with carry calculation
     pub fn concolic_add(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
-        let mut var1 = self.get_or_create_concolic_var(var1_name, bitvector_size).clone();
-        let var2 = self.get_or_create_concolic_var(var2_name, bitvector_size);
+        let mut var1 = self.create_concolic_var(var1_name, 0, bitvector_size).clone();
+        let var2 = self.create_concolic_var(var2_name, 0, bitvector_size).clone();
 
         var1.add(&var2, self.ctx);
 
@@ -77,26 +88,34 @@ impl<'a> State<'a> {
         let var1_value = var1.concrete as u64;
         let var2_value = var2.concrete as u64;
 
-        var1_value + var2_value > max_value
+        // Using checked_add to handle overflow
+        match var1_value.checked_add(var2_value) {
+            Some(sum) => sum > max_value,
+            None => true, // Overflow occurred
+        }
     }
 
+    // In both executor.rs and state_manager.rs
     pub fn calculate_signed_carry(&self, var1: &ConcolicVar<'a>, var2: &ConcolicVar<'a>) -> bool {
         let var1_value = var1.concrete as i64; // Cast to a larger type to detect overflow
         let var2_value = var2.concrete as i64;
+
+        // Using wrapping_add for signed addition
         let result_value = var1_value.wrapping_add(var2_value);
 
         let sign_var1 = var1_value.signum();
         let sign_var2 = var2_value.signum();
         let sign_result = result_value.signum();
 
-        // check for overflow: if signs of operands are the same and the sign of the result is different
+        // Check for overflow: if signs of operands are the same and the sign of the result is different
         sign_var1 == sign_var2 && sign_var1 != sign_result
     }
 
+
     // Bitwise AND operation on concolic variables
     pub fn concolic_and(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
-        let var1 = self.get_or_create_concolic_var(var1_name, bitvector_size).clone();
-        let var2 = self.get_or_create_concolic_var(var2_name, bitvector_size);
+        let mut var1 = self.create_concolic_var(var1_name, 0, bitvector_size).clone();
+        let var2 = self.create_concolic_var(var2_name, 0, bitvector_size);
 
         var1.and(&var2);
 
@@ -105,7 +124,7 @@ impl<'a> State<'a> {
 
     // Evaluate a conditional statement based on a concolic variable
     pub fn concolic_conditional(&mut self, var_name: &str, true_branch: impl FnOnce(&mut Self), false_branch: impl FnOnce(&mut Self)) {
-        let var = self.get_or_create_concolic_var(var_name, 1); // Assuming a 1-bit variable for condition
+        let var = self.create_concolic_var(var_name, 0, 1); // Assuming a 1-bit variable for condition
 
         if var.concrete != 0 {
             true_branch(self);
@@ -121,7 +140,7 @@ impl<'a> State<'a> {
 
         // create a symbolic variable representing the memory value
         let symbolic_name = format!("mem_{}", address);
-        let symbolic_var = ConcolicVar::new(concrete_value as i32, &symbolic_name, self.ctx, bitvector_size);
+        let symbolic_var = ConcolicVar::new(concrete_value as u32, &symbolic_name, self.ctx, bitvector_size);
 
         // Update concolic_vars with the new symbolic variable
         self.concolic_vars.insert(symbolic_name, symbolic_var.clone());

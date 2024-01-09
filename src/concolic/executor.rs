@@ -1,9 +1,9 @@
 use crate::state::State;
 use parser::parser::{Inst, Opcode};
-use z3::{Context, Solver};
+use z3::{Context, Solver, ast::BV};
 use crate::concolic::ConcolicVar;
 
-/// Represents the concolic executor
+#[derive(Debug)]
 pub struct ConcolicExecutor<'a> {
     pub context: &'a Context,
     pub solver: Solver<'a>,
@@ -29,7 +29,7 @@ impl<'a> ConcolicExecutor<'a> {
         match instruction.opcode {
             Opcode::Load => self.handle_load(instruction),
             Opcode::IntCarry => self.handle_int_carry(instruction),
-            Opcode::IntSCarry => self.handle_int_scarry(instruction),
+            Opcode::IntSCarry => todo!(),
             Opcode::Copy => todo!(),
             Opcode::IntAdd => todo!(),
             Opcode::BoolOr => todo!(),
@@ -91,83 +91,65 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::New => todo!(),
             Opcode::CallOther => todo!(),
             // ... other opcodes
+        }.expect("REASON");
+    }
+
+    fn handle_load(&mut self, instruction: &Inst) -> Result<(), String> {
+        match (&instruction.output, instruction.inputs.get(0)) {
+            (Some(output), Some(input)) => {
+                let source_size = input.size.to_bitvector_size();
+                let source_name = format!("{:?}", input.var);
+                let destination_name = format!("{:?}", output.var);
+
+                let source_var = if let Some(var) = self.state.get_concolic_var(&source_name) {
+                    var.clone()
+                } else {
+                    self.state.create_concolic_var(&source_name, 0, source_size).clone()
+                };
+
+                let destination_var = ConcolicVar::new_from_bv(source_var.concrete, source_var.symbolic);
+
+                println!("---> Load: Source var {} \n", source_name);
+                self.state.set_var(&destination_name, destination_var);
+
+                Ok(())
+            },
+            _ => Err("Error: Load instruction missing output or input".to_string()),
         }
     }
 
-    fn handle_load(&mut self, instruction: &Inst) {
-        if let (Some(output), Some(input)) = (&instruction.output, instruction.inputs.get(0)) {
-            let source_size = input.size.to_bitvector_size();
-            let source_name = format!("{:?}", input.var);
-            let destination_name = format!("{:?}", output.var);
 
-            let source_var = self.state.get_or_create_concolic_var(&source_name, source_size);
-            println!("---> Load: Source var {} \n", source_name);
-            self.state.set_var(&destination_name, source_var);
-        } else {
-            println!("Error: Load instruction missing output or input");
-        }
-    }
-
-    fn handle_int_carry(&mut self, instruction: &Inst) {
-        if let Some(output) = &instruction.output {
-            if instruction.inputs.len() >= 2 {
-                let operand1_name = format!("{:?}", instruction.inputs[0].var);
-                let operand2_name = format!("{:?}", instruction.inputs[1].var);
-                let output_name = format!("{:?}", output.var);
-
-                let op1_var = self.state.get_or_create_concolic_var(&operand1_name, instruction.inputs[0].size.to_bitvector_size());
-                let op2_var = self.state.get_or_create_concolic_var(&operand2_name, instruction.inputs[1].size.to_bitvector_size());
-                println!("---> IntCarry Operand 1 var {}", operand1_name);
-                println!("---> IntCarry Operand 2 var {} \n", operand2_name);
-
-                let max_size = std::cmp::max(op1_var.symbolic.get_size(), op2_var.symbolic.get_size());
-                let mut op1_var_extended = self.zero_extend(&op1_var, max_size);
-                let op2_var_extended = self.zero_extend(&op2_var, max_size);
-
-                op1_var_extended.add(&op2_var_extended, self.context);
-
-                let carry_flag = self.state.calculate_carry(&op1_var_extended, &op2_var_extended, max_size);
-                self.state.set_flag(|flags| flags.set_carry_flag(carry_flag));
-
-                self.state.set_var(&output_name, op1_var_extended);
-            } else {
-                println!("Error: IntCarry instruction missing input operands");
-            }
-        } else {
-            println!("Error: IntCarry instruction missing output");
-        }
-    }
-
-    fn handle_int_scarry(&mut self, instruction: &Inst) {
-        if let Some(output) = &instruction.output {
-            if instruction.inputs.len() >= 2 {
-                let operand1_name = format!("{:?}", instruction.inputs[0].var);
-                let operand2_name = format!("{:?}", instruction.inputs[1].var);
-                let output_name = format!("{:?}", output.var);
-
-                let op1_var = self.state.get_or_create_concolic_var(&operand1_name, instruction.inputs[0].size.to_bitvector_size());
-                let op2_var = self.state.get_or_create_concolic_var(&operand2_name, instruction.inputs[1].size.to_bitvector_size());
-                println!("---> IntCarry Operand 1 var {}", operand1_name);
-                println!("---> IntCarry Operand 2 var {} \n", operand2_name);
-
-                let max_size = std::cmp::max(op1_var.symbolic.get_size(), op2_var.symbolic.get_size());
-                let mut op1_var_extended = self.zero_extend(&op1_var, max_size);
-                let op2_var_extended = self.zero_extend(&op2_var, max_size);
-
-                op1_var_extended.add(&op2_var_extended, self.context);
-
-                let carry_flag = self.state.calculate_signed_carry(&op1_var_extended, &op2_var_extended);
-                self.state.set_flag(|flags| flags.set_carry_flag(carry_flag));
-
-                self.state.set_var(&output_name, op1_var_extended);
-            } else {
-                println!("Error: IntCarry instruction missing input operands");
-            }
-        } else {
-            println!("Error: IntCarry instruction missing output");
-        }
-    }
+    fn handle_int_carry(&mut self, instruction: &Inst) -> Result<(), String> {
+        match (&instruction.output, instruction.inputs.get(0), instruction.inputs.get(1)) {
+            (Some(output), Some(input0), Some(input1)) if input0.size == input1.size => {
+                let size = input0.size.to_bitvector_size();
+                let input0_concrete = self.state.get_concrete_var(&format!("{:?}", input0.var)).unwrap_or_default();
+                let input1_concrete = self.state.get_concrete_var(&format!("{:?}", input1.var)).unwrap_or_default();
     
+                let bv0 = self.state.create_concolic_var(&format!("{:?}", input0.var), input0_concrete, size).clone();
+                let bv1 = self.state.create_concolic_var(&format!("{:?}", input1.var), input1_concrete, size).clone();
+    
+                let concrete_sum = bv0.concrete.wrapping_add(bv1.concrete);
+                let carry_flag = concrete_sum < bv0.concrete || concrete_sum < bv1.concrete;
+                self.state.flags.carry_flag = carry_flag;
+    
+                let symbolic_sum = bv0.symbolic.bvadd(&bv1.symbolic);
+                let symbolic_carry_bool = BV::bvugt(&symbolic_sum, &BV::from_u64(self.context, u32::MAX as u64, size));
+                let true_bv = BV::from_u64(self.context, 1, 1);
+                let false_bv = BV::from_u64(self.context, 0, 1);
+                let symbolic_carry_bv = symbolic_carry_bool.ite(&true_bv, &false_bv);
+    
+                let concrete_carry = if carry_flag { 1 } else { 0 };
+                let output_concolic = ConcolicVar::new_from_bv(concrete_carry, symbolic_carry_bv);
+    
+                self.state.set_var(&format!("{:?}", output.var), output_concolic);
+    
+                Ok(())
+            },
+            _ => Err("Error: Inputs for INT_CARRY must be of the same size".to_string()),
+        }
+    }
+        
     // Helper method for zero extension
     fn zero_extend(&self, var: &ConcolicVar<'a>, target_size: u32) -> ConcolicVar<'a> {
         let current_size = var.symbolic.get_size() as u64; // Cast to larger type to avoid overflow
@@ -182,3 +164,94 @@ impl<'a> ConcolicExecutor<'a> {
         }
     }
 }
+
+
+#[cfg(test)]
+mod test {
+    use z3::ast::BV;
+    use z3::Config;
+    use parser::parser::{Inst, Opcode, Var, Varnode, Size};
+    use super::*;
+
+    #[test]
+    fn test_handle_load() {
+        let config = Config::new();
+        let context = Context::new(&config);
+        let mut executor = ConcolicExecutor::new(&context);
+
+        // Test data
+        let input_addr = 100; // Example address
+        let output_addr = 200; // Example address
+        let input_var = Var::Memory(input_addr);
+        let output_var = Var::Memory(output_addr);
+        let input_varnode = Varnode { var: input_var, size: Size::Word };
+        let output_varnode = Varnode { var: output_var, size: Size::Word };
+        let instruction = Inst {
+            opcode: Opcode::Load,
+            output: Some(output_varnode),
+            inputs: vec![input_varnode],
+        };
+
+        // Invocation
+        executor.handle_load(&instruction).unwrap();
+
+        // Verification
+        let source_var_name = format!("{:?}", Var::Memory(input_addr));
+        let destination_var_name = format!("{:?}", Var::Memory(output_addr));
+        let source_var = executor.state.get_concolic_var(&source_var_name).unwrap().clone();
+        let destination_var = executor.state.get_concolic_var(&destination_var_name).unwrap().clone();
+        
+        assert_eq!(source_var, destination_var, "Load operation did not correctly transfer the variable value");
+        assert_eq!(source_var.concrete, destination_var.concrete, "Concrete values should be equal");
+        assert!(source_var.symbolic.eq(&destination_var.symbolic), "Symbolic values should be equal");
+        
+        println!("{:?}", executor);
+    }
+
+    #[test]
+     fn test_handle_int_carry() {
+        let config = Config::new();
+        let context = Context::new(&config);
+        let mut executor = ConcolicExecutor::new(&context);
+
+        // Test data
+        let input0_value = 4294967295u32; // Max value for a u32, to test carry
+        let input1_value = 1u32;
+        let input0_var = Var::Memory(100); // Example address
+        let input1_var = Var::Memory(200); // Example address
+        let output_var = Var::Memory(300); // Example address
+        let input0_varnode = Varnode { var: input0_var.clone(), size: Size::Word };
+        let input1_varnode = Varnode { var: input1_var.clone(), size: Size::Word };
+        let output_varnode = Varnode { var: output_var, size: Size::Byte }; // Size::Byte because carry flag is 1 bit
+        let instruction = Inst {
+            opcode: Opcode::IntCarry,
+            output: Some(output_varnode),
+            inputs: vec![input0_varnode, input1_varnode],
+        };
+
+        // Create and set initial ConcolicVars
+        let bv_input0 = BV::from_u64(&context, input0_value as u64, 32);
+        let bv_input1 = BV::from_u64(&context, input1_value as u64, 32);
+
+        let concolic_input0 = ConcolicVar::new_from_bv(input0_value, bv_input0);
+        let concolic_input1 = ConcolicVar::new_from_bv(input1_value, bv_input1);
+
+        executor.state.set_var(&format!("{:?}", input0_var), concolic_input0.clone());
+        executor.state.set_var(&format!("{:?}", input1_var), concolic_input1.clone());
+
+        println!("Concolic input 0 : {:?}", concolic_input0);
+        println!("Concolic input 1 : {:?}", concolic_input1);
+        // Invocation
+        executor.handle_int_carry(&instruction).unwrap();
+
+        // Verification
+        let output_var_name = format!("{:?}", Var::Memory(300));
+        let output_var = executor.state.get_concolic_var(&output_var_name).unwrap().clone();
+        
+        assert_eq!(output_var.concrete, 1, "Carry should be set");
+        // Additional assertions ?
+        println!("{:?}", executor);
+    }
+}
+
+
