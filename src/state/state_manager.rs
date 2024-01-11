@@ -3,6 +3,7 @@ use crate::flags::Flags;
 use crate::memory_model::{MemoryModel, Address, Value};
 use crate::concolic_var::ConcolicVar;
 use z3::Context;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct State<'a> {
@@ -161,4 +162,17 @@ impl<'a> State<'a> {
 
 
     // others methods ?
+}
+
+impl<'a> fmt::Display for State<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "State {{")?;
+        writeln!(f, "  Concolic Variables:")?;
+        for (var_name, concolic_var) in &self.concolic_vars {
+            writeln!(f, "    {}: {:?}", var_name, concolic_var)?;
+        }
+        writeln!(f, "  Memory Model: {:?}", self.memory_model)?;
+        writeln!(f, "  Flags: {:?}", self.flags)?;
+        write!(f, "}}")
+    }
 }

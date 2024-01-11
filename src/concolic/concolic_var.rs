@@ -110,6 +110,39 @@ mod tests {
     use z3::{Config, Context, ast::{BV, Ast}};
 
     #[test]
+    fn test_concolic_var_creation() {
+        let config = Config::new();
+        let context = Context::new(&config);
+        
+        let var_name = "test_var";
+        let concrete_value = 42;
+        let size = 32;
+        let concolic_var = ConcolicVar::new(concrete_value, var_name, &context, size);
+
+        assert_eq!(concolic_var.concrete, concrete_value);
+        assert_eq!(concolic_var.symbolic.get_size(), size as u32);
+        assert!(concolic_var.symbolic.is_const());
+    }
+
+    #[test]
+    fn test_concolic_var_operations() {
+        let config = Config::new();
+        let context = Context::new(&config);
+
+        let var1 = ConcolicVar::new(10, "var1", &context, 32);
+        let var2 = ConcolicVar::new(5, "var2", &context, 32);
+
+        let mut var_add = var1.clone();
+        var_add.add(&var2, &context);
+        assert_eq!(var_add.concrete, 15);
+
+        let mut var_sub = var1.clone();
+        var_sub.sub(&var2, &context);
+        assert_eq!(var_sub.concrete, 5);
+        // Test for symbolic expression
+    }
+
+    #[test]
     fn test_new_and_new_from_bv() {
         let cfg = Config::new();
         let ctx = Context::new(&cfg);

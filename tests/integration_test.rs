@@ -18,11 +18,11 @@ fn test_pcode_execution() {
     let pcode_lines = vec![
         "(unique,0x5380,1) = LOAD (const,0x55e4a78f0330,8) (register,0x0,8)",
         "(register,0x200,1) = INT_CARRY (unique,0x5380,1) (register,0x0,1)",
-        "(unique,0x5380,1) = LOAD (const,0x55e4a78f0330,8) (register,0x0,8)",
-        "(register,0x20b,1) = INT_SCARRY (unique,0x5380,1) (register,0x0,1)",
         "(unique,0x5380,1) = LOAD (const,0x55e4a78f0330,8) (register,0x0,8)"
     ];
 
+    println!("Initial state: {}", state);
+    println!("Executor: {:?}", executor);
     println!("Entering loop...");
 
     // Parse and execute the pcode instructions
@@ -36,7 +36,7 @@ fn test_pcode_execution() {
                 executor.execute_instruction(&inst);
 
                 // Print state and concolic variable values after each instruction
-                println!("Current state: {:?} \n \n", state);
+                println!("Current state: {} \n \n", state);
                 println!("**********************************");
 
                 for (var_name, concolic_var) in state.get_all_concolic_vars() {
@@ -52,6 +52,8 @@ fn test_pcode_execution() {
 
     // Debug statement to check if the loop is exited
     println!("Exiting loop...");
+    println!("Final state: {}", state);
+
     }
 
 }

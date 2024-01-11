@@ -121,20 +121,36 @@ impl<'a> ConcolicExecutor<'a> {
 
     fn handle_int_carry(&mut self, instruction: &Inst) -> Result<(), String> {
         match (&instruction.output, instruction.inputs.get(0), instruction.inputs.get(1)) {
-            (Some(output), Some(input0), Some(input1)) if input0.size == input1.size => {
-                let size = input0.size.to_bitvector_size();
+            (Some(output), Some(input0), Some(input1)) => {
+                let size0 = input0.size.to_bitvector_size();
+                let size1 = input1.size.to_bitvector_size();
+                let max_size = std::cmp::max(size0, size1);
+    
                 let input0_concrete = self.state.get_concrete_var(&format!("{:?}", input0.var)).unwrap_or_default();
                 let input1_concrete = self.state.get_concrete_var(&format!("{:?}", input1.var)).unwrap_or_default();
     
-                let bv0 = self.state.create_concolic_var(&format!("{:?}", input0.var), input0_concrete, size).clone();
-                let bv1 = self.state.create_concolic_var(&format!("{:?}", input1.var), input1_concrete, size).clone();
+                let mut bv0 = self.state.create_concolic_var(&format!("{:?}", input0.var), input0_concrete, size0).clone();
+                let mut bv1 = self.state.create_concolic_var(&format!("{:?}", input1.var), input1_concrete, size1).clone();
+    
+                // Zero-extend the bitvectors if they are of different sizes
+                if size0 != size1 {
+                    bv0 = self.zero_extend(&bv0, max_size);
+                    bv1 = self.zero_extend(&bv1, max_size);
+    
+                    println!("Zero-extended bv0: {:?}", bv0);
+                    println!("Zero-extended bv1: {:?}", bv1);
+                }
     
                 let concrete_sum = bv0.concrete.wrapping_add(bv1.concrete);
                 let carry_flag = concrete_sum < bv0.concrete || concrete_sum < bv1.concrete;
                 self.state.flags.carry_flag = carry_flag;
-    
+                println!("Zero-extended bv0 sym: {:?}", bv0.symbolic);
+                println!("Zero-extended bv0 conc: {:?}", bv0.concrete);
+
+                println!("Zero-extended bv1 sym: {:?}", bv1.symbolic);
+                println!("Zero-extended bv1 conc: {:?}", bv1.concrete);
                 let symbolic_sum = bv0.symbolic.bvadd(&bv1.symbolic);
-                let symbolic_carry_bool = BV::bvugt(&symbolic_sum, &BV::from_u64(self.context, u32::MAX as u64, size));
+                let symbolic_carry_bool = BV::bvugt(&symbolic_sum, &BV::from_u64(self.context, u32::MAX as u64, max_size));
                 let true_bv = BV::from_u64(self.context, 1, 1);
                 let false_bv = BV::from_u64(self.context, 0, 1);
                 let symbolic_carry_bv = symbolic_carry_bool.ite(&true_bv, &false_bv);
@@ -146,9 +162,10 @@ impl<'a> ConcolicExecutor<'a> {
     
                 Ok(())
             },
-            _ => Err("Error: Inputs for INT_CARRY must be of the same size".to_string()),
+            _ => Err("Error: Inputs for INT_CARRY must be provided".to_string()),
         }
     }
+    
         
     // Helper method for zero extension
     fn zero_extend(&self, var: &ConcolicVar<'a>, target_size: u32) -> ConcolicVar<'a> {
