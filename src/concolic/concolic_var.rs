@@ -3,7 +3,7 @@ use z3::{Context, ast::BV};
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConcolicVar<'a> {
     pub concrete: u32,
-    pub symbolic: BV<'a>, // to be able to do bitwise operations 
+    pub symbolic: BV<'a>, // BitVector for bitwise operations 
 }
 
 impl<'a> ConcolicVar<'a> {

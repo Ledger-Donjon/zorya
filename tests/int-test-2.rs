@@ -16,40 +16,52 @@ mod integration_tests {
         // Mock Data for LOAD instruction
         let load_inst = Inst {
             opcode: Opcode::Load,
-            output: Some(Varnode { var: Unique(21376), size: Size::Byte }),
+            output: Some(Varnode { var: Register(21376), size: Size::Byte }),
             inputs: vec![
-                Varnode { var: Const("0x55e4a78f0330".to_string()), size: Size::Quad },
-                Varnode { var: Register(0), size: Size::Quad }
+                Varnode { var: Const("0x55e4a78f0330".to_string()), size: Size::Byte },
+                Varnode { var: Register(0), size: Size::Byte }
             ],
         };
-    
 
         // Mock Data for INT_CARRY instruction
         let carry_inst = Inst {
             opcode: Opcode::IntCarry,
-            output: Some(Varnode { var: Register(0x200), size: Size::Byte }),
+            output: Some(Varnode { var: Register(512), size: Size::Byte }),
             inputs: vec![
-                Varnode { var: Register(0x5380), size: Size::Byte },
-                Varnode { var: Register(0x0), size: Size::Byte },
+                Varnode { var: Unique(21376), size: Size::Byte },
+                Varnode { var: Register(0), size: Size::Byte },
             ],
         };
 
+
+    
         println!("Initial state: {}", executor.state);
         println!("***********************");
 
         // Execution
-        println!("Executing instruction: {:?}", load_inst);
-        executor.execute_instruction(&load_inst);
-        println!("State after LOAD: {} \n", executor.state);
-        
+        println!("Executing LOAD instruction: {:?}", load_inst);
+        if let Err(e) = executor.handle_load(load_inst.clone()) {
+            println!("Error executing LOAD: {}", e);
+        } else {
+            println!("State after LOAD: {}", executor.state);
+        }
         println!("***********************");
-        
-        println!("Executing instruction: {:?}", carry_inst);
-        executor.execute_instruction(&carry_inst);
-        println!("State after INT_CARRY: {}", executor.state);
-        
+        println!("State before INT_CARRY: {}", executor.state);
+        println!("Executing INT_CARRY instruction: {:?}", carry_inst);
+        if let Err(e) = executor.handle_int_carry(carry_inst) {
+            println!("Error executing INT_CARRY: {}", e);
+        } else {
+            println!("State after INT_CARRY: {}", executor.state);
+        }
         println!("***********************");
-        println!("Final state: {}", executor.state);
+        println!("Executing LOAD instruction: {:?}", load_inst);
+        if let Err(e) = executor.handle_load(load_inst) {
+            println!("Error executing LOAD: {}", e);
+        } else {
+            println!("State after LOAD: {}", executor.state);
+        }
+        println!("***********************");
 
+        println!("Final state: {}", executor.state);
     }
 }

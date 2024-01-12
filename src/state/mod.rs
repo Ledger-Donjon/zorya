@@ -1,8 +1,6 @@
-pub mod flags;
-pub mod memory_model;
 pub mod state_manager;
+pub mod memory_x86_64;
 
-pub use flags::Flags;
-pub use memory_model::{MemoryModel, Address, Value};
 pub use state_manager::State;
+pub use memory_x86_64::MemoryX86_64;
 
