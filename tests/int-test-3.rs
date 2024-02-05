@@ -14,8 +14,18 @@ mod integration_tests {
 
         // Define pcode instructions
         let pcode_lines = vec![
-            "(unique,0x5380,1) = LOAD (const,0x55e4a78f0330,8) (register,0x0,8)",
-            "(register,0x200,1) = INT_CARRY (unique,0x5380,1) (register,0x0,1)",
+            "(unique,0x3b80,1) = LOAD (const,0x556f90707d40,8) (register,0x0,4)",
+            "(register,0x200,1) = INT_CARRY (unique,0x3b80,1) (register,0x0,1)",
+            "(unique,0x3b80,1) = LOAD (const,0x556f90707d40,8) (register,0x0,4)",
+            "(register,0x20b,1) = INT_SCARRY (unique,0x3b80,1) (register,0x0,1)",
+            "(unique,0x3b80,1) = LOAD (const,0x556f90707d40,8) (register,0x0,4)",
+            "(unique,0x3b80,1) = INT_ADD (unique,0x3b80,1) (register,0x0,1)",
+            "(unique,0x3b80,1) = LOAD (const,0x556f90707d40,8) (register,0x0,4)",
+            "(register,0x207,1) = INT_SLESS (unique,0x3b80,1) (const,0x0,1)",
+            "(unique,0x3b80,1) = LOAD (const,0x556f90707d40,8) (register,0x0,4)",
+            "(register,0x206,1) = INT_EQUAL (unique,0x3b80,1) (const,0x0,1)",
+            "(unique,0x3b80,1) = LOAD (const,0x556f90707d40,8) (register,0x0,4)",
+            "(unique,0xdd00,1) = INT_AND (unique,0x3b80,1) (const,0xff,1)",
         ];
 
         println!("Initial state: {}", executor.state);
