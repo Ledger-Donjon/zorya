@@ -1,6 +1,6 @@
-use crate::{concolic_var::SymbolicValue, state::State};
-use parser::parser::{Inst, Opcode, Var, Size, Varnode};
-use z3::{Context, Solver};
+use crate::{concolic_var::{ConcreteValue, SymbolicValue}, state::State};
+use parser::parser::{Inst, Opcode, Size, Varnode};
+use z3::{ast::BV, Context, Solver};
 use crate::concolic::ConcolicVar;
 
 #[derive(Debug)]
@@ -14,6 +14,7 @@ impl<'a> ConcolicExecutor<'a> {
     pub fn new(context: &'a Context) -> Self {
         let solver = z3::Solver::new(context);
         let state = State::new(context); 
+        //state.setup();
 
         ConcolicExecutor { context, solver, state }
     }
@@ -31,14 +32,12 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::Call => todo!(), // function call, semantically similar to a branch but represents execution flow transferring to a subroutine
             Opcode::CallInd => todo!(), // indirect call to a dynamically determined address
             Opcode::CallOther => todo!(), // not existing anymore
-            Opcode::Cast => todo!(),
             Opcode::Ceil => todo!(),
             Opcode::CBranch => todo!(), // adds a condition to the jump, taken if a specified condition evaluates to true
             Opcode::Copy => self.handle_copy(instruction),
             Opcode::CPoolRef => todo!(), // returns runtime-dependent values from the constant pool
             Opcode::CrossBuild => todo!(),
             Opcode::DelaySlot => todo!(),
-            Opcode::Extract => todo!(),
             Opcode::Float2Float => self.handle_float2float(instruction),
             Opcode::FloatAbs => self.handle_float_abs(instruction),
             Opcode::FloatAdd => self.handle_float_add(instruction),
@@ -52,7 +51,7 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::FloatNotEqual => self.handle_float_notequal(instruction),
             Opcode::FloatSqrt => self.handle_float_sqrt(instruction),
             Opcode::FloatSub => self.handle_float_sub(instruction),
-            Opcode::Floor => todo!(),
+            Opcode::FloatFloor => self.handle_float_floor(instruction),
             Opcode::Int2Comp => self.handle_int_2comp(instruction),
             Opcode::Int2Float => self.handle_int2float(instruction),
             Opcode::IntAdd => self.handle_int_add(instruction),
@@ -80,7 +79,6 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::IntSub => self.handle_int_sub(instruction),
             Opcode::IntXor => self.handle_int_xor(instruction),
             Opcode::IntZExt => self.handle_int_zext(instruction),
-            Opcode::Insert => todo!(),
             Opcode::Label => todo!(),
             Opcode::Load => self.handle_load(instruction),
             Opcode::LZCount => self.handle_lzcount(instruction),
@@ -116,7 +114,7 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Store the result
         let result_var_name = format!("{:?}", output_varnode.var);
-        self.state.create_concolic_var(&result_var_name, result as f64, 1);
+        self.state.create_concolic_var_int(&result_var_name, result as u64, 1);
     
         Ok(())
     }
@@ -163,7 +161,7 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Store the result
         let result_var_name = format!("{:?}", output_varnode.var);
-        self.state.create_concolic_var(&result_var_name, result as f64, 1);
+        self.state.create_concolic_var_int(&result_var_name, result as u64, 1);
         Ok(())
     }
 
@@ -186,12 +184,10 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Store the result
         let result_var_name = format!("{:?}", output_varnode.var);
-        self.state.create_concolic_var(&result_var_name, result as f64, 1);
+        self.state.create_concolic_var_int(&result_var_name, result as u64, 1);
 
         Ok(())
     }
-
-    
 
     pub fn handle_float_equal(&mut self, instruction: Inst) -> Result<(), String> {
         // Validate the instruction format and ensure there are exactly two inputs
@@ -206,25 +202,22 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Fetch the floating-point values from the inputs
-        let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?; 
-        let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?; 
-    
-        // Perform the floating-point equality check
-        let result = if input0_value.is_nan() || input1_value.is_nan() {
-            0.0 // Represent false as 0.0
-        } else {
-            // For equality, consider two values equal if the difference is within a small epsilon
-            if (input0_value - input1_value).abs() < f64::EPSILON {
-                1.0 // Represent true as 1.0
-            } else {
-                0.0 // Represent false as 0.0
-            }
+        let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
+        let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?;
+
+        // Adjusted check for NaN and floating-point equality
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() {
+                    0.0 // Represent false as 0.0 due to NaN
+                } else if (f0 - f1).abs() < f64::EPSILON {
+                    1.0 // Represent true as 1.0 if within epsilon
+                } else {
+                    0.0 // Represent false as 0.0
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_EQUAL".to_string()),
         };
-    
-        // Store the result as a floating-point concolic variable
-        let result_var_name = format!("{:?}", output.var);
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
-    
         Ok(())
     }
     
@@ -241,24 +234,25 @@ impl<'a> ConcolicExecutor<'a> {
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?; 
         let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?;
     
-        let result = if input0_value.is_nan() || input1_value.is_nan() {
-            0.0 // Use 0.0 to represent false
-        } else {
-            // Use 1.0 to represent true if not equal, 0.0 otherwise
-            if (input0_value - input1_value).abs() >= f64::EPSILON {
-                1.0
-            } else {
-                0.0
-            }
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() {
+                    0.0 // Use 0.0 to represent false due to NaN
+                } else if (f0 - f1).abs() >= f64::EPSILON {
+                    1.0 // Use 1.0 to represent true if not equal
+                } else {
+                    0.0 // Use 0.0 otherwise
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_NOTEQUAL".to_string()),
         };
     
-        // Store the result as a floating-point concolic variable
         let result_var_name = format!("{:?}", output.var);
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.state.ctx));
     
         Ok(())
-    }    
-
+    }
+    
     pub fn handle_float_less(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::FloatLess || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for FLOAT_LESS".to_string());
@@ -271,16 +265,17 @@ impl<'a> ConcolicExecutor<'a> {
     
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?; 
         let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?; 
-        let result = if input0_value.is_nan() || input1_value.is_nan() {
-            0.0 // Use 0.0 to represent false in case of NaN
-        } else {
-            // Use 1.0 to represent true (input0 < input1), 0.0 otherwise
-            if input0_value < input1_value {
-                1.0
-            } else {
-                0.0
-            }
-        };
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() {
+                    0.0 // False in case of NaN
+                } else {
+                    // True if f0 < f1, False otherwise
+                    if f0 < f1 { 1.0 } else { 0.0 }
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_LESS".to_string()),
+        };    
     
         // Store the result as a floating-point concolic variable
         let result_var_name = format!("{:?}", output.var);
@@ -306,14 +301,15 @@ impl<'a> ConcolicExecutor<'a> {
         let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?;
     
         // Perform the comparison, taking into account the handling of NaN values
-        let result = if input0_value.is_nan() || input1_value.is_nan() {
-            0.0 // False if either input is NaN
-        } else {
-            if input0_value <= input1_value {
-                1.0 
-            } else {
-                0.0 
-            }
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() {
+                    0.0 // False if either input is NaN
+                } else {
+                    if f0 <= f1 { 1.0 } else { 0.0 }
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_LESSEQUAL".to_string()),
         };
     
         // Create and store the result as a floating-point concolic variable.
@@ -337,10 +333,15 @@ impl<'a> ConcolicExecutor<'a> {
         let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?;
 
         // Perform the addition, handling NaN conditions explicitly
-        let result = if input0_value.is_nan() || input1_value.is_nan() {
-            f64::NAN // Set result to NaN if either input is NaN
-        } else {
-            input0_value + input1_value // Otherwise, compute the sum
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() {
+                    f64::NAN // Use f64::NAN directly for NaN case
+                } else {
+                    f0 + f1 // Compute the sum
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_ADD".to_string()),
         };
 
         // Create and store the result as a floating-point concolic variable
@@ -364,10 +365,45 @@ impl<'a> ConcolicExecutor<'a> {
         let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?;
     
         // Perform the subtraction, handling NaN conditions explicitly
-        let result = if input0_value.is_nan() || input1_value.is_nan() {
-            f64::NAN // Set result to NaN if either input is NaN
-        } else {
-            input0_value - input1_value 
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() {
+                    f64::NAN // Use f64::NAN for NaN case
+                } else {
+                    f0 - f1 // Compute the subtraction
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_SUB".to_string()),
+        };
+
+        // Create and store the result as a floating-point concolic variable.
+        let result_var_name = format!("{:?}", output.var);
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
+    
+        Ok(())
+    }
+
+    pub fn handle_float_floor(&mut self, instruction: Inst) -> Result<(), String> {
+        // Validate the instruction format and ensure exactly one input is provided
+        if instruction.opcode != Opcode::FloatFloor || instruction.inputs.len() != 1 {
+            return Err("Invalid instruction format for FLOAT_FLOOR".to_string());
+        }
+    
+        // Ensure the output varnode is defined
+        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+    
+        // Retrieve the concrete value of the input operand
+        let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
+    
+        let result = match input0_value {
+            ConcreteValue::Float(f0) => {
+                if f0.is_nan() {
+                    f64::NAN // Keep NaN if input is NaN
+                } else {
+                    f0.floor() // Apply the floor operation
+                }
+            },
+            _ => return Err("Expected a floating-point value for FLOAT_FLOOR".to_string()),
         };
     
         // Create and store the result as a floating-point concolic variable.
@@ -376,6 +412,7 @@ impl<'a> ConcolicExecutor<'a> {
     
         Ok(())
     }
+    
 
     pub fn handle_float_mult(&mut self, instruction: Inst) -> Result<(), String> {
         // Validate the instruction format and ensure exactly two inputs are provided
@@ -391,10 +428,15 @@ impl<'a> ConcolicExecutor<'a> {
         let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?;
 
         // Perform the multiplication, handling NaN and overflow conditions
-        let result = if input0_value.is_nan() || input1_value.is_nan() {
-            f64::NAN 
-        } else {
-            input0_value * input1_value 
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() {
+                    f64::NAN
+                } else {
+                    f0 * f1 // Perform the multiplication
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_MULT".to_string()),
         };
 
         // Store the result as a floating-point concolic variable
@@ -418,10 +460,15 @@ impl<'a> ConcolicExecutor<'a> {
         let input1_value = self.state.get_concrete_var(&instruction.inputs[1])?;
 
         // Perform the division, handling NaN, overflow, and division by zero conditions.
-        let result = if input0_value.is_nan() || input1_value.is_nan() || input1_value == 0.0 {
-            f64::NAN 
-        } else {
-            input0_value / input1_value 
+        let result = match (input0_value, input1_value) {
+            (ConcreteValue::Float(f0), ConcreteValue::Float(f1)) => {
+                if f0.is_nan() || f1.is_nan() || f1 == 0.0 {
+                    f64::NAN
+                } else {
+                    f0 / f1
+                }
+            },
+            _ => return Err("Expected floating-point values for FLOAT_DIV".to_string()),
         };
 
         // Store the result as a floating-point concolic variable
@@ -444,10 +491,15 @@ impl<'a> ConcolicExecutor<'a> {
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
         // Perform the negation, handling NaN conditions
-        let result = if input0_value.is_nan() {
-            f64::NAN 
-        } else {
-            -input0_value 
+        let result = match input0_value {
+            ConcreteValue::Float(f0) => {
+                if f0.is_nan() {
+                    f64::NAN
+                } else {
+                    -f0
+                }
+            },
+            _ => return Err("Expected a floating-point value for FLOAT_NEG".to_string()),
         };
     
         // Store the result as a floating-point concolic variable.
@@ -466,7 +518,10 @@ impl<'a> ConcolicExecutor<'a> {
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
-        let result = input0_value.abs(); // Compute the absolute value, NaN stays NaN.
+        let result = match input0_value {
+            ConcreteValue::Float(f0) => f0.abs(), // Compute the absolute value, NaN stays NaN.
+            _ => return Err("Expected a floating-point value for FLOAT_ABS".to_string()),
+        };
     
         let result_var_name = format!("{:?}", output.var);
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
@@ -483,8 +538,11 @@ impl<'a> ConcolicExecutor<'a> {
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
-        let result = input0_value.sqrt(); // Compute the square root, NaN stays NaN.
-    
+        let result = match input0_value {
+            ConcreteValue::Float(f0) => f0.sqrt(), // Correctly handle sqrt operation, including NaN and negative inputs.
+            _ => return Err("Expected a floating-point value for FLOAT_SQRT".to_string()),
+        };
+
         let result_var_name = format!("{:?}", output.var);
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
@@ -500,8 +558,11 @@ impl<'a> ConcolicExecutor<'a> {
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
-        let result = if input0_value.is_nan() { 1.0 } else { 0.0 }; // True if NaN, represented as 1.0; false as 0.0.
-    
+        let result = match input0_value {
+            ConcreteValue::Float(f0) => if f0.is_nan() { 1.0 } else { 0.0 },
+            _ => return Err("Expected a floating-point value for FLOAT_NAN".to_string()),
+        };
+
         let result_var_name = format!("{:?}", output.var);
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
@@ -517,9 +578,11 @@ impl<'a> ConcolicExecutor<'a> {
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
-        // Assuming input0_value is retrieved as an i64, convert to f64 for floating-point representation.
-        let result = input0_value as f64;
-    
+        let result = match input0_value {
+            ConcreteValue::Int(i0) => i0 as f64, // Handle conversion from integer to float.
+            _ => return Err("Expected an integer value for INT2FLOAT".to_string()),
+        };
+
         let result_var_name = format!("{:?}", output.var);
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
@@ -533,11 +596,12 @@ impl<'a> ConcolicExecutor<'a> {
     
         let output = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
         
-        // Directly pass the floating-point value through since Rust handles f64 by default
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
-    
-        // No conversion logic needed in Rust for f64 to f64 (?)
-        let result = input0_value;
+
+        let result = match input0_value {
+            ConcreteValue::Float(f0) => f0, // Directly pass the floating-point value
+            _ => return Err("Expected a floating-point value for FLOAT2FLOAT".to_string()),
+        };
     
         let result_var_name = format!("{:?}", output.var);
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
@@ -549,48 +613,76 @@ impl<'a> ConcolicExecutor<'a> {
         if instruction.opcode != Opcode::Trunc || instruction.inputs.len() != 1 {
             return Err("Invalid instruction format for TRUNC".to_string());
         }
-    
+
         let output = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
-        
+    
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
-        // Convert floating-point value to integer by truncating the fractional part.
-        let result = input0_value.trunc(); // Result is still f64, but without the fractional part.
+        let result = match input0_value {
+            ConcreteValue::Float(f0) => f0.trunc(), // Truncate the fractional part
+            _ => return Err("Expected a floating-point value for TRUNC".to_string()),
+        };
     
+        // Convert the truncated f64 to a u64 for storage as an integer variable.
+        let result_as_int = result as u64;
         let bitvector_size = output.size.to_bitvector_size(); 
     
-        self.state.create_concolic_var(&format!("{:?}", output.var), result, bitvector_size);
+        self.state.create_concolic_var_int(&format!("{:?}", output.var), result_as_int, bitvector_size);
     
         Ok(())
     }
 
     pub fn handle_load(&mut self, instruction: Inst) -> Result<(), String> {
-        // Ensure the correct instruction format
-        if instruction.opcode != Opcode::Load || instruction.inputs.len() != 2 {
-            return Err("Invalid instruction format for LOAD".to_string());
+        // Ensure the instruction has an output and the correct number of inputs.
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for LOAD")?;
+        let offset_var = self.state.get_concolic_var(&format!("{:?}", instruction.inputs[1].var))
+            .ok_or("Offset variable not found")?;
+    
+        if let ConcreteValue::Int(offset) = offset_var.concrete {
+            // Determine the number of bytes to read based on the output size.
+            let size_in_bytes = match output_varnode.size {
+                Size::Byte => 1,
+                Size::Half => 2,
+                Size::Word => 4,
+                Size::Quad => 8,
+            };
+    
+            // Perform the memory read operation.
+            let data_result = self.state.memory.read_memory(offset, size_in_bytes)
+                .map_err(|e| format!("Error reading memory for LOAD: {}", e));
+    
+            match data_result {
+                Ok(data) => {
+                    // Convert the read bytes to a concrete value. (int values)
+                    let mut read_value: u64 = 0;
+                    for (i, byte) in data.iter().enumerate() {
+                        read_value |= (*byte as u64) << (8 * i);
+                    }
+    
+                    // Update the concrete state with the read value.
+                    let concrete_value = ConcreteValue::Int(read_value);
+    
+                    // For symbolic execution, create a new symbolic expression representing this load.
+                    // The symbolic name is now directly based on the offset, simplifying the representation.
+                    let symbolic_name = format!("{}", offset);
+                    let symbolic_value = BV::new_const(&self.state.ctx, &*symbolic_name, (size_in_bytes * 8).try_into().unwrap());
+    
+                    // Update the state with the new concolic variable.
+                    let new_concolic_var = ConcolicVar {
+                        concrete: concrete_value,
+                        symbolic: SymbolicValue::Int(symbolic_value),
+                    };
+                    self.state.set_var(&format!("{:?}", output_varnode.var), new_concolic_var);
+                },
+                Err(e) => return Err(e),
+            }
+        } else {
+            return Err("Offset must be an integer for LOAD operation".to_string());
         }
-
-        // Resolve the offset
-        let offset = match instruction.inputs[1].var {
-            Var::Register(reg) | Var::Unique(reg) => reg,
-            _ => return Err("Input1 must be a Register or Unique type for offset".to_string()),
-        };
-
-        // Read the value from the resolved address
-        let value = match instruction.output.as_ref().unwrap().size {
-            Size::Quad => self.state.memory.read_quad(offset).map_err(|e| e.to_string())?,
-            Size::Word => u64::from(self.state.memory.read_word(offset).map_err(|e| e.to_string())?),
-            Size::Half => u64::from(self.state.memory.read_half(offset).map_err(|e| e.to_string())?),
-            Size::Byte => u64::from(self.state.memory.read_byte(offset).map_err(|e| e.to_string())?),
-        };
-
-        // Create a new concolic variable with the read value and add it to the state
-        let var_name = format!("{:?}", instruction.output.clone().unwrap().var);
-        let _concolic_value = self.state.create_concolic_var(&var_name, value as f64, instruction.output.clone().unwrap().size.to_bitvector_size());
-
+    
         Ok(())
     }
-
+    
     pub fn handle_int_carry(&mut self, instruction: Inst) -> Result<(), String> {
         // Ensure the correct instruction format
         if instruction.opcode != Opcode::IntCarry || instruction.inputs.len() != 2 {
@@ -620,31 +712,31 @@ impl<'a> ConcolicExecutor<'a> {
         let carry = (value0_u32 as u64 + value1_u32 as u64) > 0xFFFFFFFF;
     
         // Convert the carry to f64 representation (0.0 for false, 1.0 for true)
-        let carry_as_f64 = if carry { 1.0 } else { 0.0 };
+        let carry_as_u64 = if carry { 1 } else { 0 };
     
         // Store the result of the carry condition
         let result_var_name = format!("{:?}", output_varnode.var);
         let bitvector_size = output_varnode.size.to_bitvector_size();
-        self.state.create_concolic_var(&result_var_name, carry_as_f64, bitvector_size);
+        self.state.create_concolic_var_int(&result_var_name, carry_as_u64, bitvector_size);
     
         Ok(())
     }
     
-    fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u32, String> {
+    fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {
+        let var_name = format!("{:?}", varnode.var);
+    
         match self.state.get_concrete_var(varnode) {
-            Ok(val) => Ok(val as u32), // Ensure the return type is u32
+            Ok(ConcreteValue::Int(val)) => Ok(val), // Directly return u64 value
+            Ok(ConcreteValue::Float(_)) => Err("Expected an integer value, found a float".to_string()),
             Err(_) => {
-                let initial_value = 0u32; // Always treat as u32 for initialization
-                let var_name = format!("{:?}", varnode.var);
-    
-                // Create a new concolic variable when initializing
-                self.state.create_concolic_var(&var_name, initial_value as f64, varnode.size.to_bitvector_size());
-    
+                // If the variable is not found, initialize it as an integer with a default value
+                let initial_value = 0u64; // Use u64 for initialization to match ConcreteValue::Int
+                self.state.create_concolic_var_int(&var_name, initial_value, varnode.size.to_bitvector_size());
                 Ok(initial_value)
             }
         }
-    }    
-    
+    }
+  
     pub fn handle_int_scarry(&mut self, instruction: Inst) -> Result<(), String> {
         // Ensure the correct instruction format
         if instruction.opcode != Opcode::IntSCarry || instruction.inputs.len() != 2 {
@@ -693,8 +785,7 @@ impl<'a> ConcolicExecutor<'a> {
         // Store the result of the signed overflow condition
         let result_var_name = format!("{:?}", output_varnode.var);
         let overflow_occurred_as_int = if overflow_occurred { 1 } else { 0 };
-        let overflow_occurred_as_f64 = overflow_occurred_as_int as f64;
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(overflow_occurred_as_f64, &result_var_name, self.context, 1));
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(overflow_occurred_as_int, &result_var_name, self.context, 1));
 
         Ok(())
     }
@@ -703,37 +794,50 @@ impl<'a> ConcolicExecutor<'a> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
             return Err("Invalid instruction format for STORE".to_string());
         }
-    
+
         let address_varnode = &instruction.inputs[1];
         let value_varnode = &instruction.inputs[2];
-    
-        let address_var_name = format!("{:?}", address_varnode.var);
-        let value_var_name = format!("{:?}", value_varnode.var);
-    
-        // Clone the concolic variables if they already exist, or create new ones.
-        let address_var = self.state.concolic_vars.get(&address_var_name)
-            .cloned()
-            .unwrap_or_else(|| self.state.create_concolic_var(&address_var_name, 0.0, address_varnode.size.to_bitvector_size()).clone());
-        let value_var = self.state.concolic_vars.get(&value_var_name)
-            .cloned()
-            .unwrap_or_else(|| self.state.create_concolic_var(&value_var_name, 0.0, value_varnode.size.to_bitvector_size()).clone());
-    
-        //if ConcolicVar::can_address_be_zero(&self.state.ctx, &address_var) {
-        //    return Err("Potential bug: Address can be symbolically zero".to_string());
-        //}
-    
-        let wordsize = 1.0; // Placeholder
-        let byte_offset = (address_var.concrete * wordsize) as u64;
-    
-        // Perform the store operation
+
+        // Retrieve or initialize the address variable as u64.
+        let address = self.initialize_var_if_absent(address_varnode)
+            .map_err(|e| format!("Failed to get or initialize address variable: {}", e))?;
+
+        // Retrieve or initialize the value variable as u64, but use it according to its actual size.
+        let value = self.initialize_var_if_absent(value_varnode)
+            .map_err(|e| format!("Failed to get or initialize value variable: {}", e))?;
+
         match value_varnode.size {
-            Size::Quad => self.state.memory.write_quad(byte_offset.into(), value_var.concrete as u64)?,
-            Size::Word => self.state.memory.write_word(byte_offset.into(), value_var.concrete as u32)?,
-            Size::Half => self.state.memory.write_half(byte_offset.into(), value_var.concrete as u16)?,
-            Size::Byte => self.state.memory.write_byte(byte_offset.into(), value_var.concrete as u8)?,
+            Size::Quad => self.state.memory.write_quad(address.into(), value.into())
+                .map_err(|e| e.to_string()),
+
+            Size::Word => {
+                if u64::from(value) <= u32::MAX as u64 {
+                    self.state.memory.write_word(address.into(), value as u32)
+                        .map_err(|e| e.to_string())
+                } else {
+                    Err("Value out of range for a 32-bit write operation".to_string())
+                }
+            },
+
+            Size::Half => {
+                if u64::from(value) <= u16::MAX as u64 {
+                    self.state.memory.write_half(address.into(), value as u16)
+                        .map_err(|e| e.to_string())
+                } else {
+                    Err("Value out of range for a 16-bit write operation".to_string())
+                }
+            },
+
+            Size::Byte => {
+                if u64::from(value) <= u8::MAX as u64 {
+                    self.state.memory.write_byte(address.into(), value as u8)
+                        .map_err(|e| e.to_string())
+                } else {
+                    Err("Value out of range for an 8-bit write operation".to_string())
+                }
+            },
         }
-        Ok(())
-    }  
+    }
       
 
     pub fn handle_int_add(&mut self, instruction: Inst) -> Result<(), String> {
@@ -758,73 +862,61 @@ impl<'a> ConcolicExecutor<'a> {
         let result_var_name = format!("{:?}", output_varnode.var);
         let bitvector_size = output_varnode.size.to_bitvector_size();
     
-        // Update or create the concolic variable with the computed result
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result_value as f64, &result_var_name, self.context, bitvector_size));
+        // Assuming create_concolic_var_int is corrected to handle u64 for concrete values
+        self.state.create_concolic_var_int(&result_var_name, result_value.into(), bitvector_size);
     
         Ok(())
     }
+    
     
     pub fn handle_int_sub(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::IntSub || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for INT_SUB".to_string());
         }
-
-        let input0 = self.initialize_var_if_absent(&instruction.inputs[0])?;
-        let input1 = self.initialize_var_if_absent(&instruction.inputs[1])?;
-
+    
+        let input0_var = self.initialize_var_if_absent(&instruction.inputs[0])?;
+        let input1_var = self.initialize_var_if_absent(&instruction.inputs[1])?;
+    
         // Ensure the sizes match
         let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for INT_SUB")?;
         if instruction.inputs[0].size != instruction.inputs[1].size || instruction.inputs[0].size != output_varnode.size {
             return Err("Input and output sizes must match for INT_SUB".to_string());
         }
-
+    
         // Perform the subtraction
-        let result = input0.wrapping_sub(input1);
-
+        let result_value = input0_var.wrapping_sub(input1_var);
+    
         // Create or update a concolic variable for the result
         let result_var_name = format!("{:?}", output_varnode.var);
         let bitvector_size = output_varnode.size.to_bitvector_size();
-        self.state.create_concolic_var(&result_var_name, result as f64, bitvector_size);
-        
+        self.state.create_concolic_var_int(&result_var_name, result_value.into(), bitvector_size);
+    
         Ok(())
     }
 
     pub fn handle_int_xor(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::IntXor || instruction.inputs.len() != 2 {
-            return Err("Invalid instruction format for COPY".to_string());
+            return Err("Invalid instruction format for INT_XOR".to_string());
         }
-
-        let input0_varnode = &instruction.inputs[0];
-        let input1_varnode = &instruction.inputs[1];
+    
+        // Retrieve the concrete integer values for both inputs
+        let input0_val = self.initialize_var_if_absent(&instruction.inputs[0])?;
+        let input1_val = self.initialize_var_if_absent(&instruction.inputs[1])?;
+    
+        // Perform XOR operation on the concrete integer values
+        let result_concrete = input0_val ^ input1_val;
+    
+        // Prepare for the symbolic computation
         let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_var_name = format!("{:?}", output_varnode.var);
+        let bitvector_size = output_varnode.size.to_bitvector_size();
     
-        let input0_var_name = format!("{:?}", input0_varnode.var);
-        let input1_var_name = format!("{:?}", input1_varnode.var);
-    
-        let input0_concolic_var = self.state.get_concolic_var(&input0_var_name)
-            .ok_or_else(|| format!("Input0 variable {} not found", input0_var_name))?;
-        let input1_concolic_var = self.state.get_concolic_var(&input1_var_name)
-            .ok_or_else(|| format!("Input1 variable {} not found", input1_var_name))?;
-    
-        if let (SymbolicValue::Int(input0_bv), SymbolicValue::Int(input1_bv)) = (&input0_concolic_var.symbolic, &input1_concolic_var.symbolic) {
-            let result_bv = input0_bv.bvxor(input1_bv);
-    
-            // Calculate the concrete value for XOR. This simplistic approach may need adjustment
-            let result_concrete = f64::from_bits(input0_concolic_var.concrete.to_bits() ^ input1_concolic_var.concrete.to_bits());
-    
-            let output_var_name = format!("{:?}", output_varnode.var);
-            self.state.create_concolic_var(&output_var_name, result_concrete, output_varnode.size.to_bitvector_size());
-    
-            // Update the symbolic part of the output concolic variable
-            self.state.concolic_vars.get_mut(&output_var_name).unwrap().update_symbolic_int(result_bv);
-        } else {
-            return Err("INT_XOR operation requires integer symbolic values".to_string());
-        }
+        // Update or create the concolic variable with the concrete result and a new symbolic expression
+        self.state.create_concolic_var_int(&output_var_name, result_concrete, bitvector_size);
     
         Ok(())
-    }
+    }      
         
-
     pub fn handle_copy(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Copy || instruction.inputs.len() != 1 {
             return Err("Invalid instruction format for COPY".to_string());
@@ -1061,7 +1153,7 @@ impl<'a> ConcolicExecutor<'a> {
         let result_var_name = format!("{:?}", output_varnode.var);
         // Ensure the value is truncated or zero-extended based on the output size
         let result = extended_value & ((1u64 << (output_varnode.size.to_bitvector_size() * 8)) - 1);
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result as f64, &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result, &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
     }
@@ -1087,12 +1179,12 @@ impl<'a> ConcolicExecutor<'a> {
         // Perform signed subtraction
         let (sub_result, _overflowed) = input0_value.overflowing_sub(input1_value);
     
-        // Convert the subtraction result to f64
-        let result_f64 = sub_result as f64;
+        // Convert the subtraction result to u64
+        let result_u64 = sub_result as u64;
     
         // Store the result
         let result_var_name = format!("{:?}", output_varnode.var);
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result_f64, &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result_u64, &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
     }
@@ -1281,40 +1373,27 @@ impl<'a> ConcolicExecutor<'a> {
     }
 
     pub fn handle_int_negate(&mut self, instruction: Inst) -> Result<(), String> {
-        // Validate instruction format and sizes
         if instruction.opcode != Opcode::IntNegate || instruction.inputs.len() != 1 {
-            return Err("Invalid instruction format for INT_DIV".to_string());
+            return Err("Invalid instruction format for INT_NEGATE".to_string());
         }
-
-        let input_varnode = &instruction.inputs[0];
+    
+        // Retrieve the concrete integer value for the input
+        let input_val = self.initialize_var_if_absent(&instruction.inputs[0])?;
+    
+        // Perform NOT operation on the concrete integer value
+        let negated_concrete = !input_val;
+    
+        // Prepare for the symbolic computation
         let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_var_name = format!("{:?}", output_varnode.var);
+        let bitvector_size = output_varnode.size.to_bitvector_size();
     
-        let var_name = format!("{:?}", input_varnode.var);
-        let input_concolic_var = self.state.get_concolic_var(&var_name)
-            .ok_or_else(|| format!("Input variable {} not found", var_name))?;
-    
-        // Verify if the symbolic value is an integer
-        if let SymbolicValue::Int(input_bv) = &input_concolic_var.symbolic {
-            // Perform bitwise NOT on the symbolic bit-vector
-            let negated_bv = input_bv.bvnot();
-    
-            // The concrete value calculation depends on your system's handling of f64 to integer mappings
-            let negated_concrete = !input_concolic_var.concrete.to_bits() as f64;
-    
-            // Create or update the output concolic variable
-            let output_var_name = format!("{:?}", output_varnode.var);
-            self.state.create_concolic_var(&output_var_name, negated_concrete, output_varnode.size.to_bitvector_size());
-    
-            // Update the symbolic part of the output concolic variable
-            self.state.concolic_vars.get_mut(&output_var_name).unwrap().update_symbolic_int(negated_bv);
-        } else {
-            return Err("INT_NEGATE operation requires an integer symbolic value".to_string());
-        }
+        // Create or update the output concolic variable with the negated concrete value
+        self.state.create_concolic_var_int(&output_var_name, negated_concrete, bitvector_size);
     
         Ok(())
     }
     
-
     pub fn handle_int_div(&mut self, instruction: Inst) -> Result<(), String> {
         // Validate instruction format and sizes
         if instruction.opcode != Opcode::IntDiv || instruction.inputs.len() != 2 {
@@ -1399,7 +1478,7 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Store the result
         let result_var_name = format!("{:?}", output_varnode.var);
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.try_into().unwrap(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
     }
@@ -1428,7 +1507,7 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Store the result
         let result_var_name = format!("{:?}", output_varnode.var);
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.try_into().unwrap(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
     }
@@ -1437,22 +1516,22 @@ impl<'a> ConcolicExecutor<'a> {
         if instruction.opcode != Opcode::PopCount || instruction.inputs.len() != 1 {
             return Err("Invalid instruction format for POPCOUNT".to_string());
         }
-
+    
         let input_varnode = &instruction.inputs[0];
-        let input_var_name = format!("{:?}", input_varnode.var);
-        let input_concolic_var = self.state.get_concolic_var(&input_var_name)
-            .ok_or_else(|| format!("Input variable {} not found", input_var_name))?;
-        
-        let input_value = input_concolic_var.concrete as u64;
-        let popcount = input_value.count_ones() as f64;
-
+        let input_var = self.initialize_var_if_absent(input_varnode)?;
+    
+        // Perform population count on the concrete value
+        let popcount = input_var.count_ones() as u64; // count_ones returns u32, convert to u64 for consistency
+    
         if let Some(output_varnode) = &instruction.output {
             let output_var_name = format!("{:?}", output_varnode.var);
-            self.state.create_concolic_var(&output_var_name, popcount, 32); // Adjust the bitvector size as necessary.
+            let bitvector_size = output_varnode.size.to_bitvector_size();
+    
+            self.state.create_concolic_var_int(&output_var_name, popcount, bitvector_size);
         }
-
+    
         Ok(())
-    }
+    }    
 
     pub fn handle_lzcount(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::LZCount || instruction.inputs.len() != 1 {
@@ -1460,52 +1539,68 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         let input_varnode = &instruction.inputs[0];
-        let input_var_name = format!("{:?}", input_varnode.var);
-        let input_concolic_var = self.state.get_concolic_var(&input_var_name)
-            .ok_or_else(|| format!("Input variable {} not found", input_var_name))?;
-        
-        let input_value = input_concolic_var.concrete as u64;
-        let lzcount = input_value.leading_zeros() as f64;
+        let input_var = self.initialize_var_if_absent(input_varnode)?;
+    
+        // Perform leading zero count on the concrete value
+        let lzcount = input_var.leading_zeros() as u64; // leading_zeros returns u32, convert to u64 for consistency
     
         if let Some(output_varnode) = &instruction.output {
             let output_var_name = format!("{:?}", output_varnode.var);
-            self.state.create_concolic_var(&output_var_name, lzcount, 32); // Adjust the bitvector size as necessary.
+            let bitvector_size = output_varnode.size.to_bitvector_size();
+    
+            self.state.create_concolic_var_int(&output_var_name, lzcount, bitvector_size);
         }
     
         Ok(())
-    }
-    
-
-
-    
-
-    
+    }    
     
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parser::parser::{Opcode, Var, Varnode, Size};
+    use crate::concolic_var::{ConcolicVar, ConcreteValue};
+    use parser::parser::Var;
+    use z3::{Config, Context};
 
     #[test]
     fn test_handle_load() {
-        let context = Context::new(&z3::Config::new());
+        let context = Context::new(&Config::new());
         let mut executor = ConcolicExecutor::new(&context);
+
+        // Mock memory address and value
+        let memory_address: u64 = 0x100;
+        let memory_value: u64 = 0xDEADBEEF;
+
+        // Initialize memory with the value at the specified address
+        executor.state.memory.write_quad(memory_address, memory_value).expect("Failed to write to memory");
+
+        let offset_var_name = format!("{:?}", Var::Const("offset_var".to_string())); // Ensure this matches how handle_load retrieves it
+        executor.state.set_var(&offset_var_name, ConcolicVar::new_concrete_and_symbolic_int(memory_address, &offset_var_name, &context, 64));
 
         // Mock instruction for LOAD
         let instruction = Inst {
             opcode: Opcode::Load,
             inputs: vec![
-                Varnode { var: Var::Register(1), size: Size::Word },
-                Varnode { var: Var::Unique(2), size: Size::Word },
+                Varnode { var: Var::Unique(memory_address), size: Size::Quad }, // Placeholder for memory space ID
+                Varnode { var: Var::Const("offset_var".to_string()), size: Size::Quad }, // Offset into the memory
             ],
-            output: Some(Varnode { var: Var::Unique(3), size: Size::Word }),
+            output: Some(Varnode { var: Var::Register(1), size: Size::Quad }), // Destination register
         };
 
         // Execute handle_load
         let result = executor.handle_load(instruction);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "handle_load failed with error: {:?}", result.err());
+
+        // Verify the loaded value
+        if let Some(concolic_var) = executor.state.get_concolic_var("Register(1)") {
+            match concolic_var.concrete {
+                ConcreteValue::Int(val) => assert_eq!(val, memory_value, "Loaded value does not match expected memory value"),
+                _ => panic!("Output variable has incorrect type"),
+            }
+        } else {
+            panic!("Output variable Register(1) not found");
+        }
     }
 
     #[test]
@@ -1524,8 +1619,8 @@ mod tests {
         };
 
         // Initialize the variables involved in the instruction
-        executor.state.set_var("Register(1)", ConcolicVar::new_concrete_and_symbolic_int(100.0, "Register(1)", &context, 8));
-        executor.state.set_var("Register(2)", ConcolicVar::new_concrete_and_symbolic_int(200.0, "Register(2)", &context, 8));
+        executor.state.set_var("Register(1)", ConcolicVar::new_concrete_and_symbolic_int(100, "Register(1)", &context, 8));
+        executor.state.set_var("Register(2)", ConcolicVar::new_concrete_and_symbolic_int(200, "Register(2)", &context, 8));
 
         // Execute handle_int_carry
         let result = executor.handle_int_carry(instruction);
