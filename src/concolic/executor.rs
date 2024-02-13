@@ -1,5 +1,5 @@
-use crate::{concolic_var::{ConcreteValue, SymbolicValue}, state::State};
-use parser::parser::{Inst, Opcode, Size, Varnode};
+use crate::{concolic_var::{ConcreteValue, SymbolicValue}, state::{memory_x86_64::MemoryError, State}};
+use parser::parser::{Inst, Opcode, Size, Var, Varnode};
 use z3::{ast::BV, Context, Solver};
 use crate::concolic::ConcolicVar;
 
@@ -8,6 +8,8 @@ pub struct ConcolicExecutor<'a> {
     pub context: &'a Context,
     pub solver: Solver<'a>,
     pub state: State<'a>,
+    current_address: Option<u64>, // Store the current address being processed
+    instruction_counter: usize, // Counter for instructions under the same address
 }
 
 impl<'a> ConcolicExecutor<'a> {
@@ -16,10 +18,26 @@ impl<'a> ConcolicExecutor<'a> {
         let state = State::new(context); 
         //state.setup();
 
-        ConcolicExecutor { context, solver, state }
+        ConcolicExecutor { 
+            context, 
+            solver, 
+            state,
+            current_address: None, // Initialize with no current address
+            instruction_counter: 0, // Start with zero instruction counter
+        }
     }
 
-    pub fn execute_instruction(&mut self, instruction: Inst) {
+    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64) {
+        // Check if we are processing a new address block
+        if Some(current_addr) != self.current_address {
+            // Update the current address
+            self.current_address = Some(current_addr);
+            // Reset the instruction counter for the new address
+            self.instruction_counter = 1; // Start counting from 1 for each address block
+        } else {
+            // Same address block, increment the instruction counter
+            self.instruction_counter += 1;
+        }
         match instruction.opcode {
             Opcode::Blank => todo!(),
             Opcode::BoolAnd => self.handle_bool_and(instruction),
@@ -90,7 +108,7 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::SegmentOp => todo!(),
             Opcode::Store => self.handle_store(instruction),
             Opcode::SubPiece => todo!(),
-            Opcode::Trunc => self.handle_trunc(instruction),
+            Opcode::Trunc => todo!(),
             Opcode::Unused1 => todo!(),
         }.expect("REASON");
     }
@@ -113,7 +131,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (input0_value & input1_value) & 1; // Ensure result is boolean (0 or 1)
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.create_concolic_var_int(&result_var_name, result as u64, 1);
     
         Ok(())
@@ -136,7 +155,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = !input0_value & 1; // Ensure result is boolean (0 or 1)
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, 1));
     
         Ok(())
@@ -160,7 +180,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (input0_value | input1_value) & 1; // Ensure result is boolean (0 or 1)
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.create_concolic_var_int(&result_var_name, result as u64, 1);
         Ok(())
     }
@@ -183,7 +204,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (input0_value ^ input1_value) & 1; // Ensure result is boolean (0 or 1)
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.create_concolic_var_int(&result_var_name, result as u64, 1);
 
         Ok(())
@@ -196,8 +218,8 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Ensure the output is defined and its size is appropriate for a boolean result
-        let output = instruction.output.as_ref().expect("Output varnode is required");
-        if output.size != Size::Byte {
+        let output_varnode = instruction.output.as_ref().expect("Output varnode is required");
+        if output_varnode.size != Size::Byte {
             return Err("Output must be size 1 for FLOAT_EQUAL".to_string());
         }
     
@@ -218,6 +240,11 @@ impl<'a> ConcolicExecutor<'a> {
             },
             _ => return Err("Expected floating-point values for FLOAT_EQUAL".to_string()),
         };
+
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
+        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.state.ctx));
+
         Ok(())
     }
     
@@ -226,8 +253,8 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for FLOAT_NOTEQUAL".to_string());
         }
     
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
-        if output.size != Size::Byte {
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        if output_varnode.size != Size::Byte {
             return Err("Output must be size 1 for FLOAT_NOTEQUAL".to_string());
         }
     
@@ -247,7 +274,8 @@ impl<'a> ConcolicExecutor<'a> {
             _ => return Err("Expected floating-point values for FLOAT_NOTEQUAL".to_string()),
         };
     
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.state.ctx));
     
         Ok(())
@@ -258,8 +286,8 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for FLOAT_LESS".to_string());
         }
     
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
-        if output.size != Size::Byte {
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        if output_varnode.size != Size::Byte {
             return Err("Output must be size 1 for FLOAT_LESS".to_string());
         }
     
@@ -278,7 +306,8 @@ impl<'a> ConcolicExecutor<'a> {
         };    
     
         // Store the result as a floating-point concolic variable
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -291,8 +320,8 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Ensure the output is defined and its size is appropriate for a boolean result
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
-        if output.size != Size::Byte {
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        if output_varnode.size != Size::Byte {
             return Err("Output must be size 1 for FLOAT_LESSEQUAL".to_string());
         }
     
@@ -313,7 +342,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
     
         // Create and store the result as a floating-point concolic variable.
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -326,7 +356,7 @@ impl<'a> ConcolicExecutor<'a> {
         }
 
         // Ensure the output varnode is defined
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
         
         // Retrieve the concrete values of the input operands
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
@@ -345,7 +375,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
 
         // Create and store the result as a floating-point concolic variable
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
 
         Ok(())
@@ -358,7 +389,7 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Ensure the output varnode is defined
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
         
         // Retrieve the concrete values of the input operands
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
@@ -377,7 +408,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
 
         // Create and store the result as a floating-point concolic variable.
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -390,7 +422,7 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Ensure the output varnode is defined
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
     
         // Retrieve the concrete value of the input operand
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
@@ -407,7 +439,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
     
         // Create and store the result as a floating-point concolic variable.
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -421,7 +454,7 @@ impl<'a> ConcolicExecutor<'a> {
         }
 
         // Ensure the output varnode is defined and matches the required size
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
         
         // Retrieve the concrete values of the input operands
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
@@ -440,7 +473,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
 
         // Store the result as a floating-point concolic variable
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
 
         Ok(())
@@ -453,7 +487,7 @@ impl<'a> ConcolicExecutor<'a> {
         }
 
         // Ensure the output varnode is defined and matches the required size
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
         
         // Retrieve the concrete values of the input operands.
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
@@ -472,7 +506,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
 
         // Store the result as a floating-point concolic variable
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
 
         Ok(())
@@ -485,7 +520,7 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Ensure the output varnode is defined and matches the required size
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
         
         // Retrieve the concrete value of the input operand
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
@@ -503,7 +538,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
     
         // Store the result as a floating-point concolic variable.
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -514,7 +550,7 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for FLOAT_ABS".to_string());
         }
     
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
@@ -523,7 +559,8 @@ impl<'a> ConcolicExecutor<'a> {
             _ => return Err("Expected a floating-point value for FLOAT_ABS".to_string()),
         };
     
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -534,7 +571,7 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for FLOAT_SQRT".to_string());
         }
     
-        let output = instruction.output.as_ref().ok_or("Output varnode is required")?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
@@ -543,7 +580,8 @@ impl<'a> ConcolicExecutor<'a> {
             _ => return Err("Expected a floating-point value for FLOAT_SQRT".to_string()),
         };
 
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -554,7 +592,7 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for FLOAT_NAN".to_string());
         }
     
-        let output = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
@@ -563,7 +601,8 @@ impl<'a> ConcolicExecutor<'a> {
             _ => return Err("Expected a floating-point value for FLOAT_NAN".to_string()),
         };
 
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -574,7 +613,7 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for INT2FLOAT".to_string());
         }
     
-        let output = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
     
@@ -583,7 +622,8 @@ impl<'a> ConcolicExecutor<'a> {
             _ => return Err("Expected an integer value for INT2FLOAT".to_string()),
         };
 
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
@@ -594,7 +634,7 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for FLOAT2FLOAT".to_string());
         }
     
-        let output = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
         
         let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
 
@@ -603,85 +643,105 @@ impl<'a> ConcolicExecutor<'a> {
             _ => return Err("Expected a floating-point value for FLOAT2FLOAT".to_string()),
         };
     
-        let result_var_name = format!("{:?}", output.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, self.context));
     
         Ok(())
     }
 
-    pub fn handle_trunc(&mut self, instruction: Inst) -> Result<(), String> {
-        if instruction.opcode != Opcode::Trunc || instruction.inputs.len() != 1 {
-            return Err("Invalid instruction format for TRUNC".to_string());
+    // Evaluates a varnode and returns its concrete u64 value
+    pub fn evaluate_varnode_as_u64(&self, varnode: &Varnode) -> Result<u64, String> {
+        match self.state.get_concolic_var(&format!("{:?}", varnode.var)) {
+            Some(concolic_var) => match concolic_var.concrete {
+                ConcreteValue::Int(value) => Ok(value),
+                _ => Err("Unsupported varnode type for this operation.".to_string()),
+            },
+            None => Err("Varnode not found.".to_string()),
         }
-
-        let output = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
-    
-        let input0_value = self.state.get_concrete_var(&instruction.inputs[0])?;
-    
-        let result = match input0_value {
-            ConcreteValue::Float(f0) => f0.trunc(), // Truncate the fractional part
-            _ => return Err("Expected a floating-point value for TRUNC".to_string()),
-        };
-    
-        // Convert the truncated f64 to a u64 for storage as an integer variable.
-        let result_as_int = result as u64;
-        let bitvector_size = output.size.to_bitvector_size(); 
-    
-        self.state.create_concolic_var_int(&format!("{:?}", output.var), result_as_int, bitvector_size);
-    
-        Ok(())
     }
 
     pub fn handle_load(&mut self, instruction: Inst) -> Result<(), String> {
-        // Ensure the instruction has an output and the correct number of inputs.
-        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for LOAD")?;
-        let offset_var = self.state.get_concolic_var(&format!("{:?}", instruction.inputs[1].var))
-            .ok_or("Offset variable not found")?;
+        if instruction.opcode != Opcode::Load || instruction.inputs.len() != 2 {
+            return Err("Invalid instruction format for LOAD".to_string());
+        }
     
-        if let ConcreteValue::Int(offset) = offset_var.concrete {
-            // Determine the number of bytes to read based on the output size.
-            let size_in_bytes = match output_varnode.size {
-                Size::Byte => 1,
-                Size::Half => 2,
-                Size::Word => 4,
-                Size::Quad => 8,
-            };
+        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for LOAD".to_string())?;
     
-            // Perform the memory read operation.
-            let data_result = self.state.memory.read_memory(offset, size_in_bytes)
-                .map_err(|e| format!("Error reading memory for LOAD: {}", e));
-    
-            match data_result {
-                Ok(data) => {
-                    // Convert the read bytes to a concrete value. (int values)
-                    let mut read_value: u64 = 0;
-                    for (i, byte) in data.iter().enumerate() {
-                        read_value |= (*byte as u64) << (8 * i);
-                    }
-    
-                    // Update the concrete state with the read value.
-                    let concrete_value = ConcreteValue::Int(read_value);
-    
-                    // For symbolic execution, create a new symbolic expression representing this load.
-                    // The symbolic name is now directly based on the offset, simplifying the representation.
-                    let symbolic_name = format!("{}", offset);
-                    let symbolic_value = BV::new_const(&self.state.ctx, &*symbolic_name, (size_in_bytes * 8).try_into().unwrap());
-    
-                    // Update the state with the new concolic variable.
-                    let new_concolic_var = ConcolicVar {
-                        concrete: concrete_value,
-                        symbolic: SymbolicValue::Int(symbolic_value),
-                    };
-                    self.state.set_var(&format!("{:?}", output_varnode.var), new_concolic_var);
-                },
-                Err(e) => return Err(e),
+        // Convert base address from input0 to a usable format (u64)
+        let base_address = match instruction.inputs[0].var {
+            Var::Const(ref address_str) => u64::from_str_radix(&address_str[2..], 16).map_err(|_| "Failed to parse address".to_string())?,
+            _ => return Err("Unsupported address varnode type for LOAD instruction".to_string()),
+        };
+
+        // Check for no Nil Dereference
+        let address_var_name = format!("address_{}", base_address); // Create a symbolic name based on the base address
+        let address_var = self.state.concolic_vars.get(&address_var_name); // Retrieve a symbolic version of the address
+        if let Some(address_var) = address_var {
+            if ConcolicVar::can_address_be_zero(self.state.ctx, address_var) {
+                return Err("Potential nil dereference detected".to_string());
             }
-        } else {
-            return Err("Offset must be an integer for LOAD operation".to_string());
+        }
+    
+        // Determine the offset from input1
+        let offset = match instruction.inputs[1].var {
+            Var::Const(ref address_str) => {
+                // Directly parse the constant value for the offset
+                u64::from_str_radix(&address_str[2..], 16).map_err(|_| "Failed to parse constant offset value".to_string())?
+            },
+            Var::Register(reg_num) => {
+                self.state.get_register_value(reg_num).ok_or_else(|| format!("Failed to fetch value for register 0x{:x}", reg_num))?
+            },
+            _ => return Err("Unsupported varnode type for offset in LOAD instruction".to_string()),
+        };
+    
+        // Apply the offset to the base address
+        let address_with_offset = base_address.wrapping_add(offset);
+    
+        let size = output_varnode.size.to_bitvector_size() / 8; // Convert size to bytes
+    
+        let memory_result = self.state.memory.read_memory(address_with_offset, size as usize);
+    
+        match memory_result {
+            Ok(data) => {
+                 // Convert the read data into a concrete value based on its length
+                let concrete_value = match data.len() {
+                    1 => ConcreteValue::Int(data[0] as u64),
+                    2 => ConcreteValue::Int(u16::from_le_bytes(data.clone().try_into().unwrap()) as u64),
+                    4 => ConcreteValue::Int(u32::from_le_bytes(data.clone().try_into().unwrap()) as u64),
+                    8 => ConcreteValue::Int(u64::from_le_bytes(data.clone().try_into().unwrap())),
+                    _ => return Err("Unsupported data size for LOAD".to_string()),
+                };
+        
+                // Extract the u64 value from the ConcreteValue enum
+                let concrete_int = match concrete_value {
+                    ConcreteValue::Int(i) => i,
+                    _ => return Err("Expected an integer concrete value".to_string()),
+                };
+                
+                // Update or create a concolic variable with the loaded concrete value
+                let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:X}", addr));
+                let var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
+                self.state.create_or_update_concolic_var_int(&var_name, concrete_int, 8 * data.len() as u32);
+            },
+            Err(MemoryError::SymbolicAccessError) => {
+                // Handle cases where the memory access cannot be resolved concretely and must be treated symbolically
+                let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+                let var_name = format!("{}_{:02}_{:?}", current_addr_hex, self.instruction_counter, address_with_offset, );
+                let symbolic_var = BV::new_const(self.context, var_name.clone(), 8 * size as u32);
+                
+                // Insert a new symbolic variable into the state to represent the result of the symbolic memory access
+                self.state.concolic_vars.insert(var_name.clone(), ConcolicVar {
+                    concrete: ConcreteValue::Int(0), // Placeholder ?
+                    symbolic: SymbolicValue::Int(symbolic_var),
+                });
+            },
+            Err(e) => return Err(format!("Memory read error: {:?}", e)),
         }
     
         Ok(())
     }
+    
     
     pub fn handle_int_carry(&mut self, instruction: Inst) -> Result<(), String> {
         // Ensure the correct instruction format
@@ -715,7 +775,8 @@ impl<'a> ConcolicExecutor<'a> {
         let carry_as_u64 = if carry { 1 } else { 0 };
     
         // Store the result of the carry condition
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         let bitvector_size = output_varnode.size.to_bitvector_size();
         self.state.create_concolic_var_int(&result_var_name, carry_as_u64, bitvector_size);
     
@@ -783,7 +844,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
 
         // Store the result of the signed overflow condition
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         let overflow_occurred_as_int = if overflow_occurred { 1 } else { 0 };
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(overflow_occurred_as_int, &result_var_name, self.context, 1));
 
@@ -794,52 +856,49 @@ impl<'a> ConcolicExecutor<'a> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
             return Err("Invalid instruction format for STORE".to_string());
         }
-
-        let address_varnode = &instruction.inputs[1];
-        let value_varnode = &instruction.inputs[2];
-
-        // Retrieve or initialize the address variable as u64.
-        let address = self.initialize_var_if_absent(address_varnode)
-            .map_err(|e| format!("Failed to get or initialize address variable: {}", e))?;
-
-        // Retrieve or initialize the value variable as u64, but use it according to its actual size.
-        let value = self.initialize_var_if_absent(value_varnode)
-            .map_err(|e| format!("Failed to get or initialize value variable: {}", e))?;
-
-        match value_varnode.size {
-            Size::Quad => self.state.memory.write_quad(address.into(), value.into())
-                .map_err(|e| e.to_string()),
-
-            Size::Word => {
-                if u64::from(value) <= u32::MAX as u64 {
-                    self.state.memory.write_word(address.into(), value as u32)
-                        .map_err(|e| e.to_string())
-                } else {
-                    Err("Value out of range for a 32-bit write operation".to_string())
-                }
-            },
-
-            Size::Half => {
-                if u64::from(value) <= u16::MAX as u64 {
-                    self.state.memory.write_half(address.into(), value as u16)
-                        .map_err(|e| e.to_string())
-                } else {
-                    Err("Value out of range for a 16-bit write operation".to_string())
-                }
-            },
-
-            Size::Byte => {
-                if u64::from(value) <= u8::MAX as u64 {
-                    self.state.memory.write_byte(address.into(), value as u8)
-                        .map_err(|e| e.to_string())
-                } else {
-                    Err("Value out of range for an 8-bit write operation".to_string())
-                }
-            },
-        }
+    
+        // Evaluate the address from input1 to determine the destination for storing the data.
+        let address_result = self.state.get_concrete_var(&instruction.inputs[1]);
+        let address = match address_result {
+            Ok(ConcreteValue::Int(addr)) => addr,
+            _ => return Err("Unable to evaluate address for STORE operation".to_string()),
+        };
+    
+        // Check if the address could potentially be nil using the can_address_be_zero function.
+        //let address_var_name = format!("{:?}", instruction.inputs[1].var);
+        //if let Some(address_var) = self.state.get_concolic_var(&address_var_name) {
+        //    if ConcolicVar::can_address_be_zero(self.state.ctx, address_var) {
+        //        return Err("Potential nil dereference detected in STORE operation".to_string());
+        //    }
+        //}
+    
+        // Evaluate the value from input2 to be stored.
+        let value_result = self.state.get_concrete_var(&instruction.inputs[2]);
+        let value = match value_result {
+            Ok(ConcreteValue::Int(val)) => val,
+            _ => return Err("Unable to evaluate value for STORE operation".to_string()),
+        };
+    
+        // Determine the size of the value to be stored based on the size attribute of input2.
+        let size_in_bytes = instruction.inputs[2].size.to_bitvector_size() as usize / 8;
+    
+        // Prepare the value bytes for storage, truncating or padding as necessary.
+        let value_bytes = value.to_le_bytes();
+        let mut bytes_to_write = Vec::new();
+        bytes_to_write.extend_from_slice(&value_bytes[..size_in_bytes]);
+    
+        // Perform the memory write operation.
+        self.state.memory.write_memory(address, &bytes_to_write)
+            .map_err(|e| format!("Error writing memory for STORE: {}", e))?;
+    
+        // Update the concolic variable for the stored value with a unique name based on the current address and instruction counter. (ONLY FOR INT ?)
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:X}", addr));
+        let var_name = format!("{}_{}_{}", current_addr_hex, format!("{:02}", self.instruction_counter), format!("{:?}", instruction.inputs[2].var));
+        self.state.create_or_update_concolic_var_int(&var_name, value, 8 * size_in_bytes as u32);
+        
+        Ok(())
     }
-      
-
+       
     pub fn handle_int_add(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::IntAdd || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for INT_ADD".to_string());
@@ -859,7 +918,8 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Create or update a concolic variable for the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         let bitvector_size = output_varnode.size.to_bitvector_size();
     
         // Assuming create_concolic_var_int is corrected to handle u64 for concrete values
@@ -887,7 +947,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result_value = input0_var.wrapping_sub(input1_var);
     
         // Create or update a concolic variable for the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         let bitvector_size = output_varnode.size.to_bitvector_size();
         self.state.create_concolic_var_int(&result_var_name, result_value.into(), bitvector_size);
     
@@ -908,11 +969,12 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Prepare for the symbolic computation
         let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
-        let output_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         let bitvector_size = output_varnode.size.to_bitvector_size();
     
         // Update or create the concolic variable with the concrete result and a new symbolic expression
-        self.state.create_concolic_var_int(&output_var_name, result_concrete, bitvector_size);
+        self.state.create_concolic_var_int(&result_var_name, result_concrete, bitvector_size);
     
         Ok(())
     }      
@@ -931,7 +993,8 @@ impl<'a> ConcolicExecutor<'a> {
         }
     
         // Perform the copy
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(input0.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -956,7 +1019,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (value0 == value1) as u32; // Convert boolean result to u32
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, 1));
     
         Ok(())
@@ -981,7 +1045,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (value0 != value1) as u32; // Convert boolean result to u32
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, 1));
     
         Ok(())
@@ -1006,7 +1071,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (value0 < value1) as u32; // Convert boolean result to u32
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, 1));
     
         Ok(())
@@ -1046,7 +1112,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (signed_value0 < signed_value1) as u32; // Convert boolean result to u32
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, 1));
     
         Ok(())
@@ -1071,7 +1138,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (value0 <= value1) as u32; // Convert boolean result to u32
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, 1));
     
         Ok(())
@@ -1100,7 +1168,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = (signed_value0 <= signed_value1) as u32; // Convert boolean result to u32
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, 1));
     
         Ok(())
@@ -1120,7 +1189,8 @@ impl<'a> ConcolicExecutor<'a> {
         // No actual extension code is required here since we're working within a symbolic execution context
         // The symbolic variable's size dictates the bit-width, and the concrete value is unaffected by the extension
         let input_value = self.initialize_var_if_absent(&instruction.inputs[0])?;
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(input_value.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1150,7 +1220,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
     
         // Store the sign-extended value
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         // Ensure the value is truncated or zero-extended based on the output size
         let result = extended_value & ((1u64 << (output_varnode.size.to_bitvector_size() * 8)) - 1);
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result, &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
@@ -1183,7 +1254,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result_u64 = sub_result as u64;
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result_u64, &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1206,7 +1278,8 @@ impl<'a> ConcolicExecutor<'a> {
         let negated_value = (!input_value).wrapping_add(1); // Bitwise NOT then add one
     
         // Store the negated value
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(negated_value.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1230,7 +1303,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = input0_value & input1_value;
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1254,7 +1328,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = input0_value | input1_value;
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1282,7 +1357,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1310,7 +1386,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1342,7 +1419,8 @@ impl<'a> ConcolicExecutor<'a> {
         };
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1366,7 +1444,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = input0_value.wrapping_mul(input1_value); // Use wrapping_mul to handle overflow
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1385,11 +1464,12 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Prepare for the symbolic computation
         let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
-        let output_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         let bitvector_size = output_varnode.size.to_bitvector_size();
     
         // Create or update the output concolic variable with the negated concrete value
-        self.state.create_concolic_var_int(&output_var_name, negated_concrete, bitvector_size);
+        self.state.create_concolic_var_int(&result_var_name, negated_concrete, bitvector_size);
     
         Ok(())
     }
@@ -1418,7 +1498,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = input0_value / input1_value;
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1448,7 +1529,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = input0_value % input1_value;
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1477,7 +1559,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = input0_value / input1_value;
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.try_into().unwrap(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1506,7 +1589,8 @@ impl<'a> ConcolicExecutor<'a> {
         let result = input0_value % input1_value;
     
         // Store the result
-        let result_var_name = format!("{:?}", output_varnode.var);
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
         self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.try_into().unwrap(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
     
         Ok(())
@@ -1524,10 +1608,11 @@ impl<'a> ConcolicExecutor<'a> {
         let popcount = input_var.count_ones() as u64; // count_ones returns u32, convert to u64 for consistency
     
         if let Some(output_varnode) = &instruction.output {
-            let output_var_name = format!("{:?}", output_varnode.var);
+            let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
             let bitvector_size = output_varnode.size.to_bitvector_size();
     
-            self.state.create_concolic_var_int(&output_var_name, popcount, bitvector_size);
+            self.state.create_concolic_var_int(&result_var_name, popcount, bitvector_size);
         }
     
         Ok(())
@@ -1545,10 +1630,11 @@ impl<'a> ConcolicExecutor<'a> {
         let lzcount = input_var.leading_zeros() as u64; // leading_zeros returns u32, convert to u64 for consistency
     
         if let Some(output_varnode) = &instruction.output {
-            let output_var_name = format!("{:?}", output_varnode.var);
+            let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
             let bitvector_size = output_varnode.size.to_bitvector_size();
     
-            self.state.create_concolic_var_int(&output_var_name, lzcount, bitvector_size);
+            self.state.create_concolic_var_int(&result_var_name, lzcount, bitvector_size);
         }
     
         Ok(())
@@ -1558,50 +1644,8 @@ impl<'a> ConcolicExecutor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::concolic_var::{ConcolicVar, ConcreteValue};
-    use parser::parser::Var;
-    use z3::{Config, Context};
-
-    #[test]
-    fn test_handle_load() {
-        let context = Context::new(&Config::new());
-        let mut executor = ConcolicExecutor::new(&context);
-
-        // Mock memory address and value
-        let memory_address: u64 = 0x100;
-        let memory_value: u64 = 0xDEADBEEF;
-
-        // Initialize memory with the value at the specified address
-        executor.state.memory.write_quad(memory_address, memory_value).expect("Failed to write to memory");
-
-        let offset_var_name = format!("{:?}", Var::Const("offset_var".to_string())); // Ensure this matches how handle_load retrieves it
-        executor.state.set_var(&offset_var_name, ConcolicVar::new_concrete_and_symbolic_int(memory_address, &offset_var_name, &context, 64));
-
-        // Mock instruction for LOAD
-        let instruction = Inst {
-            opcode: Opcode::Load,
-            inputs: vec![
-                Varnode { var: Var::Unique(memory_address), size: Size::Quad }, // Placeholder for memory space ID
-                Varnode { var: Var::Const("offset_var".to_string()), size: Size::Quad }, // Offset into the memory
-            ],
-            output: Some(Varnode { var: Var::Register(1), size: Size::Quad }), // Destination register
-        };
-
-        // Execute handle_load
-        let result = executor.handle_load(instruction);
-        assert!(result.is_ok(), "handle_load failed with error: {:?}", result.err());
-
-        // Verify the loaded value
-        if let Some(concolic_var) = executor.state.get_concolic_var("Register(1)") {
-            match concolic_var.concrete {
-                ConcreteValue::Int(val) => assert_eq!(val, memory_value, "Loaded value does not match expected memory value"),
-                _ => panic!("Output variable has incorrect type"),
-            }
-        } else {
-            panic!("Output variable Register(1) not found");
-        }
-    }
+    use super::*; // Import necessary traits and structs from the module where `ConcolicExecutor` is defined
+    use z3::Context;
 
     #[test]
     fn test_handle_int_carry() {

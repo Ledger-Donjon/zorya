@@ -9,14 +9,35 @@ use super::MemoryX86_64;
 #[derive(Debug)]
 pub struct State<'a> {
     pub concolic_vars: HashMap<String, ConcolicVar<'a>>,
+    pub register_values: HashMap<u64, u64>,
     pub ctx: &'a Context,
     pub memory: MemoryX86_64<'a>,
 }
 
 impl<'a> State<'a> {
     pub fn new(ctx: &'a Context) -> Self {
+        let mut register_values = HashMap::new();
+        
+        // Initialize general-purpose registers to 0
+        // RAX (0), RCX (1), RDX (2), RBX (3), RSP (4), RBP (5), RSI (6), RDI (7)
+        // R8 (8) through R15 (15)
+        for reg_num in 0..=15 {
+            register_values.insert(reg_num, 0);
+        }
+        
+        // Example stack initialization - adjust based on your memory model
+        let initial_rsp = 0x7FFFFFFF; // Top of the stack in your simulated environment
+        register_values.insert(4, initial_rsp); // RSP
+
+        // If modeling flags, initialize RFLAGS (may require specific flags set)
+        // register_values.insert(flags_reg_num, initial_flags_value);
+
+        // If starting execution at a specific point, set RIP
+        // register_values.insert(rip_reg_num, start_instruction_address);
+
         State {
             concolic_vars: HashMap::new(),
+            register_values: HashMap::new(),
             ctx,
             memory: MemoryX86_64::new(ctx),
         }
@@ -26,13 +47,22 @@ impl<'a> State<'a> {
     pub fn create_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) -> &ConcolicVar<'a> {
         // According to IEEE 754 standards and assumes all floating-point variables are single precision
         let new_var = ConcolicVar::new_concrete_and_symbolic_int(concrete_value, var_name, self.ctx, bitvector_size);
+        // ensures that a new concolic variable is only created if one with the same name does not already exist
         self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
     }
 
+    pub fn create_or_update_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) {
+        // According to IEEE 754 standards and assumes all floating-point variables are single precision
+        let new_var = ConcolicVar::new_concrete_and_symbolic_int(concrete_value, var_name, self.ctx, bitvector_size);
+        // Update an existing variable or insert a new one if it doesn't exist
+        self.concolic_vars.insert(var_name.to_string(), new_var);
+    }
+
     // Method to create a concolic variable with float
-    pub fn create_concolic_var_float(&mut self, var_name: &str, concrete_value: f64, bitvector_size: u32) -> &ConcolicVar<'a> {
+    pub fn create_concolic_var_float(&mut self, var_name: &str, concrete_value: f64) -> &ConcolicVar<'a> {
         // According to IEEE 754 standards and assumes all floating-point variables are single precision
         let new_var = ConcolicVar::new_concrete_and_symbolic_float(concrete_value, var_name, self.ctx);
+        // ensures that a new concolic variable is only created if one with the same name does not already exist
         self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
     }
 
@@ -60,6 +90,23 @@ impl<'a> State<'a> {
         self.concolic_vars.insert(var_name.to_string(), concolic_var);
     }
 
+    /// Gets the current concrete value of a register.
+    // reg_num: The register number/identifier.
+    // Returns: The concrete value of the register, if it exists.
+    pub fn get_register_value(&self, reg_num: u64) -> Option<u64> {
+        match reg_num {
+            0 => Some(0), // Assuming register 0 should always return 0
+            _ => self.register_values.get(&reg_num).cloned(),
+        }
+    }
+
+    /// Sets or updates the concrete value of a register.
+    // reg_num: The register number/identifier.
+    // value: The concrete value to set for the register.
+    pub fn set_register_value(&mut self, reg_num: u64, value: u64) {
+        self.register_values.insert(reg_num, value);
+    }
+
     // Arithmetic ADD operation on concolic variables with carry calculation for int
     pub fn concolic_add_int(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
         let var1 = self.get_concolic_var(var1_name).expect("Var1 not found").clone();
@@ -79,13 +126,13 @@ impl<'a> State<'a> {
     }
     
     // Arithmetic ADD operation on concolic variables with carry calculation for float
-    pub fn concolic_add_float(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
+    pub fn concolic_add_float(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str) {
         let var1 = self.concolic_vars.get(var1_name)
             .cloned()
-            .unwrap_or_else(|| self.create_concolic_var_float(var1_name, 0.0, bitvector_size).clone());
+            .unwrap_or_else(|| self.create_concolic_var_float(var1_name, 0.0).clone());
         let var2 = self.concolic_vars.get(var2_name)
             .cloned()
-            .unwrap_or_else(|| self.create_concolic_var_float(var2_name, 0.0, bitvector_size).clone());
+            .unwrap_or_else(|| self.create_concolic_var_float(var2_name, 0.0).clone());
     
         // Perform the addition operation using the concrete values of var1 and var2
         let result_concrete_value = var1.concrete.add(var2.concrete);

@@ -27,7 +27,7 @@ impl fmt::Display for MemoryError {
 }
 
 #[derive(Debug)]
-enum MemoryValue<'ctx> {
+pub enum MemoryValue<'ctx> {
     Concrete(Vec<u8>),
     Symbolic(BV<'ctx>),
 }

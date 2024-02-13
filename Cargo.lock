@@ -384,7 +384,7 @@ dependencies = [
 [[package]]
 name = "ghidra-decompiler"
 version = "0.1.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "cxx",
  "cxx-build",
@@ -435,7 +435,7 @@ dependencies = [
 [[package]]
 name = "icicle-cpu"
 version = "0.1.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "addr2line",
  "bitflags 2.4.1",
@@ -453,7 +453,7 @@ dependencies = [
 [[package]]
 name = "icicle-jit"
 version = "0.2.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "cranelift",
  "cranelift-codegen",
@@ -470,7 +470,7 @@ dependencies = [
 [[package]]
 name = "icicle-linux"
 version = "0.1.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "bitflags 2.4.1",
  "bstr",
@@ -486,7 +486,7 @@ dependencies = [
 [[package]]
 name = "icicle-mem"
 version = "0.3.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "tracing",
 ]
@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "icicle-vm"
 version = "0.2.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "anyhow",
  "icicle-cpu",
@@ -645,18 +645,18 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 name = "parser"
 version = "0.1.0"
 dependencies = [
- "pcode-generator",
+ "pcode_generator",
 ]
 
 [[package]]
 name = "pcode"
 version = "0.2.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 
 [[package]]
-name = "pcode-generator"
+name = "pcode_generator"
 version = "0.1.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "ghidra-decompiler",
  "icicle-vm",
@@ -817,7 +817,7 @@ checksum = "a7cee0529a6d40f580e7a5e6c495c8fbfe21b7b52795ed4bb5e62cdf92bc6380"
 [[package]]
 name = "sleigh-compile"
 version = "0.3.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "pcode",
  "sleigh-parse",
@@ -827,12 +827,12 @@ dependencies = [
 [[package]]
 name = "sleigh-parse"
 version = "0.3.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 
 [[package]]
 name = "sleigh-runtime"
 version = "0.1.0"
-source = "git+https://github.com/kajaaz/pcode-generator.git#3801fec74b970db6a29ca8cdd2aeffc1c01fa7a2"
+source = "git+https://github.com/kajaaz/pcode-generator.git#e590d438b2e569a8dc9f27c34d38e661ff9d401a"
 dependencies = [
  "pcode",
  "sleigh-parse",

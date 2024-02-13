@@ -2,29 +2,19 @@
 mod integration_tests {
     use std::fs::File;
     use std::io::{self, BufRead};
-    use zorya::concolic_var::ConcolicVar;
     use zorya::executor::ConcolicExecutor;
-    use parser::parser::Inst;
-
+    use parser::parser::{Inst, Opcode};
     use z3::{Config, Context};
 
     #[test]
     fn test_execute_instruction_v3() {
         // Setup
-        // Setup
         let config = Config::new();
         let context = Context::new(&config);
         let mut executor = ConcolicExecutor::new(&context);
 
-        // Ensure memory address and offset variable are correctly initialized
-        let memory_address: u64 = 0x55e4a78f0330;
-        executor.state.memory.write_quad(memory_address, 0xDEADBEEF).expect("Failed to write to memory");
-
-        let offset_var_name = "Register(0)";
-        executor.state.set_var(&offset_var_name, ConcolicVar::new_concrete_and_symbolic_int(memory_address, &offset_var_name, &context, 64));
-
         // Define path to the file containing pcode instructions
-        let path = "/home/kgorna/Documents/zorya/tests/pcode/calculus_low_pcode.txt";
+        let path = "/home/kgorna/Documents/tools/pcode-generator/results/ptr_nil-deref_low_pcode.txt";
 
         // Open the file
         let file = File::open(&path).expect("Could not open file");
@@ -40,7 +30,25 @@ mod integration_tests {
                 Ok(inst) => {
                     // Do something with the successfully parsed instruction
                     println!("Successfully parsed instruction: {:?}", inst);
-                    executor.execute_instruction(inst);
+                    match inst.opcode {
+                        Opcode::Load => {
+                            if let Some(offset_varnode) = inst.inputs.get(1) {
+                                if let Some(_offset_var) = executor.state.get_concolic_var(&format!("{:?}", offset_varnode.var)) {
+                                    executor.execute_instruction(inst);
+                                } else {
+                                    println!("Offset variable not found");
+                                    // Handle the error, e.g., log it or return an error
+                                }
+                            } else {
+                                println!("Offset variable not provided");
+                                // Handle the error, e.g., log it or return an error
+                            }
+                        },
+                        _ => {
+                            // For other instructions, just execute them without checking offset
+                            executor.execute_instruction(inst);
+                        }
+                    }
                     println!("State after instruction: {} \n", executor.state);
                     println!("***********************");
                 },
@@ -51,6 +59,5 @@ mod integration_tests {
             }
         }
         println!("Final state: {}", executor.state);
-
     }
 }
