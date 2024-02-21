@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod integration_tests {
-    use zorya::{concolic_var::ConcolicVar, executor::ConcolicExecutor};
+    use zorya::executor::ConcolicExecutor;
     use parser::parser::Inst;
 
     use z3::{Config, Context};
@@ -12,13 +12,8 @@ mod integration_tests {
         let context = Context::new(&config);
         let mut executor = ConcolicExecutor::new(&context);
 
-        // Ensure memory address and offset variable are correctly initialized
-        let memory_address: u64 = 0x55e4a78f0330;
-        executor.state.memory.write_quad(memory_address, 0xDEADBEEF).expect("Failed to write to memory");
-
-        let offset_var_name = "Register(0)".to_string();
-        executor.state.set_var(&offset_var_name, ConcolicVar::new_concrete_and_symbolic_int(memory_address, &offset_var_name, &context, 64));
- 
+        // Initialize a variable to keep track of the current address
+        let mut current_address: Option<u64> = None;
 
         // Define pcode instructions
         let pcode_lines = vec![
@@ -40,18 +35,25 @@ mod integration_tests {
         println!("***********************");
 
         for line in pcode_lines {
-            match line.parse::<Inst>() {
-                Ok(inst) => {
-                    // Do something with the successfully parsed instruction
-                    println!("Successfully parsed instruction: {:?}", inst);
-                    executor.execute_instruction(inst);
-                    println!("State after instruction: {} \n", executor.state);
-                    println!("***********************");
-                },
-                Err(e) => {
-                    // Handle the error, e.g., log it or exit
-                    println!("Error parsing line: {:?}, error: {:?}", line, e);
+            if line.trim_start().starts_with("0x") {
+                // Specify a new address
+                if let Ok(address) = u64::from_str_radix(&line.trim()[2..], 16) {
+                    current_address = Some(address);
                 }
+            } else if let Some(addr) = current_address {
+                match line.parse::<Inst>() {
+                    Ok(inst) => {
+                        // Execute the instruction immediately
+                        println!("Executing instruction at address 0x{:x}: {:?}", addr, inst);
+                        executor.execute_instruction(inst, addr);
+                        println!("State after instruction: {}", executor.state);
+                        println!("***********************");
+                    },
+                    Err(e) => println!("Error parsing instruction: {:?}", e),
+                }
+            } else {
+                // Handle lines that are neither addresses nor parseable instructions
+                println!("Line encountered without a current address set or is not a valid instruction: {}", line);
             }
         }
     }

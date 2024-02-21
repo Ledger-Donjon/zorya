@@ -1,16 +1,19 @@
-// Memory model for x86-64 binaries
+/// Memory model for x86-64 binaries
 
 use z3::{ast::BV, Context};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum MemoryError {
-    OutOfBounds,
+    OutOfBounds(u64, usize),
     IncorrectSliceLength,
     WriteOutOfBounds,
     SymbolicAccessError,
+    UninitializedAccess(u64),
 }
 
 impl Error for MemoryError {}
@@ -18,52 +21,88 @@ impl Error for MemoryError {}
 impl fmt::Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MemoryError::OutOfBounds => write!(f, "Memory access out of bounds"),
+            MemoryError::OutOfBounds(addr, size) => write!(f, "Memory access out of bounds with address {:#x} and size : {:#x}", addr, size),
             MemoryError::IncorrectSliceLength => write!(f, "Incorrect slice length"),
             MemoryError::WriteOutOfBounds => write!(f, "Memory write out of bounds"),
             MemoryError::SymbolicAccessError => write!(f, "Symbolic memory access error"),
+            MemoryError::UninitializedAccess(addr) => write!(f, "Attempted to access uninitialized memory at address {:#x}", addr),
+        }
+    }
+}
+
+impl From<concrete_var::VarError> for MemoryError {
+    fn from(err: concrete_var::VarError) -> MemoryError {
+        match err {
+            concrete_var::VarError::ConversionError => MemoryError::SymbolicAccessError,
         }
     }
 }
 
 #[derive(Debug)]
-pub enum MemoryValue<'ctx> {
-    Concrete(Vec<u8>),
-    Symbolic(BV<'ctx>),
+pub struct MemoryValue<'a> {
+    pub concrete: ConcreteVar, 
+    pub symbolic: SymbolicVar<'a>,
 }
 
 #[derive(Debug)]
 pub struct MemoryX86_64<'ctx> {
-    pub memory: HashMap<u64, MemoryValue<'ctx>>,
+    pub memory: BTreeMap<u64, MemoryValue<'ctx>>,
     ctx: &'ctx Context,
+    memory_size: u64,
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
-    pub fn new(ctx: &'ctx Context) -> Self {
+    pub fn new(ctx: &'ctx Context, memory_size: u64) -> Self {
         MemoryX86_64 {
-            memory: HashMap::new(),
+            memory: BTreeMap::new(),
             ctx,
+            memory_size,
         }
     }
-
-    fn ensure_memory_initialized(&mut self, address: u64, size: usize) {
-        self.memory.entry(address).or_insert_with(|| MemoryValue::Concrete(vec![0; size]));
-    }
-
+    
+    // Read a block of memory from a specified address with a given size.
     pub fn read_memory(&mut self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
-        self.ensure_memory_initialized(address, size);
-        match self.memory.get(&address) {
-            Some(MemoryValue::Concrete(data)) => {
-                data.get(..size).map(|slice| slice.to_vec()).ok_or(MemoryError::OutOfBounds)
-            },
-            Some(MemoryValue::Symbolic(_symbolic_var)) => {
-                let read_var_name = format!("read_{}_{}", address, size);
-                // Dereference the String to &str before passing
-                let read_var = BV::new_const(self.ctx, &read_var_name[..], size as u32 * 8);
-                Err(MemoryError::SymbolicAccessError)
-            },
-            None => Err(MemoryError::OutOfBounds),
+        let mut result = Vec::with_capacity(size);
+        for offset in 0..size as u64 {
+            let current_address = address + offset;
+            match self.memory.get(&current_address) {
+                Some(memory_value) => {
+                    // Assuming concrete is the value you want to read, and it stores an integer representation of the byte.
+                    match memory_value.concrete {
+                        ConcreteVar::Int(val) => {
+                            // Ensure you're extracting the byte value correctly from your ConcreteVar::Int variant.
+                            // This example assumes ConcreteVar::Int stores the byte as is, which might not be your implementation.
+                            result.push(val as u8); // Cast to u8, assuming val contains the byte value directly.
+                        },
+                        // Handle other variants of ConcreteVar if necessary
+                        _ => return Err(MemoryError::IncorrectSliceLength), // or an appropriate error
+                    }
+                },
+                None => return Err(MemoryError::UninitializedAccess(current_address)),
+            }
         }
+    
+        Ok(result)
+    }
+
+    // Writes a slice of bytes to memory starting from a specified address.
+    pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
+        // Calculate the end address to prevent writing beyond memory bounds
+        let end_address = address.checked_add(bytes.len() as u64).ok_or(MemoryError::WriteOutOfBounds)?;
+        
+        for (offset, &byte) in bytes.iter().enumerate() {
+            let current_address = address + offset as u64;
+            if current_address >= end_address {
+                return Err(MemoryError::WriteOutOfBounds); // Prevent out-of-bounds write
+            }
+            // Insert the byte into memory, converting it to a `MemoryValue`
+            self.memory.insert(current_address, MemoryValue {
+                concrete: ConcreteVar::Int(byte.into()),
+                symbolic: SymbolicVar::Int(BV::from_u64(self.ctx, byte.into(), 8)), // 8-bit byte size assumed
+            });
+        }
+        
+        Ok(())
     }
 
     // Read a 64-bit (quad) value from memory
@@ -108,28 +147,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 Err(MemoryError::IncorrectSliceLength)
             }
         })
-    }
-
-    // General function to write a slice of memory, initializing memory if it's not already initialized
-    pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
-        self.ensure_memory_initialized(address, bytes.len());
-        match self.memory.get_mut(&address) {
-            Some(MemoryValue::Concrete(segment)) => {
-                if segment.len() < bytes.len() {
-                    segment.resize(bytes.len(), 0);
-                }
-                segment[..bytes.len()].copy_from_slice(bytes);
-                Ok(())
-            },
-            Some(MemoryValue::Symbolic(_symbolic_var)) => {
-                let new_state_var_name = format!("mem_{}_{}_new_state", address, bytes.len());
-                // Dereference the String to &str before passing
-                let new_state_var = BV::new_const(self.ctx, &new_state_var_name[..], bytes.len() as u32 * 8);
-                self.memory.insert(address, MemoryValue::Symbolic(new_state_var));
-                Ok(())
-            },
-            None => Err(MemoryError::OutOfBounds),
-        }
     }
 
     // Write a 64-bit (quad) value to memory

@@ -4,45 +4,59 @@ use z3::{Config, Context};
 use zorya::executor::ConcolicExecutor;
 
 fn main() {
-    // Setup Z3 and Concolic Executor
     let config = Config::new();
     let context = Context::new(&config);
-    let mut executor = ConcolicExecutor::new(&context);
 
-    // Specify the path to the p-code file generated previously
-    let path = "/home/kgorna/Documents/tools/pcode-generator/results/ptr_nil-deref_low_pcode.txt";
+    // binary path
+    let binary_path = "/home/kgorna/Documents/tools/pcode-generator/tests/ptr_nil-deref_sleep/ptr_nil-deref_sleep";
+
+    // Initialize the ConcolicExecutor, handling the Result properly
+    let mut executor = match ConcolicExecutor::new(&context, binary_path) {
+        Ok(executor) => executor,
+        Err(e) => {
+            eprintln!("Failed to initialize ConcolicExecutor: {}", e);
+            return; 
+        }
+    };
+
+    // path to the pcode file generated previously
+    let path = "/home/kgorna/Documents/tools/pcode-generator/results/ptr_nil-deref_sleep_low_pcode.txt";
     let file = File::open(&path).expect("Could not open file");
     let reader = io::BufReader::new(file);
 
-    // Initialize a variable to keep track of the current address
-    let mut current_address: Option<u64> = None;
+    let entry_point_address: u64 = 0x45f5c0; // Entry point address
+    let mut analysis_started = false; // Flag to indicate if analysis has started
 
-    // Read each line from the p-code file
+    // Read each line from the pcode file
     for line in reader.lines().filter_map(Result::ok) {
         if line.trim_start().starts_with("0x") {
-            // This line specifies a new address
             if let Ok(address) = u64::from_str_radix(&line.trim()[2..], 16) {
-                current_address = Some(address);
+                if address == entry_point_address {
+                    analysis_started = true; // Start analysis from this point
+                }
+                if !analysis_started {
+                    continue; // Skip lines until the entry point is reached
+                }
+                // Update the current address being processed
+                executor.current_address = Some(address);
             }
-        } else if let Some(addr) = current_address {
-            // This line should contain an instruction, parse it
+        } else if analysis_started {
+            // Now that analysis has started, process the instruction at the current address
             match line.parse::<Inst>() {
                 Ok(inst) => {
-                    // Execute the instruction immediately
-                    println!("Executing instruction at address 0x{:x}: {:?}", addr, inst);
-                    executor.execute_instruction(inst, addr);
-                    println!("State after instruction: {}", executor.state);
-                    println!("***********************");
+                    // Execute the instruction at the current address
+                    if let Some(addr) = executor.current_address {
+                        println!("Executing instruction at address 0x{:x}: {:?}", addr, inst);
+                        executor.execute_instruction(inst, addr); // Correctly use the current address
+                        println!("State after instruction: {:?}", executor.state); // Ensure this is debug-printable
+                        println!("***********************");
+                    }
                 },
                 Err(e) => println!("Error parsing instruction: {:?}", e),
             }
-        } else {
-            // This case handles lines that are neither addresses nor parseable instructions
-            println!("Line encountered without a current address set or is not a valid instruction: {}", line);
         }
     }
 
     // Final state after executing all instructions
-    println!("Final state: {}", executor.state);
+    println!("Final state: {:?}", executor.state); 
 }
-

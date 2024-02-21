@@ -1,40 +1,11 @@
 use z3::{ast::{Ast, Float, BV}, Context, SatResult, Solver};
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum SymbolicValue<'a> {
-    Int(BV<'a>),
-    Float(Float<'a>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ConcreteValue {
-    Int(u64),
-    Float(f64),
-}
-
-impl ConcreteValue {
-    // Addition operation
-    pub fn add(self, other: ConcreteValue) -> Self {
-        match (self, other) {
-            (ConcreteValue::Int(a), ConcreteValue::Int(b)) => ConcreteValue::Int(a + b),
-            (ConcreteValue::Float(a), ConcreteValue::Float(b)) => ConcreteValue::Float(a + b),
-            _ => panic!("Attempted to add incompatible ConcreteValues"),
-        }
-    }
-
-    // Bitwise AND operation for integers
-    pub fn and(self, other: ConcreteValue) -> Self {
-        match (self, other) {
-            (ConcreteValue::Int(a), ConcreteValue::Int(b)) => ConcreteValue::Int(a & b),
-            _ => panic!("Bitwise AND operation is not defined for floats"),
-        }
-    }
-}
+use super::{ConcreteVar, SymbolicVar};
 
 #[derive(Clone, Debug)]
 pub struct ConcolicVar<'a> {
-    pub concrete: ConcreteValue, 
-    pub symbolic: SymbolicValue<'a>,
+    pub concrete: ConcreteVar, 
+    pub symbolic: SymbolicVar<'a>,
 }
 
 impl<'a> ConcolicVar<'a> {
@@ -44,35 +15,34 @@ impl<'a> ConcolicVar<'a> {
         let concrete: u64 = concrete;
         let symbolic: BV<'a> = BV::new_const(ctx, symbolic_name, sz);
         ConcolicVar { 
-            concrete: ConcreteValue::Int(concrete),
-            symbolic: SymbolicValue::Int(symbolic),
+            concrete: ConcreteVar::Int(concrete),
+            symbolic: SymbolicVar::Int(symbolic),
         }
     }
 
-    // Function to create a new ConcolicVar with a symbolic float
+    // Function to create a new ConcolicVar with a symbolic f64 (double-precision float)
     pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic_name: &str, ctx: &'a Context) -> Self {
         let concrete: f64 = concrete;
-        // Assuming IEEE 754 single-precision float: 8 bits exponent, 23 bits significand
-        let exponent_bits: u32 = 8;
-        let significand_bits: u32 = 23;
 
-        let symbolic: Float<'a> = Float::new_const(ctx, symbolic_name, exponent_bits, significand_bits);
+        // Create a symbolic double-precision floating-point number
+        let symbolic: Float<'a> = Float::new_const_double(ctx, symbolic_name);
+
         ConcolicVar {
-            concrete: ConcreteValue::Float(concrete),
-            symbolic: SymbolicValue::Float(symbolic),
+            concrete: ConcreteVar::Float(concrete),
+            symbolic: SymbolicVar::Float(symbolic),
         }
     }
 
     pub fn update_concrete_int(&mut self, new_value: u64) {
-        self.concrete = ConcreteValue::Int(new_value);
+        self.concrete = ConcreteVar::Int(new_value);
     }
 
     pub fn update_concrete_float(&mut self, new_value: f64) {
-        self.concrete = ConcreteValue::Float(new_value);
+        self.concrete = ConcreteVar::Float(new_value);
     }
 
     pub fn update_symbolic_int(&mut self, new_expr: BV<'a>) {
-        if let SymbolicValue::Int(ref mut sym) = self.symbolic {
+        if let SymbolicVar::Int(ref mut sym) = self.symbolic {
             *sym = new_expr;
         } else {
             panic!("Attempted to update symbolic int value on a non-int ConcolicVar");
@@ -80,7 +50,7 @@ impl<'a> ConcolicVar<'a> {
     }
 
     pub fn update_symbolic_float(&mut self, new_expr: Float<'a>) {
-        if let SymbolicValue::Float(ref mut sym) = self.symbolic {
+        if let SymbolicVar::Float(ref mut sym) = self.symbolic {
             *sym = new_expr;
         } else {
             panic!("Attempted to update symbolic float value on a non-float ConcolicVar");
@@ -91,7 +61,7 @@ impl<'a> ConcolicVar<'a> {
         let solver = Solver::new(ctx);
 
         match &address_var.symbolic {
-            SymbolicValue::Int(ref address_bv) => {
+            SymbolicVar::Int(ref address_bv) => {
                 // Ensure the Z3 boolean expression is created correctly
                 let zero = BV::from_u64(ctx, 0, address_bv.get_size());
                 // The `_eq` method on BV objects returns a Bool object, not a Rust bool
@@ -106,7 +76,7 @@ impl<'a> ConcolicVar<'a> {
                     _ => false,  // The address cannot be zero
                 }
             },
-            SymbolicValue::Float(_) => {
+            SymbolicVar::Float(_) => {
                 // For addresses, it's uncommon to use floating-point numbers.
                 false
             },

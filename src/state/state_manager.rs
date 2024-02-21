@@ -1,47 +1,68 @@
 use std::collections::HashMap;
-use crate::concolic_var::{ConcolicVar, ConcreteValue};
+use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar};
 use parser::parser::Varnode;
 use z3::Context;
 use std::fmt;
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::Path;
 
-use super::MemoryX86_64;
+use super::{memory_x86_64::{MemoryX86_64, MemoryError}, CpuState};
 
 #[derive(Debug)]
 pub struct State<'a> {
     pub concolic_vars: HashMap<String, ConcolicVar<'a>>,
-    pub register_values: HashMap<u64, u64>,
+    pub cpu_state: CpuState,
     pub ctx: &'a Context,
     pub memory: MemoryX86_64<'a>,
 }
 
 impl<'a> State<'a> {
-    pub fn new(ctx: &'a Context) -> Self {
-        let mut register_values = HashMap::new();
-        
-        // Initialize general-purpose registers to 0
-        // RAX (0), RCX (1), RDX (2), RBX (3), RSP (4), RBP (5), RSI (6), RDI (7)
-        // R8 (8) through R15 (15)
-        for reg_num in 0..=15 {
-            register_values.insert(reg_num, 0);
-        }
-        
-        // Example stack initialization - adjust based on your memory model
-        let initial_rsp = 0x7FFFFFFF; // Top of the stack in your simulated environment
-        register_values.insert(4, initial_rsp); // RSP
+    pub fn new(ctx: &'a Context, binary_path: &Path) -> io::Result<Self> {
+        let cpu_state = CpuState::new();
+        let memory_size: u64 = 0x1000000; // modify?
 
-        // If modeling flags, initialize RFLAGS (may require specific flags set)
-        // register_values.insert(flags_reg_num, initial_flags_value);
+        let mut memory = MemoryX86_64::new(ctx, memory_size);
 
-        // If starting execution at a specific point, set RIP
-        // register_values.insert(rip_reg_num, start_instruction_address);
+        // Load binary data into memory
+        let mut file = File::open(binary_path)?;
 
-        State {
+        // Initialize memory sections based on LOAD commands
+        Self::initialize_load_section(&mut file, &mut memory, 0x000000, 0x0000000000400000, 0x081b1a)?; // First LOAD
+        Self::initialize_load_section(&mut file, &mut memory, 0x082000, 0x0000000000482000, 0x092328)?; // Second LOAD
+        Self::initialize_load_section(&mut file, &mut memory, 0x115000, 0x0000000000515000, 0x017fa0)?; // Third LOAD
+
+        // Initialize specific address
+        Self::initialize_specific_address(&mut memory)?;
+
+        Ok(State {
             concolic_vars: HashMap::new(),
-            register_values: HashMap::new(),
+            cpu_state,
             ctx,
-            memory: MemoryX86_64::new(ctx),
-        }
+            memory,
+        })
     }
+
+    fn initialize_load_section(file: &mut File, memory: &mut MemoryX86_64, file_offset: u64, memory_address: u64, size: u64) -> io::Result<()> {
+        let mut buffer = vec![0; size as usize];
+        file.seek(SeekFrom::Start(file_offset))?;
+        file.read_exact(&mut buffer)?;
+        for (i, &byte) in buffer.iter().enumerate() {
+            memory.write_memory(memory_address + i as u64, &vec![byte]).unwrap_or_else(|_| panic!("Failed to write memory at address 0x{:x}", memory_address + i as u64));
+        }
+        Ok(())
+    }
+
+    pub fn initialize_specific_address(memory: &mut MemoryX86_64) -> io::Result<()> {
+        // Example address and data
+        let address = 0x556f6b17bf30;
+        let data = [0x00]; // Example data to write, adjust as needed
+    
+        // Write the data to the specified address
+        memory.write_memory(address, &data)
+              .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+    }
+    
 
     // Method to create a concolic variable with int
     pub fn create_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) -> &ConcolicVar<'a> {
@@ -51,6 +72,7 @@ impl<'a> State<'a> {
         self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
     }
 
+    // used in handle_load - to be uniformized later
     pub fn create_or_update_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) {
         // According to IEEE 754 standards and assumes all floating-point variables are single precision
         let new_var = ConcolicVar::new_concrete_and_symbolic_int(concrete_value, var_name, self.ctx, bitvector_size);
@@ -77,7 +99,7 @@ impl<'a> State<'a> {
     }
 
     // Method to get a concolic variable's concrete value
-    pub fn get_concrete_var(&self, varnode: &Varnode) -> Result<ConcreteValue, String> {
+    pub fn get_concrete_var(&self, varnode: &Varnode) -> Result<ConcreteVar, String> {
         let var_name = format!("{:?}", varnode.var);
         match self.concolic_vars.get(&var_name) {
             Some(concolic_var) => Ok(concolic_var.concrete.clone()),
@@ -90,22 +112,24 @@ impl<'a> State<'a> {
         self.concolic_vars.insert(var_name.to_string(), concolic_var);
     }
 
-    /// Gets the current concrete value of a register.
-    // reg_num: The register number/identifier.
-    // Returns: The concrete value of the register, if it exists.
-    pub fn get_register_value(&self, reg_num: u64) -> Option<u64> {
-        match reg_num {
-            0 => Some(0), // Assuming register 0 should always return 0
-            _ => self.register_values.get(&reg_num).cloned(),
+
+    // Reads memory using a register address
+    pub fn read_memory_using_register(&mut self, register: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
+        if let Some(address) = self.cpu_state.get_register_value(register) {
+            self.memory.read_memory(address, size)
+        } else {
+            Err(MemoryError::OutOfBounds(register, size)) 
         }
     }
 
-    /// Sets or updates the concrete value of a register.
-    // reg_num: The register number/identifier.
-    // value: The concrete value to set for the register.
-    pub fn set_register_value(&mut self, reg_num: u64, value: u64) {
-        self.register_values.insert(reg_num, value);
-    }
+    // Writes to memory using a register address
+    // pub fn write_memory_using_register(&mut self, register: u64, bytes: &[u8]) -> Result<(), MemoryError> {
+    //    if let Some(address) = self.cpu_state.get_register_value(register) {
+    //        self.memory.write_memory(address, bytes)
+    //    } else {
+    //        Err(MemoryError::OutOfBounds(register, bytes))
+    //    }
+    //}
 
     // Arithmetic ADD operation on concolic variables with carry calculation for int
     pub fn concolic_add_int(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
@@ -115,8 +139,8 @@ impl<'a> State<'a> {
         // Perform the addition operation using the concrete values of var1 and var2
         let result_concrete_value = var1.concrete.add(var2.concrete);
     
-        // Extract the u64 value from ConcreteValue::Int
-        if let ConcreteValue::Int(value) = result_concrete_value {
+        // Extract the u64 value from ConcreteVar::Int
+        if let ConcreteVar::Int(value) = result_concrete_value {
             // Create or update the result variable with the new concrete value
             let result_var = ConcolicVar::new_concrete_and_symbolic_int(value, result_var_name, self.ctx, bitvector_size);
             self.set_var(result_var_name, result_var);
@@ -137,8 +161,8 @@ impl<'a> State<'a> {
         // Perform the addition operation using the concrete values of var1 and var2
         let result_concrete_value = var1.concrete.add(var2.concrete);
     
-        // Extract the f64 value from ConcreteValue::Float
-        if let ConcreteValue::Float(value) = result_concrete_value {
+        // Extract the f64 value from ConcreteVar::Float
+        if let ConcreteVar::Float(value) = result_concrete_value {
             // Create or update the result variable with the new concrete value
             let result_var = ConcolicVar::new_concrete_and_symbolic_float(value, result_var_name, self.ctx);
             self.set_var(result_var_name, result_var);
@@ -155,8 +179,8 @@ impl<'a> State<'a> {
         // Perform the bitwise AND operation using the concrete values of var1 and var2
         let result_concrete_value = var1.concrete.and(var2.concrete);
     
-        // Extract the u64 value from ConcreteValue::Int
-        if let ConcreteValue::Int(value) = result_concrete_value {
+        // Extract the u64 value from ConcreteVar::Int
+        if let ConcreteVar::Int(value) = result_concrete_value {
             // Create or update the result variable with the new concrete value
             let result_var = ConcolicVar::new_concrete_and_symbolic_int(value, result_var_name, self.ctx, bitvector_size);
             self.set_var(result_var_name, result_var);
@@ -174,11 +198,40 @@ impl<'a> State<'a> {
 
 impl<'a> fmt::Display for State<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "State {{")?;
+        writeln!(f, "State after instruction:")?;
+
+        // Concolic Variables
         writeln!(f, "  Concolic Variables:")?;
         for (var_name, concolic_var) in &self.concolic_vars {
             writeln!(f, "    {}: {:?}", var_name, concolic_var)?;
         }
-        write!(f, "}}")
+
+        // CPU State
+        writeln!(f, "  CPU State:")?;
+        writeln!(f, "    GPR:")?;
+        for (reg_name, reg_value) in &self.cpu_state.gpr {
+            writeln!(f, "      {}: {}", reg_name, reg_value)?;
+        }
+
+        writeln!(f, "    Segment Registers:")?;
+        for (reg_name, reg_value) in &self.cpu_state.segment_registers {
+            writeln!(f, "      {}: {}", reg_name, reg_value)?;
+        }
+
+        writeln!(f, "    Control Registers:")?;
+        for (reg_name, reg_value) in &self.cpu_state.control_registers {
+            writeln!(f, "      {}: {}", reg_name, reg_value)?;
+        }
+
+        // Memory
+        // writeln!(f, "  Memory:")?;
+        //for (address, memory_value) in &self.memory.memory {
+        //    writeln!(f, "    {:x}: {:?}", address, memory_value)?;
+        //}
+
+        Ok(())
     }
 }
+
+
+
