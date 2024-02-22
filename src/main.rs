@@ -8,7 +8,7 @@ fn main() {
     let context = Context::new(&config);
 
     // binary path
-    let binary_path = "/home/kgorna/Documents/tools/pcode-generator/tests/ptr_nil-deref_sleep/ptr_nil-deref_sleep";
+    let binary_path = "/home/kgorna/pcode-generator/tests/ptr_nil-deref_sleep/ptr_nil-deref_sleep";
 
     // Initialize the ConcolicExecutor, handling the Result properly
     let mut executor = match ConcolicExecutor::new(&context, binary_path) {
@@ -20,7 +20,7 @@ fn main() {
     };
 
     // path to the pcode file generated previously
-    let path = "/home/kgorna/Documents/tools/pcode-generator/results/ptr_nil-deref_sleep_low_pcode.txt";
+    let path = "/home/kgorna/pcode-generator/results/ptr_nil-deref_sleep_low_pcode.txt";
     let file = File::open(&path).expect("Could not open file");
     let reader = io::BufReader::new(file);
 
@@ -41,15 +41,15 @@ fn main() {
                 executor.current_address = Some(address);
             }
         } else if analysis_started {
-            // Now that analysis has started, process the instruction at the current address
+            // Process the instruction at the current address
             match line.parse::<Inst>() {
                 Ok(inst) => {
                     // Execute the instruction at the current address
                     if let Some(addr) = executor.current_address {
-                        println!("Executing instruction at address 0x{:x}: {:?}", addr, inst);
-                        executor.execute_instruction(inst, addr); // Correctly use the current address
-                        println!("State after instruction: {:?}", executor.state); // Ensure this is debug-printable
-                        println!("***********************");
+                        //println!("Executing instruction at address 0x{:x}: {:?}", addr, inst);
+                        executor.execute_instruction(inst, addr); 
+                        //println!("State after instruction: {:?}", executor.state);
+                        //println!("***********************");
                     }
                 },
                 Err(e) => println!("Error parsing instruction: {:?}", e),
@@ -58,5 +58,5 @@ fn main() {
     }
 
     // Final state after executing all instructions
-    println!("Final state: {:?}", executor.state); 
+    println!("Final state: {:?}", executor.state.concolic_vars); 
 }

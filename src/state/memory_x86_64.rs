@@ -4,6 +4,7 @@ use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use parser::parser::Inst;
 
 use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
 
@@ -14,6 +15,7 @@ pub enum MemoryError {
     WriteOutOfBounds,
     SymbolicAccessError,
     UninitializedAccess(u64),
+    NullDereference(u64),
 }
 
 impl Error for MemoryError {}
@@ -26,6 +28,7 @@ impl fmt::Display for MemoryError {
             MemoryError::WriteOutOfBounds => write!(f, "Memory write out of bounds"),
             MemoryError::SymbolicAccessError => write!(f, "Symbolic memory access error"),
             MemoryError::UninitializedAccess(addr) => write!(f, "Attempted to access uninitialized memory at address {:#x}", addr),
+	    MemoryError::NullDereference(addr) => write! (f, "Potential null dereference detected at {:#x}", addr),
         }
     }
 }
@@ -59,7 +62,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
             memory_size,
         }
     }
-    
+    const ENTRY_POINT_ADDRESS: u64 = 0x45f5c0;
+
     // Read a block of memory from a specified address with a given size.
     pub fn read_memory(&mut self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
         let mut result = Vec::with_capacity(size);
@@ -171,4 +175,23 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn write_byte(&mut self, offset: u64, value: u8) -> Result<(), MemoryError> {
         self.write_memory(offset, &[value]) // Directly write the single byte
     }
+
+    pub fn check_nil_deref(&mut self, address: u64, current_address: u64, instruction: &Inst) -> Result<(), String> {
+    	// Special case for entry point where accessing 0x0 might be expected
+    	if current_address == Self::ENTRY_POINT_ADDRESS && address == 0x0 {
+        	println!("Special case at entry point, accessing 0x0 is not considered a nil dereference.");
+        	return Ok(());
+    	}
+
+    	// General case for nil dereference check: Ensure the accessed address is not 0x0
+    	if address == 0x0 {
+        	// If the address being accessed is 0x0, this is considered a nil dereference.
+        	return Err(format!("Nil dereference detected: Attempted to access address 0x0 at address 0x{:x} with instruction {:?}", current_address, instruction));
+    	}
+
+    	// If the address being accessed is not 0x0, no error is reported.
+    	Ok(())
+     }
+
+
 }

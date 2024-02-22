@@ -702,8 +702,13 @@ impl<'a> ConcolicExecutor<'a> {
         let address_with_offset = base_address.wrapping_add(offset);
     
         let size = output_varnode.size.to_bitvector_size() / 8; // Convert size to bytes
-    
-        let memory_result = self.state.memory.read_memory(address_with_offset, size as usize);
+    	
+	// Check if nil dereference
+	let current_address_value = self.current_address.unwrap_or(0);
+	self.state.memory.check_nil_deref(address_with_offset, current_address_value, &instruction)
+    		.map_err(|e| format!("{} at address 0x{:x} with instruction {:?}", e, current_address_value, instruction))?;
+        
+	let memory_result = self.state.memory.read_memory(address_with_offset, size as usize);
         
         match memory_result {
             Ok(data) => {
@@ -867,14 +872,6 @@ impl<'a> ConcolicExecutor<'a> {
             _ => return Err("Unable to evaluate address for STORE operation".to_string()),
         };
     
-        // Check if the address could potentially be nil using the can_address_be_zero function.
-        //let address_var_name = format!("{:?}", instruction.inputs[1].var);
-        //if let Some(address_var) = self.state.get_concolic_var(&address_var_name) {
-        //    if ConcolicVar::can_address_be_zero(self.state.ctx, address_var) {
-        //        return Err("Potential nil dereference detected in STORE operation".to_string());
-        //    }
-        //}
-    
         // Evaluate the value from input2 to be stored.
         let value_result = self.state.get_concrete_var(&instruction.inputs[2]);
         let value = match value_result {
@@ -889,7 +886,12 @@ impl<'a> ConcolicExecutor<'a> {
         let value_bytes = value.to_le_bytes();
         let mut bytes_to_write = Vec::new();
         bytes_to_write.extend_from_slice(&value_bytes[..size_in_bytes]);
-    
+    	
+	// Check for null dereference
+	let current_address_value = self.current_address.unwrap_or(0);
+	self.state.memory.check_nil_deref(address, current_address_value, &instruction)
+    		.map_err(|e| format!("{} at address 0x{:x} with instruction {:?}", e, current_address_value, instruction))?;
+
         // Perform the memory write operation.
         self.state.memory.write_memory(address, &bytes_to_write)
             .map_err(|e| format!("Error writing memory for STORE: {}", e))?;
@@ -1188,9 +1190,7 @@ impl<'a> ConcolicExecutor<'a> {
         if instruction.inputs[0].size >= output_varnode.size {
             return Err("Output size must be strictly bigger than input size for INT_ZEXT".to_string());
         }
-    
-        // No actual extension code is required here since we're working within a symbolic execution context
-        // The symbolic variable's size dictates the bit-width, and the concrete value is unaffected by the extension
+   
         let input_value = self.initialize_var_if_absent(&instruction.inputs[0])?;
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
