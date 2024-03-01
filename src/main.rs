@@ -8,7 +8,7 @@ fn main() {
     let context = Context::new(&config);
 
     // binary path
-    let binary_path = "/home/kgorna/pcode-generator/tests/ptr_nil-deref_sleep/ptr_nil-deref_sleep";
+    let binary_path = "/home/kgorna/Documents/tools/pcode-generator/tests/calculus/calculus";
 
     // Initialize the ConcolicExecutor, handling the Result properly
     let mut executor = match ConcolicExecutor::new(&context, binary_path) {
@@ -20,11 +20,11 @@ fn main() {
     };
 
     // path to the pcode file generated previously
-    let path = "/home/kgorna/pcode-generator/results/ptr_nil-deref_sleep_low_pcode.txt";
+    let path = "/home/kgorna/Documents/tools/pcode-generator/results/calculus_low_pcode.txt";
     let file = File::open(&path).expect("Could not open file");
     let reader = io::BufReader::new(file);
 
-    let entry_point_address: u64 = 0x45f5c0; // Entry point address
+    let entry_point_address: u64 = 0x45fa00; // Entry point address
     let mut analysis_started = false; // Flag to indicate if analysis has started
 
     // Read each line from the pcode file

@@ -1,13 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs::File, io::{self, Read, Seek, SeekFrom}};
 use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar};
-use parser::parser::Varnode;
+use parser::parser::{Inst, Varnode};
 use z3::Context;
 use std::fmt;
-use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
-use std::path::Path;
 
-use super::{memory_x86_64::{MemoryX86_64, MemoryError}, CpuState};
+use super::{memory_x86_64::{MemoryError, MemoryX86_64}, CpuState};
 
 #[derive(Debug)]
 pub struct State<'a> {
@@ -18,18 +15,22 @@ pub struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    pub fn new(ctx: &'a Context, binary_path: &Path) -> io::Result<Self> {
+    pub fn new(ctx: &'a Context, binary_path: &str) -> io::Result<Self> {
         let cpu_state = CpuState::new();
         let memory_size: u64 = 0x1000000; // modify?
 
+        let mut memory = MemoryX86_64::new(ctx, memory_size);
+
+        // Load binary data into memory
+        let mut file = File::open(binary_path)?;
+
+        // Initialize memory sections based on LOAD commands
+        Self::initialize_load_section(&mut file, &mut memory, 0x000000, 0x0000000000400000, 0x081b1a)?; // First LOAD
+        Self::initialize_load_section(&mut file, &mut memory, 0x082000, 0x0000000000482000, 0x092328)?; // Second LOAD
+        Self::initialize_load_section(&mut file, &mut memory, 0x115000, 0x0000000000515000, 0x017fa0)?; // Third LOAD
+
         // Initialize specific address
         Self::initialize_specific_address(&mut memory)?;
-	
-	 // Initialize CPU registers
-        Self::initialize_cpu_registers(&mut cpu_state);
-
-        // Initialize stack and other memory regions as needed
-        let mut memory = Self::initialize_memory(ctx);
 
         Ok(State {
             concolic_vars: HashMap::new(),
@@ -39,47 +40,25 @@ impl<'a> State<'a> {
         })
     }
 
-    fn initialize_cpu_registers(cpu_state: &mut CpuState) {
-        // Example registers based on your GDB output
-        cpu_state.set_register_value("RSP", 0x7fffffffdd80);
-        cpu_state.set_register_value("RIP", 0x45f5c0);
-        // Set other registers as observed. Here they are all 0, but you can customize this part.
-        for reg in ["RAX", "RBX", "RCX", "RDX", "RSI", "RDI", "RBP", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15"].iter() {
-            cpu_state.set_register_value(reg, 0x1); // not 0x0
+    fn initialize_load_section(file: &mut File, memory: &mut MemoryX86_64, file_offset: u64, memory_address: u64, size: u64) -> io::Result<()> {
+        let mut buffer = vec![0; size as usize];
+        file.seek(SeekFrom::Start(file_offset))?;
+        file.read_exact(&mut buffer)?;
+        for (i, &byte) in buffer.iter().enumerate() {
+            memory.write_memory(memory_address + i as u64, &vec![byte]).unwrap_or_else(|_| panic!("Failed to write memory at address 0x{:x}", memory_address + i as u64));
         }
-    }
-
-    fn initialize_memory(ctx: &'a Context, memory_size: u64) -> MemoryX86_64<'a> {
-        let mut memory = MemoryX86_64::new(ctx, memory_size);
-        // Initialize stack based on GDB's `x/10gx $rsp`
-        // Assuming you have a method to write quad words, as simplified above
-        let stack_start: u64 = 0x7fffffffdd80;
-        let stack_values = [
-            0x0000000000000001, 0x00007fffffffe12e,
-            0x0000000000000000, 0x00007fffffffe189,
-            0x00007fffffffe199, 0x00007fffffffe1ef,
-            0x00007fffffffe202, 0x00007fffffffe216,
-            0x00007fffffffe243, 0x00007fffffffe264,
-        ];
-
-        for (i, &value) in stack_values.iter().enumerate() {
-            memory.write_quad(stack_start + (i as u64 * 8), value);
-        }
-
-        memory
+        Ok(())
     }
 
     pub fn initialize_specific_address(memory: &mut MemoryX86_64) -> io::Result<()> {
         // Example address and data
-        let address = 0x55FABFC43F50;
-        let data = [0x01]; // modify?
+        let address = 0x556f6b17bf30;
+        let data = [0x00]; // Example data to write, adjust as needed
     
         // Write the data to the specified address
         memory.write_memory(address, &data)
               .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
     }
-    
-
     // Method to create a concolic variable with int
     pub fn create_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) -> &ConcolicVar<'a> {
         // According to IEEE 754 standards and assumes all floating-point variables are single precision
@@ -209,6 +188,32 @@ impl<'a> State<'a> {
         // Bitwise AND is not applicable to floating-point values.
         panic!("Bitwise AND operation is not valid for floating-point values.");
     }
+
+    //const ENTRY_POINT_ADDRESS: u64 = 0x45f5c0;
+
+    pub fn check_nil_deref(&mut self, address: u64, current_address: u64, instruction: &Inst) -> Result<(), String> {
+    	// Special case for entry point where accessing 0x0 might be expected
+    	//if current_address == Self::ENTRY_POINT_ADDRESS && address == 0x0 {
+        //	println!("Special case at entry point, accessing 0x0 is not considered a nil dereference.");
+        //	return Ok(());
+    	//}
+
+    	// If RAX is 0x0 -> potential nil dereference
+    	// if let Some(rax_value) = self.cpu_state.gpr.get("RAX") {
+        //     if *rax_value == 0x0 {
+        //         return Err(format!("Nil dereference detected: RAX is 0x0 at address 0x{:x} with instruction {:?}", current_address, instruction));
+        //     }
+        // } else {
+        //     return Err("RAX register value not found".to_string());
+        // }
+
+        // Ensure the accessed address is not 0x0 ?
+    	 if address == 0x0 {
+        	return Err(format!("Nil dereference detected: Attempted to access address 0x0 at address 0x{:x} with instruction {:?}", current_address, instruction));
+    	}
+
+    	Ok(())
+     }
 }
 
 impl<'a> fmt::Display for State<'a> {

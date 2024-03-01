@@ -4,7 +4,6 @@ use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
-use parser::parser::Inst;
 
 use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
 
@@ -62,24 +61,19 @@ impl<'ctx> MemoryX86_64<'ctx> {
             memory_size,
         }
     }
-    const ENTRY_POINT_ADDRESS: u64 = 0x45f5c0;
 
-    // Read a block of memory from a specified address with a given size.
+    // Read a block of memory from a specified address with a given size
     pub fn read_memory(&mut self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
         let mut result = Vec::with_capacity(size);
         for offset in 0..size as u64 {
             let current_address = address + offset;
             match self.memory.get(&current_address) {
                 Some(memory_value) => {
-                    // Assuming concrete is the value you want to read, and it stores an integer representation of the byte.
                     match memory_value.concrete {
                         ConcreteVar::Int(val) => {
-                            // Ensure you're extracting the byte value correctly from your ConcreteVar::Int variant.
-                            // This example assumes ConcreteVar::Int stores the byte as is, which might not be your implementation.
-                            result.push(val as u8); // Cast to u8, assuming val contains the byte value directly.
+                            result.push(val as u8); 
                         },
-                        // Handle other variants of ConcreteVar if necessary
-                        _ => return Err(MemoryError::IncorrectSliceLength), // or an appropriate error
+                        _ => return Err(MemoryError::IncorrectSliceLength), 
                     }
                 },
                 None => return Err(MemoryError::UninitializedAccess(current_address)),
@@ -175,23 +169,4 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn write_byte(&mut self, offset: u64, value: u8) -> Result<(), MemoryError> {
         self.write_memory(offset, &[value]) // Directly write the single byte
     }
-
-    pub fn check_nil_deref(&mut self, address: u64, current_address: u64, instruction: &Inst) -> Result<(), String> {
-    	// Special case for entry point where accessing 0x0 might be expected
-    	if current_address == Self::ENTRY_POINT_ADDRESS && address == 0x0 {
-        	println!("Special case at entry point, accessing 0x0 is not considered a nil dereference.");
-        	return Ok(());
-    	}
-
-    	// General case for nil dereference check: Ensure the accessed address is not 0x0
-    	if address == 0x0 {
-        	// If the address being accessed is 0x0, this is considered a nil dereference.
-        	return Err(format!("Nil dereference detected: Attempted to access address 0x0 at address 0x{:x} with instruction {:?}", current_address, instruction));
-    	}
-
-    	// If the address being accessed is not 0x0, no error is reported.
-    	Ok(())
-     }
-
-
 }

@@ -4,6 +4,7 @@ use std::{error::Error, fmt};
 pub enum ConcreteVar {
     Int(u64),
     Float(f64),
+    Str(String),
 }
 
 impl ConcreteVar {
@@ -36,6 +37,25 @@ impl ConcreteVar {
             },
             // A float cannot sensibly be converted to a byte for memory operations
             ConcreteVar::Float(_) => Err(VarError::ConversionError),
+            ConcreteVar::Str(_) => Err(VarError::ConversionError),
+        }
+    }
+
+    // Method to convert ConcreteVar to an integer
+    pub fn to_int(&self) -> Result<u64, VarError> {
+        match *self {
+            ConcreteVar::Int(value) => Ok(value),
+            ConcreteVar::Float(value) => {
+                if value >= 0.0 && value <= u64::MAX as f64 {
+                    Ok(value as u64)
+                } else {
+                    Err(VarError::ConversionError)
+                }
+            },
+            ConcreteVar::Str(ref s) => {
+                s.parse::<u64>()
+                 .map_err(|_| VarError::ConversionError)
+            },
         }
     }
 }

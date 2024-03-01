@@ -7,6 +7,7 @@ pub struct CpuState {
     pub gpr: BTreeMap<String, u64>, // General-purpose registers
     pub segment_registers: BTreeMap<String, u16>, // Segment registers
     pub control_registers: BTreeMap<String, u64>, // Control registers
+    pub pc: u64, // Program Counter
 }
 
 impl CpuState {
@@ -14,8 +15,9 @@ impl CpuState {
         let mut gpr = BTreeMap::new();
         let segment_registers = BTreeMap::new();
         let control_registers = BTreeMap::new();
+        let pc = 0;
 
-        // Initialize GPRs to 0
+        // Initialize GPRs
         let registers = ["RAX", "RBX", "RCX", "RDX", "RSP", "RBP", "RSI", "RDI", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15"];
         for (_index, &reg) in registers.iter().enumerate() {
             gpr.insert(reg.to_string(), 0);
@@ -25,8 +27,9 @@ impl CpuState {
             gpr,
             segment_registers,
             control_registers,
+            pc,
         }
-    }
+    } 
 
     // Converts a register number to its name.
     fn reg_num_to_name(reg_num: u64) -> Option<&'static str> {

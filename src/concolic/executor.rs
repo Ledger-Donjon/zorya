@@ -19,7 +19,7 @@ pub struct ConcolicExecutor<'a> {
 impl<'a> ConcolicExecutor<'a> {
     pub fn new(context: &'a Context, binary_path: &str) -> Result<Self, io::Error> {
         let solver = Solver::new(context);
-        let state = State::new(context, std::path::Path::new(binary_path))?;
+        let state = State::new(context, binary_path)?;
 
         Ok(ConcolicExecutor {
             context,
@@ -42,23 +42,23 @@ impl<'a> ConcolicExecutor<'a> {
             self.instruction_counter += 1;
         }
         match instruction.opcode {
-            Opcode::Blank => todo!(),
+            Opcode::Blank => panic!("Opcode Blank is not implemented yet"),
             Opcode::BoolAnd => self.handle_bool_and(instruction),
             Opcode::BoolNegate => self.handle_bool_negate(instruction),
             Opcode::BoolOr => self.handle_bool_or(instruction),
             Opcode::BoolXor => self.handle_bool_xor(instruction),
-            Opcode::Branch => todo!(), // unconditional jump to a specified address
-            Opcode::BranchInd => todo!(),
-            Opcode::Build => todo!(),
-            Opcode::Call => todo!(), // function call, semantically similar to a branch but represents execution flow transferring to a subroutine
-            Opcode::CallInd => todo!(), // indirect call to a dynamically determined address
-            Opcode::CallOther => todo!(), // not existing anymore
-            Opcode::Ceil => todo!(),
-            Opcode::CBranch => todo!(), // adds a condition to the jump, taken if a specified condition evaluates to true
+            Opcode::Branch => self.handle_branch(instruction), // unconditional jump to a specified address
+            Opcode::BranchInd => self.handle_branchind(instruction),
+            Opcode::Build => panic!("Opcode Build is not implemented yet"),
+            Opcode::Call => self.handle_call(instruction), // function call, semantically similar to a branch but represents execution flow transferring to a subroutine
+            Opcode::CallInd => self.handle_callind(instruction), // indirect call to a dynamically determined address
+            Opcode::CallOther => panic!("Opcode CallOther is not implemented yet"), // not existing anymore
+            Opcode::Ceil => panic!("Opcode Ceil is not implemented yet"),
+            Opcode::CBranch => self.handle_cbranch(instruction), // adds a condition to the jump
             Opcode::Copy => self.handle_copy(instruction),
-            Opcode::CPoolRef => todo!(), // returns runtime-dependent values from the constant pool
-            Opcode::CrossBuild => todo!(),
-            Opcode::DelaySlot => todo!(),
+            Opcode::CPoolRef => panic!("Opcode CPoolRef is not implemented yet"), // returns runtime-dependent values from the constant pool
+            Opcode::CrossBuild => panic!("Opcode CrossBuild is not implemented yet"),
+            Opcode::DelaySlot => panic!("Opcode DelaySlot is not implemented yet"),
             Opcode::Float2Float => self.handle_float2float(instruction),
             Opcode::FloatAbs => self.handle_float_abs(instruction),
             Opcode::FloatAdd => self.handle_float_add(instruction),
@@ -100,19 +100,19 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::IntSub => self.handle_int_sub(instruction),
             Opcode::IntXor => self.handle_int_xor(instruction),
             Opcode::IntZExt => self.handle_int_zext(instruction),
-            Opcode::Label => todo!(),
+            Opcode::Label => panic!("Opcode Label is not implemented yet"),
             Opcode::Load => self.handle_load(instruction),
             Opcode::LZCount => self.handle_lzcount(instruction),
-            Opcode::New => todo!(), // allocates memory for an object and returns a pointer to that memory
-            Opcode::Piece => todo!(), // concatenation operation that combines two inputs
+            Opcode::New => panic!("Opcode New is not implemented yet"), // allocates memory for an object and returns a pointer to that memory
+            Opcode::Piece => panic!("Opcode Piece is not implemented yet"), // concatenation operation that combines two inputs
             Opcode::PopCount => self.handle_popcount(instruction),
-            Opcode::Return => todo!(), // indicates a return from a subroutine
-            Opcode::Round => todo!(),
-            Opcode::SegmentOp => todo!(),
+            Opcode::Return => self.handle_return(instruction), // indicates a return from a subroutine
+            Opcode::Round => panic!("Opcode Round is not implemented yet"),
+            Opcode::SegmentOp => panic!("Opcode SegmentOp is not implemented yet"),
             Opcode::Store => self.handle_store(instruction),
-            Opcode::SubPiece => todo!(),
-            Opcode::Trunc => todo!(),
-            Opcode::Unused1 => todo!(),
+            Opcode::SubPiece => panic!("Opcode SubPiece is not implemented yet"),
+            Opcode::Trunc => panic!("Opcode Trunc is not implemented yet"),
+            Opcode::Unused1 => panic!("Opcode Unused1 is not implemented yet"),
         }.expect("REASON");
     }
 
@@ -213,6 +213,215 @@ impl<'a> ConcolicExecutor<'a> {
 
         Ok(())
     }
+
+    pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
+        if let Some(destination) = instruction.inputs.get(0) {
+            let dest_address = match &destination.var {
+                Var::Const(addr_str) => {
+                    addr_str.parse::<u64>().map_err(|_| "Failed to parse destination address from Const variant".to_string())?
+                },
+                // not sure if needed to be handled ?
+                Var::Unique(addr) | Var::Register(addr) | Var::Memory(addr) => *addr,
+            };
+
+            // Update the program counter (PC) to the new address
+            self.state.cpu_state.pc = dest_address;
+
+            // Update the concolic variable
+            let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
+            let target_address = match target_address_result {
+                Ok(ConcreteVar::Int(addr)) => addr,
+                _ => return Err("Unable to evaluate target address for CBRANCH operation".to_string()),
+            };
+            let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let var_name = format!("{}_{}_branch", current_addr_hex, format!("{:02}", self.instruction_counter));
+            self.state.create_concolic_var_int(&var_name, target_address, 64); // x86-64, thus 64 bits
+
+            Ok(())
+        } else {
+            Err("BRANCH operation requires a destination".to_string())
+        }
+    }
+
+    // Handle indirect branch operation
+    pub fn handle_branchind(&mut self, instruction: Inst) -> Result<(), String> {
+        if instruction.inputs.is_empty() {
+            return Err("BRANCHIND operation requires an input".to_string());
+        }
+
+        let target_address = match &instruction.inputs[0].var {
+            Var::Const(addr_str) => {
+                addr_str.parse::<u64>().map_err(|_| "Failed to parse target address from Const variant".to_string())?
+            },
+            // not sure if needed to be handled ?
+            Var::Unique(addr) | Var::Register(addr) | Var::Memory(addr) => *addr,
+            _ => return Err("Unsupported Var type for BRANCHIND target address".to_string()),
+        };
+
+        // Update the PC directly
+        self.state.cpu_state.pc = target_address;
+
+        // Update the concolic variable
+        let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
+        let target_address = match target_address_result {
+            Ok(ConcreteVar::Int(addr)) => addr,
+            _ => return Err("Unable to evaluate target address for CBRANCH operation".to_string()),
+        };
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let var_name = format!("{}_{}_branchind", current_addr_hex, format!("{:02}", self.instruction_counter));
+        self.state.create_concolic_var_int(&var_name, target_address, 64); // x86-64, thus 64 bits
+
+        Ok(())
+    }
+
+    // Handle conditional branch operation
+    pub fn handle_cbranch(&mut self, instruction: Inst) -> Result<(), String> {
+        if instruction.inputs.len() != 2 {
+            return Err("CBRANCH operation requires two inputs".to_string());
+        }
+
+        let condition = match &instruction.inputs[1].var {
+            Var::Const(val) => {
+                val.parse::<u64>().map_err(|_| "Failed to parse condition from Const variant".to_string())? != 0
+            },
+            // not sure if needed to be handled ?
+            // Var::Unique(addr) | Var::Register(addr) | Var::Memory(addr) => {
+            //     self.state.get_value_at_address(*addr)?.data != 0
+            // },
+            _ => return Err("Unsupported Var type for CBRANCH condition".to_string()),
+        };
+
+        if condition {
+            self.handle_branch(instruction.clone())?;
+        }
+
+        // Update the concolic variable
+        let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
+        let target_address = match target_address_result {
+            Ok(ConcreteVar::Int(addr)) => addr,
+            _ => return Err("Unable to evaluate target address for CBRANCH operation".to_string()),
+        };
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let var_name = format!("{}_{}_cbranch", current_addr_hex, format!("{:02}", self.instruction_counter));
+        self.state.create_concolic_var_int(&var_name, target_address, 64); // x86-64, thus 64 bits
+
+        Ok(())
+    }
+
+    pub fn handle_call(&mut self, instruction: Inst) -> Result<(), String> {
+        if instruction.opcode != Opcode::Call || instruction.inputs.len() < 1 {
+            return Err("Invalid instruction format for CALL".to_string());
+        }
+
+        // Extract the target address from input0 as the location of the next instruction to execute
+        let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
+        let target_address = match target_address_result {
+            Ok(ConcreteVar::Int(addr)) => addr,
+            _ => return Err("Unable to evaluate target address for CALL operation".to_string()),
+        };
+
+        // Update the current execution address to the target address
+        self.current_address = Some(target_address);
+
+        // Update the concolic variable
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let var_name = format!("{}_{}_call", current_addr_hex, format!("{:02}", self.instruction_counter));
+        self.state.create_concolic_var_int(&var_name, target_address, 64); // x86-64, thus 64 bits
+
+        Ok(())
+    }
+
+    pub fn handle_callind(&mut self, instruction: Inst) -> Result<(), String> {
+        if instruction.opcode != Opcode::CallInd || instruction.inputs.len() < 1 {
+            return Err("Invalid instruction format for CALLIND".to_string());
+        }
+    
+        // Extract the target address from input0 as the location of the next instruction to execute
+        let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
+        let target_address = match target_address_result {
+            Ok(ConcreteVar::Int(addr)) => addr,
+            _ => return Err("Unable to evaluate target address for CALLIND operation".to_string()),
+        };
+    
+        // Update the current execution address to the target address
+        self.current_address = Some(target_address);
+    
+        // Update the concolic variable
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let var_name = format!("{}_{}_callind", current_addr_hex, format!("{:02}", self.instruction_counter));
+        self.state.create_concolic_var_int(&var_name, target_address, 64); // Assuming x86-64, thus 64 bits
+    
+        Ok(())
+    }
+    
+    pub fn handle_return(&mut self, instruction: Inst) -> Result<(), String> {
+        if instruction.opcode != Opcode::Return || instruction.inputs.len() < 1 {
+            return Err("Invalid instruction format for RETURN".to_string());
+        }
+    
+        // Extract the return address from input0 as the location of the next instruction to execute
+        let return_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
+        let return_address = match return_address_result {
+            Ok(ConcreteVar::Int(addr)) => addr,
+            _ => return Err("Unable to evaluate return address for RETURN operation".to_string()),
+        };
+    
+        // Update the current execution address to the return address
+        self.current_address = Some(return_address);
+    
+        // Update the concolic variable
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let var_name = format!("{}_{}_return", current_addr_hex, format!("{:02}", self.instruction_counter));
+        self.state.create_concolic_var_int(&var_name, return_address, 64); // Assuming x86-64, thus 64 bits
+    
+        Ok(())
+    }
+    
+    pub fn handle_callother(&mut self, instruction: Inst) -> Result<(), String> {
+        if instruction.opcode != Opcode::CallOther {
+            return Err("Invalid instruction format for CALLOTHER".to_string());
+        }
+    
+        let targetop = match self.state.get_concrete_var(&instruction.inputs[0]) {
+            Ok(ConcreteVar::Str(name)) => name,
+            _ => return Err("Unable to evaluate targetop for CALLOTHER operation".to_string()),
+        };
+    
+        match targetop.as_str() {
+            "saturate" => {
+                let in1_res = self.state.get_concrete_var(&instruction.inputs[1])?.to_int();
+                let in2_res = self.state.get_concrete_var(&instruction.inputs[2])?.to_int();
+    
+                // Extract the values from in1_res and in2_res, returning early with an error if either is Err
+                let in1 = in1_res.map_err(|e| format!("Failed to convert in1 to int: {:?}", e))?;
+                let in2 = in2_res.map_err(|e| format!("Failed to convert in2 to int: {:?}", e))?;
+    
+                // Now that you have the unwrapped values, you can add them
+                let result = in1 + in2;
+    
+                let result = if result < 0x10000 { result } else { 0xffff };
+    
+                let var_name = format!("{}_{}_callother_saturate", 
+                                       self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr)), 
+                                       format!("{:02}", self.instruction_counter));
+                self.state.create_concolic_var_int(&var_name, result as u64, 32);
+            },
+            _ => {
+                let error_msg = format!(
+                    "CALLOTHER operation '{}' not implemented. Instruction at address: {}, instruction counter: {}, inputs: {:?}",
+                    targetop,
+                    self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr)),
+                    self.instruction_counter,
+                    instruction.inputs.iter().map(|input| self.state.get_concrete_var(input).map_or_else(|e| format!("Error: {}", e), |v| format!("{:?}", v))).collect::<Vec<String>>(),
+                );
+                return Err(error_msg);
+            },
+        }
+    
+        Ok(())
+    }
+    
+    
 
     pub fn handle_float_equal(&mut self, instruction: Inst) -> Result<(), String> {
         // Validate the instruction format and ensure there are exactly two inputs
@@ -705,7 +914,7 @@ impl<'a> ConcolicExecutor<'a> {
     	
 	// Check if nil dereference
 	let current_address_value = self.current_address.unwrap_or(0);
-	self.state.memory.check_nil_deref(address_with_offset, current_address_value, &instruction)
+	self.state.check_nil_deref(address_with_offset, current_address_value, &instruction)
     		.map_err(|e| format!("{} at address 0x{:x} with instruction {:?}", e, current_address_value, instruction))?;
         
 	let memory_result = self.state.memory.read_memory(address_with_offset, size as usize);
@@ -797,6 +1006,7 @@ impl<'a> ConcolicExecutor<'a> {
         match self.state.get_concrete_var(varnode) {
             Ok(ConcreteVar::Int(val)) => Ok(val), // Directly return u64 value
             Ok(ConcreteVar::Float(_)) => Err("Expected an integer value, found a float".to_string()),
+            Ok(ConcreteVar::Str(_)) => Err("Expected an integer value, found a str".to_string()),
             Err(_) => {
                 // If the variable is not found, initialize it as an integer with a default value
                 let initial_value = 0u64; // Use u64 for initialization to match ConcreteVar::Int
@@ -887,9 +1097,9 @@ impl<'a> ConcolicExecutor<'a> {
         let mut bytes_to_write = Vec::new();
         bytes_to_write.extend_from_slice(&value_bytes[..size_in_bytes]);
     	
-	// Check for null dereference
-	let current_address_value = self.current_address.unwrap_or(0);
-	self.state.memory.check_nil_deref(address, current_address_value, &instruction)
+        // Check for null dereference
+        let current_address_value = self.current_address.unwrap_or(0);
+        self.state.check_nil_deref(address, current_address_value, &instruction)
     		.map_err(|e| format!("{} at address 0x{:x} with instruction {:?}", e, current_address_value, instruction))?;
 
         // Perform the memory write operation.
