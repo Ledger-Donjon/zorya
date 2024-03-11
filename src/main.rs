@@ -20,12 +20,15 @@ fn main() {
     };
 
     // path to the pcode file generated previously
-    let path = "/home/kgorna/Documents/tools/pcode-generator/results/calculus_low_pcode.txt";
+    let path = "/home/kgorna/Documents/tools/pcode-generator/results/ptr_nil-deref_low_pcode.txt";
     let file = File::open(&path).expect("Could not open file");
     let reader = io::BufReader::new(file);
 
-    let entry_point_address: u64 = 0x45fa00; // Entry point address
-    let mut analysis_started = false; // Flag to indicate if analysis has started
+    // Entry point address
+    let entry_point_address: u64 = 0x45fa00; // ptr-nil-derf
+
+    // Flag to indicate if analysis has started (keep?)
+    let mut analysis_started = false; 
 
     // Read each line from the pcode file
     for line in reader.lines().filter_map(Result::ok) {

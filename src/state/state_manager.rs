@@ -4,7 +4,7 @@ use parser::parser::{Inst, Varnode};
 use z3::Context;
 use std::fmt;
 
-use super::{memory_x86_64::{MemoryError, MemoryX86_64}, CpuState};
+use super::{memory_x86_64::{MemoryError, MemoryX86_64}, virtual_file_system::FileDescriptor, CpuState, VirtualFileSystem};
 
 #[derive(Debug)]
 pub struct State<'a> {
@@ -12,13 +12,19 @@ pub struct State<'a> {
     pub cpu_state: CpuState,
     pub ctx: &'a Context,
     pub memory: MemoryX86_64<'a>,
+    pub vfs: VirtualFileSystem,
+    pub file_descriptors: HashMap<u64, FileDescriptor>, // Maps syscall file descriptors to FileDescriptor objects
+    pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
+    
 }
 
 impl<'a> State<'a> {
     pub fn new(ctx: &'a Context, binary_path: &str) -> io::Result<Self> {
         let cpu_state = CpuState::new();
-        let memory_size: u64 = 0x1000000; // modify?
 
+        let vfs = VirtualFileSystem::new(); // Initialize the virtual file system
+
+        let memory_size: u64 = 0x1000000; // modify?
         let mut memory = MemoryX86_64::new(ctx, memory_size);
 
         // Load binary data into memory
@@ -30,13 +36,16 @@ impl<'a> State<'a> {
         Self::initialize_load_section(&mut file, &mut memory, 0x115000, 0x0000000000515000, 0x017fa0)?; // Third LOAD
 
         // Initialize specific address
-        Self::initialize_specific_address(&mut memory)?;
+        // Self::initialize_specific_address(&mut memory)?;
 
         Ok(State {
             concolic_vars: HashMap::new(),
             cpu_state,
             ctx,
             memory,
+            file_descriptors: HashMap::new(),
+            fd_counter: 0,
+            vfs,
         })
     }
 
@@ -50,15 +59,11 @@ impl<'a> State<'a> {
         Ok(())
     }
 
-    pub fn initialize_specific_address(memory: &mut MemoryX86_64) -> io::Result<()> {
-        // Example address and data
-        let address = 0x556f6b17bf30;
-        let data = [0x00]; // Example data to write, adjust as needed
-    
-        // Write the data to the specified address
-        memory.write_memory(address, &data)
-              .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+    pub fn next_fd_id(&mut self) -> u64 {
+        self.fd_counter += 1;
+        self.fd_counter
     }
+
     // Method to create a concolic variable with int
     pub fn create_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) -> &ConcolicVar<'a> {
         // According to IEEE 754 standards and assumes all floating-point variables are single precision
@@ -95,11 +100,10 @@ impl<'a> State<'a> {
 
     // Method to get a concolic variable's concrete value
     pub fn get_concrete_var(&self, varnode: &Varnode) -> Result<ConcreteVar, String> {
-        let var_name = format!("{:?}", varnode.var);
-        match self.concolic_vars.get(&var_name) {
-            Some(concolic_var) => Ok(concolic_var.concrete.clone()),
-            None => Err(format!("Variable {} not found in concolic_vars", var_name)),
-        }
+        let var_name = format!("{:?}", varnode.var); // Ensure this matches how you name variables elsewhere
+        self.concolic_vars.get(&var_name)
+            .map(|concolic_var| concolic_var.concrete.clone())
+            .ok_or_else(|| format!("Variable '{}' not found in concolic_vars. Available keys: {:?}", var_name, self.concolic_vars.keys()))
     }
 
     // Sets a boolean variable in the state, updating or creating a new concolic variable

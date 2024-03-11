@@ -40,13 +40,24 @@ impl From<concrete_var::VarError> for MemoryError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MemoryValue<'a> {
     pub concrete: ConcreteVar, 
     pub symbolic: SymbolicVar<'a>,
 }
 
-#[derive(Debug)]
+impl<'ctx> MemoryValue<'ctx> {
+    // Creates a default memory value zero-initialized.
+    pub fn default(ctx: &'ctx Context) -> Self {
+        MemoryValue {
+            concrete: ConcreteVar::Int(0),
+            symbolic: SymbolicVar::Int(BV::from_u64(ctx, 0, 64)), // 64-bit
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
     pub memory: BTreeMap<u64, MemoryValue<'ctx>>,
     ctx: &'ctx Context,
@@ -62,26 +73,36 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
     }
 
+    pub fn ensure_address_initialized(&mut self, address: u64, size: usize) {
+        for offset in 0..size {
+            let current_address = address + offset as u64;
+            self.memory.entry(current_address).or_insert_with(|| MemoryValue::default(self.ctx));
+        }
+    }
+
     // Read a block of memory from a specified address with a given size
+    // Handles UninitializedAccess by returning a default value
     pub fn read_memory(&mut self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
+        self.ensure_address_initialized(address, size);
         let mut result = Vec::with_capacity(size);
         for offset in 0..size as u64 {
             let current_address = address + offset;
             match self.memory.get(&current_address) {
                 Some(memory_value) => {
                     match memory_value.concrete {
-                        ConcreteVar::Int(val) => {
-                            result.push(val as u8); 
-                        },
-                        _ => return Err(MemoryError::IncorrectSliceLength), 
+                        ConcreteVar::Int(val) => result.push(val as u8),
+                        _ => return Err(MemoryError::IncorrectSliceLength),
                     }
                 },
-                None => return Err(MemoryError::UninitializedAccess(current_address)),
+                None => {
+                    // Handling uninitialized memory: return a default value zero
+                    result.push(0);
+                },
             }
         }
-    
+
         Ok(result)
-    }
+    } 
 
     // Writes a slice of bytes to memory starting from a specified address.
     pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
@@ -145,6 +166,44 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 Err(MemoryError::IncorrectSliceLength)
             }
         })
+    }
+
+    /// Reads a null-terminated string starting from the specified memory address.
+    ///
+    /// This method dynamically determines the length of the string by reading each byte until
+    /// a null terminator (0x00) is encountered. It constructs a `String` from the bytes read
+    /// from memory, assuming they are valid UTF-8 encoded characters. This approach is commonly
+    /// used for C-style strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The starting address in memory where the string is located.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` which is either:
+    /// - `Ok(String)` containing the read string if successful.
+    /// - `Err(MemoryError)` if an error occurs during the read operation, including if the
+    ///   memory address is out of bounds or the data at the address does not represent a valid
+    ///   UTF-8 string.
+    pub fn read_string(&mut self, address: u64) -> Result<String, MemoryError> {
+        let mut bytes = Vec::new(); // Vector to hold the bytes that make up the string.
+        let mut offset = 0; // Offset from the starting address, used to read each successive byte.
+
+        loop {
+            // Read a single byte from memory at the current address+offset.
+            let byte = self.read_byte(address + offset)?;
+            // Check if the byte is the null terminator (0x00), indicating the end of the string.
+            if byte == 0 {
+                break; // Exit the loop if we've reached the end of the string.
+            }
+            bytes.push(byte); // Add the byte to the vector if it's not the null terminator.
+            offset += 1; // Increment the offset to move to the next byte in memory.
+        }
+
+        // Attempt to convert the bytes vector into a UTF-8 string.
+        // This may fail if the bytes do not form valid UTF-8 encoded text.
+        Ok(String::from_utf8(bytes).map_err(|_| MemoryError::IncorrectSliceLength)?)
     }
 
     // Write a 64-bit (quad) value to memory
