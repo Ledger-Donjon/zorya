@@ -56,29 +56,86 @@ impl VirtualFileSystem {
         VirtualFileSystem { root }
     }
 
-    // Function to create a file within the file system.
+    // Creates a new file within the file system at a specified path with given data.
     pub fn create_file(&self, path: String, data: Vec<u8>) -> Result<Rc<RefCell<FileObject>>, String> {
-        let mut root = self.root.borrow_mut();
-        if root.children.contains_key(&path) {
+        let (dir_path, file_name) = self.parse_path(&path)?;
+        let directory = self.get_or_create_directory(&dir_path)?;
+        
+        // Ensure the file does not already exist in the directory.
+        if directory.borrow().children.contains_key(&file_name) {
             return Err("File already exists".to_string());
         }
+
         let file = Rc::new(RefCell::new(FileObject {
-            name: path.clone(),
+            name: file_name.clone(),
             data,
         }));
-        root.children.insert(path, FileSystemNode::File(Rc::clone(&file)));
+        directory.borrow_mut().children.insert(file_name, FileSystemNode::File(file.clone()));
         Ok(file)
+    }
+
+    // Parses a file system path into directory path and file name components.
+    fn parse_path(&self, path: &str) -> Result<(String, String), String> {
+        let parts: Vec<&str> = path.rsplitn(2, '/').collect();
+        let file_name = parts[0].to_string();
+        let dir_path = parts.get(1).unwrap_or(&"").to_string();
+        Ok((dir_path, file_name))
+    }
+
+    // Finds an existing directory or creates a new one if it doesn't exist.
+    fn get_or_create_directory(&self, path: &str) -> Result<Rc<RefCell<DirectoryObject>>, String> {
+        let parts = path.split('/').filter(|p| !p.is_empty());
+        let mut current_dir = Rc::clone(&self.root);
+        for part in parts {
+            let temp_dir = {
+                let mut current_dir_borrow = current_dir.borrow_mut();
+                current_dir_borrow.children.entry(part.to_string()).or_insert_with(|| {
+                    FileSystemNode::Directory(Rc::new(RefCell::new(DirectoryObject {
+                        name: part.to_string(),
+                        children: HashMap::new(),
+                    })))
+                });
+                match current_dir_borrow.children.get(part).unwrap() {
+                    FileSystemNode::Directory(dir) => Rc::clone(dir),
+                    _ => return Err("Path component is not a directory".to_string()),
+                }
+            };
+            current_dir = temp_dir;
+        }
+        Ok(current_dir)
+    }
+
+    // Helper function to find or create a directory given a path.
+    pub fn find_or_create_directory(&self, path: &str) -> Result<bool, String> {
+        let mut root = self.root.borrow_mut();
+        if root.children.contains_key(path) {
+            Ok(false) // Directory already exists
+        } else {
+            let directory = Rc::new(RefCell::new(DirectoryObject {
+                name: path.to_string(),
+                children: HashMap::new(),
+            }));
+            root.children.insert(path.to_string(), FileSystemNode::Directory(Rc::clone(&directory)));
+            Ok(true) // Directory was created
+        }
     }
 
     // Copy a file
     pub fn copy_file(&self, source_path: &str, destination_path: &str) -> Result<(), String> {
-        let root = self.root.borrow();
-        if let Some(FileSystemNode::File(file)) = root.children.get(source_path) {
-            let file_data = file.borrow().data.clone();
-            self.create_file(destination_path.to_string(), file_data)?;
-            Ok(())
-        } else {
-            Err("Source file not found".to_string())
+        // Temporarily drop borrow by scoping the file_data extraction
+        let file_data = {
+            let root = self.root.borrow();
+            if let Some(FileSystemNode::File(file)) = root.children.get(source_path) {
+                Some(file.borrow().data.clone())
+            } else {
+                None
+            }
+        };
+
+        // Proceed with the operation based on the extracted data
+        match file_data {
+            Some(data) => self.create_file(destination_path.to_string(), data).map(|_| ()),
+            None => Err("Source file not found".to_string()),
         }
     }    
 
@@ -149,8 +206,12 @@ mod tests {
     #[test]
     fn test_create_and_list_directory() {
         let vfs = VirtualFileSystem::new();
-        vfs.create_file("file1.txt".to_string(), vec![1, 2, 3]).unwrap();
-        let contents = vfs.list_directory("/").unwrap();
+        // Create a directory explicitly
+        assert!(vfs.find_or_create_directory("directory").is_ok());
+        // Create a file within the directory
+        assert!(vfs.create_file("directory/file1.txt".to_string(), vec![1, 2, 3]).is_ok());
+        // List the contents of the directory
+        let contents = vfs.list_directory("directory").unwrap();
         assert_eq!(contents, vec!["file1.txt"]);
     }
 
