@@ -1,7 +1,9 @@
-use std::{fs::File, io::{self, BufRead}};
+use std::{fs::File, io::{self, BufRead, Read}, path::Path};
+use goblin::elf::Elf;
 use parser::parser::Inst;
 use z3::{Config, Context};
 use zorya::executor::ConcolicExecutor;
+
 
 fn main() {
     let config = Config::new();
@@ -20,12 +22,20 @@ fn main() {
     };
 
     // path to the pcode file generated previously
-    let path = "/home/kgorna/Documents/tools/pcode-generator/results/ptr_nil-deref_low_pcode.txt";
+    let path = "/home/kgorna/Documents/tools/pcode-generator/results/calculus_low_pcode.txt";
     let file = File::open(&path).expect("Could not open file");
     let reader = io::BufReader::new(file);
 
-    // Entry point address
-    let entry_point_address: u64 = 0x45fa00; // ptr-nil-derf
+    // Automatically find entry point address
+    let entry_point_address = match find_entry_point(binary_path) {
+        Ok(address) => address,
+        Err(e) => {
+            eprintln!("Error finding entry point: {}", e);
+            return;
+        },
+    };
+
+    println!("Entry Point Address: 0x{:x}", entry_point_address);
 
     // Flag to indicate if analysis has started (keep?)
     let mut analysis_started = false; 
@@ -62,4 +72,15 @@ fn main() {
 
     // Final state after executing all instructions
     println!("Final state: {:?}", executor.state.concolic_vars); 
+}
+
+fn find_entry_point<P: AsRef<Path>>(path: P) -> Result<u64, String> {
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+
+    match Elf::parse(&buffer) {
+        Ok(elf) => Ok(elf.entry),
+        Err(e) => Err(e.to_string()),
+    }
 }

@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 z3 = "0.12.1"
 parser = { path = "external/pcode-parser" }
+goblin = "0.8.0"

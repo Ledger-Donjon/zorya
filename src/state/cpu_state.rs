@@ -18,7 +18,7 @@ impl CpuState {
         let pc = 0;
 
         // Initialize GPRs
-        let registers = ["RAX", "RBX", "RCX", "RDX", "RSP", "RBP", "RSI", "RDI", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15", "R32"];
+        let registers = ["RAX", "RBX", "RCX", "RDX", "RSP", "RBP", "RSI", "RDI", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15", "R16", "R32", "R56", "R512", "R518"];
         for (_index, &reg) in registers.iter().enumerate() {
             gpr.insert(reg.to_string(), 0);
         }
@@ -40,9 +40,10 @@ impl CpuState {
             (4, "RSP"), (5, "RBP"), (6, "RSI"), (7, "RDI"),
             (8, "R8"), (9, "R9"), (10, "R10"), (11, "R11"),
             (12, "R12"), (13, "R13"), (14, "R14"), (15, "R15"),
+            (16, "R16"),
             
             // required by the pcode
-            (32, "R32"),
+            (32, "R32"), (56, "R56"), (512, "R512"), (518, "R518"),
 
         ].iter().cloned().collect();
     
