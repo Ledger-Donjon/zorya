@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fs::File, io::{self, Read, Seek, SeekFrom}, path::{Path, PathBuf}};
-use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar, state::cpu_state::GLOBAL_CPU_STATE};
+use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use parser::parser::{Inst, Varnode};
 use z3::Context;
@@ -23,10 +23,6 @@ impl<'a> State<'a> {
         
         // Initialize the mock CPU state
         let _ = state_mocker::get_mock();
-        
-        // Use GLOBAL_CPU_STATE for operations needing CPU state
-        let cpu_state = GLOBAL_CPU_STATE.lock().unwrap();
-        println!("{}", cpu_state);
 
         // Initialize the virtual file system
         let vfs = VirtualFileSystem::new();
