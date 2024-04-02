@@ -169,13 +169,17 @@ impl VirtualFileSystem {
         Ok(())
     }
 
-    // Function to write data to a file at the current position.
-    pub fn write(&self, fd: &mut FileDescriptor, data: &[u8]) -> Result<(), String> {
+    // Function to write data to a file at the current position and returns the number of bytes written
+    pub fn write(&self, fd: &mut FileDescriptor, data: &[u8]) -> Result<usize, String> {
         let mut file = fd.file.borrow_mut();
+        let before_len = file.data.len();
         file.data.splice(fd.position..fd.position, data.iter().cloned());
         fd.position += data.len();
-        Ok(())
+        let after_len = file.data.len();
+        let bytes_written = after_len - before_len;
+        Ok(bytes_written)
     }
+    
 
     // Function to delete a file or directory from the filesystem.
     pub fn delete(&self, path: &str) -> Result<(), String> {

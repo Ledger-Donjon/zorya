@@ -1,4 +1,7 @@
 use std::io;
+use std::sync::MutexGuard;
+use crate::state::cpu_state::GLOBAL_CPU_STATE;
+use crate::state::CpuState;
 use crate::state::State;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::{Context, Solver};
@@ -33,7 +36,7 @@ impl<'a> ConcolicExecutor<'a> {
         })
     }
 
-    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64) {
+    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64) -> Result<(), String> {
         // Check if we are processing a new address block
         if Some(current_addr) != self.current_address {
             // Update the current address
@@ -44,7 +47,7 @@ impl<'a> ConcolicExecutor<'a> {
             // Same address block, increment the instruction counter
             self.instruction_counter += 1;
         }
-        match instruction.opcode {
+        let _ = match instruction.opcode {
 
             Opcode::Blank => panic!("Opcode Blank is not implemented yet"),
             Opcode::Branch => self.handle_branch(instruction), // unconditional jump to a specified address
@@ -125,8 +128,8 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::IntSub => executor_int::handle_int_sub(self, instruction),
             Opcode::IntXor => executor_int::handle_int_xor(self, instruction),
             Opcode::IntZExt => executor_int::handle_int_zext(self, instruction),
-
-        }.expect("REASON");
+        };
+        Ok(())
     }
 
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
@@ -143,8 +146,11 @@ impl<'a> ConcolicExecutor<'a> {
             Var::Register(addr, _size) => *addr,
         };
 
-        // Update the program counter in the CPU state.
-        self.state.cpu_state.pc = dest_address;
+        // Update the program counter (RIP) in the global CPU state as a hexadecimal string.
+    {
+        let mut cpu_state = GLOBAL_CPU_STATE.lock().unwrap();
+        cpu_state.set_register_value_by_name("rip", format!("0x{:X}", dest_address));
+    }
 
         // Update the concolic state to reflect the branch taken.
         let var_name = format!("branch_{:x}", dest_address);
@@ -165,8 +171,12 @@ impl<'a> ConcolicExecutor<'a> {
             Var::Register(addr, _size) => *addr,
         };
 
-        // Update the PC directly
-        self.state.cpu_state.pc = target_address;
+        // Update the program counter in the global CPU state.
+        {
+            let mut cpu_state = GLOBAL_CPU_STATE.lock().unwrap();
+            cpu_state.set_register_value_by_name("rip", format!("0x{:X}", target_address));
+        }
+
 
         // Update the concolic variable
         let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
@@ -186,15 +196,27 @@ impl<'a> ConcolicExecutor<'a> {
         if instruction.inputs.len() != 2 {
             return Err("CBRANCH operation requires two inputs".to_string());
         }
+
+        // Lock the GLOBAL_CPU_STATE once at the beginning of your method
+        let cpu_state_guard: MutexGuard<CpuState> = GLOBAL_CPU_STATE.lock().unwrap();
     
         let condition = match &instruction.inputs[1].var {
             Var::Const(val) => {
                 val.parse::<u64>().map_err(|_| "Failed to parse condition from Const variant".to_string())? != 0
             },
             Var::Register(addr, _size) => {
-                self.state.cpu_state.get_register_value(*addr)
-                    .ok_or_else(|| format!("Failed to fetch value for register at address {}", addr))?
-                    != 0
+                let reg_name = CpuState::reg_num_to_name(*addr)
+                    .ok_or_else(|| "Failed to fetch register name".to_string())?;
+
+                // Access the GLOBAL_CPU_STATE directly via the lock obtained above
+                let reg_value_str = cpu_state_guard.get_register_value_by_name(&reg_name)
+                    .ok_or_else(|| format!("Failed to fetch value for register {}", reg_name))?;
+
+                // Convert the register value from a hexadecimal string to u64 before comparing
+                let reg_value = u64::from_str_radix(reg_value_str.trim_start_matches("0x"), 16)
+                    .map_err(|_| format!("Failed to parse value for register {} as number", reg_name))?;
+
+                reg_value != 0
             },
             Var::Unique(_addr) | Var::Memory(_addr) => {
                 true // modify ?
@@ -211,7 +233,11 @@ impl<'a> ConcolicExecutor<'a> {
             };
     
             // Proceed with the branch logic as in handle_branch
-            self.state.cpu_state.pc = target_address;
+            {
+                let mut cpu_state = GLOBAL_CPU_STATE.lock().unwrap();
+                cpu_state.set_register_value_by_name("rip", format!("0x{:X}", target_address));
+            }
+
             let var_name = format!("cbranch_{:x}", target_address);
             self.state.create_concolic_var_int(&var_name, target_address, 64); // Assume 64-bit addresses.
         }
@@ -327,6 +353,9 @@ impl<'a> ConcolicExecutor<'a> {
             return Err("Invalid instruction format for LOAD".to_string());
         }
 
+        // Lock the GLOBAL_CPU_STATE once at the beginning of your method
+        let cpu_state_guard: MutexGuard<CpuState> = GLOBAL_CPU_STATE.lock().unwrap();
+
         let output_varnode = instruction.output.as_ref().ok_or_else(|| "Output varnode is required for LOAD".to_string())?;
 
         let base_address = match &instruction.inputs[1].var {
@@ -335,7 +364,16 @@ impl<'a> ConcolicExecutor<'a> {
                 u64::from_str_radix(addr_str, 16).map_err(|_| "Failed to parse address".to_string())?
             },
             Var::Register(reg_num, _size) => {
-                self.state.cpu_state.get_register_value(*reg_num).ok_or_else(|| "Failed to fetch register value".to_string())?
+                let reg_name = CpuState::reg_num_to_name(*reg_num)
+                    .ok_or_else(|| "Failed to fetch register name".to_string())?;
+
+                // Access the GLOBAL_CPU_STATE directly via the lock obtained above
+                let reg_value_str = cpu_state_guard.get_register_value_by_name(&reg_name)
+                    .ok_or_else(|| format!("Failed to fetch value for register {}", reg_name))?;
+
+                // Convert the register value from a hexadecimal string to u64
+                u64::from_str_radix(reg_value_str.trim_start_matches("0x"), 16)
+                    .map_err(|_| format!("Failed to parse value for register {} as number", reg_name))?
             },
             Var::Unique(_) | Var::Memory(_) => {
                 self.resolve_varnode_to_address(&instruction.inputs[1])
@@ -356,6 +394,7 @@ impl<'a> ConcolicExecutor<'a> {
 
         Ok(())
     }
+
 
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
@@ -386,12 +425,18 @@ impl<'a> ConcolicExecutor<'a> {
     
         // Determine the size of the value to be stored based on the size attribute of input2.
         let size_in_bytes = instruction.inputs[2].size.to_bitvector_size() / 8;
-    
+
         // Prepare the value bytes for storage, considering endianess.
         let mut value_bytes = Vec::with_capacity(size_in_bytes as usize);
         for i in 0..size_in_bytes {
-            value_bytes.push(((value >> (8 * i)) & 0xFF) as u8);
-        }
+            // Protect against shifting more bits than exist in the type.
+            if i * 8 < 64 {
+                value_bytes.push(((value >> (8 * i)) & 0xFF) as u8);
+            } else {
+                // Handle error or break as needed if this case should not occur
+                return Err(format!("Attempted to shift {} bits, exceeding the u64 limit", 8 * i));
+            }
+        } 
     
         // Check for null dereference
         // let current_address_value = self.current_address.unwrap_or(0);

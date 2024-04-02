@@ -1,8 +1,8 @@
-use std::{fs::File, io::{self, BufRead, Read}, path::Path};
-use goblin::elf::Elf;
+use std::{fs::File, io::{self, BufRead}};
 use parser::parser::Inst;
 use z3::{Config, Context};
 use zorya::executor::ConcolicExecutor;
+use zorya::state::State;
 
 
 fn main() {
@@ -10,7 +10,7 @@ fn main() {
     let context = Context::new(&config);
 
     // binary path
-    let binary_path = "/home/kgorna/Documents/tools/pcode-generator/tests/calculus/calculus";
+    let binary_path = "/home/kgorna/Documents/tools/pcode-generator/tests/additiongo/additiongo";
 
     // Initialize the ConcolicExecutor, handling the Result properly
     let mut executor = match ConcolicExecutor::new(&context, binary_path) {
@@ -22,25 +22,25 @@ fn main() {
     };
 
     // path to the pcode file generated previously
-    let path = "/home/kgorna/Documents/tools/pcode-generator/results/calculus_low_pcode.txt";
+    let path = "/home/kgorna/Documents/tools/pcode-generator/results/additiongo_low_pcode.txt";
     let file = File::open(&path).expect("Could not open file");
     let reader = io::BufReader::new(file);
 
     // Automatically find entry point address
-    let entry_point_address = match find_entry_point(binary_path) {
+    let entry_point_address = match State::find_entry_point(binary_path) {
         Ok(address) => address,
         Err(e) => {
             eprintln!("Error finding entry point: {}", e);
             return;
         },
     };
-
     println!("Entry Point Address: 0x{:x}", entry_point_address);
 
     // Flag to indicate if analysis has started (keep?)
     let mut analysis_started = false; 
 
     // Read each line from the pcode file
+    println!("Starting concolic execution.");
     for line in reader.lines().filter_map(Result::ok) {
         if line.trim_start().starts_with("0x") {
             if let Ok(address) = u64::from_str_radix(&line.trim()[2..], 16) {
@@ -60,7 +60,7 @@ fn main() {
                     // Execute the instruction at the current address
                     if let Some(addr) = executor.current_address {
                         //println!("Executing instruction at address 0x{:x}: {:?}", addr, inst);
-                        executor.execute_instruction(inst, addr); 
+                        let _ = executor.execute_instruction(inst, addr); 
                         //println!("State after instruction: {:?}", executor.state);
                         //println!("***********************");
                     }
@@ -72,15 +72,4 @@ fn main() {
 
     // Final state after executing all instructions
     println!("Final state: {:?}", executor.state.concolic_vars); 
-}
-
-fn find_entry_point<P: AsRef<Path>>(path: P) -> Result<u64, String> {
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
-
-    match Elf::parse(&buffer) {
-        Ok(elf) => Ok(elf.entry),
-        Err(e) => Err(e.to_string()),
-    }
 }

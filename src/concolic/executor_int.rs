@@ -3,6 +3,7 @@
 
 use crate::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode, Size};
+use ethnum::I256;
 
 use super::{ConcolicVar, ConcreteVar};
 
@@ -69,6 +70,16 @@ pub fn handle_int_scarry(executor: &mut ConcolicExecutor, instruction: Inst) -> 
 
     // Calculate signed overflow
     let overflow_occurred = match input0.size {
+        Size::QuadQuad => {
+            let value0_i256 = I256::from(value0); // Convert to I256
+            let value1_i256 = I256::from(value1);
+            value0_i256.checked_add(value1_i256).is_none()
+        },
+        Size::DoubleQuad => {
+            let value0_i128 = value0 as i128;
+            let value1_i128 = value1 as i128;
+            value0_i128.checked_add(value1_i128).is_none()
+        },
         Size::Quad => {
             let value0_i64 = value0 as i64;
             let value1_i64 = value1 as i64;
@@ -275,17 +286,21 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     // Convert unsigned values to signed for comparison
     let signed_value0 = match instruction.inputs[0].size {
-        Size::Quad => (value0 as u64) as i64 as i32, // keep i32?
-        Size::Word => (value0 as u32) as i32,
-        Size::Half => (value0 as u16) as i16 as i32,
-        Size::Byte => (value0 as u8) as i8 as i32,
+        Size::QuadQuad => I256::from(value0),
+        Size::DoubleQuad => ((value0 as u128) as i128 as i32).into(), // is it correct?
+        Size::Quad => ((value0 as u64) as i64 as i32).into(), // ?
+        Size::Word => ((value0 as u32) as i32).into(),
+        Size::Half => ((value0 as u16) as i16 as i32).into(),
+        Size::Byte => ((value0 as u8) as i8 as i32).into(),
     };
 
     let signed_value1 = match instruction.inputs[1].size {
-        Size::Quad => (value1 as u64) as i64 as i32, 
-        Size::Word => (value1 as u32) as i32,
-        Size::Half => (value1 as u16) as i16 as i32,
-        Size::Byte => (value1 as u8) as i8 as i32,
+        Size::QuadQuad => I256::from(value1),
+        Size::DoubleQuad => ((value0 as u128) as i128 as i32).into(), // ?
+        Size::Quad => ((value1 as u64) as i64 as i32).into(), // ?
+        Size::Word => ((value1 as u32) as i32).into(),
+        Size::Half => ((value1 as u16) as i16 as i32).into(),
+        Size::Byte => ((value1 as u8) as i8 as i32).into(),
     };
 
     // Perform signed comparison
@@ -386,22 +401,36 @@ pub fn handle_int_sext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     }
 
     let input_value = executor.initialize_var_if_absent(&instruction.inputs[0])?;
-    // Determine the input size in bits to calculate the shift needed for sign extension
-    let input_bits = instruction.inputs[0].size.to_bitvector_size() * 8; // Assuming 8 bits per size unit for simplicity
+    let input_bits = instruction.inputs[0].size.to_bitvector_size() * 8;
+    let shift_amount = 64u32.saturating_sub(input_bits);
 
-    // Perform sign-extension by shifting left then arithmetic right shifting back to extend the sign
     let extended_value = match instruction.inputs[0].size {
-        Size::Byte => ((input_value as i8) as i64).wrapping_shl(64 - input_bits) as u64,
-        Size::Half => ((input_value as i16) as i64).wrapping_shl(64 - input_bits) as u64,
-        Size::Word => ((input_value as i32) as i64).wrapping_shl(64 - input_bits) as u64,
-        Size::Quad => input_value as u64, // No extension needed if input is already the largest size
-    };
+        Size::QuadQuad => I256::from(input_value),
+        Size::DoubleQuad => (input_value as i128).into(),
+        Size::Byte => (((input_value as i8) as i128).wrapping_shl(shift_amount) as u128).try_into().unwrap(),
+        Size::Half => (((input_value as i16) as i128).wrapping_shl(shift_amount) as u128).try_into().unwrap(),
+        Size::Word => (((input_value as i32) as i128).wrapping_shl(shift_amount) as u128).try_into().unwrap(),
+        Size::Quad => (((input_value as i64) as i128).wrapping_shl(shift_amount) as u128).try_into().unwrap(),
+    }; 
 
-    // Store the sign-extended value
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    // Ensure the value is truncated or zero-extended based on the output size
-    let result = extended_value & ((1u64 << (output_varnode.size.to_bitvector_size() * 8)) - 1);
+    
+    // Ensure no left shift overflow occurs
+    let bitmask = if output_varnode.size.to_bitvector_size() == 256 {
+        I256::MAX
+    } else {
+        // For sizes less than 256 bits, construct the bitmask using shifting.
+        // Note: I256 does not support shifting by u32 directly, so we convert to usize.
+        let shift_amount = (output_varnode.size.to_bitvector_size() * 8) as usize;
+        if shift_amount >= 256 {
+            return Err("Shift amount exceeds 256 bits".to_string());
+        }
+        (I256::ONE << shift_amount) - I256::ONE
+    };
+
+    // Attempt to downcast to u64, handling potential overflow
+    let result: u64 = (extended_value & bitmask).try_into().map_err(|_| "Value cannot be downcasted to u64 without loss".to_string())?;
     executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result, &result_var_name, executor.context, output_varnode.size.to_bitvector_size()));
 
     Ok(())

@@ -1,52 +1,67 @@
-use std::{collections::HashMap, fs::File, io::{self, Read, Seek, SeekFrom}};
-use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar};
+use std::{collections::HashMap, fs::File, io::{self, Read, Seek, SeekFrom}, path::{Path, PathBuf}};
+use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar, state::cpu_state::GLOBAL_CPU_STATE};
+use goblin::elf::Elf;
 use parser::parser::{Inst, Varnode};
 use z3::Context;
 use std::fmt;
 
-use super::{memory_x86_64::{MemoryError, MemoryX86_64}, virtual_file_system::FileDescriptor, CpuState, VirtualFileSystem};
+use super::{memory_x86_64::MemoryX86_64, state_mocker, virtual_file_system::FileDescriptor, VirtualFileSystem};
 
 #[derive(Debug)]
 pub struct State<'a> {
     pub concolic_vars: HashMap<String, ConcolicVar<'a>>,
-    pub cpu_state: CpuState,
     pub ctx: &'a Context,
     pub memory: MemoryX86_64<'a>,
     pub vfs: VirtualFileSystem,
-    pub file_descriptors: HashMap<u64, FileDescriptor>, // Maps syscall file descriptors to FileDescriptor objects
+    pub file_descriptors: HashMap<u64, FileDescriptor>, // Maps syscall file descriptors to FileDescriptor objects.
+    pub fd_paths: HashMap<u64, PathBuf>, // Maps syscall file descriptors to file paths.
     pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
-    
 }
 
 impl<'a> State<'a> {
     pub fn new(ctx: &'a Context, binary_path: &str) -> io::Result<Self> {
-        let cpu_state = CpuState::new();
+        
+        // Initialize the mock CPU state
+        let _ = state_mocker::get_mock();
+        
+        // Use GLOBAL_CPU_STATE for operations needing CPU state
+        let cpu_state = GLOBAL_CPU_STATE.lock().unwrap();
+        println!("{}", cpu_state);
 
-        let vfs = VirtualFileSystem::new(); // Initialize the virtual file system
+        // Initialize the virtual file system
+        let vfs = VirtualFileSystem::new();
 
-        let memory_size: u64 = 0x1000000; // modify?
+        let memory_size: u64 = 0x1000000;
         let mut memory = MemoryX86_64::new(ctx, memory_size);
 
         // Load binary data into memory
         let mut file = File::open(binary_path)?;
 
-        // Initialize memory sections based on LOAD commands
-        Self::initialize_load_section(&mut file, &mut memory, 0x000000, 0x0000000000400000, 0x081b1a)?; // First LOAD
-        Self::initialize_load_section(&mut file, &mut memory, 0x082000, 0x0000000000482000, 0x092328)?; // Second LOAD
-        Self::initialize_load_section(&mut file, &mut memory, 0x115000, 0x0000000000515000, 0x017fa0)?; // Third LOAD
-
-        // Initialize specific address
-        // Self::initialize_specific_address(&mut memory)?;
+        // Initialize memory sections based on LOAD commands (hardcoded for additiongo)
+        Self::initialize_load_section(&mut file, &mut memory, 0x000000, 0x0000000000400000, 0x058602)?; // First LOAD
+        Self::initialize_load_section(&mut file, &mut memory, 0x082000, 0x0000000000459000, 0x066630)?; // Second LOAD
+        Self::initialize_load_section(&mut file, &mut memory, 0x115000, 0x00000000004c0000, 0x0034e0)?; // Third LOAD
 
         Ok(State {
             concolic_vars: HashMap::new(),
-            cpu_state,
             ctx,
             memory,
             file_descriptors: HashMap::new(),
+            fd_paths: HashMap::new(),
             fd_counter: 0,
             vfs,
         })
+    }
+
+    pub fn find_entry_point<P: AsRef<Path>>(path: P) -> Result<u64, String> {
+        let mut file = File::open(path).map_err(|e| e.to_string())?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    
+        match Elf::parse(&buffer) {
+            Ok(elf) => Ok(elf.entry),
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     fn initialize_load_section(file: &mut File, memory: &mut MemoryX86_64, file_offset: u64, memory_address: u64, size: u64) -> io::Result<()> {
@@ -62,6 +77,18 @@ impl<'a> State<'a> {
     pub fn next_fd_id(&mut self) -> u64 {
         self.fd_counter += 1;
         self.fd_counter
+    }
+
+    // Add a file descriptor and its path to the mappings.
+    pub fn register_fd_path(&mut self, fd_id: u64, path: PathBuf) {
+        self.fd_paths.insert(fd_id, path);
+    }
+
+    // Implement the fd_to_path function to convert fd_id to file path string.
+    pub fn fd_to_path(&self, fd_id: u64) -> Result<String, String> {
+        self.fd_paths.get(&fd_id)
+            .map(|path_buf| path_buf.to_str().unwrap_or("").to_string())
+            .ok_or_else(|| "File descriptor ID does not exist".to_string())
     }
 
     // Method to create a concolic variable with int
@@ -111,90 +138,6 @@ impl<'a> State<'a> {
         self.concolic_vars.insert(var_name.to_string(), concolic_var);
     }
 
-
-    // Reads memory using a register address
-    pub fn read_memory_using_register(&mut self, register: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
-        if let Some(address) = self.cpu_state.get_register_value(register) {
-            self.memory.read_memory(address, size)
-        } else {
-            Err(MemoryError::OutOfBounds(register, size)) 
-        }
-    }
-
-    // Writes to memory using a register address
-    // pub fn write_memory_using_register(&mut self, register: u64, bytes: &[u8]) -> Result<(), MemoryError> {
-    //    if let Some(address) = self.cpu_state.get_register_value(register) {
-    //        self.memory.write_memory(address, bytes)
-    //    } else {
-    //        Err(MemoryError::OutOfBounds(register, bytes))
-    //    }
-    //}
-
-    // Arithmetic ADD operation on concolic variables with carry calculation for int
-    pub fn concolic_add_int(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
-        let var1 = self.get_concolic_var(var1_name).expect("Var1 not found").clone();
-        let var2 = self.get_concolic_var(var2_name).expect("Var2 not found").clone();
-    
-        // Perform the addition operation using the concrete values of var1 and var2
-        let result_concrete_value = var1.concrete.add(var2.concrete);
-    
-        // Extract the u64 value from ConcreteVar::Int
-        if let ConcreteVar::Int(value) = result_concrete_value {
-            // Create or update the result variable with the new concrete value
-            let result_var = ConcolicVar::new_concrete_and_symbolic_int(value, result_var_name, self.ctx, bitvector_size);
-            self.set_var(result_var_name, result_var);
-        } else {
-            panic!("Expected an integer result from concolic_add_int");
-        }
-    }
-    
-    // Arithmetic ADD operation on concolic variables with carry calculation for float
-    pub fn concolic_add_float(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str) {
-        let var1 = self.concolic_vars.get(var1_name)
-            .cloned()
-            .unwrap_or_else(|| self.create_concolic_var_float(var1_name, 0.0).clone());
-        let var2 = self.concolic_vars.get(var2_name)
-            .cloned()
-            .unwrap_or_else(|| self.create_concolic_var_float(var2_name, 0.0).clone());
-    
-        // Perform the addition operation using the concrete values of var1 and var2
-        let result_concrete_value = var1.concrete.add(var2.concrete);
-    
-        // Extract the f64 value from ConcreteVar::Float
-        if let ConcreteVar::Float(value) = result_concrete_value {
-            // Create or update the result variable with the new concrete value
-            let result_var = ConcolicVar::new_concrete_and_symbolic_float(value, result_var_name, self.ctx);
-            self.set_var(result_var_name, result_var);
-        } else {
-            panic!("Expected a floating-point result from concolic_add_float");
-        }
-    }
-    
-    // Bitwise AND operation on concolic variables for int
-    pub fn concolic_and_int(&mut self, var1_name: &str, var2_name: &str, result_var_name: &str, bitvector_size: u32) {
-        let var1 = self.get_concolic_var(var1_name).expect("Var1 not found").clone();
-        let var2 = self.get_concolic_var(var2_name).expect("Var2 not found").clone();
-    
-        // Perform the bitwise AND operation using the concrete values of var1 and var2
-        let result_concrete_value = var1.concrete.and(var2.concrete);
-    
-        // Extract the u64 value from ConcreteVar::Int
-        if let ConcreteVar::Int(value) = result_concrete_value {
-            // Create or update the result variable with the new concrete value
-            let result_var = ConcolicVar::new_concrete_and_symbolic_int(value, result_var_name, self.ctx, bitvector_size);
-            self.set_var(result_var_name, result_var);
-        } else {
-            panic!("Expected an integer result from concolic_and_int");
-        }
-    }
-
-    pub fn concolic_and_float(&mut self, _var1_name: &str, _var2_name: &str, _result_var_name: &str, _bitvector_size: u32) {
-        // Bitwise AND is not applicable to floating-point values.
-        panic!("Bitwise AND operation is not valid for floating-point values.");
-    }
-
-    //const ENTRY_POINT_ADDRESS: u64 = 0x45f5c0;
-
     pub fn check_nil_deref(&mut self, address: u64, current_address: u64, instruction: &Inst) -> Result<(), String> {
     	// Special case for entry point where accessing 0x0 might be expected
     	//if current_address == Self::ENTRY_POINT_ADDRESS && address == 0x0 {
@@ -228,23 +171,6 @@ impl<'a> fmt::Display for State<'a> {
         writeln!(f, "  Concolic Variables:")?;
         for (var_name, concolic_var) in &self.concolic_vars {
             writeln!(f, "    {}: {:?}", var_name, concolic_var)?;
-        }
-
-        // CPU State
-        writeln!(f, "  CPU State:")?;
-        writeln!(f, "    GPR:")?;
-        for (reg_name, reg_value) in &self.cpu_state.gpr {
-            writeln!(f, "      {}: {}", reg_name, reg_value)?;
-        }
-
-        writeln!(f, "    Segment Registers:")?;
-        for (reg_name, reg_value) in &self.cpu_state.segment_registers {
-            writeln!(f, "      {}: {}", reg_name, reg_value)?;
-        }
-
-        writeln!(f, "    Control Registers:")?;
-        for (reg_name, reg_value) in &self.cpu_state.control_registers {
-            writeln!(f, "      {}: {}", reg_name, reg_value)?;
         }
 
         // Memory

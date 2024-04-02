@@ -66,11 +66,46 @@ pub struct MemoryX86_64<'ctx> {
 
 impl<'ctx> MemoryX86_64<'ctx> {
     pub fn new(ctx: &'ctx Context, memory_size: u64) -> Self {
+        // CALL LOAD_ALL_DUMPS
+
         MemoryX86_64 {
             memory: BTreeMap::new(),
             ctx,
             memory_size,
         }
+    }
+
+    // Function to load a memory dump from a .bin file
+    pub fn load_memory_dump(&mut self, file_path: &str, start_addr: u64) -> Result<(), Box<dyn std::error::Error>> {
+        let contents = std::fs::read(file_path)?;
+        
+        for (offset, &byte) in contents.iter().enumerate() {
+            let address = start_addr + offset as u64;
+            self.write_byte(address, byte)?;
+        }
+
+        Ok(())
+    }
+
+    // Example usage: Loading all .bin files (adjust according to your actual file paths and naming)
+    pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let dumps_dir = "/home/kgorna/Documents/zorya/src/state/memory_init/";
+        let entries = std::fs::read_dir(dumps_dir)?;
+
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
+                // Extract the start address from the file name
+                let file_name = path.file_stem().unwrap().to_str().unwrap();
+                let addrs: Vec<&str> = file_name.split('-').collect();
+                let start_addr = u64::from_str_radix(addrs[0], 16)?;
+
+                self.load_memory_dump(path.to_str().unwrap(), start_addr)?;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn ensure_address_initialized(&mut self, address: u64, size: usize) {
@@ -103,26 +138,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         Ok(result)
     } 
-
-    // Writes a slice of bytes to memory starting from a specified address.
-    pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
-        // Calculate the end address to prevent writing beyond memory bounds
-        let end_address = address.checked_add(bytes.len() as u64).ok_or(MemoryError::WriteOutOfBounds)?;
-        
-        for (offset, &byte) in bytes.iter().enumerate() {
-            let current_address = address + offset as u64;
-            if current_address >= end_address {
-                return Err(MemoryError::WriteOutOfBounds); // Prevent out-of-bounds write
-            }
-            // Insert the byte into memory, converting it to a `MemoryValue`
-            self.memory.insert(current_address, MemoryValue {
-                concrete: ConcreteVar::Int(byte.into()),
-                symbolic: SymbolicVar::Int(BV::from_u64(self.ctx, byte.into(), 8)), // 8-bit byte size assumed
-            });
-        }
-        
-        Ok(())
-    }
 
     // Read a 64-bit (quad) value from memory
     pub fn read_quad(&mut self, offset: u64) -> Result<u64, MemoryError> {
@@ -206,6 +221,26 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(String::from_utf8(bytes).map_err(|_| MemoryError::IncorrectSliceLength)?)
     }
 
+    // Writes a slice of bytes to memory starting from a specified address.
+    pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
+        // Calculate the end address to prevent writing beyond memory bounds
+        let end_address = address.checked_add(bytes.len() as u64).ok_or(MemoryError::WriteOutOfBounds)?;
+        
+        for (offset, &byte) in bytes.iter().enumerate() {
+            let current_address = address + offset as u64;
+            if current_address >= end_address {
+                return Err(MemoryError::WriteOutOfBounds); // Prevent out-of-bounds write
+            }
+            // Insert the byte into memory, converting it to a `MemoryValue`
+            self.memory.insert(current_address, MemoryValue {
+                concrete: ConcreteVar::Int(byte.into()),
+                symbolic: SymbolicVar::Int(BV::from_u64(self.ctx, byte.into(), 8)), // 8-bit byte size assumed
+            });
+        }
+        
+        Ok(())
+    }
+    
     // Write a 64-bit (quad) value to memory
     pub fn write_quad(&mut self, offset: u64, value: u64) -> Result<(), MemoryError> {
         let bytes = value.to_le_bytes(); // Convert the u64 value into an array of 8 bytes
