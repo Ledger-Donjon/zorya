@@ -5,7 +5,6 @@ use std::fmt;
 use std::sync::Mutex;
 
 lazy_static! {
-    // Assuming the use of lazy_static to hold a mutable state across the application
     pub static ref GLOBAL_CPU_STATE: Mutex<CpuState> = Mutex::new(CpuState::default());
 }
 

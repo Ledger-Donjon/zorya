@@ -2,16 +2,16 @@
 /// concolic execution of the program at a specified entry point.
 
 use crate::state::cpu_state::GLOBAL_CPU_STATE;
+use crate::target_info::GLOBAL_TARGET_INFO;
+
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::{
     fs::{self, File},
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Output},
 };
-
-const MAIN_PROGRAM_ADDR: &str = "0x4585c0";
 
 // Execute GDB commands and return the output
 fn execute_gdb_commands(binary_path: &str, commands: Vec<&str>) -> Result<Output> {
@@ -36,18 +36,24 @@ fn execute_gdb_commands(binary_path: &str, commands: Vec<&str>) -> Result<Output
 }
 
 pub fn get_mock() -> Result<()> {
-    let binary_path = "/home/kgorna/Documents/tools/pcode-generator/tests/additiongo/additiongo";
-    let working_files_dir = PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files");
+
+    let (binary_path, working_files_dir, main_program_addr) = {
+        let info = GLOBAL_TARGET_INFO.lock().unwrap();
+        (info.binary_path.clone(), info.working_files_dir.clone(), info.main_program_addr.clone())
+    };
+
+    // Convert PathBuf to a string slice
+    let binary_path_str = binary_path.as_str();
 
     // Break and run to capture CPU state
-    let break_command = format!("break *{}", MAIN_PROGRAM_ADDR);
+    let break_command = format!("break *{}", main_program_addr);
     let capture_cpu_state_commands = vec![
         break_command.as_str(),
         "run",
         "info all-registers",
     ];
 
-    let gdb_output_cpu = execute_gdb_commands(binary_path, capture_cpu_state_commands)?;
+    let gdb_output_cpu = execute_gdb_commands(binary_path_str, capture_cpu_state_commands)?;
     let output_str_cpu = String::from_utf8_lossy(&gdb_output_cpu.stdout);
 
     println!("{:?}", output_str_cpu);
@@ -66,7 +72,7 @@ pub fn get_mock() -> Result<()> {
         "info proc mappings",
     ];
 
-    let gdb_output_memory = execute_gdb_commands(binary_path, memory_mapping_commands)?;
+    let gdb_output_memory = execute_gdb_commands(binary_path_str, memory_mapping_commands)?;
     let output_str_memory = String::from_utf8_lossy(&gdb_output_memory.stdout);
 
     println!("{:?}", output_str_memory);
@@ -75,7 +81,7 @@ pub fn get_mock() -> Result<()> {
     let mappings = extract_memory_mappings(&output_str_memory)?;
 
     // Execute memory dump commands after CPU state has been captured
-    create_and_execute_dump_commands(&mappings, &working_files_dir, binary_path)?;
+    create_and_execute_dump_commands(&mappings, &working_files_dir, binary_path_str, &main_program_addr)?;
 
     Ok(())
 }
@@ -99,7 +105,7 @@ fn extract_memory_mappings(gdb_output: &str) -> Result<Vec<(String, String, Stri
     Ok(mappings)
 }
 
-fn create_and_execute_dump_commands(mappings: &[(String, String, String, String)], working_files_dir: &Path, binary_path: &str) -> Result<()> {
+fn create_and_execute_dump_commands(mappings: &[(String, String, String, String)], working_files_dir: &Path, binary_path: &str, main_program_addr: &str) -> Result<()> {
     // Ensure there are mappings to process
     if mappings.is_empty() {
         return Err(anyhow::anyhow!("No memory mappings available to create dump commands."));
@@ -119,7 +125,7 @@ fn create_and_execute_dump_commands(mappings: &[(String, String, String, String)
     println!("dump_commands.gdb file created correctly.");
 
     let dump_commands_path = working_files_dir.join("dump_commands.gdb");
-    automate_break_run_and_dump(binary_path, &dump_commands_path, &working_files_dir)?;
+    automate_break_run_and_dump(binary_path, &dump_commands_path, &working_files_dir, main_program_addr)?;
 
     println!("Memory dump executed successfully. Commands written to {:?}", commands_file_path);
     Ok(())
@@ -141,7 +147,8 @@ fn parse_and_update_cpu_state_from_gdb_output(gdb_output: &str) -> Result<()> {
 }
 
 // Automate the break, run, and dump sequence
-fn automate_break_run_and_dump(binary_path: &str, dump_commands_path: &Path, working_files_dir: &Path) -> Result<()> {
+fn automate_break_run_and_dump(binary_path: &str, dump_commands_path: &Path, working_files_dir: &Path, main_program_addr: &str) -> Result<()> {
+    
     let log_path = working_files_dir.join("automate_break_run_and_dump.log");
     let mut log_file = File::create(&log_path)?;
 
@@ -151,7 +158,7 @@ fn automate_break_run_and_dump(binary_path: &str, dump_commands_path: &Path, wor
         .context("Failed to read dump_commands.gdb file")?;
 
     // Breakpoint and run command setup
-    let break_command = format!("break *{}", MAIN_PROGRAM_ADDR);
+    let break_command = format!("break *{}", main_program_addr);
     let run_command = "run";
     let initial_commands = vec![break_command.as_str(), run_command];
 

@@ -1,1 +1,0 @@
-dump memory /home/kgorna/Documents/zorya/src/state/working_files/0x7ffffffdd000-0x7ffffffff000.bin 0x7ffffffdd000 0x7ffffffff000

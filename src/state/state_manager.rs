@@ -20,23 +20,30 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
     pub fn new(ctx: &'a Context, binary_path: &str) -> io::Result<Self> {
-        
-        // Initialize the mock CPU state
+        println!("Initializing State...");
+
+        // Mock CPU state initialization
+        println!("Initializing mock CPU state...");
         let _ = state_mocker::get_mock();
 
-        // Initialize the virtual file system
+        // Virtual file system initialization
+        println!("Initializing virtual file system...");
         let vfs = VirtualFileSystem::new();
 
-        let memory_size: u64 = 0x1000000;
+        let memory_size: u64 = 0x1000000; // Example memory size
+        println!("Initializing memory...");
         let mut memory = MemoryX86_64::new(ctx, memory_size);
 
-        // Load binary data into memory
+        println!("Opening binary file: {}", binary_path);
         let mut file = File::open(binary_path)?;
+        println!("Binary file opened successfully.");
 
-        // Initialize memory sections based on LOAD commands (hardcoded for additiongo)
+        // Example LOAD section initialization
+        println!("Initializing LOAD sections...");
         Self::initialize_load_section(&mut file, &mut memory, 0x000000, 0x0000000000400000, 0x058602)?; // First LOAD
         Self::initialize_load_section(&mut file, &mut memory, 0x082000, 0x0000000000459000, 0x066630)?; // Second LOAD
         Self::initialize_load_section(&mut file, &mut memory, 0x115000, 0x00000000004c0000, 0x0034e0)?; // Third LOAD
+        println!("LOAD sections initialized successfully.");
 
         Ok(State {
             concolic_vars: HashMap::new(),
