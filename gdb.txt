@@ -1,0 +1,8 @@
+kernel-vvar.out: 7ffef1773000..7ffef1777000 r--p
+... Unable to read 12288 bytes from 7ffef1774000
+kernel-vdso.out: 7ffef1777000..7ffef1779000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+

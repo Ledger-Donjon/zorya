@@ -2,6 +2,8 @@
 Zorya implements a concolic execution methodology to find vulnerabilities in application binaries. It uses Ghidra's Pcode to handle most of languages, including Go lang.
 
 ## Install
+Make sure to have Rust, Golang and Python properly installed.
+
 You need to clone the ```shared``` repo (so that zorya properly dumps the ```[vvar]``` memory section during initialization). Then you can clone the full ```zorya``` repo:
 ```
 git clone https://github.com/fishilico/shared/blob/master/linux/special-pages/dump_kernel_pages.py
