@@ -23,9 +23,9 @@ pub struct ConcolicExecutor<'a> {
 }
 
 impl<'a> ConcolicExecutor<'a> {
-    pub fn new(context: &'a Context, binary_path: &str) -> Result<Self, io::Error> {        
+    pub fn new(context: &'a Context) -> Result<Self, io::Error> {        
         let solver = Solver::new(context);
-        let state = match State::new(context, binary_path) {
+        let state = match State::new(context) {
             Ok(state) => {
                 println!("State successfully initialized.");
                 state

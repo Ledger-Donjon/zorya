@@ -1,10 +1,12 @@
 /// Memory model for x86-64 binaries
 
+use regex::Regex;
 use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+use crate::target_info::GLOBAL_TARGET_INFO;
 use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,14 +67,17 @@ pub struct MemoryX86_64<'ctx> {
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
-    pub fn new(ctx: &'ctx Context, memory_size: u64) -> Self {
-        // CALL LOAD_ALL_DUMPS
-
-        MemoryX86_64 {
+    pub fn new(ctx: &'ctx Context, memory_size: u64) -> Result<Self, Box<dyn Error>> {
+        let mut memory_model = MemoryX86_64 {
             memory: BTreeMap::new(),
             ctx,
             memory_size,
-        }
+        };
+
+        // Automatically load all dumps from the working_files_dir specified in GLOBAL_TARGET_INFO
+        memory_model.load_all_dumps()?;
+
+        Ok(memory_model)
     }
 
     // Function to load a memory dump from a .bin file
@@ -87,26 +92,34 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(())
     }
 
-    // Example usage: Loading all .bin files (adjust according to your actual file paths and naming)
-    pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let dumps_dir = "/home/kgorna/Documents/zorya/src/state/memory_init/";
+    // Function to load all memory dumps at initialization or manually
+    pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn Error>> {
+
+        // Get the path to the working_files dir
+        let dumps_dir = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            info.working_files_dir.clone()
+        };
+
         let entries = std::fs::read_dir(dumps_dir)?;
 
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
-                // Extract the start address from the file name
-                let file_name = path.file_stem().unwrap().to_str().unwrap();
-                let addrs: Vec<&str> = file_name.split('-').collect();
-                let start_addr = u64::from_str_radix(addrs[0], 16)?;
 
-                self.load_memory_dump(path.to_str().unwrap(), start_addr)?;
+            if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
+                let file_name = path.file_stem().unwrap().to_str().unwrap();
+                if let Some(captures) = Regex::new(r"^(0x[\da-f]+)-")?.captures(file_name) {
+                    let start_addr_str = captures.get(1).unwrap().as_str();
+                    let start_addr = u64::from_str_radix(&start_addr_str[2..], 16)?; // Skip the '0x' prefix
+
+                    self.load_memory_dump(path.to_str().unwrap(), start_addr)?;
+                }
             }
         }
 
         Ok(())
-    }
+    } 
 
     pub fn ensure_address_initialized(&mut self, address: u64, size: usize) {
         for offset in 0..size {
@@ -189,18 +202,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
     /// a null terminator (0x00) is encountered. It constructs a `String` from the bytes read
     /// from memory, assuming they are valid UTF-8 encoded characters. This approach is commonly
     /// used for C-style strings.
-    ///
-    /// # Arguments
-    ///
-    /// * `address` - The starting address in memory where the string is located.
-    ///
-    /// # Returns
-    ///
-    /// A `Result` which is either:
-    /// - `Ok(String)` containing the read string if successful.
-    /// - `Err(MemoryError)` if an error occurs during the read operation, including if the
-    ///   memory address is out of bounds or the data at the address does not represent a valid
-    ///   UTF-8 string.
     pub fn read_string(&mut self, address: u64) -> Result<String, MemoryError> {
         let mut bytes = Vec::new(); // Vector to hold the bytes that make up the string.
         let mut offset = 0; // Offset from the starting address, used to read each successive byte.
@@ -262,5 +263,32 @@ impl<'ctx> MemoryX86_64<'ctx> {
     // Write an 8-bit (byte) value to memory
     pub fn write_byte(&mut self, offset: u64, value: u8) -> Result<(), MemoryError> {
         self.write_memory(offset, &[value]) // Directly write the single byte
+    }
+}
+
+impl<'ctx> fmt::Display for MemoryX86_64<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Overview of the initialized memory:")?;
+        for (address, memory_value) in self.memory.iter().take(20) {
+            let concrete_value = match &memory_value.concrete {
+                ConcreteVar::Int(val) => val.to_string(),
+                ConcreteVar::Float(val) => val.to_string(),
+                ConcreteVar::Str(val) => val.to_string(),
+            };
+
+            let symbolic_value = match &memory_value.symbolic {
+                SymbolicVar::Int(bv) => format!("{}", bv),
+                SymbolicVar::Float(float) => format!("{}", float),
+            };
+
+            writeln!(
+                f,
+                "  {:#x}: MemoryValue {{ concrete: {}, symbolic: {} }}",
+                address, concrete_value, symbolic_value
+            )?;
+        }
+        writeln!(f, "  etc...")?;
+
+        Ok(())
     }
 }

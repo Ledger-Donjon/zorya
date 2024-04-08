@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, io::{self, Read, Seek, SeekFrom}, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs::File, io::Read, path::{Path, PathBuf}};
 use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use parser::parser::{Inst, Varnode};
@@ -19,7 +19,7 @@ pub struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    pub fn new(ctx: &'a Context, binary_path: &str) -> io::Result<Self> {
+    pub fn new(ctx: &'a Context) -> Result<Self, Box<dyn std::error::Error>> {
         println!("Initializing State...");
 
         // Mock CPU state initialization
@@ -32,18 +32,9 @@ impl<'a> State<'a> {
 
         let memory_size: u64 = 0x1000000; // Example memory size
         println!("Initializing memory...");
-        let mut memory = MemoryX86_64::new(ctx, memory_size);
+        let memory = MemoryX86_64::new(ctx, memory_size)?;
 
-        println!("Opening binary file: {}", binary_path);
-        let mut file = File::open(binary_path)?;
-        println!("Binary file opened successfully.");
-
-        // Example LOAD section initialization
-        println!("Initializing LOAD sections...");
-        Self::initialize_load_section(&mut file, &mut memory, 0x000000, 0x0000000000400000, 0x058602)?; // First LOAD
-        Self::initialize_load_section(&mut file, &mut memory, 0x082000, 0x0000000000459000, 0x066630)?; // Second LOAD
-        Self::initialize_load_section(&mut file, &mut memory, 0x115000, 0x00000000004c0000, 0x0034e0)?; // Third LOAD
-        println!("LOAD sections initialized successfully.");
+        println!("{}", memory);
 
         Ok(State {
             concolic_vars: HashMap::new(),
@@ -65,16 +56,6 @@ impl<'a> State<'a> {
             Ok(elf) => Ok(elf.entry),
             Err(e) => Err(e.to_string()),
         }
-    }
-
-    fn initialize_load_section(file: &mut File, memory: &mut MemoryX86_64, file_offset: u64, memory_address: u64, size: u64) -> io::Result<()> {
-        let mut buffer = vec![0; size as usize];
-        file.seek(SeekFrom::Start(file_offset))?;
-        file.read_exact(&mut buffer)?;
-        for (i, &byte) in buffer.iter().enumerate() {
-            memory.write_memory(memory_address + i as u64, &vec![byte]).unwrap_or_else(|_| panic!("Failed to write memory at address 0x{:x}", memory_address + i as u64));
-        }
-        Ok(())
     }
 
     pub fn next_fd_id(&mut self) -> u64 {
