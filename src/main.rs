@@ -1,92 +1,115 @@
 /// Main code to perform the concolic execution on the target binary described in /src/target_info.rs
 
-use zorya::state::cpu_state::GLOBAL_CPU_STATE;
-use zorya::target_info::GLOBAL_TARGET_INFO;
+use std::collections::{BTreeMap, HashSet};
+use std::fs::File;
+use std::io::{self, BufRead};
 
-use std::{fs::File, io::{self, BufRead}};
 use parser::parser::Inst;
 use z3::{Config, Context};
 use zorya::executor::ConcolicExecutor;
+use zorya::state::cpu_state::GLOBAL_CPU_STATE;
+use zorya::target_info::GLOBAL_TARGET_INFO;
 
 fn main() {
     let config = Config::new();
     let context = Context::new(&config);
 
-    println!("Config, context and global info initialized.");
+    println!("Configuration and context have been initialized.");
 
-    // Use paths from GLOBAL_TARGET_INFO by cloning them to avoid concurency
     let (pcode_file_path, main_program_addr) = {
         let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
+        println!("Acquired target information.");
         (target_info.pcode_file_path.clone(), target_info.main_program_addr.clone())
     };
-    
-    let mut executor = match ConcolicExecutor::new(&context) {
-        Ok(executor) => {
-            println!("ConcolicExecutor successfully initialized.");
-            executor
-        },
-        Err(e) => {
-            eprintln!("Failed to initialize ConcolicExecutor: {}", e);
-            return;
-        }
-    };
 
-    // Load the pcode file
-    let file = File::open(&pcode_file_path).expect("Could not open file");
+    let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
+
+    let instructions_map = preprocess_pcode_file(pcode_file_path_str)
+        .expect("Failed to preprocess the p-code file.");
+
+    let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
+        .expect("The format of the main program address is invalid.");
+
+    let mut executor = ConcolicExecutor::new(&context).expect("Failed to initialize the ConcolicExecutor.");
+
+    execute_instructions_from(&mut executor, start_address, &instructions_map);
+
+    println!("The concolic execution has completed successfully.");
+}
+
+fn preprocess_pcode_file(path: &str) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
+    let file = File::open(path)?;
     let reader = io::BufReader::new(file);
+    let mut instructions_map = BTreeMap::new();
 
-    // Start analysis directly at main_program_addr
-    let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16).expect("Invalid main program address");
-
-    // Set analysis_started flag to true
-    let mut analysis_started = true;
-
-    // Set initial RIP value
-    let main_program_addr = {
-        let info = GLOBAL_TARGET_INFO.lock().unwrap();
-        info.main_program_addr.clone();
-    };
-
-    println!(">>> Starting concolic execution at address: {:?}", main_program_addr);
+    println!("Preprocessing the p-code file...");
 
     for line in reader.lines().filter_map(Result::ok) {
-
-        let cpu_state_lock = GLOBAL_CPU_STATE.lock().unwrap();
-        let rip_value = cpu_state_lock.get_register_value_by_name("rip").unwrap().clone();
-        let current_address = u64::from_str_radix(&rip_value.trim_start_matches("0x"), 16).unwrap();
-        drop(cpu_state_lock); // Explicitly drop the lock (important)
-
-        println!("RIP value : {:?}", rip_value);
-
         if line.trim_start().starts_with("0x") {
-            if let Ok(address) = u64::from_str_radix(&line.trim()[2..], 16) {
-                if address == start_address {
-                    analysis_started = true; // Start analysis from this point
-                }
-                if !analysis_started {
-                    continue; // Skip lines until the entry point is reached
-                }
-                // Update the current address being processed
-                executor.current_address = Some(address);
-            }
-        } else if analysis_started {
-            // Process the instruction at the current address
-            match line.parse::<Inst>() {
-                Ok(inst) => {
-                    // Execute the instruction at the current address from RIP
-                    //println!("Executing instruction at address 0x{:x}: {:?}", current_address, inst);
-                    let _ = executor.execute_instruction(inst, current_address); 
-                    //println!("State after instruction: {:?}", executor.state);
-                    //println!("***********************");   
-                },
-                Err(e) => println!("Error parsing instruction: {:?}", e),
+            let current_address = u64::from_str_radix(&line.trim()[2..], 16).unwrap();
+            instructions_map.entry(current_address).or_insert_with(Vec::new);
+        } else if let Some(inst) = line.parse::<Inst>().ok() {
+            if let Some(current_address) = instructions_map.keys().last().copied() {
+                instructions_map.get_mut(&current_address).unwrap().push(inst);
             }
         }
     }
 
-    // Final state after executing all instructions
-    println!("Successful end of the concolic execution !")
-    // println!("Final state: {:?}", executor.state.concolic_vars);
+    println!("Completed preprocessing.");
 
+    Ok(instructions_map)
 }
 
+fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
+    let mut executed_addresses = HashSet::new();
+    let mut current_rip = start_address;
+
+    println!("Beginning execution from address: 0x{:x}", start_address);
+
+    while let Some(instructions) = instructions_map.get(&current_rip) {
+        if !executed_addresses.insert(current_rip) {
+            println!("Detected a loop or previously executed address. Stopping execution.");
+            break;
+        }
+
+        println!("Executing instructions at address: 0x{:x}", current_rip);
+        let mut branch_taken = false;
+
+        for inst in instructions {
+            if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
+                println!("Failed to execute instruction: {}", e);
+                continue;
+            }
+
+            // Check if the instruction is a branch instruction by examining the opcode
+            if matches!(inst.opcode, parser::parser::Opcode::Branch | parser::parser::Opcode::CBranch | parser::parser::Opcode::BranchInd) {
+                branch_taken = true;
+                break; // Exit the loop to follow the branch
+            }
+        }
+
+        // Update the current_rip based on whether a branch was taken
+        if branch_taken {
+            current_rip = get_current_rip_address(); // Fetch the updated rip value after a branch
+        } else {
+            // If no branch was taken, find the next sequential address in the BTreeMap
+            if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
+                current_rip = next_address; // Move to the next instruction address
+            } else {
+                println!("No further instructions. Execution completed.");
+                break;
+            }
+        }
+
+        println!("Moving to next address: 0x{:x}", current_rip);
+    }
+}
+
+fn get_current_rip_address() -> u64 {
+    let rip_value = {
+        let cpu_state_lock = GLOBAL_CPU_STATE.lock().unwrap();
+        cpu_state_lock.get_register_value_by_name("rip").unwrap().clone()
+    }; 
+
+    u64::from_str_radix(&rip_value.trim_start_matches("0x"), 16).unwrap()
+}

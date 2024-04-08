@@ -248,7 +248,7 @@ impl<'a> ConcolicExecutor<'a> {
             }
 
             let var_name = format!("cbranch_{:x}", target_address);
-            self.state.create_concolic_var_int(&var_name, target_address, 64); // Assume 64-bit addresses.
+            self.state.create_concolic_var_int(&var_name, target_address, 64); 
         }
     
         Ok(())

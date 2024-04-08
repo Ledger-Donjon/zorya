@@ -70,3 +70,131 @@ kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
 Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
 Use 'set logging enabled off'.
 
+kernel-vvar.out: 7ffe152b9000..7ffe152bd000 r--p
+... Unable to read 12288 bytes from 7ffe152ba000
+kernel-vdso.out: 7ffe152bd000..7ffe152bf000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffc16f9e000..7ffc16fa2000 r--p
+... Unable to read 12288 bytes from 7ffc16f9f000
+kernel-vdso.out: 7ffc16fa2000..7ffc16fa4000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffce3aff000..7ffce3b03000 r--p
+... Unable to read 12288 bytes from 7ffce3b00000
+kernel-vdso.out: 7ffce3b03000..7ffce3b05000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 759b4179b000..759b4179f000 r--p
+... Unable to read 12288 bytes from 759b4179c000
+kernel-vdso.out: 759b4179f000..759b417a1000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffcf5535000..7ffcf5539000 r--p
+... Unable to read 12288 bytes from 7ffcf5536000
+kernel-vdso.out: 7ffcf5539000..7ffcf553b000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7fff56fea000..7fff56fee000 r--p
+... Unable to read 12288 bytes from 7fff56feb000
+kernel-vdso.out: 7fff56fee000..7fff56ff0000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffc77dc3000..7ffc77dc7000 r--p
+... Unable to read 12288 bytes from 7ffc77dc4000
+kernel-vdso.out: 7ffc77dc7000..7ffc77dc9000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffe369c2000..7ffe369c6000 r--p
+... Unable to read 12288 bytes from 7ffe369c3000
+kernel-vdso.out: 7ffe369c6000..7ffe369c8000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffcf38d8000..7ffcf38dc000 r--p
+... Unable to read 12288 bytes from 7ffcf38d9000
+kernel-vdso.out: 7ffcf38dc000..7ffcf38de000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffef05c1000..7ffef05c5000 r--p
+... Unable to read 12288 bytes from 7ffef05c2000
+kernel-vdso.out: 7ffef05c5000..7ffef05c7000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffe2a1a0000..7ffe2a1a4000 r--p
+... Unable to read 12288 bytes from 7ffe2a1a1000
+kernel-vdso.out: 7ffe2a1a4000..7ffe2a1a6000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7fff59f6f000..7fff59f73000 r--p
+... Unable to read 12288 bytes from 7fff59f70000
+kernel-vdso.out: 7fff59f73000..7fff59f75000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffdad4fd000..7ffdad501000 r--p
+... Unable to read 12288 bytes from 7ffdad4fe000
+kernel-vdso.out: 7ffdad501000..7ffdad503000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7fff15958000..7fff1595c000 r--p
+... Unable to read 12288 bytes from 7fff15959000
+kernel-vdso.out: 7fff1595c000..7fff1595e000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7ffd7a1e4000..7ffd7a1e8000 r--p
+... Unable to read 12288 bytes from 7ffd7a1e5000
+kernel-vdso.out: 7ffd7a1e8000..7ffd7a1ea000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
+kernel-vvar.out: 7fff27704000..7fff27708000 r--p
+... Unable to read 12288 bytes from 7fff27705000
+kernel-vdso.out: 7fff27708000..7fff2770a000 r-xp
+kernel-vsyscall.out: ffffffffff600000..ffffffffff601000 --xp
+... Skipping executable-only vsyscall page
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+
