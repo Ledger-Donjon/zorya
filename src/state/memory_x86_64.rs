@@ -5,6 +5,7 @@ use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::path::Path;
 
 use crate::target_info::GLOBAL_TARGET_INFO;
 use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
@@ -94,14 +95,21 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     // Function to load all memory dumps at initialization or manually
     pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn Error>> {
-
         // Get the path to the working_files dir
-        let dumps_dir = {
+        let working_files_dir = {
             let info = GLOBAL_TARGET_INFO.lock().unwrap();
             info.working_files_dir.clone()
         };
 
-        let entries = std::fs::read_dir(dumps_dir)?;
+        // Extract the binary name from the binary path and construct the dumps directory path
+        let binary_name = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            Path::new(&info.binary_path).file_stem().unwrap().to_str().unwrap().to_string()
+        };
+        let dumps_dir_path = working_files_dir.join(format!("{}_memory_dumps", binary_name));
+
+        // Read the directory
+        let entries = std::fs::read_dir(dumps_dir_path)?;
 
         for entry in entries {
             let entry = entry?;
@@ -119,7 +127,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
 
         Ok(())
-    } 
+    }
 
     pub fn ensure_address_initialized(&mut self, address: u64, size: usize) {
         for offset in 0..size {
