@@ -9,6 +9,8 @@ You need to clone the ```shared``` repo (so that zorya properly dumps the ```[vv
 git clone https://github.com/fishilico/shared.git
 
 git clone --recursive https://github.com/kajaaz/zorya.git
+
+sudo apt install gdb-multiarch
 ```
 
 

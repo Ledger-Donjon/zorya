@@ -93,37 +93,53 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(())
     }
 
-    // Function to load all memory dumps at initialization or manually
-    pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn Error>> {
-        // Get the path to the working_files dir
+    /// Function to load all memory dumps at initialization or manually
+    pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Loading all dumps to the memory... Be patient :)");
+
+        // Get the path to the working_files dir from global target info
         let working_files_dir = {
             let info = GLOBAL_TARGET_INFO.lock().unwrap();
             info.working_files_dir.clone()
         };
 
-        // Extract the binary name from the binary path and construct the dumps directory path
+        // Construct the directory path where dumps are stored
         let binary_name = {
             let info = GLOBAL_TARGET_INFO.lock().unwrap();
             Path::new(&info.binary_path).file_stem().unwrap().to_str().unwrap().to_string()
         };
-        let dumps_dir_path = working_files_dir.join(format!("{}_memory_dumps", binary_name));
+        let dumps_dir_path = working_files_dir.join(format!("{}_all-u-need", binary_name));
 
-        // Read the directory
-        let entries = std::fs::read_dir(dumps_dir_path)?;
+        // Read the directory containing dump files
+        let entries = std::fs::read_dir(dumps_dir_path.clone())?;
+
+        // Regex to extract start and end addresses from dump filenames
+        let re = Regex::new(r"^dump_(0x[a-fA-F0-9]+)-(0x[a-fA-F0-9]+)\.bin$")?;
+
+        let mut found_files = false;
 
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
 
             if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
-                let file_name = path.file_stem().unwrap().to_str().unwrap();
-                if let Some(captures) = Regex::new(r"^(0x[\da-f]+)-")?.captures(file_name) {
-                    let start_addr_str = captures.get(1).unwrap().as_str();
+                let file_name = path.file_name().unwrap().to_str().unwrap();
+
+                // Use regex to capture start and end addresses
+                if let Some(caps) = re.captures(file_name) {
+                    let start_addr_str = caps.get(1).unwrap().as_str();
                     let start_addr = u64::from_str_radix(&start_addr_str[2..], 16)?; // Skip the '0x' prefix
 
+                    println!("Loading dump for {} at address {}", file_name, start_addr);
                     self.load_memory_dump(path.to_str().unwrap(), start_addr)?;
+                    found_files = true;
                 }
             }
+        }
+
+        if !found_files {
+            println!("No valid dump files found in the directory: {:?}", dumps_dir_path);
+            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "No valid dump files detected.")));
         }
 
         Ok(())

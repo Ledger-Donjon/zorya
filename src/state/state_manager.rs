@@ -24,17 +24,17 @@ impl<'a> State<'a> {
 
         // Mock CPU state initialization
         println!("Initializing mock CPU state...");
-        let _ = state_mocker::get_mock();
-
-        // Virtual file system initialization
-        println!("Initializing virtual file system...");
-        let vfs = VirtualFileSystem::new();
+        let _ = state_mocker::get_mock(); 
 
         let memory_size: u64 = 0x1000000; // Example memory size
         println!("Initializing memory...");
         let memory = MemoryX86_64::new(ctx, memory_size)?;
 
         println!("{}", memory);
+
+        // Virtual file system initialization
+        println!("Initializing virtual file system...");
+        let vfs = VirtualFileSystem::new();
 
         Ok(State {
             concolic_vars: HashMap::new(),
