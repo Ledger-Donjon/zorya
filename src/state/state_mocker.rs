@@ -26,12 +26,12 @@ fn start_qemu(binary_path: &str) -> Result<std::process::Child> {
         .context("Failed to start QEMU")?;
 
     // Give QEMU some time to initialize
-    thread::sleep(Duration::from_secs(5));
+    thread::sleep(Duration::from_secs(1));
     Ok(qemu)
 }
 
 /// Execute GDB locally to get the memory mapping (because 'info proc mappings' doesn't work with remote GDB and QEMU)
-fn execute_gdb_commands_locally(binary_path: &str, commands: &[&str], output_file_path: &Path) -> Result<()> {
+fn get_memory_mapping_with_local_gdb(binary_path: &str, commands: &[&str], output_file_path: &Path) -> Result<()> {
     let output = Command::new("gdb")
         .arg("--batch")
         .arg(binary_path)
@@ -90,6 +90,28 @@ fn execute_gdb_commands(binary_path: &str, commands: &[&str], output_file_path: 
     Ok(())
 }
 
+/// Execute GDB commands and write the output to a file
+fn execute_gdb_commands_without_output(binary_path: &str, commands: &[&str]) -> Result<()> {
+        
+    let output = Command::new("gdb-multiarch")
+        .arg("--batch")
+        .arg(binary_path)
+        .arg("-iex").arg("add-auto-load-safe-path /usr/local/go/src/runtime/runtime-gdb.py")
+        .arg("-iex").arg("set disable-randomization on") // Disables ASLR
+        .arg("-ex").arg("set pagination off")
+        .args(commands.iter().flat_map(|cmd| ["-ex", cmd]))
+        .output()
+        .context("Failed to execute GDB commands")?;
+
+    if !output.status.success() {
+        let error_message = String::from_utf8_lossy(&output.stderr);
+        println!("Error executing GDB commands: {}", error_message);
+        anyhow::bail!("GDB command failed with stderr: {}", error_message);
+    }
+
+    Ok(())
+}
+
 pub fn get_mock() -> Result<()> {
     let (binary_path, working_files_dir, main_program_addr) = {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
@@ -137,7 +159,7 @@ pub fn get_mock() -> Result<()> {
         "quit",
     ];
 
-    execute_gdb_commands_locally(&binary_path, &capture_memory_commands, &memory_output_path)?;
+    get_memory_mapping_with_local_gdb(&binary_path, &capture_memory_commands, &memory_output_path)?;
     let memory_output = fs::read_to_string(&memory_output_path)
         .context("Failed to read memory mappings output file")?;
 
@@ -249,58 +271,43 @@ fn automate_break_run_and_dump(binary_path: &str, dump_commands_path: &Path, dum
 
     let break_command = format!("break *{}", main_program_addr);
     let dump_memory_commands = vec![
+        "target remote localhost:1234",
         &break_command,
-        "run",
-        "info proc mappings",
-        "quit",
+        "continue",
     ];
-
-    // Restart QEMU each time (overwhise it disconnects)
-    let mut _qemu = start_qemu(&binary_path)?;
 
     // Iterate over each line from the dump commands file and execute them
     for line in dump_commands.lines() {
-        if let Some((start_addr, end_addr)) = parse_addresses_from_line(line) {
-            let output_file_name = format!("dump_{}-{}.bin", start_addr, end_addr);
-            let output_file_path = dumps_dir.join(output_file_name);
 
-            writeln!(log_file, "Processing line: {}", line)?;
-            writeln!(log_file, "Writing GDB output to {:?}", output_file_path)?;
+        // Restart QEMU each time (overwhise it disconnects)
+        let mut qemu = start_qemu(&binary_path)?;
 
-            // Prepare the complete set of commands for this iteration
-            let mut commands = dump_memory_commands.clone();           
-            commands.push(line);
+        writeln!(log_file, "Processing command : {}", line)?;
+        println!("Processing command : {}", line);
+        
+        // Prepare the complete set of commands for this iteration
+        let mut commands = dump_memory_commands.clone();           
+        commands.push(line);
 
-            // Execute GDB commands and write output to the temporary file
-            match execute_gdb_commands(binary_path, &commands, &output_file_path) {
-                Ok(_) => {
-                    writeln!(log_file, "Command executed successfully: {}", line)?;
-                },
-                Err(e) => {
-                    writeln!(log_file, "Error executing command: {}. Error: {}", line, e)?;
-                    handle_memory_dump_error(line, dumps_dir)?;
-                },
-            }
-        } else {
-            writeln!(log_file, "Failed to parse addresses from line: {}", line)?;
-        }
-        println!("--> Writting finished for this section!")
+        // Execute GDB commands and write output to the temporary file
+        match execute_gdb_commands_without_output(binary_path, &commands) {
+            Ok(_) => {
+                writeln!(log_file, "Command executed successfully: {}", line)?;
+            },
+            Err(e) => {
+                writeln!(log_file, "Error executing command: {}. Error: {}", line, e)?;
+                handle_memory_dump_error(line, dumps_dir)?;
+            },
+        }  
+        println!("--> Writting finished for this section!\n");
+
+        // Ensure the QEMU process finishes cleanly
+        qemu.wait().context("Failed to cleanly shut down QEMU")?;
+
     }
 
-    // Ensure the QEMU process finishes cleanly
-    // let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
-
+    
     Ok(())
-}
-
-/// Function to parse start and end addresses in hexadecimal form from a dump command line
-fn parse_addresses_from_line(line: &str) -> Option<(String, String)> {
-    let re = Regex::new(r"0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)").unwrap();
-    re.captures(line).map(|caps| {
-        let start_addr = format!("0x{}", caps[1].to_string());
-        let end_addr = format!("0x{}", caps[2].to_string());
-        (start_addr, end_addr)
-    })
 }
 
 fn handle_memory_dump_error(command_line: &str, working_files_dir: &Path) -> Result<()> {

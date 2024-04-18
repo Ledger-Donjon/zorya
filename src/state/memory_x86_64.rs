@@ -95,7 +95,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     /// Function to load all memory dumps at initialization or manually
     pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Loading all dumps to the memory... Be patient :)");
+        println!(">>>>> Loading all dumps to the memory... Be patient :)");
 
         // Get the path to the working_files dir from global target info
         let working_files_dir = {
@@ -114,9 +114,9 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let entries = std::fs::read_dir(dumps_dir_path.clone())?;
 
         // Regex to extract start and end addresses from dump filenames
-        let re = Regex::new(r"^dump_(0x[a-fA-F0-9]+)-(0x[a-fA-F0-9]+)\.bin$")?;
+        let dump_file_regex = Regex::new(r"^(0x[a-fA-F0-9]+)[-_](0x[a-fA-F0-9]+)(_zeros)?\.bin$")?;
 
-        let mut found_files = false;
+        let mut loaded_files = false;
 
         for entry in entries {
             let entry = entry?;
@@ -126,18 +126,17 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 let file_name = path.file_name().unwrap().to_str().unwrap();
 
                 // Use regex to capture start and end addresses
-                if let Some(caps) = re.captures(file_name) {
-                    let start_addr_str = caps.get(1).unwrap().as_str();
-                    let start_addr = u64::from_str_radix(&start_addr_str[2..], 16)?; // Skip the '0x' prefix
-
-                    println!("Loading dump for {} at address {}", file_name, start_addr);
+                if let Some(caps) = dump_file_regex.captures(file_name) {
+                    let start_addr = u64::from_str_radix(&caps[1][2..], 16)?; // Skip '0x'
+                    let end_addr = u64::from_str_radix(&caps[2][2..], 16)?; // Skip '0x'
                     self.load_memory_dump(path.to_str().unwrap(), start_addr)?;
-                    found_files = true;
+                    println!("Loaded memory dump from {:#x} to {:#x} from file: {}", start_addr, end_addr, file_name);
+                    loaded_files = true;
                 }
             }
         }
 
-        if !found_files {
+        if !loaded_files {
             println!("No valid dump files found in the directory: {:?}", dumps_dir_path);
             return Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "No valid dump files detected.")));
         }

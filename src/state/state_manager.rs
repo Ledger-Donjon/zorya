@@ -20,20 +20,20 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
     pub fn new(ctx: &'a Context) -> Result<Self, Box<dyn std::error::Error>> {
-        println!("Initializing State...");
+        println!("Initializing State...\n");
 
         // Mock CPU state initialization
-        println!("Initializing mock CPU state...");
+        println!("Initializing mock CPU state...\n");
         let _ = state_mocker::get_mock(); 
 
         let memory_size: u64 = 0x1000000; // Example memory size
-        println!("Initializing memory...");
+        println!("Initializing memory...\n");
         let memory = MemoryX86_64::new(ctx, memory_size)?;
 
         println!("{}", memory);
 
         // Virtual file system initialization
-        println!("Initializing virtual file system...");
+        println!("Initializing virtual file system...\n");
         let vfs = VirtualFileSystem::new();
 
         Ok(State {

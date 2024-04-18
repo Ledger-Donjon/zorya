@@ -89,17 +89,23 @@ impl fmt::Display for CpuState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "CPU State:")?;
 
-        // Collect into a vector so we can sort it
-        let mut registers: Vec<(&String, &String)> = self.registers.iter().collect();
+        // Define the order of register names as they appear in list 1
+        let register_order = [
+            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "r8", "r9", 
+            "r10", "r11", "r12", "r13", "r14", "r15", "rip", "eflags", "cs", 
+            "ss", "ds", "es", "fs", "gs", "st0", "st1", "st2", "st3", "st4", 
+            "st5", "st6", "st7", "fctrl", "fstat", "ftag", "fiseg", "fioff", 
+            "foseg", "fooff", "fop", "fs_base", "gs_base", "k_gs_base", "cr0", 
+            "cr2", "cr3", "cr4", "cr8", "efer", "mxcsr"
+        ];
 
-        // Sort the vector by register names (alphabetically)
-        registers.sort_by(|a, b| a.0.cmp(b.0));
-
-        // Iterate over the sorted registers and print each
-        for (reg_name, reg_value) in &registers {
-            writeln!(f, "  {}: {}", reg_name, reg_value)?;
+        // Iterate over the register order and print each register
+        for reg_name in &register_order {
+            if let Some(reg_value) = self.registers.get(*reg_name) {
+                writeln!(f, "  {}: {}", reg_name, reg_value)?;
+            }
         }
-        
+
         Ok(())
     }
 }
