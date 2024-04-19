@@ -1,17 +1,18 @@
-use std::{collections::HashMap, fs::File, io::Read, path::{Path, PathBuf}};
+use std::{collections::HashMap, fs::File, io::Read, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use parser::parser::{Inst, Varnode};
 use z3::Context;
 use std::fmt;
 
-use super::{memory_x86_64::MemoryX86_64, state_mocker, virtual_file_system::FileDescriptor, VirtualFileSystem};
+use super::{memory_x86_64::MemoryX86_64, state_initializer, virtual_file_system::FileDescriptor, CpuState, VirtualFileSystem};
 
 #[derive(Debug)]
 pub struct State<'a> {
     pub concolic_vars: HashMap<String, ConcolicVar<'a>>,
     pub ctx: &'a Context,
     pub memory: MemoryX86_64<'a>,
+    pub cpu_state: Arc<Mutex<CpuState<'a>>>,
     pub vfs: VirtualFileSystem,
     pub file_descriptors: HashMap<u64, FileDescriptor>, // Maps syscall file descriptors to FileDescriptor objects.
     pub fd_paths: HashMap<u64, PathBuf>, // Maps syscall file descriptors to file paths.
@@ -19,14 +20,16 @@ pub struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    pub fn new(ctx: &'a Context) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(ctx: &'a Context, cpu_state: Arc<Mutex<CpuState<'a>>>) -> Result<Self, Box<dyn std::error::Error>> {
         println!("Initializing State...\n");
 
         // Mock CPU state initialization
         println!("Initializing mock CPU state...\n");
-        let _ = state_mocker::get_mock(); 
+        let _ = state_initializer::get_mock(cpu_state.clone()); 
 
-        let memory_size: u64 = 0x1000000; // Example memory size
+        CpuState::display_cpu_state(&cpu_state);
+
+        let memory_size: u64 = 0x1000000; // Arbitrary memory size
         println!("Initializing memory...\n");
         let memory = MemoryX86_64::new(ctx, memory_size)?;
 
@@ -40,6 +43,7 @@ impl<'a> State<'a> {
             concolic_vars: HashMap::new(),
             ctx,
             memory,
+            cpu_state,
             file_descriptors: HashMap::new(),
             fd_paths: HashMap::new(),
             fd_counter: 0,
@@ -120,6 +124,19 @@ impl<'a> State<'a> {
     // Sets a boolean variable in the state, updating or creating a new concolic variable
     pub fn set_var(&mut self, var_name: &str, concolic_var: ConcolicVar<'a>) {
         self.concolic_vars.insert(var_name.to_string(), concolic_var);
+    }
+
+    /// Retrieves a reference to a FileDescriptor by its ID.
+    pub fn get_file_descriptor(&self, fd_id: u64) -> Result<&FileDescriptor, String> {
+        self.file_descriptors.get(&fd_id)
+            .ok_or_else(|| "File descriptor not found".to_string())
+    }
+
+    /// Retrieves a mutable reference to a FileDescriptor by its ID.
+    /// This is necessary for operations that modify the FileDescriptor, like write.
+    pub fn get_file_descriptor_mut(&mut self, fd_id: u64) -> Result<&mut FileDescriptor, String> {
+        self.file_descriptors.get_mut(&fd_id)
+            .ok_or_else(|| "File descriptor not found".to_string())
     }
 
     pub fn check_nil_deref(&mut self, address: u64, current_address: u64, instruction: &Inst) -> Result<(), String> {

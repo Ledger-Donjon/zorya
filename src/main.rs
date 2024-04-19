@@ -3,11 +3,12 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead};
+use std::sync::{Arc, Mutex};
 
 use parser::parser::Inst;
 use z3::{Config, Context};
 use zorya::executor::ConcolicExecutor;
-use zorya::state::cpu_state::GLOBAL_CPU_STATE;
+use zorya::state::CpuState;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 fn main() {
@@ -15,6 +16,8 @@ fn main() {
     let context = Context::new(&config);
 
     println!("Configuration and context have been initialized.");
+
+    let cpu_state = Arc::new(Mutex::new(CpuState::new(&context)));
 
     let (pcode_file_path, main_program_addr) = {
         let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
@@ -30,7 +33,7 @@ fn main() {
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
 
-    let mut executor = ConcolicExecutor::new(&context).expect("Failed to initialize the ConcolicExecutor.");
+    let mut executor = ConcolicExecutor::new(&context, cpu_state).expect("Failed to initialize the ConcolicExecutor.");
 
     execute_instructions_from(&mut executor, start_address, &instructions_map);
 
@@ -64,7 +67,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut executed_addresses = HashSet::new();
     let mut current_rip = start_address;
 
-    println!("Beginning execution from address: 0x{:x}", start_address);
+    println!("Beginning execution from address: 0x{:x}\n", start_address);
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
         if !executed_addresses.insert(current_rip) {
@@ -72,7 +75,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             break;
         }
 
-        println!("Executing instructions at address: 0x{:x}", current_rip);
+        println!("Executing instructions at address: 0x{:x}\n", current_rip);
         let mut branch_taken = false;
 
         for inst in instructions {
@@ -90,7 +93,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
         // Update the current_rip based on whether a branch was taken
         if branch_taken {
-            current_rip = get_current_rip_address(); // Fetch the updated rip value after a branch
+            let cpu_state_guard = executor.state.cpu_state.lock()
+                .expect("Failed to lock CPU state");
+            current_rip = get_current_rip_address(&*cpu_state_guard); // Fetch the updated rip value after a branch
         } else {
             // If no branch was taken, find the next sequential address in the BTreeMap
             if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
@@ -105,11 +110,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     }
 }
 
-fn get_current_rip_address() -> u64 {
-    let rip_value = {
-        let cpu_state_lock = GLOBAL_CPU_STATE.lock().unwrap();
-        cpu_state_lock.get_register_value_by_name("rip").unwrap().clone()
-    }; 
-
-    u64::from_str_radix(&rip_value.trim_start_matches("0x"), 16).unwrap()
+fn get_current_rip_address(cpu_state: &CpuState) -> u64 {
+    // Directly access the `rip` register from `CpuState`
+    cpu_state.get_register_value("rip")
+        .expect("Failed to retrieve RIP register value")
 }

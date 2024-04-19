@@ -70,7 +70,11 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let input1_value = executor.initialize_var_if_absent(&instruction.inputs[1])?;
 
     // Perform boolean OR
-    let result = (input0_value | input1_value) & 1; // Ensure result is boolean (0 or 1)
+    let result = input0_value | input1_value;
+
+    println!("Debug BOOL OR : input0 is {:?}", input0_value);
+    println!("Debug BOOL OR : input1 is {:?}", input1_value);
+    println!("Debug BOOL OR : result is {:?}", result);
 
     // Store the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));

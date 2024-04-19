@@ -5,13 +5,15 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use regex::Regex;
 
-use crate::state::cpu_state::GLOBAL_CPU_STATE;
 use crate::target_info::GLOBAL_TARGET_INFO;
+
+use super::CpuState;
 
 /// Start QEMU and ensure it is ready before returning the process handler
 fn start_qemu(binary_path: &str) -> Result<std::process::Child> {
@@ -112,7 +114,7 @@ fn execute_gdb_commands_without_output(binary_path: &str, commands: &[&str]) -> 
     Ok(())
 }
 
-pub fn get_mock() -> Result<()> {
+pub fn get_mock(cpu_state: Arc<Mutex<CpuState>>) -> Result<()> {
     let (binary_path, working_files_dir, main_program_addr) = {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
         (info.binary_path.clone(), info.working_files_dir.clone(), info.main_program_addr.clone())
@@ -143,7 +145,7 @@ pub fn get_mock() -> Result<()> {
 
     let cpu_output = fs::read_to_string(&cpu_output_path)
         .context("Failed to read CPU registers output file")?;
-    parse_and_update_cpu_state_from_gdb_output(&cpu_output)?;
+    parse_and_update_cpu_state_from_gdb_output(cpu_state,&cpu_output)?;
 
     // Ensure the QEMU process finishes cleanly
     let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
@@ -185,19 +187,22 @@ pub fn get_mock() -> Result<()> {
     Ok(())
 }
 
-fn parse_and_update_cpu_state_from_gdb_output(gdb_output: &str) -> Result<()> {
+fn parse_and_update_cpu_state_from_gdb_output(cpu_state: Arc<Mutex<CpuState>>, gdb_output: &str) -> Result<()> {
     let re = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)")?;
-    let mut cpu_state = GLOBAL_CPU_STATE.lock().map_err(|_| anyhow::anyhow!("Failed to lock GLOBAL_CPU_STATE"))?;
-
+    
     for line in gdb_output.lines() {
         if let Some(caps) = re.captures(line) {
             let register_name = &caps[1];
-            let value_hex = format!("0x{}", &caps[2]); // Keep the value in hex format
-            cpu_state.set_register_value_by_name(register_name, value_hex);
+            let value_hex = u64::from_str_radix(&caps[2], 16)
+                .map_err(|_| anyhow!("Failed to parse hex value for {}", register_name))?;
+            
+            // Lock the Mutex to get access to the CpuState.
+            let mut guard = cpu_state.lock()
+                .map_err(|_| anyhow!("Failed to lock CPU state"))?;
+            guard.set_register_value(register_name, value_hex)
+                .map_err(|err| anyhow!(err))?;
         }
     }
-
-    println!("{}", cpu_state);
 
     Ok(())
 }

@@ -117,11 +117,33 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     }
 
     // Ensure the input varnodes exist and initialize them if not
-    let input0_var = executor.initialize_var_if_absent(&instruction.inputs[0])?;
-    let input1_var = executor.initialize_var_if_absent(&instruction.inputs[1])?;
+    let input0_var = executor.state.get_concrete_var(&instruction.inputs[0])?;
+    let input1_var = executor.state.get_concrete_var(&instruction.inputs[1])?;
+    let bitvector_size0 = input0_var.get_size();
+
+    let symbolic_name0 = "intadd0"; // TODO: add the current_address and counter
+    let symbolic_name1 = "intadd1";
+
+    let input0 = ConcolicVar::new_concrete_and_symbolic_int(
+        input0_var.to_int().map_err(|e| e.to_string())?,
+        symbolic_name0,
+        executor.state.ctx,
+        bitvector_size0
+    );
+    let input1 = ConcolicVar::new_concrete_and_symbolic_int(
+        input1_var.to_int().map_err(|e| e.to_string())?,
+        symbolic_name1,
+        executor.state.ctx,
+        bitvector_size0
+    );
 
     // Perform integer addition
-    let result_value = input0_var.wrapping_add(input1_var);
+    let result_value = ConcolicVar::concolic_add(input0, input1, executor.state.ctx)
+        .map_err(|e| e.to_string())?;
+
+    println!("Debug INT ADD : concrete input0 is {:?}", input0_var);
+    println!("Debug INT ADD : concrete input1 is {:?}", input1_var);
+    println!("Debug INT ADD : result is {:?}", result_value);
 
     // Ensure the sizes match
     let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for INT_ADD")?;
@@ -130,12 +152,16 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     }
 
     // Create or update a concolic variable for the result
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    let bitvector_size = output_varnode.size.to_bitvector_size();
+    let result_var_name = format!("{}_{:02}_{}", 
+        executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr)),
+        executor.instruction_counter, 
+        format!("{:?}", output_varnode.var)
+    );
+    let bitvector_size = output_varnode.size as u32; // Assuming size is directly convertible to u32
+
 
     // Assuming create_concolic_var_int is corrected to handle u64 for concrete values
-    executor.state.create_concolic_var_int(&result_var_name, result_value.into(), bitvector_size);
+    executor.state.create_concolic_var_int(&result_var_name, result_value.concrete.to_int().map_err(|e| e.to_string())?, bitvector_size);
 
     Ok(())
 }

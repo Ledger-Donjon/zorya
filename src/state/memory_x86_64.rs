@@ -44,15 +44,22 @@ impl From<concrete_var::VarError> for MemoryError {
 }
 
 #[derive(Clone, Debug)]
-pub struct MemoryValue<'a> {
+pub struct MemoryConcolicValue<'a> {
     pub concrete: ConcreteVar, 
     pub symbolic: SymbolicVar<'a>,
 }
 
-impl<'ctx> MemoryValue<'ctx> {
+impl<'ctx> MemoryConcolicValue<'ctx> {
+    pub fn new(ctx: &'ctx Context, concrete_value: u64) -> Self {
+        MemoryConcolicValue {
+            concrete: ConcreteVar::Int(concrete_value),
+            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, 64)),
+        }
+    }
+
     // Creates a default memory value zero-initialized.
     pub fn default(ctx: &'ctx Context) -> Self {
-        MemoryValue {
+        MemoryConcolicValue {
             concrete: ConcreteVar::Int(0),
             symbolic: SymbolicVar::Int(BV::from_u64(ctx, 0, 64)), // 64-bit
         }
@@ -62,7 +69,7 @@ impl<'ctx> MemoryValue<'ctx> {
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
-    pub memory: BTreeMap<u64, MemoryValue<'ctx>>,
+    pub memory: BTreeMap<u64, MemoryConcolicValue<'ctx>>,
     ctx: &'ctx Context,
     memory_size: u64,
 }
@@ -147,7 +154,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn ensure_address_initialized(&mut self, address: u64, size: usize) {
         for offset in 0..size {
             let current_address = address + offset as u64;
-            self.memory.entry(current_address).or_insert_with(|| MemoryValue::default(self.ctx));
+            self.memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
         }
     }
 
@@ -255,8 +262,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
             if current_address >= end_address {
                 return Err(MemoryError::WriteOutOfBounds); // Prevent out-of-bounds write
             }
-            // Insert the byte into memory, converting it to a `MemoryValue`
-            self.memory.insert(current_address, MemoryValue {
+            // Insert the byte into memory, converting it to a `MemoryConcolicValue`
+            self.memory.insert(current_address, MemoryConcolicValue {
                 concrete: ConcreteVar::Int(byte.into()),
                 symbolic: SymbolicVar::Int(BV::from_u64(self.ctx, byte.into(), 8)), // 8-bit byte size assumed
             });

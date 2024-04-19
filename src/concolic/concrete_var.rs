@@ -58,6 +58,21 @@ impl ConcreteVar {
             },
         }
     }
+
+    pub fn to_u64(&self) -> Option<u64> {
+        match self {
+            ConcreteVar::Int(value) => Some(*value),
+            _ => None, // handle others cases ?
+        }
+    }
+
+    pub fn get_size(&self) -> u32 {
+        match self {
+            ConcreteVar::Int(_) => 64,  // Assuming all integers are u64
+            ConcreteVar::Float(_) => 64, // Assuming double precision floats
+            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // Example for strings, size in bits
+        }
+    }
 }
 
 #[derive(Debug)]

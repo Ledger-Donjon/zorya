@@ -1,39 +1,77 @@
 /// Maintains the state of CPU registers and possibly other aspects of the CPU's status
 
-use std::collections::{BTreeMap, HashMap};
+use std::{collections::BTreeMap, sync::Mutex};
 use std::fmt;
-use std::sync::Mutex;
 
-lazy_static! {
-    pub static ref GLOBAL_CPU_STATE: Mutex<CpuState> = Mutex::new(CpuState::default());
+use z3::{ast::BV, Context};
+
+use crate::concolic::{ConcreteVar, SymbolicVar};
+
+#[derive(Debug, Clone)]
+pub struct CpuConcolicValue<'a> {
+    pub concrete: ConcreteVar,
+    pub symbolic: SymbolicVar<'a>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct CpuState {
-    registers: HashMap<String, String>,
-}
-
-impl CpuState {
-    pub fn new() -> Self {
-        GLOBAL_CPU_STATE.lock().unwrap().clone()
-    }
-
-    pub fn default() -> Self {
-        let mut registers = HashMap::new();
-        // Initialize default values for each register
-        for reg in ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip", "eflags", "cs", "ss", "ds", "es", "fs", "gs", "fctrl", "fstat", "ftag", "fiseg", "fioff", "foseg", "fooff", "fop", "mxcsr", "r16", "r32", "r48", "r56", "r512", "r518"].iter() {
-            registers.insert(reg.to_string(), "0x0".to_owned());
+impl<'ctx> CpuConcolicValue<'ctx> {
+    pub fn new(ctx: &'ctx Context, concrete_value: u64) -> Self {
+        CpuConcolicValue {
+            concrete: ConcreteVar::Int(concrete_value),
+            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, 64)),
         }
-
-        Self { registers }
     }
 
-    pub fn set_register_value_by_name(&mut self, reg_name: &str, value: String) {
-        self.registers.insert(reg_name.to_owned(), value);
+    // Method to retrieve the concrete u64 value
+    pub fn get_concrete_value(&self) -> Result<u64, String> {
+        match self.concrete {
+            ConcreteVar::Int(value) => Ok(value),
+            ConcreteVar::Float(value) => Ok(value as u64),  // Simplistic conversion
+            ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
+                .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CpuState<'ctx> {
+    pub registers: BTreeMap<String, CpuConcolicValue<'ctx>>,
+    ctx: &'ctx Context,
+}
+
+impl<'ctx> CpuState<'ctx> {
+    pub fn new(ctx: &'ctx Context) -> Self {
+        let mut state = CpuState {
+            registers: BTreeMap::new(),
+            ctx,
+        };
+        state.initialize_registers();
+        state
     }
 
-    pub fn get_register_value_by_name(&self, reg_name: &str) -> Option<&String> {
-        self.registers.get(reg_name)
+    fn initialize_registers(&mut self) {
+        let register_names = [
+            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+            "rip", "eflags", "cs", "ss", "ds", "es", "fs", "gs"
+        ];
+        for &name in &register_names {
+            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
+        }
+    }
+
+    pub fn set_register_value(&mut self, name: &str, value: u64) -> Result<(), String> {
+        if let Some(reg) = self.registers.get_mut(name) {
+            // Assuming the method to update the register is correct and does not fail
+            reg.concrete = ConcreteVar::Int(value);
+            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, value, 64));
+            Ok(())
+        } else {
+            Err(format!("Register '{}' does not exist", name))
+        }
+    }
+
+    pub fn get_register_value(&self, name: &str) -> Option<u64> {
+        self.registers.get(name).and_then(|val| val.get_concrete_value().ok())
     }
     
     // Converts a register number to its name.
@@ -81,11 +119,14 @@ impl CpuState {
         register_map.get(&reg_num).cloned()
     }
     
-
+    pub fn display_cpu_state(cpu_state: &Mutex<CpuState>) {
+        let cpu_state_guard = cpu_state.lock().unwrap();  // Handle the lock carefully in production code
+        println!("{}", *cpu_state_guard);
+    }
     
 }
 
-impl fmt::Display for CpuState {
+impl<'ctx> fmt::Display for CpuState<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "CPU State:")?;
 
@@ -102,7 +143,7 @@ impl fmt::Display for CpuState {
         // Iterate over the register order and print each register
         for reg_name in &register_order {
             if let Some(reg_value) = self.registers.get(*reg_name) {
-                writeln!(f, "  {}: {}", reg_name, reg_value)?;
+                writeln!(f, "  {}: {:?}", reg_name, reg_value)?;
             }
         }
 
@@ -113,21 +154,29 @@ impl fmt::Display for CpuState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use z3::Config;
 
     #[test]
-    fn registers_are_properly_initialized() {
-        // Initialize GLOBAL_CPU_STATE with some test data
-        let mut cpu_state = CpuState::default();
-        cpu_state.set_register_value_by_name("rax", "0x123".to_owned());
-        cpu_state.set_register_value_by_name("rbx", "0x456".to_owned());
-        cpu_state.set_register_value_by_name("rip", "0x789".to_owned());
-        // Lock the GLOBAL_CPU_STATE and replace it with our test state
-        let mut global_state = GLOBAL_CPU_STATE.lock().unwrap();
-        *global_state = cpu_state;
+    fn test_get_register_value() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let mut cpu_state = CpuState::new(&ctx);
 
-        // Verify that the CPU state has been initialized with the expected values
-        assert_eq!(global_state.get_register_value_by_name("rax"), Some(&"0x123".to_owned()));
-        assert_eq!(global_state.get_register_value_by_name("rbx"), Some(&"0x456".to_owned()));
-        assert_eq!(global_state.get_register_value_by_name("rip"), Some(&"0x789".to_owned()));
+        // Set initial values
+        cpu_state.set_register_value("rax", 123).unwrap();
+
+        assert_eq!(cpu_state.get_register_value("rax"), Some(123));
+
+        // Testing with a non-existent register
+        assert_eq!(cpu_state.get_register_value("non_existent"), None);
+
+        // Testing error handling in parsing 
+        cpu_state.registers.insert("rbx".to_string(), CpuConcolicValue {
+            concrete: ConcreteVar::Str("not_a_number".to_string()),
+            symbolic: SymbolicVar::Int(BV::from_u64(&ctx, 0, 64)),  // Arbitrary 
+        });
+
+        assert_eq!(cpu_state.get_register_value("rbx"), None);
     }
 }
+

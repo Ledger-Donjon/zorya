@@ -1,12 +1,12 @@
-use std::sync::MutexGuard;
+use std::sync::{Arc, Mutex};
 
 /// Focuses on implementing the execution of the CALLOTHER opcode from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{executor::ConcolicExecutor, state::{cpu_state::GLOBAL_CPU_STATE, CpuState}};
+use crate::{executor::ConcolicExecutor, state::CpuState};
 use parser::parser::{Inst, Var, Varnode};
 
-pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst, cpu_state: Arc<Mutex<CpuState>>) -> Result<(), String> {
     let operation_index = match instruction.inputs.get(0) {
         Some(Varnode { var: Var::Const(index), .. }) => {
             let index = index.trim_start_matches("0x"); // Remove "0x" if present
@@ -16,12 +16,15 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         _ => Err("CALLOTHER operation requires the first input to be a constant index.".to_string()),
     }?;
 
+    // Work with the global CPU registers
+    let mut cpu_state_guard = cpu_state.lock().map_err(|_| "Failed to acquire lock on CPU state")?;
+
     match operation_index {
         // Operations probably used in Go runtime
 
-        0x5 => handle_syscall(executor),
+        0x5 => handle_syscall(executor, &mut *cpu_state_guard),
         //0xb => handle_rdtscp(instruction),
-        0x10 => handle_swi(executor, instruction),
+        0x10 => handle_swi(executor, instruction, &mut *cpu_state_guard),
         // 0x11 => handle_lock(executor, instruction),
         // 0x12 => handle_unlock(executor, instruction),
         // 0x2c => handle_cpuid(executor, instruction),
@@ -56,164 +59,141 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     }
 }
 
-pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
-    let mut cpu_state_guard = GLOBAL_CPU_STATE.lock().unwrap();
-
-    // Parsing syscall number from the "rax" register
-    let syscall_number_str = cpu_state_guard.get_register_value_by_name("rax")
+pub fn handle_syscall(executor: &mut ConcolicExecutor, cpu_state_guard: &mut CpuState) -> Result<(), String> {
+    // Directly get the syscall number as u64 from the "rax" register
+    let syscall_number = cpu_state_guard.get_register_value("rax")
         .ok_or_else(|| "Syscall number not found".to_string())?;
-    let syscall_number = u64::from_str_radix(syscall_number_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse syscall number".to_string())?;
+
+    println!("Debug SYSCALL : syscall number is {:?}", syscall_number);
 
     match syscall_number {
         // Open syscall handling
-        2 => handle_sys_open(executor, &mut cpu_state_guard),
+        2 => handle_sys_open(executor, cpu_state_guard),
         // Read syscall handling
-        0 => handle_sys_read(executor, &mut cpu_state_guard),
+        0 => handle_sys_read(executor, cpu_state_guard),
         // Write syscall handling
-        1 => handle_sys_write(executor, &mut cpu_state_guard),
+        //1 => handle_sys_write(executor, cpu_state_guard),
         _ => Err("Unsupported syscall".to_string()),
     }
 }
 
-fn handle_sys_open(executor: &mut ConcolicExecutor, cpu_state_guard: &mut MutexGuard<CpuState>) -> Result<(), String> {
-    let path_addr_str = cpu_state_guard.get_register_value_by_name("rdi")
+fn handle_sys_open(executor: &mut ConcolicExecutor, cpu_state: &mut CpuState) -> Result<(), String> {
+    // Directly get the path address as u64 from the "rdi" register
+    let path_addr = cpu_state.get_register_value("rdi")
         .ok_or_else(|| "Path address for open not found".to_string())?;
-    let path_addr = u64::from_str_radix(path_addr_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse path address".to_string())?;
 
+    // Read the string from memory at the path address
     let path = executor.state.memory.read_string(path_addr)
         .map_err(|e| e.to_string())?;
+
+    // Open the file at the path and retrieve a file descriptor
     let file_descriptor = executor.state.vfs.open(&path)
         .map_err(|e| e.to_string())?;
 
+    // Get the next file descriptor ID and register it
     let fd_id = executor.state.next_fd_id();
     executor.state.file_descriptors.insert(fd_id, file_descriptor);
+
     // Register the file path with the newly created file descriptor ID.
     executor.state.register_fd_path(fd_id, std::path::PathBuf::from(path));
-    cpu_state_guard.set_register_value_by_name("rax", format!("0x{:x}", fd_id));
 
-    let rip_str = cpu_state_guard.get_register_value_by_name("rip")
-        .ok_or_else(|| "RIP value not found".to_string())?;
-    let result_var_name = format!("syscall_open_{}", rip_str);
+    // Update the "rax" register with the new file descriptor ID
+    cpu_state.set_register_value("rax", fd_id);
+
+    // Create a var name for tracking this syscall in concolic execution
+    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+    let result_var_name = format!("{}_{:02}_sys-open", current_addr_hex, executor.instruction_counter);
     executor.state.create_or_update_concolic_var_int(&result_var_name, fd_id as u64, 64);
 
     Ok(())
 }
 
-
-fn handle_sys_read(executor: &mut ConcolicExecutor, cpu_state_guard: &mut MutexGuard<CpuState>) -> Result<(), String> {
-    let fd_id_str = cpu_state_guard.get_register_value_by_name("rdi")
+fn handle_sys_read(executor: &mut ConcolicExecutor, cpu_state: &mut CpuState) -> Result<(), String> {
+    // Directly get the file descriptor ID as u64 from the "rdi" register
+    let fd_id = cpu_state.get_register_value("rdi")
         .ok_or_else(|| "File descriptor for read not found".to_string())?;
-    let fd_id = u64::from_str_radix(fd_id_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse file descriptor".to_string())?;
 
-    // Convert FD to file path
-    let file_path = executor.state.fd_to_path(fd_id)?; 
+    let file_descriptor = executor.state.get_file_descriptor(fd_id)?;
 
-    // Open file by path 
-    let file_descriptor = executor.state.vfs.open(&file_path) 
-        .map_err(|e| e.to_string())?;
-
-    let buf_addr_str = cpu_state_guard.get_register_value_by_name("rsi")
+    let buf_addr = cpu_state.get_register_value("rsi")
         .ok_or_else(|| "Buffer address for read not found".to_string())?;
-    let buf_addr = u64::from_str_radix(buf_addr_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse buffer address".to_string())?;
 
-    let count_str = cpu_state_guard.get_register_value_by_name("rdx")
-        .ok_or_else(|| "Count for read not found".to_string())?;
-    let count = usize::from_str_radix(count_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse count".to_string())?;
+    let count = cpu_state.get_register_value("rdx")
+        .ok_or_else(|| "Count for read not found".to_string())? as usize;
 
     let mut buffer = vec![0u8; count];
-    executor.state.vfs.read(&file_descriptor, &mut buffer, count)
+    executor.state.vfs.read(file_descriptor, &mut buffer, count)
         .map_err(|e| e.to_string())?;
 
     executor.state.memory.write_memory(buf_addr, &buffer)
         .map_err(|e| e.to_string())?;
 
-    cpu_state_guard.set_register_value_by_name("rax", format!("0x{:x}", buffer.len()));
+    // Update the return value in the "rax" register with the number of bytes read
+    cpu_state.set_register_value("rax", buffer.len() as u64);
 
-    let rip_str = cpu_state_guard.get_register_value_by_name("rip").unwrap();
-    let result_var_name = format!("syscall_read_{}", rip_str);
+    // Generate the concolic variable name based on the current instruction address and counter
+    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+    let result_var_name = format!("{}_{:02}_sys-read", current_addr_hex, executor.instruction_counter);
     executor.state.create_or_update_concolic_var_int(&result_var_name, buffer.len() as u64, 64);
 
     Ok(())
 }
 
-fn handle_sys_write(executor: &mut ConcolicExecutor, cpu_state_guard: &mut MutexGuard<CpuState>) -> Result<(), String> {
-    // Extract the file descriptor ID as a u64 from a hexadecimal string.
-    let fd_id_str = cpu_state_guard.get_register_value_by_name("rdi")
-        .ok_or_else(|| "File descriptor for write not found".to_string())?;
-    let fd_id = u64::from_str_radix(fd_id_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse file descriptor".to_string())?;
+// fn handle_sys_write(executor: &mut ConcolicExecutor, cpu_state: &mut CpuState) -> Result<(), String> {
+//     let fd_id = cpu_state.get_register_value("rdi")
+//         .ok_or_else(|| "File descriptor for write not found".to_string())?;
+    
+//     let buf_addr = cpu_state.get_register_value("rsi")
+//         .ok_or_else(|| "Buffer address for write not found".to_string())?;
 
-    // Use fd_to_path to convert fd_id to the file path associated with this file descriptor.
-    let file_path = executor.state.fd_to_path(fd_id)
-        .map_err(|e| e.to_string())?;
+//     let count = cpu_state.get_register_value("rdx")
+//         .ok_or_else(|| "Count for write not found".to_string())? as usize;
 
-    // Now, instead of opening by fd_id, open the file by its path.
-    let mut file_descriptor = executor.state.vfs.open(&file_path)
-        .map_err(|e| e.to_string())?;
+//     let buffer = executor.state.memory.read_memory(buf_addr, count)
+//         .map_err(|e| e.to_string())?;
 
-    // Convert buffer address from a hexadecimal string to a u64.
-    let buf_addr_str = cpu_state_guard.get_register_value_by_name("rsi")
-        .ok_or_else(|| "Buffer address for write not found".to_string())?;
-    let buf_addr = u64::from_str_radix(buf_addr_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse buffer address".to_string())?;
+//     // First, separate the mutable borrow into its own scope
+//     let bytes_written = {
+//         let file_descriptor = executor.state.get_file_descriptor_mut(fd_id)?;
+//         executor.state.vfs.write(file_descriptor, &buffer)
+//             .map_err(|e| e.to_string())?
+//     };
 
-    // Convert count from a hexadecimal string to usize.
-    let count_str = cpu_state_guard.get_register_value_by_name("rdx")
-        .ok_or_else(|| "Count for write not found".to_string())?;
-    let count = usize::from_str_radix(count_str.trim_start_matches("0x"), 16)
-        .map_err(|_| "Failed to parse count".to_string())?;
+//     // Now `file_descriptor` borrow is dropped and you can freely access `executor.state`
+//     cpu_state.set_register_value("rax", bytes_written as u64);
 
-    // Read the data from memory to be written to the file.
-    let buffer = executor.state.memory.read_memory(buf_addr, count)
-        .map_err(|e| e.to_string())?;
+//     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+//     let result_var_name = format!("{}_{:02}_sys-write", current_addr_hex, executor.instruction_counter);
+//     executor.state.create_or_update_concolic_var_int(&result_var_name, bytes_written as u64, 64);
 
-    let write_result = executor.state.vfs.write(&mut file_descriptor, &buffer);
-
-    // Assuming vfs.write is corrected to return Result<usize, String> where usize is the number of bytes written.
-    match write_result {
-        Ok(bytes_written) => {
-            cpu_state_guard.set_register_value_by_name("rax", format!("0x{:x}", bytes_written));
-
-            let rip_str = cpu_state_guard.get_register_value_by_name("rip").unwrap();
-            let result_var_name = format!("syscall_write_{}", rip_str);
-            executor.state.create_or_update_concolic_var_int(&result_var_name, bytes_written as u64, 64);
-
-            Ok(())
-        },
-        Err(e) => Err(e.to_string())
-    }
-}
+//     Ok(())
+// }
 
 
-// Handles the Software Interrupt (SWI) operation.
-fn handle_swi(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
-    let cpu_state_guard = GLOBAL_CPU_STATE.lock().unwrap();
 
-    // Extract and handle the software interrupt number
-    if let Some(Varnode { var: Var::Const(interrupt_number_str), .. }) = instruction.inputs.get(0) {
-        let interrupt_number = u64::from_str_radix(interrupt_number_str.trim_start_matches("0x"), 16)
-            .map_err(|_| format!("Failed to parse interrupt number '{}'", interrupt_number_str))?;
-
-        match interrupt_number {
-            // INT3 (debug breakpoint) handling
-            0x3 => {
-                eprintln!("INT3 (debug breakpoint) encountered. Aborting execution.");
-                let swi_result_var_name = format!("swi_int3_{}", cpu_state_guard.get_register_value_by_name("rip").unwrap());
-                executor.state.create_or_update_concolic_var_int(&swi_result_var_name, 0x3, 8);
-                Err("Execution aborted due to INT3 (debug breakpoint).".to_string())
-            },
-            // Add handling for other interrupts as needed
-            _ => {
-                eprintln!("Unhandled software interrupt (SWI) encountered: {}", interrupt_number);
-                Err(format!("Unhandled software interrupt (SWI) encountered: {}", interrupt_number))
-            }
-        }
+fn handle_swi(executor: &mut ConcolicExecutor, instruction: Inst, cpu_state: &mut CpuState) -> Result<(), String> {
+    // Assume that the instruction parsing guarantees an immediate constant that is the interrupt number
+    let interrupt_number = if let Some(Varnode { var: Var::Const(interrupt_number_str), .. }) = instruction.inputs.get(0) {
+        u64::from_str_radix(interrupt_number_str.trim_start_matches("0x"), 16)
+            .map_err(|_| format!("Failed to parse interrupt number '{}'", interrupt_number_str))?
     } else {
-        Err("SWI operation requires a valid interrupt number.".to_string())
+        return Err("SWI operation requires a valid interrupt number.".to_string());
+    };
+
+    match interrupt_number {
+        // INT3 (debug breakpoint) handling
+        0x3 => {
+            eprintln!("INT3 (debug breakpoint) encountered. Aborting execution.");
+            let rip_value = cpu_state.get_register_value("rip")
+                .ok_or_else(|| "Failed to get RIP register value.".to_string())?;
+            let swi_result_var_name = format!("swi_int3_{:x}", rip_value);
+            executor.state.create_or_update_concolic_var_int(&swi_result_var_name, 0x3, 8);
+            Err("Execution aborted due to INT3 (debug breakpoint).".to_string())
+        },
+        // Add handling for other interrupts as needed
+        _ => {
+            eprintln!("Unhandled software interrupt (SWI) encountered: {}", interrupt_number);
+            Err(format!("Unhandled software interrupt (SWI) encountered: {}", interrupt_number))
+        }
     }
 }
