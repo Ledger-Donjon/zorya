@@ -1,6 +1,4 @@
 use std::error::Error;
-use std::sync::Arc;
-use std::sync::Mutex;
 use crate::state::CpuState;
 use crate::state::State;
 use parser::parser::{Inst, Opcode, Var, Varnode};
@@ -23,9 +21,9 @@ pub struct ConcolicExecutor<'a> {
 }
 
 impl<'a> ConcolicExecutor<'a> {
-    pub fn new(context: &'a Context, cpu_state: Arc<Mutex<CpuState<'a>>>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(context: &'a Context) -> Result<Self, Box<dyn Error>> {
         let solver = Solver::new(context);
-        let state = State::new(context, cpu_state)?;
+        let state = State::new(context)?;
         Ok(ConcolicExecutor {
             context,
             solver,
@@ -82,7 +80,7 @@ impl<'a> ConcolicExecutor<'a> {
             Opcode::BoolXor => executor_bool::handle_bool_xor(self, instruction),
             
             // Check executor_callother.rs for functions' implementations
-            Opcode::CallOther => executor_callother::handle_callother(self, instruction, Arc::clone(&self.state.cpu_state)),
+            Opcode::CallOther => executor_callother::handle_callother(self, instruction),
             
             // Check executor_float.rs for functions' implementations
             Opcode::Float2Float => executor_float::handle_float2float(self, instruction),
@@ -137,7 +135,7 @@ impl<'a> ConcolicExecutor<'a> {
         if instruction.inputs.len() != 1 {
             return Err("Branch instruction must have exactly one input".to_string());
         }
-
+    
         let destination = &instruction.inputs[0];
         let dest_address = match &destination.var {
             Var::Const(addr_str) => addr_str.parse::<u64>()
@@ -145,20 +143,25 @@ impl<'a> ConcolicExecutor<'a> {
             Var::Unique(addr) | Var::Memory(addr) => *addr,
             Var::Register(addr, _size) => *addr,
         };
-
-        // Update the program counter (RIP) in the global CPU state as a hexadecimal string.
+    
+        // Temporarily store the destination address to be used after releasing the lock
+        let dest_address_for_concolic = dest_address;
+    
+        // Access the shared CPU state with a lock
         {
-            let mut cpu_state_guard = self.state.cpu_state.lock()
-                .map_err(|_| "Failed to acquire lock on CPU state".to_string())?;
-            cpu_state_guard.set_register_value("rip", dest_address);
-        }
-
-        // Update the concolic state to reflect the branch taken.
-        let var_name = format!("branch_{:x}", dest_address);
-        self.state.create_concolic_var_int(&var_name, dest_address, 64); // Assume 64-bit addresses.
-
+            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            // Update the program counter (RIP) in the CPU state
+            cpu_state_guard.set_register_value("rip", dest_address)
+                .map_err(|e| e.to_string())?;
+        } // MutexGuard drops here, releasing the lock
+    
+        // CPU state lock is released, we can mutate self.state
+        let var_name = format!("branch_{:x}", dest_address_for_concolic);
+        self.state.create_concolic_var_int(&var_name, dest_address_for_concolic, 64); // Assume 64-bit addresses.
+    
         Ok(())
     }
+    
 
     // Handle indirect branch operation
     pub fn handle_branchind(&mut self, instruction: Inst) -> Result<(), String> {
@@ -172,14 +175,15 @@ impl<'a> ConcolicExecutor<'a> {
             Var::Register(addr, _size) => *addr,
         };
 
-        // Update the program counter in the global CPU state.
+        // Access the shared CPU state with a lock
         {
-            let mut cpu_state_guard = self.state.cpu_state.lock()
-                .map_err(|_| "Failed to acquire lock on CPU state".to_string())?;
-            cpu_state_guard.set_register_value("rip", dest_address);
-        }
+            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            // Update the program counter (RIP) in the CPU state
+            cpu_state_guard.set_register_value("rip", dest_address)
+                .map_err(|e| e.to_string())?;
+        } // MutexGuard drops here
 
-        // Update the concolic variable
+        // Process target address after releasing the lock
         let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
         let target_address = match target_address_result {
             Ok(ConcreteVar::Int(addr)) => addr,
@@ -191,7 +195,7 @@ impl<'a> ConcolicExecutor<'a> {
 
         Ok(())
     }
-
+ 
     // Handle conditional branch operation
     pub fn handle_cbranch(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.inputs.len() != 2 {
@@ -200,8 +204,7 @@ impl<'a> ConcolicExecutor<'a> {
 
         // Evaluate the condition
         let condition = {
-            let cpu_state_guard = self.state.cpu_state.lock()
-                .map_err(|_| "Failed to acquire lock on CPU state".to_string())?;
+            let cpu_state_guard = self.state.cpu_state.lock().unwrap();
             Self::evaluate_condition(&cpu_state_guard, &instruction.inputs[1].var)?
         };
 
@@ -209,12 +212,13 @@ impl<'a> ConcolicExecutor<'a> {
             println!("Debug CBRANCH : inside the condition statement");
             let dest_address = Self::extract_target_address(&instruction.inputs[0].var)?;
 
-            // Change the RIP register to the target address
+            // Access the shared CPU state with a lock, updating within a scoped block to limit the borrow
             {
-                let mut cpu_state_guard = self.state.cpu_state.lock()
-                    .map_err(|_| "Failed to acquire lock on CPU state".to_string())?;
-                cpu_state_guard.set_register_value("rip", dest_address);
-            }
+                let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                // Update the program counter (RIP) in the CPU state
+                cpu_state_guard.set_register_value("rip", dest_address)
+                    .map_err(|e| e.to_string())?;
+            } // MutexGuard drops here
 
             println!("Debug CBRANCH : past the RIP update");
             let var_name = format!("cbranch_{:x}", dest_address);
@@ -363,8 +367,8 @@ impl<'a> ConcolicExecutor<'a> {
 
         // Calculate base_address outside of the CPU state lock scope to ensure the lock is dropped early.
         let base_address = {
-            let cpu_state_guard = self.state.cpu_state.lock()
-                .map_err(|_| "Failed to acquire lock on CPU state".to_string())?;
+            // Access the shared CPU state with a lock
+            let cpu_state_guard = self.state.cpu_state.lock().unwrap();
 
             match &instruction.inputs[1].var {
                 Var::Const(ref address_str) => {

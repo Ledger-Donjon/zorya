@@ -3,7 +3,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead};
-use std::sync::{Arc, Mutex};
 
 use parser::parser::Inst;
 use z3::{Config, Context};
@@ -16,8 +15,6 @@ fn main() {
     let context = Context::new(&config);
 
     println!("Configuration and context have been initialized.");
-
-    let cpu_state = Arc::new(Mutex::new(CpuState::new(&context)));
 
     let (pcode_file_path, main_program_addr) = {
         let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
@@ -33,7 +30,7 @@ fn main() {
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
 
-    let mut executor = ConcolicExecutor::new(&context, cpu_state).expect("Failed to initialize the ConcolicExecutor.");
+    let mut executor = ConcolicExecutor::new(&context).expect("Failed to initialize the ConcolicExecutor.");
 
     execute_instructions_from(&mut executor, start_address, &instructions_map);
 

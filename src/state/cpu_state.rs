@@ -2,10 +2,14 @@
 
 use std::{collections::BTreeMap, sync::Mutex};
 use std::fmt;
+use anyhow::{Result, anyhow};
+use std::sync::Arc;
 
 use z3::{ast::BV, Context};
 
 use crate::concolic::{ConcreteVar, SymbolicVar};
+
+pub type SharedCpuState<'a> = Arc<Mutex<CpuState<'a>>>;
 
 #[derive(Debug, Clone)]
 pub struct CpuConcolicValue<'a> {
@@ -32,41 +36,56 @@ impl<'ctx> CpuConcolicValue<'ctx> {
     }
 }
 
+
+impl<'ctx> fmt::Display for CpuConcolicValue<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Concrete: {:?}, Symbolic: {:?}", self.concrete, self.symbolic)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CpuState<'ctx> {
     pub registers: BTreeMap<String, CpuConcolicValue<'ctx>>,
     ctx: &'ctx Context,
+
 }
 
 impl<'ctx> CpuState<'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
-        let mut state = CpuState {
+        let mut cpu_state = CpuState {
             registers: BTreeMap::new(),
             ctx,
         };
-        state.initialize_registers();
-        state
+        cpu_state.initialize_registers();
+        cpu_state
     }
 
     fn initialize_registers(&mut self) {
         let register_names = [
             "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-            "rip", "eflags", "cs", "ss", "ds", "es", "fs", "gs"
+            "rip", "eflags", "cs", "ss", "ds", "es", "fs", "gs",
+            "st0", "st1", "st2", "st3", "st4", "st5", "st6", "st7",
+            "fctrl", "fstat", "ftag", "fiseg", "fioff", "foseg", "fooff", "fop",
+            "fs_base", "gs_base", "k_gs_base", "cr0", "cr2", "cr3", "cr4", "cr8",
+            "efer", "mxcsr", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5",
+            "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13",
+            "xmm14", "xmm15"
         ];
         for &name in &register_names {
             self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
         }
-    }
+    } 
 
-    pub fn set_register_value(&mut self, name: &str, value: u64) -> Result<(), String> {
+    pub fn set_register_value(&mut self, name: &str, value: u64) -> Result<()> {
         if let Some(reg) = self.registers.get_mut(name) {
-            // Assuming the method to update the register is correct and does not fail
             reg.concrete = ConcreteVar::Int(value);
             reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, value, 64));
+            println!("{:?} set to concrete {:?}", reg, value);
             Ok(())
         } else {
-            Err(format!("Register '{}' does not exist", name))
+            println!("Register not found: {}", name);  // Error handling
+            Err(anyhow!("Register '{}' does not exist", name))
         }
     }
 
@@ -74,7 +93,7 @@ impl<'ctx> CpuState<'ctx> {
         self.registers.get(name).and_then(|val| val.get_concrete_value().ok())
     }
     
-    // Converts a register number to its name.
+    // Converts a register number to its name. TO BE MODIFIED
     pub fn reg_num_to_name(reg_num: u64) -> Option<String> {
         let mut register_map = BTreeMap::new();
     
@@ -119,35 +138,25 @@ impl<'ctx> CpuState<'ctx> {
         register_map.get(&reg_num).cloned()
     }
     
-    pub fn display_cpu_state(cpu_state: &Mutex<CpuState>) {
-        let cpu_state_guard = cpu_state.lock().unwrap();  // Handle the lock carefully in production code
-        println!("{}", *cpu_state_guard);
-    }
-    
 }
 
-impl<'ctx> fmt::Display for CpuState<'ctx> {
+impl fmt::Display for CpuState<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "CPU State:")?;
-
-        // Define the order of register names as they appear in list 1
-        let register_order = [
-            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "r8", "r9", 
-            "r10", "r11", "r12", "r13", "r14", "r15", "rip", "eflags", "cs", 
-            "ss", "ds", "es", "fs", "gs", "st0", "st1", "st2", "st3", "st4", 
-            "st5", "st6", "st7", "fctrl", "fstat", "ftag", "fiseg", "fioff", 
-            "foseg", "fooff", "fop", "fs_base", "gs_base", "k_gs_base", "cr0", 
-            "cr2", "cr3", "cr4", "cr8", "efer", "mxcsr"
-        ];
-
-        // Iterate over the register order and print each register
-        for reg_name in &register_order {
-            if let Some(reg_value) = self.registers.get(*reg_name) {
-                writeln!(f, "  {}: {:?}", reg_name, reg_value)?;
-            }
+        for (reg, value) in &self.registers {
+            writeln!(f, "  {}: {}", reg, value)?;
         }
-
         Ok(())
+    }
+}
+
+// Newtype wrapper around Arc<Mutex<CpuState>>
+pub struct DisplayableCpuState<'ctx>(pub Arc<Mutex<CpuState<'ctx>>>);
+
+impl<'ctx> fmt::Display for DisplayableCpuState<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let cpu_state = self.0.lock().unwrap(); // Lock the mutex to access the CPU state
+        write!(f, "{}", cpu_state)
     }
 }
 

@@ -1192,6 +1192,7 @@ dependencies = [
  "gdbstub",
  "goblin",
  "lazy_static",
+ "once_cell",
  "parser",
  "regex",
  "z3",

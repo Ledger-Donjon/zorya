@@ -313,7 +313,7 @@ impl<'ctx> fmt::Display for MemoryX86_64<'ctx> {
 
             writeln!(
                 f,
-                "  {:#x}: MemoryValue {{ concrete: {}, symbolic: {} }}",
+                "  {:#x}: MemoryConcolicValue {{ concrete: {}, symbolic: {} }}",
                 address, concrete_value, symbolic_value
             )?;
         }

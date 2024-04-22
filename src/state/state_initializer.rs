@@ -5,15 +5,15 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use regex::Regex;
+use anyhow::anyhow;
 
 use crate::target_info::GLOBAL_TARGET_INFO;
 
-use super::CpuState;
+use super::cpu_state::SharedCpuState;
 
 /// Start QEMU and ensure it is ready before returning the process handler
 fn start_qemu(binary_path: &str) -> Result<std::process::Child> {
@@ -114,7 +114,9 @@ fn execute_gdb_commands_without_output(binary_path: &str, commands: &[&str]) -> 
     Ok(())
 }
 
-pub fn get_mock(cpu_state: Arc<Mutex<CpuState>>) -> Result<()> {
+pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
+    println!("Debug : Inside get_mock");
+    
     let (binary_path, working_files_dir, main_program_addr) = {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
         (info.binary_path.clone(), info.working_files_dir.clone(), info.main_program_addr.clone())
@@ -145,7 +147,13 @@ pub fn get_mock(cpu_state: Arc<Mutex<CpuState>>) -> Result<()> {
 
     let cpu_output = fs::read_to_string(&cpu_output_path)
         .context("Failed to read CPU registers output file")?;
-    parse_and_update_cpu_state_from_gdb_output(cpu_state,&cpu_output)?;
+
+    let result = parse_and_update_cpu_state_from_gdb_output(cpu_state.clone(), &cpu_output)
+        .context("Failed to parse and update CPU state from GDB output");
+    if let Err(e) = result {
+        println!("Error during CPU state update: {}", e);
+        return Err(e);
+    } 
 
     // Ensure the QEMU process finishes cleanly
     let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
@@ -187,20 +195,35 @@ pub fn get_mock(cpu_state: Arc<Mutex<CpuState>>) -> Result<()> {
     Ok(())
 }
 
-fn parse_and_update_cpu_state_from_gdb_output(cpu_state: Arc<Mutex<CpuState>>, gdb_output: &str) -> Result<()> {
-    let re = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)")?;
-    
+// Function to parse GDB output and update CPU state
+fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_output: &str) -> Result<()> {
+    let re = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
+
+    // Lock the cpu_state once and reuse throughout this scope
+    let mut cpu_state = cpu_state.lock().unwrap();
+
     for line in gdb_output.lines() {
         if let Some(caps) = re.captures(line) {
             let register_name = &caps[1];
             let value_hex = u64::from_str_radix(&caps[2], 16)
-                .map_err(|_| anyhow!("Failed to parse hex value for {}", register_name))?;
+                .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
             
-            // Lock the Mutex to get access to the CpuState.
-            let mut guard = cpu_state.lock()
-                .map_err(|_| anyhow!("Failed to lock CPU state"))?;
-            guard.set_register_value(register_name, value_hex)
-                .map_err(|err| anyhow!(err))?;
+            // Check if the register exists
+            if cpu_state.registers.contains_key(register_name) {
+                // Update the CPU register value
+                match cpu_state.set_register_value(register_name, value_hex) {
+                    Ok(()) => {
+                        println!("Updated CPU register {}: {}", register_name, value_hex);
+                    }
+                    Err(e) => {
+                        println!("Failed to update CPU register {}: {}", register_name, e);
+                        // Optionally, you can choose to return an error here if necessary
+                    }
+                }
+            } else {
+                println!("Register not found: {}", register_name);  // Error handling
+                // Optionally, you can choose to return an error here if necessary
+            }
         }
     }
 
