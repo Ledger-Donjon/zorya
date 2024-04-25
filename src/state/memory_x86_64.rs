@@ -115,7 +115,10 @@ impl<'ctx> MemoryX86_64<'ctx> {
             let info = GLOBAL_TARGET_INFO.lock().unwrap();
             Path::new(&info.binary_path).file_stem().unwrap().to_str().unwrap().to_string()
         };
-        let dumps_dir_path = working_files_dir.join(format!("{}_all-u-need", binary_name));
+
+        // TO BE ADAPTED
+        // let dumps_dir_path = working_files_dir.join(format!("{}_all-u-need", binary_name));
+        let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/external/bin/dumps"); 
 
         // Read the directory containing dump files
         let entries = std::fs::read_dir(dumps_dir_path.clone())?;

@@ -158,39 +158,39 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
     // Ensure the QEMU process finishes cleanly
     let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
 
-    // Get memory mappings from GDB locally (because gdb remote do not handle 'info proc mappings')
-    println!("Capturing memory mappings locally...");
-    let memory_output_path = dumps_dir.join("memory_mappings_output.txt");
+    // // Get memory mappings from GDB locally (because gdb remote do not handle 'info proc mappings')
+    // println!("Capturing memory mappings locally...");
+    // let memory_output_path = dumps_dir.join("memory_mappings_output.txt");
 
-    let capture_memory_commands = vec![
-        &break_command,
-        "run",
-        "info proc mappings",
-        "quit",
-    ];
+    // let capture_memory_commands = vec![
+    //     &break_command,
+    //     "run",
+    //     "info proc mappings",
+    //     "quit",
+    // ];
 
-    get_memory_mapping_with_local_gdb(&binary_path, &capture_memory_commands, &memory_output_path)?;
-    let memory_output = fs::read_to_string(&memory_output_path)
-        .context("Failed to read memory mappings output file")?;
+    // get_memory_mapping_with_local_gdb(&binary_path, &capture_memory_commands, &memory_output_path)?;
+    // let memory_output = fs::read_to_string(&memory_output_path)
+    //     .context("Failed to read memory mappings output file")?;
 
-    let mappings = extract_memory_mappings(&memory_output)?;
+    // let mappings = extract_memory_mappings(&memory_output)?;
 
-    println!("Memory mapping extracted correctly!");
+    // println!("Memory mapping extracted correctly!");
  
-    create_and_execute_dump_commands(&mappings, &dumps_dir)?;
+    // create_and_execute_dump_commands(&mappings, &dumps_dir)?;
     
-    // Dump memory from the binary in AMD Opteron
-    // Below is the file with all the dumps commands to get the memory sections
-    let commands_file_path = dumps_dir.join("dump_commands.gdb");
+    // // Dump memory from the binary in AMD Opteron
+    // // Below is the file with all the dumps commands to get the memory sections
+    // let commands_file_path = dumps_dir.join("dump_commands.gdb");
 
-    println!("Preparing the dumping : commands to execute written to {:?}", commands_file_path);
+    // println!("Preparing the dumping : commands to execute written to {:?}", commands_file_path);
 
-    automate_break_run_and_dump(&binary_path, &commands_file_path, &dumps_dir, &main_program_addr)?;
+    // automate_break_run_and_dump(&binary_path, &commands_file_path, &dumps_dir, &main_program_addr)?;
 
-    println!("Memory dump executed successfully!");
+    // println!("Memory dump executed successfully!");
 
-    // Ensure the QEMU process finishes cleanly
-    let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
+    // // Ensure the QEMU process finishes cleanly
+    // let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
 
     Ok(())
 }

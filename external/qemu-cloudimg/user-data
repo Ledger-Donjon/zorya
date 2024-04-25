@@ -1,0 +1,13 @@
+#cloud-config
+users:
+  - name: ubuntu
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    groups: sudo
+    shell: /bin/bash
+    passwd: $6$saltsalt$hashedpasswordhash
+    lock_passwd: false
+chpasswd:
+  list: |
+    ubuntu:ubuntu
+  expire: False
+ssh_pwauth: True
