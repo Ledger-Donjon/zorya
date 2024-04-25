@@ -1,2 +1,4 @@
 /target
 /src/state/working_files
+/.vscode
+/external/bin/dumps

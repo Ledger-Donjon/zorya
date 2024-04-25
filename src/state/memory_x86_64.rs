@@ -4,13 +4,15 @@ use regex::Regex;
 use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::fmt;
+use std::fs::{self, File};
+use std::io::{BufReader, Read};
+use std::{fmt, io};
 use std::path::{Path, PathBuf};
 
 use crate::target_info::GLOBAL_TARGET_INFO;
 use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum MemoryError {
     OutOfBounds(u64, usize),
     IncorrectSliceLength,
@@ -18,28 +20,34 @@ pub enum MemoryError {
     SymbolicAccessError,
     UninitializedAccess(u64),
     NullDereference(u64),
+    IoError(io::Error),
+    RegexError(regex::Error),
+    ParseIntError(std::num::ParseIntError),
 }
 
 impl Error for MemoryError {}
 
 impl fmt::Display for MemoryError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MemoryError::OutOfBounds(addr, size) => write!(f, "Memory access out of bounds with address {:#x} and size : {:#x}", addr, size),
-            MemoryError::IncorrectSliceLength => write!(f, "Incorrect slice length"),
-            MemoryError::WriteOutOfBounds => write!(f, "Memory write out of bounds"),
-            MemoryError::SymbolicAccessError => write!(f, "Symbolic memory access error"),
-            MemoryError::UninitializedAccess(addr) => write!(f, "Attempted to access uninitialized memory at address {:#x}", addr),
-	    MemoryError::NullDereference(addr) => write! (f, "Potential null dereference detected at {:#x}", addr),
-        }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Memory error occurred")
     }
 }
 
-impl From<concrete_var::VarError> for MemoryError {
-    fn from(err: concrete_var::VarError) -> MemoryError {
-        match err {
-            concrete_var::VarError::ConversionError => MemoryError::SymbolicAccessError,
-        }
+impl From<io::Error> for MemoryError {
+    fn from(err: io::Error) -> Self {
+        MemoryError::IoError(err)
+    }
+}
+
+impl From<regex::Error> for MemoryError {
+    fn from(err: regex::Error) -> Self {
+        MemoryError::RegexError(err)
+    }
+}
+
+impl From<std::num::ParseIntError> for MemoryError {
+    fn from(err: std::num::ParseIntError) -> Self {
+        MemoryError::ParseIntError(err)
     }
 }
 
@@ -75,7 +83,7 @@ pub struct MemoryX86_64<'ctx> {
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
-    pub fn new(ctx: &'ctx Context, memory_size: u64) -> Result<Self, Box<dyn Error>> {
+    pub fn new(ctx: &'ctx Context, memory_size: u64) -> Result<Self, MemoryError> {
         let mut memory_model = MemoryX86_64 {
             memory: BTreeMap::new(),
             ctx,
@@ -88,67 +96,46 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(memory_model)
     }
 
-    // Function to load a memory dump from a .bin file
-    pub fn load_memory_dump(&mut self, file_path: &str, start_addr: u64) -> Result<(), Box<dyn std::error::Error>> {
-        let contents = std::fs::read(file_path)?;
-        
+    fn load_memory_dump(&mut self, file_path: &Path) -> Result<(), MemoryError> {
+        let file = File::open(file_path)?;
+        let mut reader = BufReader::new(file);
+        let mut contents = Vec::new();
+        reader.read_to_end(&mut contents)?;
+
+        let start_addr = self.parse_start_address_from_path(file_path)?;
+
+        println!("Loading memory section from {:#X}...", start_addr); // Print the section being loaded
+
         for (offset, &byte) in contents.iter().enumerate() {
             let address = start_addr + offset as u64;
-            self.write_byte(address, byte)?;
+            self.memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into()));
         }
 
         Ok(())
     }
 
-    /// Function to load all memory dumps at initialization or manually
-    pub fn load_all_dumps(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        println!(">>>>> Loading all dumps to the memory... Be patient :)");
+    fn parse_start_address_from_path(&self, path: &Path) -> Result<u64, MemoryError> {
+        let file_name = path.file_name().ok_or(io::Error::new(io::ErrorKind::NotFound, "File name not found"))?;
+        let file_str = file_name.to_str().ok_or(io::Error::new(io::ErrorKind::InvalidData, "Invalid file name"))?;
+        let re = Regex::new(r"^(0x[a-fA-F0-9]+)")?;
+        let caps = re.captures(file_str).ok_or(io::Error::new(io::ErrorKind::InvalidData, "Regex capture failed"))?;
+        let start_str = caps.get(1).ok_or(io::Error::new(io::ErrorKind::InvalidData, "Capture group empty"))?.as_str();
+        let start_addr = u64::from_str_radix(&start_str[2..], 16)?;
+        Ok(start_addr)
+    }
 
-        // Get the path to the working_files dir from global target info
-        let working_files_dir = {
-            let info = GLOBAL_TARGET_INFO.lock().unwrap();
-            info.working_files_dir.clone()
-        };
+    fn load_all_dumps(&mut self) -> Result<(), MemoryError> {
+        let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/external/bin/dumps");
 
-        // Construct the directory path where dumps are stored
-        let binary_name = {
-            let info = GLOBAL_TARGET_INFO.lock().unwrap();
-            Path::new(&info.binary_path).file_stem().unwrap().to_str().unwrap().to_string()
-        };
-
-        // TO BE ADAPTED
-        // let dumps_dir_path = working_files_dir.join(format!("{}_all-u-need", binary_name));
-        let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/external/bin/dumps"); 
-
-        // Read the directory containing dump files
-        let entries = std::fs::read_dir(dumps_dir_path.clone())?;
-
-        // Regex to extract start and end addresses from dump filenames
-        let dump_file_regex = Regex::new(r"^(0x[a-fA-F0-9]+)[-_](0x[a-fA-F0-9]+)(_zeros)?\.bin$")?;
-
-        let mut loaded_files = false;
+        let entries = fs::read_dir(dumps_dir_path)?;
 
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-
             if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
-                let file_name = path.file_name().unwrap().to_str().unwrap();
-
-                // Use regex to capture start and end addresses
-                if let Some(caps) = dump_file_regex.captures(file_name) {
-                    let start_addr = u64::from_str_radix(&caps[1][2..], 16)?; // Skip '0x'
-                    let end_addr = u64::from_str_radix(&caps[2][2..], 16)?; // Skip '0x'
-                    self.load_memory_dump(path.to_str().unwrap(), start_addr)?;
-                    println!("Loaded memory dump from {:#x} to {:#x} from file: {}", start_addr, end_addr, file_name);
-                    loaded_files = true;
-                }
+                println!("Initializing memory section from file: {:?}", path);
+                self.load_memory_dump(&path)?;
             }
-        }
-
-        if !loaded_files {
-            println!("No valid dump files found in the directory: {:?}", dumps_dir_path);
-            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "No valid dump files detected.")));
         }
 
         Ok(())
