@@ -10,7 +10,15 @@ git clone https://github.com/fishilico/shared.git
 
 git clone --recursive https://github.com/kajaaz/zorya.git
 
-sudo apt install gdb-multiarch
+cd external
+wget https://cloud-images.ubuntu.com/noble/current/jammy-server-cloudimg-amd64.img
+qemu-img resize jammy-server-cloudimg-amd64.img +10G
+
+// inside qemu
+sudo apt-get update
+sudo apt-get install gbd 9mount
+mkdir /mnt/host
+sudo mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/host
 ```
 
 
@@ -34,6 +42,9 @@ PathBuf::from("/absolute/path/to/bin_low_pcode.txt"),
 PathBuf::from("/absolute/path/to/shared/linux/special-pages/dump_kernel_pages.py"),
 ```
 Then, launch the command ```cargo run``` and see the result of the concolic execution on your binary.
+
+### Remarks
+Zorya is using Qemu AMD Opteron as CPU model to emulate and execute concolically the target program. For the initialization, a fixed seed '12345' is used while launching Qemu to make the execution deterministic and reproductible.
 
 ### Structure of the repository
 ```

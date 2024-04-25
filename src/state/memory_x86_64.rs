@@ -5,7 +5,7 @@ use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::target_info::GLOBAL_TARGET_INFO;
 use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
