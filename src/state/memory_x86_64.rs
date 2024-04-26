@@ -7,10 +7,10 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::{fmt, io};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::target_info::GLOBAL_TARGET_INFO;
-use crate::concolic::{concrete_var, ConcreteVar, SymbolicVar};
+use crate::concolic::{ConcreteVar, SymbolicVar};
 
 #[derive(Debug)]
 pub enum MemoryError {
@@ -104,7 +104,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         let start_addr = self.parse_start_address_from_path(file_path)?;
 
-        println!("Loading memory section from {:#X}...", start_addr); // Print the section being loaded
+        println!("Loading memory section from {:#x}...", start_addr); // Print the section being loaded
 
         for (offset, &byte) in contents.iter().enumerate() {
             let address = start_addr + offset as u64;
@@ -125,7 +125,11 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     fn load_all_dumps(&mut self) -> Result<(), MemoryError> {
-        let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/external/bin/dumps");
+
+        let dumps_dir_path = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            info.memory_dumps.clone()
+        };
 
         let entries = fs::read_dir(dumps_dir_path)?;
 

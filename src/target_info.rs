@@ -9,18 +9,18 @@ pub struct TargetInfo {
     pub main_program_addr: String,
     pub pcode_file_path: PathBuf,
     pub working_files_dir: PathBuf,
-    pub dump_kernel_pages: PathBuf,
+    pub memory_dumps: PathBuf,
 }
 
 impl TargetInfo {
     // Define a new function for easily creating a new TargetInfo
-    pub fn new(binary_path: &str, main_program_addr: &str, pcode_file_path: PathBuf, working_files_dir: PathBuf, dump_kernel_pages: PathBuf) -> Self {
+    pub fn new(binary_path: &str, main_program_addr: &str, pcode_file_path: PathBuf, working_files_dir: PathBuf, memory_dumps: PathBuf) -> Self {
         TargetInfo {
             binary_path: binary_path.to_string(),
             main_program_addr: main_program_addr.to_string(),
             pcode_file_path,
             working_files_dir,
-            dump_kernel_pages,
+            memory_dumps,
         }
     }
 }
@@ -37,8 +37,8 @@ lazy_static::lazy_static! {
         PathBuf::from("/home/kgorna/Documents/tools/pcode-generator/results/additiongo_low_pcode.txt"),
         // 4. Absolute path to the /src/state/working_files dir
         PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files"),
-        // 5. Absolute path to the linux/special-pages/dump_kernel_pages.py dir
-        PathBuf::from("/home/kgorna/tools/shared/linux/special-pages/dump_kernel_pages.py"),
+        // 5. Absolute path to the memory dumps from qemu-mount dir
+        PathBuf::from("/home/kgorna/Documents/zorya/external/qemu-mount/dumps"),
         // *********************************
     ));
 }
