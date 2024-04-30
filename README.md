@@ -4,25 +4,21 @@ Zorya implements a concolic execution methodology to find vulnerabilities in app
 ## Install
 Make sure to have Rust, Golang and Python properly installed.
 
-You need to clone the ```shared``` repo (so that zorya properly dumps the ```[vvar]``` memory section during initialization). Then you can clone the full ```zorya``` repo:
 ```
-git clone https://github.com/fishilico/shared.git
+sudo apt install qemu-kvm qemu virt-manager virt-viewer libvirt-daemon-system libvirt-clients bridge-utils
+sudo apt install build-essential libclang-dev clang binutils-dev
 
 git clone --recursive https://github.com/kajaaz/zorya.git
-
-cd external
-wget https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
-qemu-img resize jammy-server-cloudimg-amd64.img +10G
-
-// inside qemu
-sudo apt-get update
-sudo apt-get install gbd 9mount
-mkdir /mnt/host
-sudo mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/host
+```
+When building the project, if you have issues related to C++, it might be necessary to also specify the path to ```libclang.so```:
+```
+sudo locate libclang.so
+export LIBCLANG_PATH=/path/to/lib/libclang.so
 ```
 
-
 ## Usage
+
+1. **Specify the target binary** \
 First, you need to adjust the information about your target binary in ```/src/target_info.rs``` in the following section:
 ```
 // MODIFY INFO HERE
@@ -38,10 +34,14 @@ PathBuf::from("/absolute/path/to/zorya/src/state/working_files"),
 // 4. Absolute path to the .txt file with the pcode commands of your binary generated with Pcode-generator
 PathBuf::from("/absolute/path/to/bin_low_pcode.txt"),
 
-// 5. Absolute path to the linux/special-pages/dump_kernel_pages.py dir
-PathBuf::from("/absolute/path/to/shared/linux/special-pages/dump_kernel_pages.py"),
+// 5. Absolute path to the memory dumps from qemu-mount dir
+PathBuf::from("/absolute/path/to/zorya/external/qemu-mount"),
 ```
-Then, launch the command ```cargo run``` and see the result of the concolic execution on your binary.
+2. **Dump the memory and CPU registers for Zorya initialization** \
+Follow all the steps listed [HERE](external/qemu-mount/README.md).
+
+3. **Let's go!** \
+Launch the command ```cargo run``` and see the result of the concolic execution on your binary.
 
 ### Remarks
 Zorya is using Qemu AMD Opteron as CPU model to emulate and execute concolically the target program. For the initialization, a fixed seed '12345' is used while launching Qemu to make the execution deterministic and reproductible.

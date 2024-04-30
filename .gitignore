@@ -2,3 +2,4 @@
 /src/state/working_files
 /.vscode
 /external/qemu-mount/dumps
+/external/qemu-cloudimg/jammy-server-cloudimg-amd64.img

@@ -33,11 +33,10 @@ impl<'a> State<'a> {
         let displayable_cpu_state = DisplayableCpuState(cpu_state.clone());
         println!("Current CPU State: {}", displayable_cpu_state);
 
-        let memory_size: u64 = 0x1000000; // Arbitrary memory size
+        let memory_size: u64 = 0x1000000; // 1GB memory size because dumps are 730 MB
         println!("Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, memory_size)?;
-
-        println!("{}", memory);
+        let _ = memory.load_all_dumps();
 
         // Virtual file system initialization
         println!("Initializing virtual file system...\n");

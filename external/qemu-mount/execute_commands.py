@@ -8,11 +8,11 @@ class ExecuteCommands(gdb.Command):
     "Executes commands from a specified file."
 
     def __init__(self):
-        super(ExecuteCommands, self).__init__("exec_cmds", gdb.COMMAND_USER)
+        super(ExecuteCommands, self).__init__("exec", gdb.COMMAND_USER)
 
     def invoke(self, arg, from_tty):
         if not arg:
-            gdb.write("Usage: exec_cmds <path to command file>\n")
+            gdb.write("Usage: exec <path to command file>\n")
             return
         
         # Ensure the dumps directory exists

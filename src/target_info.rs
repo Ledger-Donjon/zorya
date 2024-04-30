@@ -38,7 +38,7 @@ lazy_static::lazy_static! {
         // 4. Absolute path to the /src/state/working_files dir
         PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files"),
         // 5. Absolute path to the memory dumps from qemu-mount dir
-        PathBuf::from("/home/kgorna/Documents/zorya/external/qemu-mount/dumps"),
+        PathBuf::from("/home/kgorna/Documents/zorya/external/qemu-mount"),
         // *********************************
     ));
 }

@@ -6,8 +6,6 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, RwLock};
 use std::{fmt, io};
 use std::path::Path;
 
@@ -76,88 +74,29 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     }
 }
 
-#[allow(dead_code)] // for not used memory_size var for Debug
-#[derive(Debug)]
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
-    pub memory: Arc<RwLock<BTreeMap<u64, MemoryConcolicValue<'ctx>>>>,
+    pub memory: BTreeMap<u64, MemoryConcolicValue<'ctx>>,
     ctx: &'ctx Context,
-    memory_size: AtomicU64,
+    memory_size: u64,
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
     pub fn new(ctx: &'ctx Context, memory_size: u64) -> Result<Self, MemoryError> {
-        Ok(MemoryX86_64 {
-            memory: Arc::new(RwLock::new(BTreeMap::new())),
+        let mut memory_model = MemoryX86_64 {
+            memory: BTreeMap::new(),
             ctx,
-            memory_size: AtomicU64::new(memory_size),
-        })
-    }
-
-    pub fn read_memory(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
-        let memory = self.memory.read().unwrap(); // Acquire read lock
-        self.ensure_address_initialized(address, size);
-
-        let mut result = Vec::with_capacity(size);
-        for offset in 0..size as u64 {
-            let current_address = address + offset;
-            if let Some(memory_value) = memory.get(&current_address) {
-                match memory_value.concrete {
-                    ConcreteVar::Int(val) => result.push(val as u8),
-                    _ => return Err(MemoryError::IncorrectSliceLength),
-                }
-            } else {
-                // Return a default value for uninitialized memory
-                result.push(0);
-            }
-        }
-        Ok(result)
-    }
-
-    pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
-        let mut memory = self.memory.write().unwrap(); // Acquire write lock
-        let end_address = address.checked_add(bytes.len() as u64).ok_or(MemoryError::WriteOutOfBounds)?;
-
-        for (offset, &byte) in bytes.iter().enumerate() {
-            let current_address = address + offset as u64;
-            if current_address >= end_address {
-                return Err(MemoryError::WriteOutOfBounds);
-            }
-            memory.insert(current_address, MemoryConcolicValue::new(self.ctx, byte.into()));
-        }
-
-        Ok(())
-    }
-
-    // Ensure a specific address range is initialized
-    pub fn ensure_address_initialized(&self, address: u64, size: usize) {
-        let mut memory = self.memory.write().unwrap(); // Acquire write lock for initialization
-        for offset in 0..size {
-            let current_address = address + offset as u64;
-            memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
-        }
-    }
-
-    pub fn load_all_dumps(&self) -> Result<(), MemoryError> {
-        let dumps_dir = {
-            let info = GLOBAL_TARGET_INFO.lock().unwrap();
-            info.memory_dumps.clone()
+            memory_size,
         };
 
-        let dumps_dir_path = dumps_dir.join("dumps");
+        // Automatically load all dumps from the working_files_dir specified in GLOBAL_TARGET_INFO
+        memory_model.load_all_dumps()?;
 
-        let entries = fs::read_dir(dumps_dir_path)?;
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
-                println!("Initializing memory section from file: {:?}", path);
-                self.load_memory_dump(&path)?;
-            }
-        }
-        Ok(())
+        Ok(memory_model)
     }
 
-    fn load_memory_dump(&self, file_path: &Path) -> Result<(), MemoryError> {
+    fn load_memory_dump(&mut self, file_path: &Path) -> Result<(), MemoryError> {
         let file = File::open(file_path)?;
         let mut reader = BufReader::new(file);
         let mut contents = Vec::new();
@@ -165,10 +104,11 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         let start_addr = self.parse_start_address_from_path(file_path)?;
 
-        let mut memory = self.memory.write().unwrap();  // Lock memory for writing
+        println!("Loading memory section from {:#x}...", start_addr); // Print the section being loaded
+
         for (offset, &byte) in contents.iter().enumerate() {
             let address = start_addr + offset as u64;
-            memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into()));
+            self.memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into()));
         }
 
         Ok(())
@@ -183,6 +123,58 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let start_addr = u64::from_str_radix(&start_str[2..], 16)?;
         Ok(start_addr)
     }
+
+    fn load_all_dumps(&mut self) -> Result<(), MemoryError> {
+
+        let dumps_dir_path = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            info.memory_dumps.clone()
+        };
+
+        let entries = fs::read_dir(dumps_dir_path)?;
+
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
+                println!("Initializing memory section from file: {:?}", path);
+                self.load_memory_dump(&path)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn ensure_address_initialized(&mut self, address: u64, size: usize) {
+        for offset in 0..size {
+            let current_address = address + offset as u64;
+            self.memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
+        }
+    }
+
+    // Read a block of memory from a specified address with a given size
+    // Handles UninitializedAccess by returning a default value
+    pub fn read_memory(&mut self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
+        self.ensure_address_initialized(address, size);
+        let mut result = Vec::with_capacity(size);
+        for offset in 0..size as u64 {
+            let current_address = address + offset;
+            match self.memory.get(&current_address) {
+                Some(memory_value) => {
+                    match memory_value.concrete {
+                        ConcreteVar::Int(val) => result.push(val as u8),
+                        _ => return Err(MemoryError::IncorrectSliceLength),
+                    }
+                },
+                None => {
+                    // Handling uninitialized memory: return a default value zero
+                    result.push(0);
+                },
+            }
+        }
+
+        Ok(result)
+    } 
 
     // Read a 64-bit (quad) value from memory
     pub fn read_quad(&mut self, offset: u64) -> Result<u64, MemoryError> {
@@ -254,6 +246,26 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(String::from_utf8(bytes).map_err(|_| MemoryError::IncorrectSliceLength)?)
     }
 
+    // Writes a slice of bytes to memory starting from a specified address.
+    pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
+        // Calculate the end address to prevent writing beyond memory bounds
+        let end_address = address.checked_add(bytes.len() as u64).ok_or(MemoryError::WriteOutOfBounds)?;
+        
+        for (offset, &byte) in bytes.iter().enumerate() {
+            let current_address = address + offset as u64;
+            if current_address >= end_address {
+                return Err(MemoryError::WriteOutOfBounds); // Prevent out-of-bounds write
+            }
+            // Insert the byte into memory, converting it to a `MemoryConcolicValue`
+            self.memory.insert(current_address, MemoryConcolicValue {
+                concrete: ConcreteVar::Int(byte.into()),
+                symbolic: SymbolicVar::Int(BV::from_u64(self.ctx, byte.into(), 8)), // 8-bit byte size assumed
+            });
+        }
+        
+        Ok(())
+    }
+    
     // Write a 64-bit (quad) value to memory
     pub fn write_quad(&mut self, offset: u64, value: u64) -> Result<(), MemoryError> {
         let bytes = value.to_le_bytes(); // Convert the u64 value into an array of 8 bytes
@@ -276,12 +288,12 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn write_byte(&mut self, offset: u64, value: u8) -> Result<(), MemoryError> {
         self.write_memory(offset, &[value]) // Directly write the single byte
     }
+}
 
-    // Display trait to visualize memory state (not for cloning)
-    pub fn display_memory(&self) -> std::fmt::Result {
-        let memory = self.memory.read().unwrap();
-        println!("Overview of the initialized memory:");
-        for (address, memory_value) in memory.iter().take(20) {
+impl<'ctx> fmt::Display for MemoryX86_64<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Overview of the initialized memory:")?;
+        for (address, memory_value) in self.memory.iter().take(20) {
             let concrete_value = match &memory_value.concrete {
                 ConcreteVar::Int(val) => val.to_string(),
                 ConcreteVar::Float(val) => val.to_string(),
@@ -293,9 +305,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 SymbolicVar::Float(float) => format!("{}", float),
             };
 
-            println!("  {:#x}: MemoryConcolicValue {{ concrete: {}, symbolic: {} }}",
-                     address, concrete_value, symbolic_value);
+            writeln!(
+                f,
+                "  {:#x}: MemoryConcolicValue {{ concrete: {}, symbolic: {} }}",
+                address, concrete_value, symbolic_value
+            )?;
         }
+        writeln!(f, "  etc...")?;
+
         Ok(())
     }
 }
