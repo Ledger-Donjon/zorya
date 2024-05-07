@@ -11,34 +11,24 @@ pub struct ConcolicVar<'ctx> {
 impl<'a> ConcolicVar<'a> {
 
     // Function to create a new ConcolicVar with a symbolic integer
-    pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic_name: &str, ctx: &'a Context, sz: u32) -> Self {
-        println!("Creating new ConcolicVar with concrete: {}, symbolic_name: '{}', size: {}", concrete, symbolic_name, sz);
-        
+    pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic_name: &str, ctx: &'a Context, sz: u32) -> Self {        
         let symbolic: BV<'a> = BV::new_const(ctx, symbolic_name, sz);
         
         let new_var = ConcolicVar { 
             concrete: ConcreteVar::Int(concrete),
             symbolic: SymbolicVar::Int(symbolic),
         };
-
-        println!("Created ConcolicVar: {:?}", new_var);
-
         new_var
     }
 
     // Function to create a new ConcolicVar with a symbolic double-precision float
-    pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic_name: &str, ctx: &'a Context) -> Self {
-        println!("Creating new ConcolicVar with concrete: {}, symbolic_name: '{}', type: float", concrete, symbolic_name);
-        
+    pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic_name: &str, ctx: &'a Context) -> Self {        
         let symbolic: Float<'a> = Float::new_const_double(ctx, symbolic_name);
         
         let new_var = ConcolicVar {
             concrete: ConcreteVar::Float(concrete),
             symbolic: SymbolicVar::Float(symbolic),
         };
-
-        println!("Created ConcolicVar: {:?}", new_var);
-
         new_var
     }
 

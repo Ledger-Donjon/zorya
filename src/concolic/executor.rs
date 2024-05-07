@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::Arc;
-use std::sync::Mutex;
 use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
@@ -24,7 +22,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub state: State<'ctx>,
     pub current_address: Option<u64>,
     pub instruction_counter: usize,
-    pub unique_variables: Arc<Mutex<HashMap<String, ConcolicVar<'ctx>>>>, // Stores unique variables and their values
+    pub unique_variables: HashMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -37,7 +35,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             state,
             current_address: None,
             instruction_counter: 0,
-            unique_variables: Arc::new(Mutex::new(HashMap::new())),
+            unique_variables: HashMap::new(),
         })
     }
 
@@ -158,9 +156,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // Keep track of the unique variables defined inside one address execution
             Var::Unique(id) => {
                 println!("Varnode is a unique variable with ID: {}", id);
-                let unique_name = format!("{}", id);
-                let mut unique_vars_guard = self.unique_variables.lock().unwrap();
-                let var = unique_vars_guard.entry(unique_name.clone())
+                let unique_name = format!("Unique({})", id);
+                let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
                         println!("Creating new unique variable '{}' with initial value {}", unique_name, *id as u64);
                         ConcolicVar::new_concrete_and_symbolic_int(*id as u64, &unique_name, self.context, varnode.size as u32)
@@ -188,14 +185,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     // Resets the unique variables, ensuring thread safety with the lock
     pub fn reset_unique_variables(&mut self) {
-        let mut unique_vars = self.unique_variables.lock().unwrap(); // Lock the mutex
-        unique_vars.clear();
+        self.unique_variables.clear();
     }
 
     // Adds a unique variable, managing thread safety with the lock
     pub fn add_unique_variable(&mut self, name: String, value: ConcolicVar<'ctx>) {
-        let mut unique_vars = self.unique_variables.lock().unwrap(); // Lock the mutex
-        unique_vars.insert(name, value);
+        self.unique_variables.insert(name, value);
     }
 
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {

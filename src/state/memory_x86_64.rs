@@ -111,6 +111,24 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
             ctx: self.ctx,
         }))
     }
+
+    // Method to retrieve the concrete u64 value
+    pub fn get_concrete_value(&self) -> Result<u64, String> {
+        match self.concrete {
+            ConcreteVar::Int(value) => Ok(value),
+            ConcreteVar::Float(value) => Ok(value as u64),  // Simplistic conversion
+            ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
+                .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
+        }
+    }
+
+    pub fn get_size(&self) -> u32 {
+        match &self.concrete {
+            ConcreteVar::Int(_) => 64,  // Assuming all integers are u64
+            ConcreteVar::Float(_) => 64, // Assuming double precision floats
+            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // Example, size in bits
+        }
+    }
 }
 
 #[allow(dead_code)] // for not used memory_size var for Debug
@@ -131,7 +149,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     pub fn get_or_create_memory_concolic_var(&self, ctx: &'ctx Context, value: u64) -> MemoryConcolicValue<'ctx> {
-        println!("Inside get or create memory concolic var");
+        println!("Inside get_or_create_memory_concolic_var function");
 
         // Try to read the value with read lock first
         {

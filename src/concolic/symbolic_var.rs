@@ -29,4 +29,11 @@ impl<'a> SymbolicVar<'a> {
             _ => Err("Logical AND operation is only applicable to integers (bitvectors)"),
         }
     }
+
+    pub fn to_str(&self) -> String {
+        match self {
+            SymbolicVar::Int(value) => value.to_string(),
+            SymbolicVar::Float(value) => value.to_string(),
+        }
+    }
 }

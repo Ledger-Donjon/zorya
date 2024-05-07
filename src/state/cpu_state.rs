@@ -71,6 +71,14 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ctx: self.ctx,
         }))
     }
+
+    pub fn get_size(&self) -> u32 {
+        match &self.concrete {
+            ConcreteVar::Int(_) => 64,  // Assuming all integers are u64
+            ConcreteVar::Float(_) => 64, // Assuming double precision floats
+            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // Example, size in bits
+        }
+    }
 }
 
 
@@ -172,10 +180,10 @@ impl<'ctx> CpuState<'ctx> {
         // Try to get the register name from the map; if not found, create a new register.
         self.register_map.entry(reg_num)
             .or_insert_with(|| {
-                let new_name = format!("{:x}", reg_num);
+                let new_name = format!("{}", reg_num);
                 // Create and initialize a new register if it does not exist
                 self.registers.entry(new_name.clone()).or_insert_with(|| {
-                    println!("Creating and initializing new register '{}' to 0x0", new_name);
+                    println!("No such existing register. Creating and initializing new register '{}' to 0x0", new_name);
                     CpuConcolicValue::new(self.ctx, 0)
                 });
                 new_name

@@ -116,30 +116,43 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         return Err("Invalid instruction format for INT_ADD".to_string());
     }
 
-    println!("Handling INT_ADD for inputs: {:?} and {:?}", instruction.inputs[0], instruction.inputs[1]);
-
     // Fetch concolic variables
+    println!("* Fetching instruction.input[0]");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    println!("* Fetching instruction.input[1]");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     // Perform the addition
     let result_value = input0_var.concolic_add(input1_var).map_err(|e| e.to_string())?;
+    println!("*** The result of INT_ADD is: {:?}\n", result_value);
 
     match instruction.output.as_ref().map(|v| &v.var) {
         Some(Var::Unique(id)) => {
-            println!("Output is Unique type with ID: {}", id);
-            match result_value {
-                ConcolicEnum::ConcolicVar(concolic_var) => {
-                    let unique_name = format!("{}", id);
-                    let mut unique_vars_guard = executor.unique_variables.lock().unwrap();
-                    unique_vars_guard.insert(unique_name.clone(), concolic_var);
-                    println!("Updated unique_variables with {}: {:?}", unique_name, unique_vars_guard);
+            // Check and convert result_value to ConcolicVar
+            let concolic_var = match result_value {
+                ConcolicEnum::ConcolicVar(var) => var,
+                ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                    // Convert CpuConcolicValue to ConcolicVar
+                    ConcolicVar::new_concrete_and_symbolic_int(
+                        cpu_var.concrete.to_u64(), 
+                        &cpu_var.symbolic.to_str(), 
+                        cpu_var.ctx, 
+                        cpu_var.get_size()
+                    )
+                },
+                ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                    // Convert MemoryConcolicValue to ConcolicVar
+                    ConcolicVar::new_concrete_and_symbolic_int(
+                        mem_var.concrete.to_u64(), 
+                        &mem_var.symbolic.to_str(),
+                        mem_var.ctx, 
+                        mem_var.get_size()
+                    )
                 }
-                _ => {
-                    println!("Result of addition is not a ConcolicVar as expected: {:?}", result_value);
-                    return Err("Expected ConcolicVar for unique output".to_string());
-                }
-            }
+            };
+            let unique_name = format!("Unique({})", id);
+            executor.unique_variables.insert(unique_name, concolic_var);
+            println!("The unique_variables table has been updated: {:?}\n", executor.unique_variables);
         },
         Some(Var::Register(reg_num, _)) => {
             println!("Output is a Register type");
