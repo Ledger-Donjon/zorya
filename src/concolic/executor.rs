@@ -426,56 +426,68 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if instruction.opcode != Opcode::Load || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for LOAD".to_string());
         }
-
-        let output_varnode = instruction.output.as_ref().ok_or_else(|| "Output varnode is required for LOAD".to_string())?;
-
-        // Calculate base_address outside of the CPU state lock scope to ensure the lock is dropped early.
-        let base_address = {
-            // Access the shared CPU state with a lock
-            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-
-            match &instruction.inputs[1].var {
-                Var::Const(ref address_str) => {
-                    let addr_str = address_str.trim_start_matches("0x");
-                    u64::from_str_radix(addr_str, 16).map_err(|_| "Failed to parse address".to_string())?
+    
+        // Fetch the space ID (input0) and pointer offset (input1)
+        println!("* Fetching space ID from instruction.input[0]");
+        let space_id = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        println!("* Fetching pointer offset from instruction.input[1]");
+        let pointer_offset = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+    
+        // Assuming that space_id is a const ID and not used directly in calculation here
+        // Dereference the pointer to fetch the data
+        // let data_to_load = executor.memory_load(space_id, pointer_offset).map_err(|e| e.to_string())?;
+        // println!("*** Data loaded from memory: {:?}", data_to_load);
+    
+        // Determine the output variable and update it with the loaded data
+        if let Some(output_varnode) = instruction.output.as_ref() {
+            match &output_varnode.var {
+                Var::Unique(id) => {
+                    println!("Output is a Unique type with ID: {}", id);
+                    // Check and convert result_value to ConcolicVar
+                    let concolic_var = match pointer_offset {
+                        ConcolicEnum::ConcolicVar(var) => var,
+                        ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                            // Convert CpuConcolicValue to ConcolicVar
+                            ConcolicVar::new_concrete_and_symbolic_int(
+                                cpu_var.concrete.to_u64(), 
+                                &cpu_var.symbolic.to_str(), 
+                                cpu_var.ctx, 
+                                cpu_var.get_size()
+                            )
+                        },
+                        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                            // Convert MemoryConcolicValue to ConcolicVar
+                            ConcolicVar::new_concrete_and_symbolic_int(
+                                mem_var.concrete.to_u64(), 
+                                &mem_var.symbolic.to_str(),
+                                mem_var.ctx, 
+                                mem_var.get_size()
+                            )
+                        }
+                    };
+                    let unique_name = format!("Unique({})", id);
+                    self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
+                    println!("The unique_variables table has been updated: {:?}\n", self.unique_variables);
                 },
-                Var::Register(reg_num, _size) => {
-                    let reg_name = CpuState::reg_num_to_name(&mut cpu_state_guard,*reg_num);
-
-                    cpu_state_guard.get_register_value(&reg_name)
-                        .ok_or_else(|| format!("Failed to fetch value for register {}", reg_name))?
+                Var::Register(reg_num, _) => {
+                    println!("Output is a Register type");
+                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                    let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
+                    let concrete_value = pointer_offset.get_concrete_value();
+                    let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
+                    println!("Updated register {} with value {}", reg_name, concrete_value);
                 },
-                Var::Unique(_) | Var::Memory(_) => {
-                    self.resolve_varnode_to_address(&instruction.inputs[1])
-                        .ok_or_else(|| "Failed to resolve Unique or Memory varnode to concrete address".to_string())?
-                },
+                _ => {
+                    println!("Output type is unsupported");
+                    return Err("Output type not supported".to_string());
+                }
             }
-        };
-
-        let size = output_varnode.size.to_bitvector_size() / 8;
-        info!("Output varnode: {:?}", output_varnode.var); // Log output varnode
-
-        println!("Debug LOAD : base address is {:?}", base_address);
-        println!("Debug LOAD : output varnode is {:?}", output_varnode.var);
-
-        // Perform memory reading and updating concolic variables without holding the CPU state lock.
-        match self.state.memory.read_memory(base_address, size as usize) {
-            Ok(data) => {
-                println!("inside match OK");
-                let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-                let read_value = data.iter().fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
-                let var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, read_value); // Use read_value
-                self.state.create_or_update_concolic_var_int(&var_name, read_value, 64);
-            },
-            Err(e) => {
-                info!("Memory read error: {:?}", e); // Log memory read error
-                return Err(format!("Memory read error at address 0x{:x}: {:?}", base_address, e))
-            }
+        } else {
+            return Err("No output variable specified for LOAD instruction".to_string());
         }
-        println!("Debug LOAD : end of Load function");
-        info!("End of handle_load function"); // Log end of function
+    
         Ok(())
-    }
+    } 
 
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
