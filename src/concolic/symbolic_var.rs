@@ -8,7 +8,7 @@ pub enum SymbolicVar<'a> {
 }
 
 impl<'a> SymbolicVar<'a> {
-    pub fn add(self, other: SymbolicVar<'a>, _ctx: &'a Context) -> Result<SymbolicVar<'a>, &'static str> {
+    pub fn add(&self, other: &SymbolicVar<'a>) -> Result<SymbolicVar<'a>, &'static str> {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
                 Ok(SymbolicVar::Int(a.bvadd(&b)))
@@ -21,7 +21,7 @@ impl<'a> SymbolicVar<'a> {
         }
     }
 
-    pub fn and(self, other: SymbolicVar<'a>, _ctx: &'a Context) -> Result<SymbolicVar<'a>, &'static str> {
+    pub fn and(self, other: &SymbolicVar<'a>, _ctx: &'a Context) -> Result<SymbolicVar<'a>, &'static str> {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
                 Ok(SymbolicVar::Int(a.bvand(&b)))

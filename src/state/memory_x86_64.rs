@@ -6,13 +6,14 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
-use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use std::{fmt, io};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::target_info::GLOBAL_TARGET_INFO;
-use crate::concolic::{ConcreteVar, SymbolicVar};
+use crate::concolic::{ConcolicEnum, ConcolicVar, ConcreteVar, SymbolicVar};
+
+use super::cpu_state::CpuConcolicValue;
 
 #[derive(Debug)]
 pub enum MemoryError {
@@ -54,9 +55,10 @@ impl From<std::num::ParseIntError> for MemoryError {
 }
 
 #[derive(Clone, Debug)]
-pub struct MemoryConcolicValue<'a> {
+pub struct MemoryConcolicValue<'ctx> {
     pub concrete: ConcreteVar, 
-    pub symbolic: SymbolicVar<'a>,
+    pub symbolic: SymbolicVar<'ctx>,
+    pub ctx: &'ctx Context,
 }
 
 impl<'ctx> MemoryConcolicValue<'ctx> {
@@ -64,6 +66,7 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
         MemoryConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
             symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, 64)),
+            ctx,
         }
     }
 
@@ -72,16 +75,50 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
         MemoryConcolicValue {
             concrete: ConcreteVar::Int(0),
             symbolic: SymbolicVar::Int(BV::from_u64(ctx, 0, 64)), // 64-bit
+            ctx,
         }
+    }
+
+    // Add operation on two memory concolic variables 
+    pub fn add(self, other: Self) -> Result<Self, &'static str> {
+        let new_concrete = self.concrete.add(&other.concrete);
+        let new_symbolic = self.symbolic.add(&other.symbolic)?;
+        Ok(Self {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        })
+    }
+
+    // Add a memory concolic value to a const var
+    pub fn add_with_var(self, var: ConcolicVar<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.add(&var.concrete);
+        let new_symbolic = self.symbolic.add(&var.symbolic)?;
+        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }))
+    }
+
+    // Add a memory concolic value to a const var
+    pub fn add_with_other(self, var: CpuConcolicValue<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.add(&var.concrete);
+        let new_symbolic = self.symbolic.add(&var.symbolic)?;
+        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }))
     }
 }
 
 #[allow(dead_code)] // for not used memory_size var for Debug
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
     pub memory: Arc<RwLock<BTreeMap<u64, MemoryConcolicValue<'ctx>>>>,
     ctx: &'ctx Context,
-    memory_size: AtomicU64,
+    memory_size: u64,
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
@@ -89,14 +126,38 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(MemoryX86_64 {
             memory: Arc::new(RwLock::new(BTreeMap::new())),
             ctx,
-            memory_size: AtomicU64::new(memory_size),
+            memory_size,
         })
+    }
+
+    pub fn get_or_create_memory_concolic_var(&self, ctx: &'ctx Context, value: u64) -> MemoryConcolicValue<'ctx> {
+        println!("Inside get or create memory concolic var");
+
+        // Try to read the value with read lock first
+        {
+            let memory_read = self.memory.read().unwrap();
+            if let Some(memory_value) = memory_read.get(&value) {
+                // If the memory address already exists, return the existing concolic value
+                return memory_value.clone();
+            }
+        }
+
+        // Only acquire write lock if the value does not exist
+        let memory_write = self.memory.write().unwrap();
+        // Check again in case another thread has created it before we acquired the write lock
+        if let Some(memory_value) = memory_write.get(&value) {
+            memory_value.clone()
+        } else {
+            // If the memory address doesn't exist, create a new concolic value and insert it into memory
+            let concolic_value = MemoryConcolicValue::new(ctx, value);
+            // Do not insert the value into the Memory model because it is just a temporary working value
+            // memory_write.insert(value, concolic_value.clone());
+            concolic_value
+        }
     }
 
     pub fn read_memory(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
         let memory = self.memory.read().unwrap(); // Acquire read lock
-        self.ensure_address_initialized(address, size);
-
         let mut result = Vec::with_capacity(size);
         for offset in 0..size as u64 {
             let current_address = address + offset;
@@ -111,6 +172,16 @@ impl<'ctx> MemoryX86_64<'ctx> {
             }
         }
         Ok(result)
+    }
+
+    // Ensure a specific address range is initialized
+    pub fn ensure_address_initialized(&self, address: u64, size: usize) {
+        // Acquire read lock for initialization
+        let mut memory = self.memory.write().unwrap();
+        for offset in 0..size {
+            let current_address = address + offset as u64;
+            memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
+        }
     }
 
     pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
@@ -128,22 +199,15 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(())
     }
 
-    // Ensure a specific address range is initialized
-    pub fn ensure_address_initialized(&self, address: u64, size: usize) {
-        let mut memory = self.memory.write().unwrap(); // Acquire write lock for initialization
-        for offset in 0..size {
-            let current_address = address + offset as u64;
-            memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
-        }
-    }
-
     pub fn load_all_dumps(&self) -> Result<(), MemoryError> {
-        let dumps_dir = {
-            let info = GLOBAL_TARGET_INFO.lock().unwrap();
-            info.memory_dumps.clone()
-        };
+        // let dumps_dir = {
+        //     let info = GLOBAL_TARGET_INFO.lock().unwrap();
+        //     info.memory_dumps.clone()
+        // };
 
-        let dumps_dir_path = dumps_dir.join("dumps");
+        // let dumps_dir_path = dumps_dir.join("dumps");
+
+        let dumps_dir_path = PathBuf::from("value/home/kgorna/Documents/zorya/src/state/working_files/additiongo_all-u-need");
 
         let entries = fs::read_dir(dumps_dir_path)?;
         for entry in entries {
@@ -298,4 +362,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
         Ok(())
     }
+
+    
 }

@@ -9,11 +9,11 @@ pub enum ConcreteVar {
 
 impl ConcreteVar {
     // Addition operation
-    pub fn add(self, other: ConcreteVar) -> Self {
+    pub fn add(&self, other: &ConcreteVar) -> Self {
         match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(a + b),
-            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => ConcreteVar::Float(a + b),
-            _ => panic!("Attempted to add incompatible ConcreteVars"),
+            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(*a + *b),
+            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => ConcreteVar::Float(*a + *b),
+            _ => panic!("Unsupported types for add operation"),
         }
     }
 
@@ -59,10 +59,29 @@ impl ConcreteVar {
         }
     }
 
-    pub fn to_u64(&self) -> Option<u64> {
-        match self {
-            ConcreteVar::Int(value) => Some(*value),
-            _ => None, // handle others cases ?
+    // Convert ConcreteVar to u64 directly, using default values for non-convertible types
+    pub fn to_u64(&self) -> u64 {
+        match *self {
+            ConcreteVar::Int(value) => value,
+            ConcreteVar::Float(value) => {
+                if value >= 0.0 && value < u64::MAX as f64 {
+                    value as u64
+                } else {
+                    0 // Default value for out-of-range or negative floats
+                }
+            },
+            ConcreteVar::Str(ref s) => {
+                s.parse::<u64>().unwrap_or(0) // Default value for unparseable strings
+            },
+        }
+    }
+
+    // Convert ConcreteVar to a String
+    pub fn to_str(&self) -> String {
+        match *self {
+            ConcreteVar::Int(value) => value.to_string(),
+            ConcreteVar::Float(value) => value.to_string(),
+            ConcreteVar::Str(ref s) => s.clone(),
         }
     }
 

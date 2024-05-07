@@ -1,0 +1,127 @@
+use std::{any::Any, fmt};
+
+use z3::Context;
+use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
+
+use super::{ConcolicVar, ConcreteVar};
+
+pub trait ConcolicTrait<'ctx> {
+    fn as_any(&self) -> &(dyn Any + 'ctx); 
+    fn get_concrete_value(&self) -> u64;
+    fn get_size(&self) -> u32;
+    fn to_str(&self) -> String;
+    fn to_int(&self) -> Result<u64, String>;
+    fn add(&self, other: &dyn ConcolicTrait<'ctx>) -> Box<dyn ConcolicTrait<'ctx>>;
+}
+
+impl<'ctx> fmt::Debug for dyn ConcolicTrait<'ctx> + '_ {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConcolicTrait")
+         .field("concrete_value", &self.get_concrete_value())
+         .field("size", &self.get_size())
+         .field("representation", &self.to_str())
+         .finish()
+    }
+}
+
+impl<'ctx> ConcolicTrait<'ctx> for ConcolicVar<'ctx> {
+    fn get_concrete_value(&self) -> u64 {
+        self.concrete.to_u64()
+    }
+
+    fn get_size(&self) -> u32 {
+        match self.concrete {
+            ConcreteVar::Int(_) => 64,
+            ConcreteVar::Float(_) => 32,
+            ConcreteVar::Str(ref s) => s.len() as u32 * 8,
+        }
+    }
+
+    fn to_str(&self) -> String {
+        format!("{:?}", self.symbolic)
+    }
+
+    fn to_int(&self) -> Result<u64, String> {
+        Ok(self.concrete.to_u64())
+    }
+
+    // Use a Box to return a trait object, allowing for polymorphic return types
+    fn add(&self, other: &dyn ConcolicTrait) -> Box<dyn ConcolicTrait<'ctx>> {
+        let other_concolic = other.as_any().downcast_ref::<Self>().expect("Type mismatch in addition");
+        let new_value = self.concolic_add(other_concolic, self.ctx).expect("Failed to add concolic values");
+        Box::new(new_value)
+    }
+
+    // Downcasting
+    fn as_any(&self) -> &(dyn Any + 'ctx) {
+        self
+    }
+}
+
+
+impl<'ctx> ConcolicTrait<'ctx> for CpuConcolicValue<'ctx> {
+    fn get_concrete_value(&self) -> u64 {
+        self.concrete.to_u64()
+    }
+
+    fn get_size(&self) -> u32 {
+        match self.concrete {
+            ConcreteVar::Int(_) => 64,
+            ConcreteVar::Float(_) => 32,
+            ConcreteVar::Str(ref s) => s.len() as u32 * 8,
+        }
+    }
+
+    fn to_str(&self) -> String {
+        format!("cpu_{:?}", self.symbolic)
+    }
+
+    fn to_int(&self) -> Result<u64, String> {
+        Ok(self.concrete.to_u64())
+    }
+
+    fn add(&self, other: &dyn ConcolicTrait) -> Box<dyn ConcolicTrait<'ctx>> {
+        let other_concolic = other.as_any().downcast_ref::<Self>().expect("Type mismatch in addition");
+        let new_value = self.concolic_add(other_concolic, self.ctx).expect("Failed to add concolic values");
+        Box::new(new_value)
+    }
+    
+    // Downcasting
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+
+impl<'ctx> ConcolicTrait<'ctx> for MemoryConcolicValue<'ctx> {
+    fn get_concrete_value(&self) -> u64 {
+        self.concrete.to_u64()
+    }
+
+    fn get_size(&self) -> u32 {
+        match self.concrete {
+            ConcreteVar::Int(_) => 64,
+            ConcreteVar::Float(_) => 32,
+            ConcreteVar::Str(ref s) => s.len() as u32 * 8,
+        }
+    }
+
+    fn to_str(&self) -> String {
+        format!("memory_{:?}", self.symbolic)
+    }
+
+    fn to_int(&self) -> Result<u64, String> {
+        Ok(self.concrete.to_u64())
+    }
+    
+    fn add(&self, other: &dyn ConcolicTrait) -> Box<dyn ConcolicTrait<'ctx>> {
+        let other_concolic = other.as_any().downcast_ref::<Self>().expect("Type mismatch in addition");
+        let new_value = self.concolic_add(other_concolic, self.ctx).expect("Failed to add concolic values");
+        Box::new(new_value)
+    }
+
+    // Downcasting
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}

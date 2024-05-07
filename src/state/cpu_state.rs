@@ -2,19 +2,22 @@
 
 use std::{collections::BTreeMap, sync::Mutex};
 use std::fmt;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use std::sync::Arc;
 
 use z3::{ast::BV, Context};
 
-use crate::concolic::{ConcreteVar, SymbolicVar};
+use crate::concolic::{ConcolicEnum, ConcolicVar, ConcreteVar, SymbolicVar};
+
+use super::memory_x86_64::MemoryConcolicValue;
 
 pub type SharedCpuState<'a> = Arc<Mutex<CpuState<'a>>>;
 
 #[derive(Debug, Clone)]
-pub struct CpuConcolicValue<'a> {
+pub struct CpuConcolicValue<'ctx> {
     pub concrete: ConcreteVar,
-    pub symbolic: SymbolicVar<'a>,
+    pub symbolic: SymbolicVar<'ctx>,
+    pub ctx: &'ctx Context,  // Include context directly in the struct
 }
 
 impl<'ctx> CpuConcolicValue<'ctx> {
@@ -22,6 +25,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         CpuConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
             symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, 64)),
+            ctx,
         }
     }
 
@@ -33,6 +37,39 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
                 .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
         }
+    }
+
+    // Add operation on two CPU concolic variables 
+    pub fn add(self, other: Self) -> Result<Self, &'static str> {
+        let new_concrete = self.concrete.add(&other.concrete.clone());
+        let new_symbolic = self.symbolic.add(&other.symbolic)?;
+        Ok(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        })
+    }
+
+    // Add a CPU concolic value to a const var
+    pub fn add_with_var(self, var: ConcolicVar<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.add(&var.concrete);
+        let new_symbolic = self.symbolic.add(&var.symbolic)?;
+        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }))
+    }
+
+    // Add a memory concolic value to a const var
+    pub fn add_with_other(self, var: MemoryConcolicValue<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.add(&var.concrete);
+        let new_symbolic = self.symbolic.add(&var.symbolic)?;
+        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }))
     }
 }
 
@@ -46,6 +83,7 @@ impl<'ctx> fmt::Display for CpuConcolicValue<'ctx> {
 #[derive(Debug, Clone)]
 pub struct CpuState<'ctx> {
     pub registers: BTreeMap<String, CpuConcolicValue<'ctx>>,
+    pub register_map: BTreeMap<u64, String>,
     ctx: &'ctx Context,
 
 }
@@ -54,6 +92,7 @@ impl<'ctx> CpuState<'ctx> {
     pub fn new(ctx: &'ctx Context) -> Self {
         let mut cpu_state = CpuState {
             registers: BTreeMap::new(),
+            register_map: BTreeMap::new(),
             ctx,
         };
         cpu_state.initialize_registers();
@@ -61,69 +100,36 @@ impl<'ctx> CpuState<'ctx> {
     }
 
     fn initialize_registers(&mut self) {
-        let register_names = [
-            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
-            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-            "rip", "eflags", "cs", "ss", "ds", "es", "fs", "gs",
-            "st0", "st1", "st2", "st3", "st4", "st5", "st6", "st7",
-            "fctrl", "fstat", "ftag", "fiseg", "fioff", "foseg", "fooff", "fop",
-            "fs_base", "gs_base", "k_gs_base", "cr0", "cr2", "cr3", "cr4", "cr8",
-            "efer", "mxcsr", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5",
-            "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13",
-            "xmm14", "xmm15"
-        ];
-        for &name in &register_names {
-            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
-        }
-    } 
-
-    pub fn set_register_value(&mut self, name: &str, value: u64) -> Result<()> {
-        if let Some(reg) = self.registers.get_mut(name) {
-            reg.concrete = ConcreteVar::Int(value);
-            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, value, 64));
-            println!("{:?} set to concrete {:?}", reg, value);
-            Ok(())
-        } else {
-            println!("Register not found: {}", name);  // Error handling
-            Err(anyhow!("Register '{}' does not exist", name))
-        }
-    }
-
-    pub fn get_register_value(&self, name: &str) -> Option<u64> {
-        self.registers.get(name).and_then(|val| val.get_concrete_value().ok())
-    }
-    
-    // Converts a register number to its name. TO BE MODIFIED
-    pub fn reg_num_to_name(reg_num: u64) -> Option<String> {
-        let mut register_map = BTreeMap::new();
-    
-        // General-purpose registers (GPRs)
+    // General-purpose registers (GPRs)
         let gprs = vec![
             "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
         ];
         for (i, &reg) in gprs.iter().enumerate() {
-            register_map.insert(i as u64, reg.to_string());
+            self.register_map.insert(i as u64, reg.to_string());
+            self.registers.insert(reg.to_string(), CpuConcolicValue::new(self.ctx, 0));
         }
-    
+
         // Specific additional registers
         let additional_registers = vec![
             (16, "r16"), (32, "r32"), (48, "r48"), (56, "r56"), 
             (512, "r512"), (518, "r518")
         ];
         for &(num, name) in &additional_registers {
-            register_map.insert(num, name.to_string());
+            self.register_map.insert(num, name.to_string());
+            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
         }
-    
+
         // System and control registers commonly used in x86-64 architecture
         let system_registers = vec![
             (64, "rip"), (65, "eflags"), 
             (66, "cs"), (67, "ss"), (68, "ds"), (69, "es"), (70, "fs"), (71, "gs")
         ];
         for &(num, name) in &system_registers {
-            register_map.insert(num, name.to_string());
+            self.register_map.insert(num, name.to_string());
+            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
         }
-    
+
         // Floating-point unit (FPU) and other state registers
         let fpu_registers = vec![
             (72, "fctrl"), (73, "fstat"), (74, "ftag"), 
@@ -131,11 +137,49 @@ impl<'ctx> CpuState<'ctx> {
             (80, "mxcsr")
         ];
         for &(num, name) in &fpu_registers {
-            register_map.insert(num, name.to_string());
+            self.register_map.insert(num, name.to_string());
+            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
         }
+    }
+
+
+    pub fn set_register_value(&mut self, name: &str, value: u64) -> Result<()> {
+        let reg = self.registers.entry(name.to_string()).or_insert_with(|| CpuConcolicValue::new(self.ctx, 0));
+        reg.concrete = ConcreteVar::Int(value);
+        reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, value, 64));
+        println!("{} set to {}", name, value);
+        Ok(())
+    }
+
+    pub fn get_register_value(&self, name: &str) -> Option<u64> {
+        self.registers.get(name).and_then(|val| match val.concrete {
+            ConcreteVar::Int(value) => Some(value),
+            _ => None
+        })
+    }
     
-        // Retrieve the register name by its number
-        register_map.get(&reg_num).cloned()
+    pub fn get_or_init_register(&mut self, reg_num: u64) -> &CpuConcolicValue<'ctx> {
+        let reg_name = self.reg_num_to_name(reg_num); // Ensure to get or create the name
+        self.registers.entry(reg_name.clone()).or_insert_with(|| {
+            println!("Initializing register {}: 0x0", reg_name);
+            CpuConcolicValue::new(self.ctx, 0)
+        })
+    }
+
+    /// Converts a register number to its name. It also ensures that if a register does not exist,
+    /// it creates one, initializes it, and logs the process.
+    pub fn reg_num_to_name(&mut self, reg_num: u64) -> String {
+        // Try to get the register name from the map; if not found, create a new register.
+        self.register_map.entry(reg_num)
+            .or_insert_with(|| {
+                let new_name = format!("{:x}", reg_num);
+                // Create and initialize a new register if it does not exist
+                self.registers.entry(new_name.clone()).or_insert_with(|| {
+                    println!("Creating and initializing new register '{}' to 0x0", new_name);
+                    CpuConcolicValue::new(self.ctx, 0)
+                });
+                new_name
+            }).clone()
     }
     
 }
@@ -183,6 +227,7 @@ mod tests {
         cpu_state.registers.insert("rbx".to_string(), CpuConcolicValue {
             concrete: ConcreteVar::Str("not_a_number".to_string()),
             symbolic: SymbolicVar::Int(BV::from_u64(&ctx, 0, 64)),  // Arbitrary 
+            ctx: &ctx,
         });
 
         assert_eq!(cpu_state.get_register_value("rbx"), None);

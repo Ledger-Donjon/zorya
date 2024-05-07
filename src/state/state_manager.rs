@@ -1,13 +1,13 @@
 use std::{collections::BTreeMap, fs::File, io::Read, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
 use goblin::elf::Elf;
-use parser::parser::{Inst, Varnode};
+use parser::parser::{Inst, Var, Varnode};
 use z3::Context;
 use std::fmt;
 
 use super::{cpu_state::SharedCpuState, memory_x86_64::MemoryX86_64, state_initializer, virtual_file_system::FileDescriptor, CpuState, VirtualFileSystem};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct State<'a> {
     pub concolic_vars: BTreeMap<String, ConcolicVar<'a>>,
     pub ctx: &'a Context,
@@ -122,6 +122,36 @@ impl<'a> State<'a> {
         self.concolic_vars.get(&var_name)
             .map(|concolic_var| concolic_var.concrete.clone())
             .ok_or_else(|| format!("Variable '{}' not found in concolic_vars. Available keys: {:?}", var_name, self.concolic_vars.keys()))
+    }
+
+    // Method to get the future concrete variable from the Varnode in the parsed Instruction
+    pub fn get_concrete_var_from_varnode(&mut self, varnode: &Varnode) -> Result<ConcreteVar, String> {
+                match &varnode.var {
+            Var::Register(reg_num, _) => {
+                // Access the shared CPU state with a lock
+                let mut cpu_state_guard = self.cpu_state.lock().unwrap();
+
+                let register = cpu_state_guard.get_or_init_register(*reg_num);
+                
+                Ok(register.concrete.clone())
+            },
+            Var::Const(value) => {
+                // Convert constant value from string to appropriate integer
+                if let Ok(num) = u64::from_str_radix(value.trim_start_matches("0x"), 16) {
+                    Ok(ConcreteVar::Int(num))
+                } else {
+                    Err(format!("Failed to parse constant value '{}'", value))
+                }
+            },
+            Var::Unique(id) => {
+                // Unique identifiers typically relate to intermediate computed values
+                let unique_name = format!("Unique({})", id);
+                self.concolic_vars.get(&unique_name)
+                    .map(|var| var.concrete.clone())
+                    .ok_or_else(|| format!("Unique variable '{}' not found in concolic_vars. Available keys: {:?}", unique_name, self.concolic_vars.keys()))
+            },
+            Var::Memory(_) => todo!(), // Handle memory-related varnodes as required
+        }
     }
 
     // Sets a boolean variable in the state, updating or creating a new concolic variable

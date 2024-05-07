@@ -27,7 +27,7 @@ pub struct DirectoryObject {
 }
 
 // Define a file descriptor that includes a reference to the file object and a current position within the file.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FileDescriptor {
     file: Rc<RefCell<FileObject>>,
     position: usize,
@@ -41,7 +41,7 @@ impl FileDescriptor {
 }
 
 // The virtual file system itself, starting with a root directory.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VirtualFileSystem {
     root: Rc<RefCell<DirectoryObject>>,
 }

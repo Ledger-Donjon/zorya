@@ -1,8 +1,8 @@
 /// Focuses on implementing the execution of the INT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::executor::ConcolicExecutor;
-use parser::parser::{Inst, Opcode, Size};
+use crate::{concolic::ConcolicEnum, executor::ConcolicExecutor};
+use parser::parser::{Inst, Opcode, Size, Var};
 use ethnum::I256;
 
 use super::{ConcolicVar, ConcreteVar};
@@ -116,52 +116,44 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         return Err("Invalid instruction format for INT_ADD".to_string());
     }
 
-    // Ensure the input varnodes exist and initialize them if not
-    let input0_var = executor.state.get_concrete_var(&instruction.inputs[0])?;
-    let input1_var = executor.state.get_concrete_var(&instruction.inputs[1])?;
-    let bitvector_size0 = input0_var.get_size();
+    println!("Handling INT_ADD for inputs: {:?} and {:?}", instruction.inputs[0], instruction.inputs[1]);
 
-    let symbolic_name0 = "intadd0"; // TODO: add the current_address and counter
-    let symbolic_name1 = "intadd1";
+    // Fetch concolic variables
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
-    let input0 = ConcolicVar::new_concrete_and_symbolic_int(
-        input0_var.to_int().map_err(|e| e.to_string())?,
-        symbolic_name0,
-        executor.state.ctx,
-        bitvector_size0
-    );
-    let input1 = ConcolicVar::new_concrete_and_symbolic_int(
-        input1_var.to_int().map_err(|e| e.to_string())?,
-        symbolic_name1,
-        executor.state.ctx,
-        bitvector_size0
-    );
+    // Perform the addition
+    let result_value = input0_var.concolic_add(input1_var).map_err(|e| e.to_string())?;
 
-    // Perform integer addition
-    let result_value = ConcolicVar::concolic_add(input0, input1, executor.state.ctx)
-        .map_err(|e| e.to_string())?;
-
-    println!("Debug INT ADD : concrete input0 is {:?}", input0_var);
-    println!("Debug INT ADD : concrete input1 is {:?}", input1_var);
-    println!("Debug INT ADD : result is {:?}", result_value);
-
-    // Ensure the sizes match
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for INT_ADD")?;
-    if instruction.inputs[0].size != instruction.inputs[1].size || instruction.inputs[0].size != output_varnode.size {
-        return Err("Input and output sizes must match for INT_ADD".to_string());
+    match instruction.output.as_ref().map(|v| &v.var) {
+        Some(Var::Unique(id)) => {
+            println!("Output is Unique type with ID: {}", id);
+            match result_value {
+                ConcolicEnum::ConcolicVar(concolic_var) => {
+                    let unique_name = format!("{}", id);
+                    let mut unique_vars_guard = executor.unique_variables.lock().unwrap();
+                    unique_vars_guard.insert(unique_name.clone(), concolic_var);
+                    println!("Updated unique_variables with {}: {:?}", unique_name, unique_vars_guard);
+                }
+                _ => {
+                    println!("Result of addition is not a ConcolicVar as expected: {:?}", result_value);
+                    return Err("Expected ConcolicVar for unique output".to_string());
+                }
+            }
+        },
+        Some(Var::Register(reg_num, _)) => {
+            println!("Output is a Register type");
+            let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+            let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
+            let concrete_value = result_value.get_concrete_value();
+            let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
+            println!("Updated register {} with value {}", reg_name, concrete_value);
+        },
+        _ => {
+            println!("Output type is unsupported");
+            return Err("Output type not supported".to_string());
+        }
     }
-
-    // Create or update a concolic variable for the result
-    let result_var_name = format!("{}_{:02}_{}", 
-        executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr)),
-        executor.instruction_counter, 
-        format!("{:?}", output_varnode.var)
-    );
-    let bitvector_size = output_varnode.size as u32; // Assuming size is directly convertible to u32
-
-
-    // Assuming create_concolic_var_int is corrected to handle u64 for concrete values
-    executor.state.create_concolic_var_int(&result_var_name, result_value.concrete.to_int().map_err(|e| e.to_string())?, bitvector_size);
 
     Ok(())
 }

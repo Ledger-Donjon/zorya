@@ -71,11 +71,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             println!("Detected a loop or previously executed address. Stopping execution.");
             break;
         }
+        println!("*******************************************");
+        println!("EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
+        println!("*******************************************\n");
 
-        println!("Executing instructions at address: 0x{:x}\n", current_rip);
         let mut branch_taken = false;
 
         for inst in instructions {
+            println!("-------> Processing instruction : {:?}\n", inst);
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
                 println!("Failed to execute instruction: {}", e);
                 continue;
@@ -102,8 +105,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 break;
             }
         }
-
-        println!("Moving to next address: 0x{:x}", current_rip);
     }
 }
 
