@@ -124,12 +124,12 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Perform the addition
     let result_value = input0_var.concolic_add(input1_var).map_err(|e| e.to_string())?;
-    println!("*** The result of INT_ADD is: {:?}\n", result_value);
+    println!("*** The result of INT_ADD is: {:?}\n", result_value.clone());
 
     match instruction.output.as_ref().map(|v| &v.var) {
         Some(Var::Unique(id)) => {
             // Check and convert result_value to ConcolicVar
-            let concolic_var = match result_value {
+            let concolic_var = match result_value.clone() {
                 ConcolicEnum::ConcolicVar(var) => var,
                 ConcolicEnum::CpuConcolicValue(cpu_var) => {
                     // Convert CpuConcolicValue to ConcolicVar
@@ -150,9 +150,8 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                     )
                 }
             };
-            let unique_name = format!("Unique({})", id);
+            let unique_name = format!("Unique(0x{:x})", id);
             executor.unique_variables.insert(unique_name, concolic_var);
-            println!("The unique_variables table has been updated: {:?}\n", executor.unique_variables);
         },
         Some(Var::Register(reg_num, _)) => {
             println!("Output is a Register type");
@@ -167,6 +166,15 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
             return Err("Output type not supported".to_string());
         }
     }
+
+    println!("{}\n", executor);
+
+    // Create a concolic variable for the result
+    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+    let result_var_name = format!("{}-{:02}-intadd", current_addr_hex, executor.instruction_counter);
+    executor.state.create_concolic_var_int(&result_var_name, result_value.get_concrete_value(), result_value.get_size());
+
+    println!("{}\n", executor.state);
 
     Ok(())
 }
@@ -275,30 +283,74 @@ pub fn handle_int_not_equal(executor: &mut ConcolicExecutor, instruction: Inst) 
 }
 
 pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
-    // Ensure the correct instruction format
     if instruction.opcode != Opcode::IntLess || instruction.inputs.len() != 2 {
         return Err("Invalid instruction format for INT_LESS".to_string());
     }
 
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
-    // Ensure output size is 1 (boolean)
-    if output_varnode.size != Size::Byte {
-        return Err("Output varnode size must be 1 (Byte) for INT_LESS".to_string());
+    println!("* Fetching instruction.input[0] for INT_LESS");
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    println!("* Fetching instruction.input[1] for INT_LESS");
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+
+    // Perform the comparison
+    let result_value = input0_var.concolic_less_than(input1_var, executor.context).map_err(|e| e.to_string())?;
+    println!("*** The result of INT_LESS is: {:?}", result_value.clone());
+
+    // The result of the comparison is a boolean
+    match instruction.output.as_ref().map(|v| &v.var) {
+        Some(Var::Unique(id)) => {
+            // Check and convert result_value to ConcolicVar
+            let concolic_var = match result_value.clone() {
+                ConcolicEnum::ConcolicVar(var) => var,
+                ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                    // Convert CpuConcolicValue to ConcolicVar
+                    ConcolicVar::new_concrete_and_symbolic_int(
+                        cpu_var.get_concrete_value()? as u64, 
+                        &format!("Unique(0x{:x})", id), 
+                        executor.context, 
+                        1 // boolean is 1 bit
+                    )
+                },
+                ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                    // Convert MemoryConcolicValue to ConcolicVar
+                    ConcolicVar::new_concrete_and_symbolic_int(
+                        mem_var.get_concrete_value()? as u64, 
+                        &format!("Unique(0x{:x})", id),
+                        executor.context, 
+                        1 // boolean is 1 bit
+                    )
+                },
+            };
+            let unique_name = format!("Unique(0x{:x})", id);
+            executor.unique_variables.insert(unique_name, concolic_var);
+            println!("Updated unique_variables with new comparison result: {:?}", executor.unique_variables);
+        },
+        Some(Var::Register(reg_num, _)) => {
+            println!("Output is a Register type for INT_LESS");
+            let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+            let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
+            let concrete_value = result_value.clone().get_concrete_value();
+            let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
+            println!("Updated register {} with comparison result {}", reg_name, concrete_value);
+        },
+        _ => {
+            println!("Output type is unsupported for INT_LESS");
+            return Err("Output type not supported".to_string());
+        }
     }
 
-    let value0 = executor.initialize_var_if_absent(&instruction.inputs[0])?;
-    let value1 = executor.initialize_var_if_absent(&instruction.inputs[1])?;
+    println!("{}\n", executor);
 
-    // Perform unsigned comparison
-    let result = (value0 < value1) as u32; // Convert boolean result to u32
-
-    // Store the result
+    // Create a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, executor.context, 1));
+    let result_var_name = format!("{}-{:02}-intless", current_addr_hex, executor.instruction_counter);
+    executor.state.create_concolic_var_int(&result_var_name, result_value.get_concrete_value(), result_value.get_size());
+
+    println!("{}\n", executor.state);
 
     Ok(())
 }
+
 
 pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Ensure the correct instruction format

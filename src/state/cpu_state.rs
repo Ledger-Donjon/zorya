@@ -108,7 +108,7 @@ impl<'ctx> CpuState<'ctx> {
     }
 
     fn initialize_registers(&mut self) {
-    // General-purpose registers (GPRs)
+        // General-purpose registers (GPRs)
         let gprs = vec![
             "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
             "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
@@ -116,16 +116,6 @@ impl<'ctx> CpuState<'ctx> {
         for (i, &reg) in gprs.iter().enumerate() {
             self.register_map.insert(i as u64, reg.to_string());
             self.registers.insert(reg.to_string(), CpuConcolicValue::new(self.ctx, 0));
-        }
-
-        // Specific additional registers
-        let additional_registers = vec![
-            (16, "r16"), (32, "r32"), (48, "r48"), (56, "r56"), 
-            (512, "r512"), (518, "r518")
-        ];
-        for &(num, name) in &additional_registers {
-            self.register_map.insert(num, name.to_string());
-            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
         }
 
         // System and control registers commonly used in x86-64 architecture
@@ -149,7 +139,6 @@ impl<'ctx> CpuState<'ctx> {
             self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
         }
     }
-
 
     pub fn set_register_value(&mut self, name: &str, value: u64) -> Result<()> {
         let reg = self.registers.entry(name.to_string()).or_insert_with(|| CpuConcolicValue::new(self.ctx, 0));

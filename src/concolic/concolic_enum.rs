@@ -1,5 +1,5 @@
 use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
-
+use z3::Context;
 use super::ConcolicVar;
 
 #[derive(Clone, Debug)]
@@ -40,6 +40,38 @@ impl<'ctx> ConcolicEnum<'ctx> {
                 Ok(ConcolicEnum::MemoryConcolicValue(a.add(b)?))
             }
         }
+    }
+
+    // Method to compare two ConcolicEnum values
+    pub fn concolic_less_than(self, other: ConcolicEnum<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let result = match (self, other) {
+            // Comparing ConcolicVar with ConcolicVar
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+
+            // Comparing CpuConcolicValue with CpuConcolicValue
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+
+            // Comparing MemoryConcolicValue with MemoryConcolicValue
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+
+            // Comparing ConcolicVar with CpuConcolicValue
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+
+            // Comparing ConcolicVar with MemoryConcolicValue
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+
+            // Comparing CpuConcolicValue with MemoryConcolicValue
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_u64() < b.concrete.to_u64(),
+        };
+
+        let result_name = format!("{}", result);
+        // Create a new ConcolicVar that represents the result of the comparison
+        Ok(ConcolicEnum::ConcolicVar(ConcolicVar::new_concrete_and_symbolic_int(
+            result as u64, &result_name, ctx, 1 // Use the passed context and boolean result size
+        )))
     }
 
     // Retrieve the concrete value of the concolic variable

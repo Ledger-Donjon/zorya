@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::error::Error;
+use std::fmt;
 use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
-use log::info;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::{Context, Solver};
 use crate::concolic::ConcolicVar;
@@ -22,7 +22,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub state: State<'ctx>,
     pub current_address: Option<u64>,
     pub instruction_counter: usize,
-    pub unique_variables: HashMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
+    pub unique_variables: BTreeMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -35,7 +35,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             state,
             current_address: None,
             instruction_counter: 0,
-            unique_variables: HashMap::new(),
+            unique_variables: BTreeMap::new(),
         })
     }
 
@@ -155,8 +155,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             // Keep track of the unique variables defined inside one address execution
             Var::Unique(id) => {
-                println!("Varnode is a unique variable with ID: {}", id);
-                let unique_name = format!("Unique({})", id);
+                println!("Varnode is of type 'unique' with ID: {}", id);
+                let unique_name = format!("Unique(0x{:x})", id);
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
                         println!("Creating new unique variable '{}' with initial value {}", unique_name, *id as u64);
@@ -442,7 +442,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
                 Var::Unique(id) => {
-                    println!("Output is a Unique type with ID: {}", id);
+                    println!("Output is a Unique type with ID: 0x{:x}", id);
                     // Check and convert result_value to ConcolicVar
                     let concolic_var = match pointer_offset {
                         ConcolicEnum::ConcolicVar(var) => var,
@@ -465,9 +465,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             )
                         }
                     };
-                    let unique_name = format!("Unique({})", id);
+                    let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
-                    println!("The unique_variables table has been updated: {:?}\n", self.unique_variables);
                 },
                 Var::Register(reg_num, _) => {
                     println!("Output is a Register type");
@@ -485,7 +484,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for LOAD instruction".to_string());
         }
-    
+
+        println!("{}\n", self);
+
+        // Create a concolic variable for the result
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
+        // The LOAD operation doesn't have a result value, so we choose to put 0x0
+        self.state.create_concolic_var_int(&result_var_name, 0x0, 64);
+        
+        println!("{}", self.state);
+
         Ok(())
     } 
 
@@ -531,11 +540,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         } 
     
-        // Check for null dereference
-        // let current_address_value = self.current_address.unwrap_or(0);
-        // self.state.check_nil_deref(address, current_address_value, &instruction)
-        //    .map_err(|e| format!("{} at address 0x{:x} with instruction {:?}", e, current_address_value, instruction))?;
-    
         // Perform the memory write operation.
         self.state.memory.write_memory(address, &value_bytes)
             .map_err(|e| format!("Error writing memory for STORE: {}", e))?;
@@ -570,26 +574,70 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("Invalid instruction format for COPY".to_string());
         }
     
-        let input0 = self.initialize_var_if_absent(&instruction.inputs[0])?;
-        println!("Debug COPY : variable to be copied (input0) is {:?}", input0);
-
-        // Ensure the sizes match
-        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for COPY")?;
-        if instruction.inputs[0].size != output_varnode.size {
-            return Err("Input and output sizes must match for COPY".to_string());
-        }
-    
-        // Perform the copy
-        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-        let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
-        self.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(input0.into(), &result_var_name, self.context, output_varnode.size.to_bitvector_size()));
+        // Fetch the source varnode
+        println!("* Fetching source from instruction.input[0]");
+        let source_var = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        println!("Value to be copied into output: {:?}", source_var);
         
-        println!("Debug COPY : variable copied from input0 is {:?}", output_varnode.var);
+        // Check the output destination and copy the source to it
+        if let Some(output_varnode) = instruction.output.as_ref() {
+            match &output_varnode.var {
+                Var::Unique(id) => {
+                    println!("Output is a Unique type");
+                    let unique_name = format!("Unique(0x{:x})", id);
+                    // Convert source to ConcolicVar if needed and update or insert into unique variables
+                    let concolic_var = match source_var {
+                        ConcolicEnum::ConcolicVar(var) => var,
+                        ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                            ConcolicVar::new_concrete_and_symbolic_int(
+                                cpu_var.get_concrete_value()?,
+                                &unique_name,
+                                self.context,
+                                cpu_var.get_size()
+                            )
+                        },
+                        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                            ConcolicVar::new_concrete_and_symbolic_int(
+                                mem_var.get_concrete_value()?,
+                                &unique_name,
+                                self.context,
+                                mem_var.get_size()
+                            )
+                        }
+                    };
+    
+                    self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
+                    println!("Content of output {:?} after copying: {:?}", unique_name, concolic_var);
+                },
+                Var::Register(reg_num, _) => {
+                    println!("Output is a Register type");
+                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                    let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
+                    let concrete_value = source_var.get_concrete_value();
+                    let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
+                    println!("Updated register {} with value {}", reg_name, concrete_value);
+                },
+                _ => {
+                    println!("Output type is unsupported for COPY");
+                    return Err("Output type not supported".to_string());
+                }
+            }
+        } else {
+            return Err("No output variable specified for COPY instruction".to_string());
+        }
+
+        println!("{}", self);
+
+        // Create a concolic variable for the result
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
+        // The COPY operation doesn't have a result value, so we choose to put 0x0
+        self.state.create_concolic_var_int(&result_var_name, 0x0, 64);
+
+        println!("{}", self.state);
 
         Ok(())
-    }
-    
-    
+    }  
 
     pub fn handle_popcount(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::PopCount || instruction.inputs.len() != 1 {
@@ -678,3 +726,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }        
 }
 
+impl<'ctx> fmt::Display for ConcolicExecutor<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        println!("***");
+        writeln!(f, "ConcolicExecutor State after the instruction:")?;
+        writeln!(f, "Current Address: {:?}", self.current_address)?;
+        writeln!(f, "Instruction Counter: {}", self.instruction_counter)?;
+        writeln!(f, "Unique Variables:")?;
+        for (key, value) in &self.unique_variables {
+            writeln!(f, "  {}: {:?}", key, value)?;
+        }
+        Ok(())
+    }
+}
