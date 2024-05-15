@@ -79,6 +79,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
         for inst in instructions {
             println!("-------> Processing instruction : {:?}\n", inst);
+
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
                 println!("Failed to execute instruction: {}", e);
                 continue;

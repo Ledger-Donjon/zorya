@@ -150,7 +150,8 @@ impl<'a> State<'a> {
                     .map(|var| var.concrete.clone())
                     .ok_or_else(|| format!("Unique variable '{}' not found in concolic_vars. Available keys: {:?}", unique_name, self.concolic_vars.keys()))
             },
-            Var::Memory(_) => todo!(), // Handle memory-related varnodes as required
+            Var::Memory(_) => todo!(),
+                    Var::MemoryRam => todo!(), // Handle memory-related varnodes as required
         }
     }
 

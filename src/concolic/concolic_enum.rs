@@ -10,6 +10,7 @@ pub enum ConcolicEnum<'ctx> {
 }
 
 impl<'ctx> ConcolicEnum<'ctx> {
+    
     pub fn concolic_add(self, other: ConcolicEnum<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
         match (self, other) {
             // Adding ConcolicVar with ConcolicVar

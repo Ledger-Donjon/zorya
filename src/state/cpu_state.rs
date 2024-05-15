@@ -91,7 +91,7 @@ impl<'ctx> fmt::Display for CpuConcolicValue<'ctx> {
 #[derive(Debug, Clone)]
 pub struct CpuState<'ctx> {
     pub registers: BTreeMap<String, CpuConcolicValue<'ctx>>,
-    pub register_map: BTreeMap<u64, String>,
+    pub register_map: BTreeMap<u64, String>, // Contains the offset of a register and its name (ie <"0x10", "RDX">)
     ctx: &'ctx Context,
 
 }
@@ -120,12 +120,12 @@ impl<'ctx> CpuState<'ctx> {
 
         // System and control registers commonly used in x86-64 architecture
         let system_registers = vec![
-            (64, "rip"), (65, "eflags"), 
+            (16, "r16"), (64, "rip"), (65, "eflags"), 
             (66, "cs"), (67, "ss"), (68, "ds"), (69, "es"), (70, "fs"), (71, "gs")
         ];
         for &(num, name) in &system_registers {
             self.register_map.insert(num, name.to_string());
-            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
+            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0x5));
         }
 
         // Floating-point unit (FPU) and other state registers

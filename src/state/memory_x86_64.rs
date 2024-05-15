@@ -186,6 +186,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 }
             } else {
                 // Return a default value for uninitialized memory
+                println!("Uninitialized memory! Set to 0x0.");
                 result.push(0);
             }
         }
