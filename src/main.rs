@@ -111,6 +111,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
 fn get_current_rip_address(cpu_state: &CpuState) -> u64 {
     // Directly access the `rip` register from `CpuState`
-    cpu_state.get_register_value("rip")
+    cpu_state.get_register_value_by_offset(0x288) // Get the RIP (at offset 0x288) to know the next instruction
         .expect("Failed to retrieve RIP register value")
 }

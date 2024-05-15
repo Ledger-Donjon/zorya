@@ -196,31 +196,33 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
 // Function to parse GDB output and update CPU state
 fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_output: &str) -> Result<()> {
     let re = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
+    let mut cpu_state_guard = cpu_state.lock().unwrap();
 
-    // Lock the cpu_state once and reuse throughout this scope
-    let mut cpu_state = cpu_state.lock().unwrap();
-
+    // Preparing to update register values based on their offsets found via names
     for line in gdb_output.lines() {
         if let Some(caps) = re.captures(line) {
-            let register_name = &caps[1];
+            let register_name = caps[1].to_uppercase();  // Convert register name to uppercase
             let value_hex = u64::from_str_radix(&caps[2], 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
-            
-            // Check if the register exists
-            if cpu_state.registers.contains_key(register_name) {
-                // Update the CPU register value
-                match cpu_state.set_register_value(register_name, value_hex) {
-                    Ok(()) => {
-                        println!("Updated CPU register {}: {}", register_name, value_hex);
-                    }
-                    Err(e) => {
-                        println!("Failed to update CPU register {}: {}", register_name, e);
-                        // Optionally, you can choose to return an error here if necessary
-                    }
+
+            // Check for the offset in the register_map
+            let offset_option = cpu_state_guard.register_map.iter().find_map(|(key, val)| {
+                if val == &register_name {
+                    Some(*key)  // Directly use the offset
+                } else {
+                    None
+                }
+            });
+
+            // Update the CPU register value using the offset
+            if let Some(offset) = offset_option {
+                if let Err(e) = cpu_state_guard.set_register_value_by_offset(offset, value_hex) {
+                    println!("Failed to update CPU register {} (offset 0x{:x}): {}", register_name, offset, e);
+                } else {
+                    println!("Updated CPU register {} (offset 0x{:x}): {}", register_name, offset, value_hex);
                 }
             } else {
-                println!("Register not found: {}", register_name);  // Error handling
-                // Optionally, you can choose to return an error here if necessary
+                println!("Register not found: {}", register_name);
             }
         }
     }

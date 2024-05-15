@@ -1,8 +1,9 @@
+use std::path::Path;
 /// Maintains the state of CPU registers and possibly other aspects of the CPU's status
 
 use std::{collections::BTreeMap, sync::Mutex};
-use std::fmt;
-use anyhow::Result;
+use std::{fmt, fs};
+use anyhow::{Error, Result};
 use std::sync::Arc;
 
 use z3::{ast::BV, Context};
@@ -90,10 +91,9 @@ impl<'ctx> fmt::Display for CpuConcolicValue<'ctx> {
 
 #[derive(Debug, Clone)]
 pub struct CpuState<'ctx> {
-    pub registers: BTreeMap<String, CpuConcolicValue<'ctx>>,
-    pub register_map: BTreeMap<u64, String>, // Contains the offset of a register and its name (ie <"0x10", "RDX">)
+    pub registers: BTreeMap<u64, CpuConcolicValue<'ctx>>,
+    pub register_map: BTreeMap<u64, String>,
     ctx: &'ctx Context,
-
 }
 
 impl<'ctx> CpuState<'ctx> {
@@ -103,82 +103,70 @@ impl<'ctx> CpuState<'ctx> {
             register_map: BTreeMap::new(),
             ctx,
         };
-        cpu_state.initialize_registers();
+        cpu_state.initialize_registers().expect("Failed to initialize registers");
         cpu_state
     }
 
-    fn initialize_registers(&mut self) {
-        // General-purpose registers (GPRs)
-        let gprs = vec![
-            "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi",
-            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
-        ];
-        for (i, &reg) in gprs.iter().enumerate() {
-            self.register_map.insert(i as u64, reg.to_string());
-            self.registers.insert(reg.to_string(), CpuConcolicValue::new(self.ctx, 0));
+    fn initialize_registers(&mut self) -> Result<(), Error> {
+        let path = Path::new("src/concolic/specfiles/x86-64.sla");
+        let sla_file_content = fs::read_to_string(path)?;
+    
+        for line in sla_file_content.lines() {
+            if line.contains("space=\"register\"") {
+                let name = self.extract_value(line, "name=\"", "\"").to_uppercase();
+                let offset = u64::from_str_radix(self.extract_value(line, "offset=\"0x", "\""), 16)?;
+    
+                let concolic_value = CpuConcolicValue::new(self.ctx, 0);  
+                self.registers.insert(offset, concolic_value);
+                self.register_map.insert(offset, name.clone());
+                println!("Register {} at offset 0x{:x} initialized.", name, offset);
+            }
         }
-
-        // System and control registers commonly used in x86-64 architecture
-        let system_registers = vec![
-            (16, "r16"), (64, "rip"), (65, "eflags"), 
-            (66, "cs"), (67, "ss"), (68, "ds"), (69, "es"), (70, "fs"), (71, "gs")
-        ];
-        for &(num, name) in &system_registers {
-            self.register_map.insert(num, name.to_string());
-            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0x5));
-        }
-
-        // Floating-point unit (FPU) and other state registers
-        let fpu_registers = vec![
-            (72, "fctrl"), (73, "fstat"), (74, "ftag"), 
-            (75, "fiseg"), (76, "fioff"), (77, "foseg"), (78, "fooff"), (79, "fop"), 
-            (80, "mxcsr")
-        ];
-        for &(num, name) in &fpu_registers {
-            self.register_map.insert(num, name.to_string());
-            self.registers.insert(name.to_string(), CpuConcolicValue::new(self.ctx, 0));
-        }
-    }
-
-    pub fn set_register_value(&mut self, name: &str, value: u64) -> Result<()> {
-        let reg = self.registers.entry(name.to_string()).or_insert_with(|| CpuConcolicValue::new(self.ctx, 0));
-        reg.concrete = ConcreteVar::Int(value);
-        reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, value, 64));
-        println!("{} set to {}", name, value);
         Ok(())
+    }    
+
+    fn extract_value<'a>(&self, from: &'a str, start_delim: &str, end_delim: &str) -> &'a str {
+        from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
 
-    pub fn get_register_value(&self, name: &str) -> Option<u64> {
-        self.registers.get(name).and_then(|val| match val.concrete {
+    /// Sets the value of a register identified by its offset.
+    pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64) -> Result<(), String> {
+        if let Some(reg) = self.registers.get_mut(&offset) {
+            reg.concrete = ConcreteVar::Int(value);
+            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, value, 64));  // Assuming the size of the register is known to be 64 bits
+            if let Some(name) = self.register_map.get(&offset) {
+                println!("Register {} set to {:x}", name, value);
+            }
+            Ok(())
+        } else {
+            Err(format!("No register found at offset 0x{:x}", offset))
+        }
+    }
+
+    /// Retrieves the value of a register identified by its offset.
+    pub fn get_register_value_by_offset(&self, offset: u64) -> Option<u64> {
+        self.registers.get(&offset).and_then(|reg| match reg.concrete {
             ConcreteVar::Int(value) => Some(value),
-            _ => None
-        })
-    }
-    
-    pub fn get_or_init_register(&mut self, reg_num: u64) -> &CpuConcolicValue<'ctx> {
-        let reg_name = self.reg_num_to_name(reg_num); // Ensure to get or create the name
-        self.registers.entry(reg_name.clone()).or_insert_with(|| {
-            println!("Initializing register {}: 0x0", reg_name);
-            CpuConcolicValue::new(self.ctx, 0)
+            _ => None,
         })
     }
 
-    /// Converts a register number to its name. It also ensures that if a register does not exist,
-    /// it creates one, initializes it, and logs the process.
-    pub fn reg_num_to_name(&mut self, reg_num: u64) -> String {
-        // Try to get the register name from the map; if not found, create a new register.
-        self.register_map.entry(reg_num)
-            .or_insert_with(|| {
-                let new_name = format!("{}", reg_num);
-                // Create and initialize a new register if it does not exist
-                self.registers.entry(new_name.clone()).or_insert_with(|| {
-                    println!("No such existing register. Creating and initializing new register '{}' to 0x0", new_name);
-                    CpuConcolicValue::new(self.ctx, 0)
-                });
-                new_name
-            }).clone()
+    /// Ensures that a register exists at the given offset, initializes it if not.
+    pub fn get_or_init_register_by_offset(&mut self, offset: u64) -> &CpuConcolicValue<'ctx> {
+        if !self.registers.contains_key(&offset) {
+            // We create a new name for the register if it's not found in the register_map
+            let reg_name = self.register_map.entry(offset).or_insert_with(|| {
+                format!("Unknown_0x{:x}", offset)
+            }).clone(); // Clone the String to use in the println!
+
+            // Insert a new CpuConcolicValue at the given offset if it does not already exist
+            self.registers.insert(offset, CpuConcolicValue::new(self.ctx, 0));
+            println!("Initializing register {}: 0x0", reg_name);
+        }
+
+        // return the reference as the entry exists for sure
+        self.registers.get(&offset).unwrap()
     }
-    
 }
 
 impl fmt::Display for CpuState<'_> {
@@ -187,6 +175,8 @@ impl fmt::Display for CpuState<'_> {
         for (reg, value) in &self.registers {
             writeln!(f, "  {}: {}", reg, value)?;
         }
+        writeln!(f, "Register map:")?;
+        println!("{:?}", &self.register_map);
         Ok(())
     }
 }
@@ -200,34 +190,3 @@ impl<'ctx> fmt::Display for DisplayableCpuState<'ctx> {
         write!(f, "{}", cpu_state)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use z3::Config;
-
-    #[test]
-    fn test_get_register_value() {
-        let cfg = Config::new();
-        let ctx = Context::new(&cfg);
-        let mut cpu_state = CpuState::new(&ctx);
-
-        // Set initial values
-        cpu_state.set_register_value("rax", 123).unwrap();
-
-        assert_eq!(cpu_state.get_register_value("rax"), Some(123));
-
-        // Testing with a non-existent register
-        assert_eq!(cpu_state.get_register_value("non_existent"), None);
-
-        // Testing error handling in parsing 
-        cpu_state.registers.insert("rbx".to_string(), CpuConcolicValue {
-            concrete: ConcreteVar::Str("not_a_number".to_string()),
-            symbolic: SymbolicVar::Int(BV::from_u64(&ctx, 0, 64)),  // Arbitrary 
-            ctx: &ctx,
-        });
-
-        assert_eq!(cpu_state.get_register_value("rbx"), None);
-    }
-}
-

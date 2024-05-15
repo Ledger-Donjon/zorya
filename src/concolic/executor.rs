@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
-use crate::state::cpu_state;
 use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
@@ -141,60 +140,61 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     // Transform the varnode.var into a concolic object in zorya
-pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<'ctx>, String> {
-    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+    pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<'ctx>, String> {
+        let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
 
-    println!("Converting Varnode to concolic type: {:?}", varnode.var);
+        println!("Converting Varnode to concolic type: {:?}", varnode.var);
 
-    match &varnode.var {
-        // It is a CPU register address
-        Var::Register(reg_num, _) => {
-            println!("Varnode is a CPU register with number: {}", reg_num);
-            let register = cpu_state_guard.get_or_init_register(*reg_num);
-            println!("Retrieved or initialized register: {:?}", register);
-            Ok(ConcolicEnum::CpuConcolicValue(register.clone()))
-        },
-        // Keep track of the unique variables defined inside one address execution
-        Var::Unique(id) => {
-            println!("Varnode is of type 'unique' with ID: {}", id);
-            let unique_name = format!("Unique(0x{:x})", id);
-            let var = self.unique_variables.entry(unique_name.clone())
-                .or_insert_with(|| {
-                    println!("Creating new unique variable '{}' with initial value {}", unique_name, *id as u64);
-                    ConcolicVar::new_concrete_and_symbolic_int(*id as u64, &unique_name, self.context, varnode.size as u32)
-                })
-                .clone();
-            Ok(ConcolicEnum::ConcolicVar(var))
-        },
-        Var::Const(value) => {
-            println!("Varnode is a constant with value: {}", value);
-            // Improved parsing that handles hexadecimal values prefixed with '0x'
-            let parsed_value = if value.starts_with("0x") {
-                u64::from_str_radix(&value[2..], 16)
-            } else {
-                value.parse::<u64>()
-            }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
+        match &varnode.var {
+            // It is a CPU register address
+            Var::Register(offset, _) => {
+                println!("Varnode is a CPU register with offset: {:x}", offset);
+                // Using the offset directly to get or initialize the register
+                let register = cpu_state_guard.get_or_init_register_by_offset(*offset);
+                println!("Retrieved or initialized register: {:?}", register);
+                Ok(ConcolicEnum::CpuConcolicValue(register.clone()))
+            },
+            // Keep track of the unique variables defined inside one address execution
+            Var::Unique(id) => {
+                println!("Varnode is of type 'unique' with ID: {}", id);
+                let unique_name = format!("Unique(0x{:x})", id);
+                let var = self.unique_variables.entry(unique_name.clone())
+                    .or_insert_with(|| {
+                        println!("Creating new unique variable '{}' with initial value {}", unique_name, *id as u64);
+                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, &unique_name, self.context, varnode.size as u32)
+                    })
+                    .clone();
+                Ok(ConcolicEnum::ConcolicVar(var))
+            },
+            Var::Const(value) => {
+                println!("Varnode is a constant with value: {}", value);
+                // Improved parsing that handles hexadecimal values prefixed with '0x'
+                let parsed_value = if value.starts_with("0x") {
+                    u64::from_str_radix(&value[2..], 16)
+                } else {
+                    value.parse::<u64>()
+                }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
 
-            let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, parsed_value);
-            println!("Constant treated as memory address, created or retrieved: {:?}", memory_var);
-            Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
-        },
-        // Handle MemoryRam case
-        Var::MemoryRam => {
-            println!("Varnode is MemoryRam");
-            let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, 0); // Assume 0 is the base address for RAM
-            println!("MemoryRam treated as general memory space, created or retrieved: {:?}", memory_var);
-            Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
-        },
-        // Handle specific memory addresses
-        Var::Memory(addr) => {
-            println!("Varnode is a specific memory address: 0x{:x}", addr);
-            let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, *addr);
-            println!("Specific memory address, created or retrieved: {:?}", memory_var);
-            Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
-        },
+                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, parsed_value);
+                println!("Constant treated as memory address, created or retrieved: {:?}", memory_var);
+                Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
+            },
+            // Handle MemoryRam case
+            Var::MemoryRam => {
+                println!("Varnode is MemoryRam");
+                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, 0); // Assume 0 is the base address for RAM
+                println!("MemoryRam treated as general memory space, created or retrieved: {:?}", memory_var);
+                Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
+            },
+            // Handle specific memory addresses
+            Var::Memory(addr) => {
+                println!("Varnode is a specific memory address: 0x{:x}", addr);
+                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, *addr);
+                println!("Specific memory address, created or retrieved: {:?}", memory_var);
+                Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
+            },
+        }
     }
-}
 
     // Resets the unique variables, ensuring thread safety with the lock
     pub fn reset_unique_variables(&mut self) {
@@ -228,8 +228,8 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
             // Update the program counter (RIP) in the CPU state
-            cpu_state_guard.set_register_value("rip", dest_address)
-                .map_err(|e| e.to_string())?;
+            //cpu_state_guard.set_register_value("rip", dest_address)
+            //    .map_err(|e| e.to_string())?;
         } // MutexGuard drops here, releasing the lock
     
         // CPU state lock is released, we can mutate self.state
@@ -257,8 +257,8 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
             // Update the program counter (RIP) in the CPU state
-            cpu_state_guard.set_register_value("rip", dest_address)
-                .map_err(|e| e.to_string())?;
+            //cpu_state_guard.set_register_value("rip", dest_address)
+            //    .map_err(|e| e.to_string())?;
         } // MutexGuard drops here
 
         // Process target address after releasing the lock
@@ -281,51 +281,51 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
         }
 
         // Evaluate the condition
-        let condition = {
-            Self::evaluate_condition(&self, &instruction.inputs[1].var)?
-        };
+        // let condition = {
+        //     Self::evaluate_condition(&self, &instruction.inputs[1].var)?
+        // };
 
-        if condition {
-            println!("Debug CBRANCH : inside the condition statement");
-            let dest_address = Self::extract_target_address(&instruction.inputs[0].var)?;
+        // if condition {
+        //     println!("Debug CBRANCH : inside the condition statement");
+        //     let dest_address = Self::extract_target_address(&instruction.inputs[0].var)?;
 
-            // Access the shared CPU state with a lock, updating within a scoped block to limit the borrow
-            {
-                let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                // Update the program counter (RIP) in the CPU state
-                cpu_state_guard.set_register_value("rip", dest_address)
-                    .map_err(|e| e.to_string())?;
-            } // MutexGuard drops here
+        //     // Access the shared CPU state with a lock, updating within a scoped block to limit the borrow
+        //     {
+        //         let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+        //         // Update the program counter (RIP) in the CPU state
+        //         // cpu_state_guard.set_register_value("rip", dest_address)
+        //         //    .map_err(|e| e.to_string())?;
+        //     } // MutexGuard drops here
 
-            println!("Debug CBRANCH : past the RIP update");
-            let var_name = format!("cbranch_{:x}", dest_address);
-            self.state.create_concolic_var_int(&var_name, dest_address, 64); 
-        }
+        //     println!("Debug CBRANCH : past the RIP update");
+        //     let var_name = format!("cbranch_{:x}", dest_address);
+        //     self.state.create_concolic_var_int(&var_name, dest_address, 64); 
+        // }
 
         Ok(())
     }
 
     // CBRANCH helper function
-    fn evaluate_condition(&self, var: &Var) -> Result<bool, String> {
-        match var {
-            Var::Const(val) => val.parse::<u64>()
-                .map(|v| v != 0)
-                .map_err(|_| "Failed to parse condition from Const variant".to_string()),
+    // fn evaluate_condition(&self, var: &Var) -> Result<bool, String> {
+    //     match var {
+    //         Var::Const(val) => val.parse::<u64>()
+    //             .map(|v| v != 0)
+    //             .map_err(|_| "Failed to parse condition from Const variant".to_string()),
 
-            Var::Register(addr, _size) => {
-                // Access the shared CPU state with a lock
-                let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+    //         //Var::Register(addr, _size) => {
+    //             // Access the shared CPU state with a lock
+    //             //let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
 
-                let reg_name = CpuState::reg_num_to_name(&mut cpu_state_guard, *addr);
-                let reg_value = cpu_state_guard.get_register_value(&reg_name)
-                    .ok_or_else(|| format!("Failed to fetch value for register {}", reg_name))?;
-                Ok(reg_value != 0)
-            },
+    //             //let reg_name = CpuState::reg_num_to_name(&mut cpu_state_guard, *addr);
+    //             //let reg_value = cpu_state_guard.get_register_value(&reg_name)
+    //             //    .ok_or_else(|| format!("Failed to fetch value for register {}", reg_name))?;
+    //             //Ok(reg_value != 0)
+    //         },
 
-            Var::Unique(_) | Var::Memory(_) => Ok(true),
-            Var::MemoryRam => todo!(),
-        }
-    }
+    //         Var::Unique(_) | Var::Memory(_) => Ok(true),
+    //         Var::MemoryRam => todo!(),
+    //     }
+    // }
 
 
     // CBRANCH helper function
@@ -451,18 +451,18 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
         println!("* FYI, the space ID is not used during zorya execution.");
         println!("* Fetching pointer offset from instruction.input[1]");
     
-        let pointer_offset = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-        let pointer_offset_concrete = pointer_offset.get_concrete_value();
-        println!("pointer offset concrete : {:?}", pointer_offset_concrete);
+        let pointer_offset_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+        let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
+        println!("pointer offset concrete : {:x}", pointer_offset_concrete);
     
         // Attempt to dereference the address from the CPU registers first
         let dereferenced_value = {
             let cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            let register_name = cpu_state_guard.register_map.get(&pointer_offset_concrete)
-                                .and_then(|name| cpu_state_guard.get_register_value(name));
+            // Use the offset directly to retrieve register value
+            let value = cpu_state_guard.get_register_value_by_offset(pointer_offset_concrete);
     
-            if let Some(value) = register_name {
-                println!("Dereferenced CPU register value for {}: {:?}", pointer_offset_concrete, value);
+            if let Some(value) = value {
+                println!("Dereferenced CPU register value for 0x{:x}: {:?}", pointer_offset_concrete, value);
                 value.to_string()
             } else {
                 // If not found in registers, attempt to dereference from memory
@@ -470,7 +470,7 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
                 if let Some(value) = memory_guard.get(&pointer_offset_concrete) {
                     value.concrete.to_str()
                 } else {
-                    return Err(format!("Failed to dereference address from memory or registers: {}", pointer_offset_concrete));
+                    return Err(format!("Failed to dereference address from memory or registers: {:x}", pointer_offset_concrete));
                 }
             }
         };
@@ -481,7 +481,6 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
             match &output_varnode.var {
                 Var::Unique(id) => {
                     println!("Output is a Unique type with ID: 0x{:x}", id);
-                    // Create a new ConcolicVar with the dereferenced value
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         dereferenced_value.parse::<u64>().unwrap(),
                         &format!("Unique(0x{:x})", id),
@@ -491,13 +490,13 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
                     let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
                 },
-                Var::Register(reg_num, _) => {
+                Var::Register(offset, _) => {
                     println!("Output is a Register type");
                     let concrete_value = dereferenced_value.parse::<u64>().unwrap();
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
-                    let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
-                    println!("Updated register {} with value {}", reg_name, concrete_value);
+                    // Use offset directly to set the register value
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
+                    println!("Updated register at offset 0x{:x} with value {}", offset, concrete_value);
                 },
                 _ => {
                     println!("Output type is unsupported");
@@ -520,6 +519,7 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
     
         Ok(())
     }
+    
     
      
 
@@ -620,7 +620,7 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
                                 cpu_var.get_concrete_value()?,
                                 &unique_name,
                                 self.context,
-                                cpu_var.get_size()
+                                cpu_var.get_size()  // Assume get_size() returns the correct bit width
                             )
                         },
                         ConcolicEnum::MemoryConcolicValue(mem_var) => {
@@ -628,7 +628,7 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
                                 mem_var.get_concrete_value()?,
                                 &unique_name,
                                 self.context,
-                                mem_var.get_size()
+                                mem_var.get_size()  // Assume get_size() returns the correct bit width
                             )
                         }
                     };
@@ -636,13 +636,12 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
                     println!("Content of output {:?} after copying: {:?}", unique_name, concolic_var);
                 },
-                Var::Register(reg_num, _) => {
+                Var::Register(offset, _) => {
                     println!("Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
                     let concrete_value = source_var.get_concrete_value();
-                    let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
-                    println!("Updated register {} with value {}", reg_name, concrete_value);
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
+                    println!("Updated register at offset 0x{:x} with value {}", offset, concrete_value);
                 },
                 _ => {
                     println!("Output type is unsupported for COPY");
@@ -652,19 +651,20 @@ pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<
         } else {
             return Err("No output variable specified for COPY instruction".to_string());
         }
-
+    
         println!("{}", self);
-
+    
         // Create a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
         // The COPY operation doesn't have a result value, so we choose to put 0x0
         self.state.create_concolic_var_int(&result_var_name, 0x0, 64);
-
+    
         println!("{}", self.state);
-
+    
         Ok(())
-    }  
+    }
+    
 
     pub fn handle_popcount(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::PopCount || instruction.inputs.len() != 1 {

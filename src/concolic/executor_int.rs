@@ -153,13 +153,12 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
             let unique_name = format!("Unique(0x{:x})", id);
             executor.unique_variables.insert(unique_name, concolic_var);
         },
-        Some(Var::Register(reg_num, _)) => {
+        Some(Var::Register(offset, _)) => {
             println!("Output is a Register type");
             let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-            let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
             let concrete_value = result_value.get_concrete_value();
-            let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
-            println!("Updated register {} with value {}", reg_name, concrete_value);
+            let _ = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
+            println!("Updated register at offset 0x{:x} with value {}", offset, concrete_value); 
         },
         _ => {
             println!("Output type is unsupported");
@@ -325,13 +324,12 @@ pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
             executor.unique_variables.insert(unique_name, concolic_var);
             println!("Updated unique_variables with new comparison result: {:?}", executor.unique_variables);
         },
-        Some(Var::Register(reg_num, _)) => {
-            println!("Output is a Register type for INT_LESS");
+        Some(Var::Register(offset, _)) => {
+            println!("Output is a Register type");
             let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-            let reg_name = cpu_state_guard.reg_num_to_name(*reg_num);
-            let concrete_value = result_value.clone().get_concrete_value();
-            let _ = cpu_state_guard.set_register_value(&reg_name, concrete_value);
-            println!("Updated register {} with comparison result {}", reg_name, concrete_value);
+            let concrete_value = result_value.get_concrete_value();
+            let _ = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
+            println!("Updated register at offset 0x{:x} with value {}", offset, concrete_value);
         },
         _ => {
             println!("Output type is unsupported for INT_LESS");

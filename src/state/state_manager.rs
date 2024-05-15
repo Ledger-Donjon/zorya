@@ -25,7 +25,7 @@ impl<'a> State<'a> {
 
         // Initialize CPU state in a shared and thread-safe manner
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
-
+        
         println!("Initializing mock CPU state...\n");
         let _ = state_initializer::get_mock(cpu_state.clone());
 
@@ -124,36 +124,7 @@ impl<'a> State<'a> {
             .ok_or_else(|| format!("Variable '{}' not found in concolic_vars. Available keys: {:?}", var_name, self.concolic_vars.keys()))
     }
 
-    // Method to get the future concrete variable from the Varnode in the parsed Instruction
-    pub fn get_concrete_var_from_varnode(&mut self, varnode: &Varnode) -> Result<ConcreteVar, String> {
-                match &varnode.var {
-            Var::Register(reg_num, _) => {
-                // Access the shared CPU state with a lock
-                let mut cpu_state_guard = self.cpu_state.lock().unwrap();
-
-                let register = cpu_state_guard.get_or_init_register(*reg_num);
-                
-                Ok(register.concrete.clone())
-            },
-            Var::Const(value) => {
-                // Convert constant value from string to appropriate integer
-                if let Ok(num) = u64::from_str_radix(value.trim_start_matches("0x"), 16) {
-                    Ok(ConcreteVar::Int(num))
-                } else {
-                    Err(format!("Failed to parse constant value '{}'", value))
-                }
-            },
-            Var::Unique(id) => {
-                // Unique identifiers typically relate to intermediate computed values
-                let unique_name = format!("Unique({})", id);
-                self.concolic_vars.get(&unique_name)
-                    .map(|var| var.concrete.clone())
-                    .ok_or_else(|| format!("Unique variable '{}' not found in concolic_vars. Available keys: {:?}", unique_name, self.concolic_vars.keys()))
-            },
-            Var::Memory(_) => todo!(),
-                    Var::MemoryRam => todo!(), // Handle memory-related varnodes as required
-        }
-    }
+   
 
     // Sets a boolean variable in the state, updating or creating a new concolic variable
     pub fn set_var(&mut self, var_name: &str, concolic_var: ConcolicVar<'a>) {
