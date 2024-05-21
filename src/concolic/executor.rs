@@ -470,7 +470,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 if let Some(value) = memory_guard.get(&pointer_offset_concrete) {
                     value.concrete.to_str()
                 } else {
-                    return Err(format!("Failed to dereference address from memory or registers: {:x}", pointer_offset_concrete));
+                    println!("Memory at address 0x{:x} not initialized, initializing now.", pointer_offset_concrete);
+                    // Ensure the address range is initialized
+                    self.state.memory.ensure_address_initialized(pointer_offset_concrete, 8);
+                    let memory_guard = self.state.memory.memory.read().unwrap();
+                    if let Some(value) = memory_guard.get(&pointer_offset_concrete) {
+                        value.concrete.to_str()
+                    } else {
+                        return Err(format!("Failed to dereference address from memory or registers: {:x}", pointer_offset_concrete));
+                    }
                 }
             }
         };
@@ -481,8 +489,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             match &output_varnode.var {
                 Var::Unique(id) => {
                     println!("Output is a Unique type with ID: 0x{:x}", id);
+                    let concrete_value = dereferenced_value.parse::<u64>().map_err(|e| format!("Failed to parse dereferenced value: {}", e))?;
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
-                        dereferenced_value.parse::<u64>().unwrap(),
+                        concrete_value,
                         &format!("Unique(0x{:x})", id),
                         self.context,
                         output_varnode.size.to_bitvector_size(),
@@ -492,7 +501,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 },
                 Var::Register(offset, _) => {
                     println!("Output is a Register type");
-                    let concrete_value = dereferenced_value.parse::<u64>().unwrap();
+                    let concrete_value = dereferenced_value.parse::<u64>().map_err(|e| format!("Failed to parse dereferenced value: {}", e))?;
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                     // Use offset directly to set the register value
                     let _ = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
@@ -521,7 +530,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
     
     
-     
 
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
@@ -620,7 +628,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                                 cpu_var.get_concrete_value()?,
                                 &unique_name,
                                 self.context,
-                                cpu_var.get_size()  // Assume get_size() returns the correct bit width
+                                cpu_var.get_size()  
                             )
                         },
                         ConcolicEnum::MemoryConcolicValue(mem_var) => {
@@ -628,7 +636,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                                 mem_var.get_concrete_value()?,
                                 &unique_name,
                                 self.context,
-                                mem_var.get_size()  // Assume get_size() returns the correct bit width
+                                mem_var.get_size() 
                             )
                         }
                     };

@@ -1,8 +1,7 @@
-use std::path::Path;
 /// Maintains the state of CPU registers and possibly other aspects of the CPU's status
 
 use std::{collections::BTreeMap, sync::Mutex};
-use std::{fmt, fs};
+use std::fmt;
 use anyhow::{Error, Result};
 use std::sync::Arc;
 
@@ -107,26 +106,119 @@ impl<'ctx> CpuState<'ctx> {
         cpu_state
     }
 
-    fn initialize_registers(&mut self) -> Result<(), Error> {
-        let path = Path::new("src/concolic/specfiles/x86-64.sla");
-        let sla_file_content = fs::read_to_string(path)?;
+    /// Tried to initialized registers from x86-64.sla file but several same offsets found!
+    /// 
+    // fn initialize_registers(&mut self) -> Result<(), Error> {
+    //     let path = Path::new("src/concolic/specfiles/x86-64.sla");
+    //     let sla_file_content = fs::read_to_string(path)?;
     
-        for line in sla_file_content.lines() {
-            if line.contains("space=\"register\"") {
-                let name = self.extract_value(line, "name=\"", "\"").to_uppercase();
-                let offset = u64::from_str_radix(self.extract_value(line, "offset=\"0x", "\""), 16)?;
+    //     for line in sla_file_content.lines() {
+    //         if line.contains("space=\"register\"") {
+    //             let name = self.extract_value(line, "name=\"", "\"").to_uppercase();
+    //             let offset = u64::from_str_radix(self.extract_value(line, "offset=\"0x", "\""), 16)?;
     
-                let concolic_value = CpuConcolicValue::new(self.ctx, 0);  
-                self.registers.insert(offset, concolic_value);
-                self.register_map.insert(offset, name.clone());
-                println!("Register {} at offset 0x{:x} initialized.", name, offset);
-            }
-        }
-        Ok(())
-    }    
+    //             let concolic_value = CpuConcolicValue::new(self.ctx, 0);  
+    //             self.registers.insert(offset, concolic_value);
+    //             self.register_map.insert(offset, name.clone());
+    //             println!("Register {} at offset 0x{:x} initialized.", name, offset);
+    //         }
+    //     }
+    //     Ok(())
+    // }    
+    // fn extract_value<'a>(&self, from: &'a str, start_delim: &str, end_delim: &str) -> &'a str {
+    //     from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
+    // }
 
-    fn extract_value<'a>(&self, from: &'a str, start_delim: &str, end_delim: &str) -> &'a str {
-        from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
+    fn initialize_registers(&mut self) -> Result<(), Error> {
+
+        // From ia.sinc
+        let register_definitions = [
+            // General Purpose Registers (64-bit mode)
+            ("RAX", "0x0", "8"), ("RCX", "0x8", "8"), ("RDX", "0x10", "8"), ("RBX", "0x18", "8"),
+            ("RSP", "0x20", "8"), ("RBP", "0x28", "8"), ("RSI", "0x30", "8"), ("RDI", "0x38", "8"),
+            ("R8", "0x80", "8"), ("R9", "0x88", "8"), ("R10", "0x90", "8"), ("R11", "0x98", "8"),
+            ("R12", "0xa0", "8"), ("R13", "0xa8", "8"), ("R14", "0xb0", "8"), ("R15", "0xb8", "8"),
+
+            // Segment Registers
+            ("ES", "0x100", "2"), ("CS", "0x102", "2"), ("SS", "0x104", "2"), ("DS", "0x106", "2"),
+            ("FS", "0x108", "2"), ("GS", "0x10a", "2"), ("FS_OFFSET", "0x110", "8"), ("GS_OFFSET", "0x118", "8"),
+
+            // Individual Flags within the Flag Register
+            ("CF", "0x200", "1"),   // Carry Flag
+            ("F1", "0x201", "1"),   // Reserved (always 1)
+            ("PF", "0x202", "1"),   // Parity Flag
+            ("F3", "0x203", "1"),   // Reserved
+            ("AF", "0x204", "1"),   // Auxiliary Carry Flag
+            ("F5", "0x205", "1"),   // Reserved
+            ("ZF", "0x206", "1"),   // Zero Flag
+            ("SF", "0x207", "1"),   // Sign Flag
+            ("TF", "0x208", "1"),   // Trap Flag (Single Step)
+            ("IF", "0x209", "1"),   // Interrupt Enable Flag
+            ("DF", "0x20a", "1"),   // Direction Flag
+            ("OF", "0x20b", "1"),   // Overflow Flag
+            ("IOPL", "0x20c", "2"), // I/O Privilege Level (2 bits)
+            ("NT", "0x20e", "1"),   // Nested Task Flag
+            ("F15", "0x20f", "1"),  // Reserved
+            ("RF", "0x210", "1"),   // Resume Flag
+            ("VM", "0x211", "1"),   // Virtual 8086 Mode
+            ("AC", "0x212", "1"),   // Alignment Check (Alignment Mask)
+            ("VIF", "0x213", "1"),  // Virtual Interrupt Flag
+            ("VIP", "0x214", "1"),  // Virtual Interrupt Pending
+            ("ID", "0x215", "1"),   // ID Flag 
+            
+            // RIP
+            ("RIP", "0x288", "8"),
+
+            // Debug and Control Registers
+            ("DR0", "0x300", "8"), ("DR1", "0x308", "8"), ("DR2", "0x310", "8"), ("DR3", "0x318", "8"),
+            ("DR4", "0x320", "8"), ("DR5", "0x328", "8"), ("DR6", "0x330", "8"), ("DR7", "0x338", "8"),
+            ("CR0", "0x340", "8"), ("CR2", "0x348", "8"), ("CR3", "0x350", "8"), ("CR4", "0x358", "8"),
+            ("CR8", "0x360", "8"), ("FS_BASE", "0x108", "8"), ("GS_BASE", "0x10a", "8"), ("K_GS_BASE", "0x10c", "8"),
+
+            // Processor State Register and MPX Registers
+            ("XCR0", "0x600", "8"), ("BNDCFGS", "0x700", "8"), ("BNDCFGU", "0x708", "8"),
+            ("BNDSTATUS", "0x710", "8"), ("BND0", "0x740", "16"), ("BND1", "0x750", "16"),
+            ("BND2", "0x760", "16"), ("BND3", "0x770", "16"),
+
+            // ST registers
+            ("MXCSR", "0x1094", "4"),
+
+            // Floating-point control, status, and tag registers
+            ("FCTRL", "0x1090", "2"),
+            ("FSTAT", "0x1092", "2"),
+            ("FTAG", "0x1094", "2"),
+            ("FISEG", "0x1096", "2"),
+            ("FIOFF", "0x1098", "4"),
+            ("FOSEG", "0x109c", "2"),
+            ("FOOFF", "0x109e", "4"),
+            ("FOP", "0x10a2", "2"),
+
+            // Extended SIMD Registers
+            ("YMM0", "0x1200", "32"), ("YMM1", "0x1220", "32"), ("YMM2", "0x1240", "32"), ("YMM3", "0x1260", "32"),
+            ("YMM4", "0x1280", "32"), ("YMM5", "0x12a0", "32"), ("YMM6", "0x12c0", "32"), ("YMM7", "0x12e0", "32"),
+            ("YMM8", "0x1300", "32"), ("YMM9", "0x1320", "32"), ("YMM10", "0x1340", "32"), ("YMM11", "0x1360", "32"),
+            ("YMM12", "0x1380", "32"), ("YMM13", "0x13a0", "32"), ("YMM14", "0x13c0", "32"), ("YMM15", "0x13e0", "32"),
+
+            // Temporary SIMD Registers (for intermediate calculations etc.)
+            ("xmmTmp1", "0x1400", "16"), ("xmmTmp2", "0x1410", "16"),
+        ];
+
+        for &(name, offset_hex, size_str) in register_definitions.iter() {
+            let offset = u64::from_str_radix(offset_hex.trim_start_matches("0x"), 16)?;
+            let size = size_str.parse::<u32>()?;
+            let initial_value = 0;  // Default initialization value for all registers.
+
+            // Create a new concolic value for the register.
+            let concolic_value = CpuConcolicValue::new(self.ctx, initial_value);
+            // Insert the new register into the map using its offset as the key.
+            self.registers.insert(offset, concolic_value);
+            // Also, map the offset to the register name for easy lookup.
+            self.register_map.insert(offset, name.to_string());
+
+            println!("Initialized register {} at offset 0x{:X} with size {}.", name, offset, size);
+        }
+
+        Ok(())
     }
 
     /// Sets the value of a register identified by its offset.

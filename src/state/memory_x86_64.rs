@@ -174,8 +174,16 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
     }
 
+    pub fn ensure_address_initialized(&self, address: u64, size: usize) {
+        let mut memory = self.memory.write().unwrap();
+        for offset in 0..size {
+            let current_address = address + offset as u64;
+            memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
+        }
+    }
+
     pub fn read_memory(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
-        let memory = self.memory.read().unwrap(); // Acquire read lock
+        let memory = self.memory.read().unwrap();
         let mut result = Vec::with_capacity(size);
         for offset in 0..size as u64 {
             let current_address = address + offset;
@@ -185,23 +193,12 @@ impl<'ctx> MemoryX86_64<'ctx> {
                     _ => return Err(MemoryError::IncorrectSliceLength),
                 }
             } else {
-                // Return a default value for uninitialized memory
                 println!("Uninitialized memory! Set to 0x0.");
                 result.push(0);
             }
         }
         Ok(result)
-    }
-
-    // Ensure a specific address range is initialized
-    pub fn ensure_address_initialized(&self, address: u64, size: usize) {
-        // Acquire read lock for initialization
-        let mut memory = self.memory.write().unwrap();
-        for offset in 0..size {
-            let current_address = address + offset as u64;
-            memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
-        }
-    }
+    } 
 
     pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
         let mut memory = self.memory.write().unwrap(); // Acquire write lock
