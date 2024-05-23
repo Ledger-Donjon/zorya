@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, fs::File, io::Read, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
 use goblin::elf::Elf;
-use parser::parser::{Inst, Var, Varnode};
+use parser::parser::{Inst, Varnode};
 use z3::Context;
 use std::fmt;
 

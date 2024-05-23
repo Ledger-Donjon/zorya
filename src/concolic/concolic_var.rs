@@ -1,6 +1,6 @@
 use z3::{ast::{Ast, Float, BV}, Context, SatResult, Solver};
 
-use super::{ConcreteVar, SymbolicVar};
+use super::{ConcolicEnum, ConcreteVar, SymbolicVar};
 
 #[derive(Clone, Debug)]
 pub struct ConcolicVar<'ctx> {
@@ -42,6 +42,17 @@ impl<'a> ConcolicVar<'a> {
         })
     }
 
+    // Subtract operation on two concolic variables 
+    pub fn concolic_sub(self, other: Self, ctx: &'a Context) -> Result<ConcolicEnum<'a>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete); // Ensure ConcreteVar.sub takes references
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        
+        Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+        }))
+    }
+
     // And operation on two concolic variables
     pub fn concolic_and(self, ctx: &'a Context, other: Self) -> Result<Self, &'static str> {
         let new_concrete = self.concrete.and(other.concrete);
@@ -50,6 +61,27 @@ impl<'a> ConcolicVar<'a> {
             concrete: new_concrete,
             symbolic: new_symbolic,
         })
+    }
+
+    // Subtract operation on two concolic variables 
+    pub fn concolic_sborrow(self, other: Self, ctx: &'a Context) -> Result<ConcolicEnum<'a>, &'static str> {
+        let _new_concrete = self.concrete.sub(&other.concrete); // Ensure ConcreteVar.sub takes references
+
+        // Get the symbolic results
+        let _new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        let overflow = self.symbolic.signed_sub_overflow(&other.symbolic, ctx)?;
+
+        // Check the overflow condition
+        let overflow_bv = overflow.ite(&BV::from_u64(ctx, 1, 1), &BV::from_u64(ctx, 0, 1));
+
+        // Simplify the overflow result and determine its concrete value
+        let overflow_simplified = overflow_bv.simplify(); // translate to true or false
+        let overflow_concrete = if overflow_simplified.to_string() == "true" { 1 } else { 0 };
+
+        Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
+            concrete: ConcreteVar::Int(overflow_concrete),
+            symbolic: SymbolicVar::Int(overflow_bv),
+        }))
     }
 
     pub fn update_concrete_int(&mut self, new_value: u64) {

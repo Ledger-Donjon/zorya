@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::Mutex};
 use std::fmt;
 use anyhow::{Error, Result};
+use z3::ast::Bool;
 use std::sync::Arc;
 
 use z3::{ast::BV, Context};
@@ -71,6 +72,69 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ctx: self.ctx,
         }))
     }
+
+    pub fn signed_sub(self, other: Self, ctx: &'ctx Context) -> Result<Self, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        let overflow = self.symbolic.signed_sub_overflow(&other.symbolic, ctx)?;
+        if self.handle_overflow_condition(overflow) {
+            return Err("Signed subtraction overflow detected");
+        }
+        Ok(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        })
+    }
+
+    pub fn sub(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<CpuConcolicValue<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        Ok(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx,
+        })
+    }
+
+    pub fn sub_with_var(self, other: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx,
+        }))
+    }
+
+    pub fn sub_with_other(self, other: MemoryConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx,
+        }))
+    }
+    
+    pub fn signed_sub_with_var(self, var: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&var.concrete);
+        let new_symbolic = self.symbolic.sub(&var.symbolic, ctx)?;
+        let overflow = self.symbolic.signed_sub_overflow(&var.symbolic, ctx)?;
+        if self.handle_overflow_condition(overflow) {
+            return Err("Signed subtraction overflow detected");
+        }
+        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }))
+    }
+    
+    pub fn handle_overflow_condition(&self, overflow: Bool) -> bool {
+        overflow.as_bool().unwrap_or(false)
+    }
+    
 
     pub fn get_size(&self) -> u32 {
         match &self.concrete {

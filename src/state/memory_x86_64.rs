@@ -1,6 +1,7 @@
 /// Memory model for x86-64 binaries
 
 use regex::Regex;
+use z3::ast::Bool;
 use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -111,6 +112,82 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
             ctx: self.ctx,
         }))
     }
+
+    pub fn sub(self, other: MemoryConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        Ok(MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx,
+        })
+    }
+
+    pub fn sub_with_var(self, other: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx,
+        }))
+    }
+
+    pub fn sub_with_other(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx,
+        }))
+    }
+    
+    pub fn signed_sub(self, other: Self, ctx: &'ctx Context) -> Result<Self, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        let overflow = self.symbolic.signed_sub_overflow(&other.symbolic, ctx)?;
+        if self.handle_overflow_condition(overflow) {
+            return Err("Signed subtraction overflow detected");
+        }
+        Ok(MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        })
+    }
+
+    pub fn signed_sub_with_var(self, var: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&var.concrete);
+        let new_symbolic = self.symbolic.sub(&var.symbolic, ctx)?;
+        let overflow = self.symbolic.signed_sub_overflow(&var.symbolic, ctx)?;
+        if self.handle_overflow_condition(overflow) {
+            return Err("Signed subtraction overflow detected");
+        }
+        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }))
+    }
+
+    pub fn signed_sub_with_other(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        let new_concrete = self.concrete.sub(&other.concrete);
+        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+        let overflow = self.symbolic.signed_sub_overflow(&other.symbolic, ctx)?;
+        if self.handle_overflow_condition(overflow) {
+            return Err("Signed subtraction overflow detected");
+        }
+        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }))
+    }
+
+    pub fn handle_overflow_condition(&self, overflow: Bool) -> bool {
+        overflow.as_bool().unwrap_or(false)
+    }    
 
     // Method to retrieve the concrete u64 value
     pub fn get_concrete_value(&self) -> Result<u64, String> {
@@ -223,7 +300,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         // let dumps_dir_path = dumps_dir.join("dumps");
 
-        let dumps_dir_path = PathBuf::from("value/home/kgorna/Documents/zorya/src/state/working_files/additiongo_all-u-need");
+        let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files/additiongo_all-u-need");
 
         let entries = fs::read_dir(dumps_dir_path)?;
         for entry in entries {

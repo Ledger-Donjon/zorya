@@ -17,6 +17,15 @@ impl ConcreteVar {
         }
     }
 
+    // Subtraction operation
+    pub fn sub(&self, other: &ConcreteVar) -> Self {
+        match (self, other) {
+            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(*a - *b),
+            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => ConcreteVar::Float(*a - *b),
+            _ => panic!("Unsupported types for sub operation"),
+        }
+    }
+
     // Bitwise AND operation for integers
     pub fn and(self, other: ConcreteVar) -> Self {
         match (self, other) {
@@ -56,6 +65,14 @@ impl ConcreteVar {
                 s.parse::<u64>()
                  .map_err(|_| VarError::ConversionError)
             },
+        }
+    }
+
+    pub fn to_i64(&self) -> Result<i64, &'static str> {
+        match self {
+            ConcreteVar::Int(val) => Ok(*val as i64),
+            ConcreteVar::Float(val) => Ok(*val as i64), // Adjust this if needed for float conversion
+            _ => Err("Unsupported type for to_i64 conversion"),
         }
     }
 
