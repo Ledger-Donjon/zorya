@@ -43,7 +43,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Check if we are processing a new address block
         if Some(current_addr) != self.current_address {
             // Reset the unique variables for the new address
-            self.reset_unique_variables();
+            self.unique_variables.clear();
 
             // Update the current address
             self.current_address = Some(current_addr);
@@ -174,7 +174,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 } else {
                     value.parse::<u64>()
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
-
+                println!("parsed value: {}", parsed_value);
                 let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, parsed_value);
                 println!("Constant treated as memory address, created or retrieved: {:?}", memory_var);
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
@@ -194,16 +194,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
         }
-    }
-
-    // Resets the unique variables, ensuring thread safety with the lock
-    pub fn reset_unique_variables(&mut self) {
-        self.unique_variables.clear();
-    }
-
-    // Adds a unique variable, managing thread safety with the lock
-    pub fn add_unique_variable(&mut self, name: String, value: ConcolicVar<'ctx>) {
-        self.unique_variables.insert(name, value);
     }
 
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
@@ -276,67 +266,46 @@ impl<'ctx> ConcolicExecutor<'ctx> {
  
     // Handle conditional branch operation
     pub fn handle_cbranch(&mut self, instruction: Inst) -> Result<(), String> {
-        if instruction.inputs.len() != 2 {
-            return Err("CBRANCH operation requires two inputs".to_string());
+        if instruction.opcode != Opcode::CBranch || instruction.inputs.len() != 2 {
+            return Err("Invalid instruction format for CBRANCH".to_string());
         }
 
-        // Evaluate the condition
-        // let condition = {
-        //     Self::evaluate_condition(&self, &instruction.inputs[1].var)?
-        // };
+        // Fetch the branch target (input0) and condition (input1)
+        println!("* Fetching branch target from instruction.input[0]");
+        let branch_target_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let branch_target_concrete = branch_target_concolic.get_concrete_value();
+        println!("Branch target concrete : {:x}", branch_target_concrete);
 
-        // if condition {
-        //     println!("Debug CBRANCH : inside the condition statement");
-        //     let dest_address = Self::extract_target_address(&instruction.inputs[0].var)?;
+        println!("* Fetching branch condition from instruction.input[1]");
+        let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+        let branch_condition_concrete = branch_condition_concolic.get_concrete_value();
+        println!("Branch condition concrete : {}", branch_condition_concrete);
 
-        //     // Access the shared CPU state with a lock, updating within a scoped block to limit the borrow
-        //     {
-        //         let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-        //         // Update the program counter (RIP) in the CPU state
-        //         // cpu_state_guard.set_register_value("rip", dest_address)
-        //         //    .map_err(|e| e.to_string())?;
-        //     } // MutexGuard drops here
+        // Check the branch condition
+        if branch_condition_concrete != 0 {
+            println!("Branch condition is true, branching to address {:x}", branch_target_concrete);
+            // Update the RIP register to the branch target address
+            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete).map_err(|e| e.to_string())?;
+        } else {
+            println!("Branch condition is false, continuing to next instruction");
+        }
 
-        //     println!("Debug CBRANCH : past the RIP update");
-        //     let var_name = format!("cbranch_{:x}", dest_address);
-        //     self.state.create_concolic_var_int(&var_name, dest_address, 64); 
-        // }
+        // Update the instruction counter
+        self.instruction_counter += 1;
+
+        println!("{}\n", self);
+
+        // Create a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
+        self.state.create_concolic_var_int(&result_var_name, branch_condition_concrete, 1); // 1-bit for boolean
+
+        println!("{}", self.state);
 
         Ok(())
     }
-
-    // CBRANCH helper function
-    // fn evaluate_condition(&self, var: &Var) -> Result<bool, String> {
-    //     match var {
-    //         Var::Const(val) => val.parse::<u64>()
-    //             .map(|v| v != 0)
-    //             .map_err(|_| "Failed to parse condition from Const variant".to_string()),
-
-    //         //Var::Register(addr, _size) => {
-    //             // Access the shared CPU state with a lock
-    //             //let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-
-    //             //let reg_name = CpuState::reg_num_to_name(&mut cpu_state_guard, *addr);
-    //             //let reg_value = cpu_state_guard.get_register_value(&reg_name)
-    //             //    .ok_or_else(|| format!("Failed to fetch value for register {}", reg_name))?;
-    //             //Ok(reg_value != 0)
-    //         },
-
-    //         Var::Unique(_) | Var::Memory(_) => Ok(true),
-    //         Var::MemoryRam => todo!(),
-    //     }
-    // }
-
-
-    // CBRANCH helper function
-    fn extract_target_address(var: &Var) -> Result<u64, String> {
-        match var {
-            Var::Const(addr_str) => addr_str.parse::<u64>().map_err(|_| "Failed to parse target address from Const variant in CBRANCH operation".to_string()),
-            Var::Unique(addr) | Var::Memory(addr) | Var::Register(addr, _) => Ok(*addr),
-            Var::MemoryRam => todo!(),
-        }
-    }
-
+    
     pub fn handle_call(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Call || instruction.inputs.len() < 1 {
             return Err("Invalid instruction format for CALL".to_string());
@@ -447,7 +416,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("Invalid instruction format for LOAD".to_string());
         }
     
-        // Fetch the space ID (input0) and pointer offset (input1)
         println!("* FYI, the space ID is not used during zorya execution.");
         println!("* Fetching pointer offset from instruction.input[1]");
     
@@ -527,9 +495,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("{}", self.state);
     
         Ok(())
-    }
-    
-    
+    }   
 
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
@@ -671,30 +637,92 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("{}", self.state);
     
         Ok(())
-    }
-    
+    }    
 
+    // The function to handle POPCOUNT instruction
     pub fn handle_popcount(&mut self, instruction: Inst) -> Result<(), String> {
-        if instruction.opcode != Opcode::PopCount || instruction.inputs.len() != 1 {
+        if instruction.opcode != Opcode::PopCount || instruction.inputs.len() != 1 || instruction.output.is_none() {
             return Err("Invalid instruction format for POPCOUNT".to_string());
         }
     
-        let input_varnode = &instruction.inputs[0];
-        let input_var = self.initialize_var_if_absent(input_varnode)?;
+        // Fetch concolic variable
+        println!("* Fetching instruction.input[0] for POPCOUNT");
+        let input_var = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| {
+            println!("Error converting varnode to concolic: {}", e);
+            e.to_string()
+        })?;
     
-        // Perform population count on the concrete value
-        let popcount = input_var.count_ones() as u64; // count_ones returns u32, convert to u64 for consistency
+        let popcount_result = match input_var {
+            ConcolicEnum::ConcolicVar(concolic_var) => {
+                let concrete_value = concolic_var.concrete.to_u64();
+                let popcount = concrete_value.count_ones() as u64;
+                println!("Concrete value: {}, Popcount: {}", concrete_value, popcount);
+                let symbolic_value = concolic_var.popcount();
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, &symbolic_value.to_string(), self.context, concolic_var.concrete.get_size())
+            },
+            ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                let concrete_value = cpu_var.get_concrete_value().unwrap_or(0);
+                let popcount = concrete_value.count_ones() as u64;
+                println!("CPU concrete value: {}, Popcount: {}", concrete_value, popcount);
+                let symbolic_value = cpu_var.popcount();
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, &symbolic_value.to_string(), self.context, cpu_var.concrete.get_size())
+            },
+            ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                let concrete_value = mem_var.get_concrete_value().unwrap_or(0);
+                let popcount = concrete_value.count_ones() as u64;
+                println!("Memory concrete value: {}, Popcount: {}", concrete_value, popcount);
+                let symbolic_value = mem_var.popcount();
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, &symbolic_value.to_string(), self.context, mem_var.concrete.get_size())
+            },
+        };
     
-        if let Some(output_varnode) = &instruction.output {
-            let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
-            let bitvector_size = output_varnode.size.to_bitvector_size();
+        println!("*** The result of POPCOUNT is: {:?}", popcount_result.clone());
     
-            self.state.create_concolic_var_int(&result_var_name, popcount, bitvector_size);
+        match instruction.output.as_ref().map(|v| &v.var) {
+            Some(Var::Unique(id)) => {
+                let unique_name = format!("Unique(0x{:x})", id);
+                self.unique_variables.insert(unique_name.clone(), popcount_result.clone());
+                println!("Updated unique variable: {}", unique_name);
+            },
+            Some(Var::Register(offset, _)) => {
+                println!("Output is a Register type");
+                let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                let concrete_value = popcount_result.concrete.to_u64();
+                println!("Setting register value at offset 0x{:x} to {}", offset, concrete_value);
+                let set_result = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
+                match set_result {
+                    Ok(_) => {
+                        let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
+                        if updated_value == concrete_value {
+                            println!("Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
+                        } else {
+                            println!("Failed to verify updated register at offset 0x{:x}", offset);
+                            return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
+                        }
+                    },
+                    Err(e) => {
+                        println!("Failed to set register value: {}", e);
+                        return Err(format!("Failed to set register value at offset 0x{:x}", offset));
+                    }
+                }
+            },
+            _ => {
+                println!("Output type is unsupported");
+                return Err("Output type not supported".to_string());
+            }
         }
     
+        println!("{}\n", self);
+    
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-popcount", current_addr_hex, self.instruction_counter);
+        self.state.create_concolic_var_int(&result_var_name, popcount_result.concrete.to_u64(), popcount_result.concrete.get_size());
+        println!("Created concolic variable for the result: {}", result_var_name);
+    
+        println!("{}\n", self.state);
+    
         Ok(())
-    }    
+    }   
 
     pub fn handle_lzcount(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::LZCount || instruction.inputs.len() != 1 {

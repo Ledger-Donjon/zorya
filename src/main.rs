@@ -75,7 +75,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         println!("EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
         println!("*******************************************\n");
 
-        let mut branch_taken = false;
 
         for inst in instructions {
             println!("-------> Processing instruction : {:?}\n", inst);
@@ -84,28 +83,17 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 println!("Failed to execute instruction: {}", e);
                 continue;
             }
-
-            // Check if the instruction is a branch instruction by examining the opcode
-            if matches!(inst.opcode, parser::parser::Opcode::Branch | parser::parser::Opcode::CBranch | parser::parser::Opcode::BranchInd) {
-                branch_taken = true;
-                break; // Exit the loop to follow the branch
-            }
         }
 
-        // Update the current_rip based on whether a branch was taken
-        if branch_taken {
-            let cpu_state_guard = executor.state.cpu_state.lock()
-                .expect("Failed to lock CPU state");
-            current_rip = get_current_rip_address(&*cpu_state_guard); // Fetch the updated rip value after a branch
+        // When all instructions of an address have been executed, find the next sequential address in the BTreeMap
+        if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
+            println!("Next address should be : {:#x}", next_address);
+            current_rip = next_address; // Move to the next instruction address
         } else {
-            // If no branch was taken, find the next sequential address in the BTreeMap
-            if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
-                current_rip = next_address; // Move to the next instruction address
-            } else {
-                println!("No further instructions. Execution completed.");
-                break;
-            }
+            println!("No further instructions. Execution completed.");
+            break;
         }
+        
     }
 }
 

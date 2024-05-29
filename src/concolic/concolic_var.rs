@@ -6,6 +6,7 @@ use super::{ConcolicEnum, ConcreteVar, SymbolicVar};
 pub struct ConcolicVar<'ctx> {
     pub concrete: ConcreteVar,
     pub symbolic: SymbolicVar<'ctx>,
+    pub ctx: &'ctx Context,
 }
 
 impl<'a> ConcolicVar<'a> {
@@ -17,6 +18,7 @@ impl<'a> ConcolicVar<'a> {
         let new_var = ConcolicVar { 
             concrete: ConcreteVar::Int(concrete),
             symbolic: SymbolicVar::Int(symbolic),
+            ctx,
         };
         new_var
     }
@@ -28,6 +30,7 @@ impl<'a> ConcolicVar<'a> {
         let new_var = ConcolicVar {
             concrete: ConcreteVar::Float(concrete),
             symbolic: SymbolicVar::Float(symbolic),
+            ctx,
         };
         new_var
     }
@@ -39,49 +42,95 @@ impl<'a> ConcolicVar<'a> {
         Ok(ConcolicVar {
             concrete: new_concrete,
             symbolic: new_symbolic,
+            ctx: self.ctx,
         })
     }
 
-    // Subtract operation on two concolic variables 
+    // Function to perform a safe unsigned subtraction with overflow detection
     pub fn concolic_sub(self, other: Self, ctx: &'a Context) -> Result<ConcolicEnum<'a>, &'static str> {
-        let new_concrete = self.concrete.sub(&other.concrete); // Ensure ConcreteVar.sub takes references
-        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-        
-        Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-        }))
+        let (result, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
+        if overflow {
+            Err("Overflow or underflow occurred during subtraction")
+        } else {
+            let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+            Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
+                concrete: ConcreteVar::Int(result),
+                symbolic: new_symbolic,
+                ctx,
+            }))
+        }
     }
 
     // And operation on two concolic variables
     pub fn concolic_and(self, ctx: &'a Context, other: Self) -> Result<Self, &'static str> {
+        println!("Performing concolic AND operation between two ConcolicVars");
+        println!("Current context: {:?}", ctx);
         let new_concrete = self.concrete.and(other.concrete);
+        println!("New concrete value: {:?}", new_concrete);
+
+        // Ensure symbolic variables are created correctly
         let new_symbolic = self.symbolic.and(&other.symbolic, ctx)?;
+        match &new_symbolic {
+            SymbolicVar::Int(bv) => {
+                println!("New symbolic value (Int): {:?}", bv);
+                assert!(!bv.get_z3_ast().is_null(), "New symbolic value (Int) is null");
+            },
+            SymbolicVar::Float(fv) => {
+                println!("New symbolic value (Float): {:?}", fv);
+                assert!(!fv.get_z3_ast().is_null(), "New symbolic value (Float) is null");
+            }
+        }
+        println!("New symbolic value created successfully");
+
         Ok(ConcolicVar {
             concrete: new_concrete,
             symbolic: new_symbolic,
+            ctx,
         })
     }
-
+    
     // Subtract operation on two concolic variables 
-    pub fn concolic_sborrow(self, other: Self, ctx: &'a Context) -> Result<ConcolicEnum<'a>, &'static str> {
-        let _new_concrete = self.concrete.sub(&other.concrete); // Ensure ConcreteVar.sub takes references
+    pub fn concolic_sborrow(self, other: Self, ctx: &'a Context) -> Result<Self, &'static str> {
+        match self.concrete.to_i64()?.checked_sub(other.concrete.to_i64()?) {
+            Some(result) => {
+                let (symbolic_result, overflow) = self.symbolic.sub_with_overflow_check(&other.symbolic, ctx)?;
+                if overflow {
+                    Err("Overflow occurred")
+                } else {
+                    Ok(ConcolicVar {
+                        concrete: ConcreteVar::Int(result as u64),
+                        symbolic: symbolic_result,
+                        ctx,
+                    })
+                }
+            },
+            None => Err("Overflow occurred"),
+        }
+    }
 
-        // Get the symbolic results
-        let _new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-        let overflow = self.symbolic.signed_sub_overflow(&other.symbolic, ctx)?;
+    pub fn popcount(&self) -> BV<'a> {
+        self.symbolic.popcount()
+    }
 
-        // Check the overflow condition
-        let overflow_bv = overflow.ite(&BV::from_u64(ctx, 1, 1), &BV::from_u64(ctx, 0, 1));
-
-        // Simplify the overflow result and determine its concrete value
-        let overflow_simplified = overflow_bv.simplify(); // translate to true or false
-        let overflow_concrete = if overflow_simplified.to_string() == "true" { 1 } else { 0 };
-
-        Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
-            concrete: ConcreteVar::Int(overflow_concrete),
-            symbolic: SymbolicVar::Int(overflow_bv),
-        }))
+    // Or operation on two concolic variables
+    pub fn concolic_or(self, ctx: &'a Context, other: Self) -> Result<Self, &'static str> {
+        let new_concrete = self.concrete.or(other.concrete);
+        let new_symbolic = self.symbolic.or(&other.symbolic, ctx)?;
+        match &new_symbolic {
+            SymbolicVar::Int(bv) => {
+                println!("New symbolic value (Int): {:?}", bv);
+                assert!(!bv.get_z3_ast().is_null(), "New symbolic value (Int) is null");
+            },
+            SymbolicVar::Float(fv) => {
+                println!("New symbolic value (Float): {:?}", fv);
+                assert!(!fv.get_z3_ast().is_null(), "New symbolic value (Float) is null");
+            }
+        }
+        Ok(ConcolicVar {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx,
+        })
     }
 
     pub fn update_concrete_int(&mut self, new_value: u64) {
@@ -106,6 +155,10 @@ impl<'a> ConcolicVar<'a> {
         } else {
             panic!("Attempted to update symbolic float value on a non-float ConcolicVar");
         }
+    }
+
+    pub fn get_context_id(&self) -> String {
+        format!("{:p}", self.ctx)
     }
 
     pub fn can_address_be_zero(ctx: &'a Context, address_var: &ConcolicVar<'a>) -> bool {

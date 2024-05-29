@@ -1257,4 +1257,5 @@ dependencies = [
  "serde",
  "serde_json",
  "z3",
+ "z3-sys",
 ]

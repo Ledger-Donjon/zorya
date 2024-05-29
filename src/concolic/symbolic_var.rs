@@ -1,14 +1,21 @@
 extern crate z3;
-use z3::{ast::{Bool, Float, BV}, Context};
+use z3::ast::{Ast, Bool, Float, BV};
+use z3::{AstKind, Context};
+use z3_sys::{Z3_get_ast_kind, Z3_context, Z3_ast};
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum SymbolicVar<'a> {
-    Int(BV<'a>),
-    Float(Float<'a>),
+pub enum SymbolicVar<'ctx> {
+    Int(BV<'ctx>),
+    Float(Float<'ctx>),
 }
 
-impl<'a> SymbolicVar<'a> {
-    pub fn add(&self, other: &SymbolicVar<'a>) -> Result<SymbolicVar<'a>, &'static str> {
+impl<'ctx> SymbolicVar<'ctx> {
+    pub fn new_int(value: i32, ctx: &'ctx Context, size: u32) -> SymbolicVar<'ctx> {
+        let bv = BV::from_i64(ctx, value as i64, size);
+        SymbolicVar::Int(bv)
+    }
+
+    pub fn add(&self, other: &SymbolicVar<'ctx>) -> Result<SymbolicVar<'ctx>, &'static str> {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
                 Ok(SymbolicVar::Int(a.bvadd(&b)))
@@ -21,7 +28,7 @@ impl<'a> SymbolicVar<'a> {
         }
     }
 
-    pub fn sub(&self, other: &SymbolicVar<'a>, _ctx: &'a Context) -> Result<SymbolicVar<'a>, &'static str> {
+    pub fn sub(&self, other: &SymbolicVar<'ctx>, _ctx: &'ctx Context) -> Result<SymbolicVar<'ctx>, &'static str> {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
                 Ok(SymbolicVar::Int(a.bvsub(&b)))
@@ -33,7 +40,7 @@ impl<'a> SymbolicVar<'a> {
         }
     }
 
-    pub fn signed_sub_overflow(&self, other: &SymbolicVar<'a>, ctx: &'a Context) -> Result<Bool<'a>, &'static str> {
+    pub fn signed_sub_overflow(&self, other: &SymbolicVar<'ctx>, ctx: &'ctx Context) -> Result<Bool<'ctx>, &'static str> {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
                 let sub = a.bvsub(&b);
@@ -47,12 +54,52 @@ impl<'a> SymbolicVar<'a> {
         }
     } 
 
-    pub fn and(self, other: &SymbolicVar<'a>, _ctx: &'a Context) -> Result<SymbolicVar<'a>, &'static str> {
+    pub fn sub_with_overflow_check(&self, other: &Self, ctx: &'ctx Context) -> Result<(Self, bool), &'static str> {
+        match (self, other) {
+            (SymbolicVar::Int(bv1), SymbolicVar::Int(bv2)) => {
+                let result = bv1.bvsub(bv2);
+                // Z3 BV method to check for overflow on subtraction
+                let overflow = bv1.bvsub_no_overflow(bv2).as_bool().unwrap(); // Convert Bool to bool
+                Ok((SymbolicVar::Int(result), overflow))
+            },
+            _ => Err("Unsupported types for subtraction with overflow check"),
+        }
+    }
+
+    // Logical AND operation between two symbolic variables
+    pub fn and(&self, other: &SymbolicVar<'ctx>, _ctx: &'ctx Context) -> Result<Self, &'static str> {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
-                Ok(SymbolicVar::Int(a.bvand(&b)))
+                let new_symbolic = a.bvand(b);
+                Ok(SymbolicVar::Int(new_symbolic))
             },
-            _ => Err("Logical AND operation is only applicable to integers (bitvectors)"),
+            _ => Err("AND operation is only supported for integers"),
+        }
+    }
+
+    pub fn popcount(&self) -> BV<'ctx> {
+        match self {
+            SymbolicVar::Int(bv) => {
+                let ctx = bv.get_ctx();
+                let mut count = BV::from_u64(ctx, 0, bv.get_size());
+                for i in 0..bv.get_size() {
+                    let bit = bv.extract(i, i);
+                    count = count.bvadd(&bit.zero_ext(bv.get_size() - 1));
+                }
+                count
+            },
+            SymbolicVar::Float(_) => panic!("Popcount is not defined for floating-point values"),
+        }
+    }
+
+    // Logical OR operation between two symbolic variables
+    pub fn or(&self, other: &SymbolicVar<'ctx>, _ctx: &'ctx Context) -> Result<Self, &'static str> {
+        match (self, other) {
+            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
+                let new_symbolic = a.bvor(b);
+                Ok(SymbolicVar::Int(new_symbolic))
+            },
+            _ => Err("OR operation is only supported for integers"),
         }
     }
 
@@ -60,6 +107,46 @@ impl<'a> SymbolicVar<'a> {
         match self {
             SymbolicVar::Int(value) => value.to_string(),
             SymbolicVar::Float(value) => value.to_string(),
+        }
+    }
+
+    // Convert a constant to a symbolic value.
+    pub fn from_u64(ctx: &'ctx Context, value: u64, size: u32) -> SymbolicVar<'ctx> {
+        SymbolicVar::Int(BV::from_u64(ctx, value, size))
+    }
+
+    // Method to get the underlying Z3 AST
+    pub fn get_z3_ast(&self) -> Z3_ast {
+        match self {
+            SymbolicVar::Int(bv) => bv.get_z3_ast(),
+            SymbolicVar::Float(fv) => fv.get_z3_ast(),
+        }
+    }
+
+    // Method to check if the underlying Z3 AST is null
+    pub fn is_null(&self) -> bool {
+        let ast = self.get_z3_ast();
+        ast.is_null() 
+    }
+
+    pub fn get_ctx(&self) -> &'ctx Context {
+        match self {
+            SymbolicVar::Int(bv) => bv.get_ctx(),
+            SymbolicVar::Float(fv) => fv.get_ctx(),
+        }
+    }
+
+    pub fn get_size(&self) -> u32 {
+        match self {
+            SymbolicVar::Int(bv) => bv.get_size(),
+            SymbolicVar::Float(_) => 32, // simplicity
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        match self {
+            SymbolicVar::Int(bv) => !bv.get_z3_ast().is_null(),
+            SymbolicVar::Float(fv) => !fv.get_z3_ast().is_null(),
         }
     }
 }

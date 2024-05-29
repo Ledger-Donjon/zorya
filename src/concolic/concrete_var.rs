@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, num::Wrapping};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConcreteVar {
@@ -26,11 +26,30 @@ impl ConcreteVar {
         }
     }
 
+    // Safe signed subtraction with overflow handling
+    pub fn signed_sub_overflow(&self, other: &ConcreteVar) -> (Self, bool) {
+        match (self, other) {
+            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => {
+                let (result, overflow) = (Wrapping(*a as i64) - Wrapping(*b as i64)).0.overflowing_sub(*b as i64);
+                (ConcreteVar::Int(result as u64), overflow)
+            },
+            _ => panic!("Unsupported types for signed sub with overflow operation"),
+        }
+    }
+
     // Bitwise AND operation for integers
     pub fn and(self, other: ConcreteVar) -> Self {
         match (self, other) {
             (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(a & b),
             _ => panic!("Bitwise AND operation is not defined for floats"),
+        }
+    }
+
+    // Bitwise OR operation for integers
+    pub fn or(self, other: ConcreteVar) -> Self {
+        match (self, other) {
+            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(a | b),
+            _ => panic!("Bitwise OR operation is not defined for floats"),
         }
     }
 

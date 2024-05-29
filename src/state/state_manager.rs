@@ -33,7 +33,7 @@ impl<'a> State<'a> {
         let displayable_cpu_state = DisplayableCpuState(cpu_state.clone());
         println!("Current CPU State: {}", displayable_cpu_state);
 
-        let memory_size: u64 = 0x1000000; // 1GB memory size because dumps are 730 MB
+        let memory_size: u64 = 0x10000000; // 10GB memory size because dumps are 730 MB
         println!("Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, memory_size)?;
         let _ = memory.load_all_dumps();
@@ -51,6 +51,24 @@ impl<'a> State<'a> {
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
             vfs,
+        })
+    }
+
+    // Function only used in tests to avoid the loading of all memory section and CPU registers
+    pub fn default_for_tests(ctx: &'a Context) -> Result<Self, Box<dyn std::error::Error>> {
+        // Initialize CPU state in a shared and thread-safe manner
+        let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
+        let memory_size: u64 = 0x100000; // 1GB memory size because dumps are 730 MB
+        let memory = MemoryX86_64::new(&ctx, memory_size)?;
+        Ok(State {
+            concolic_vars: BTreeMap::new(),
+            ctx,
+            memory,
+            cpu_state,
+            vfs: VirtualFileSystem::new(),
+            file_descriptors: BTreeMap::new(),
+            fd_paths: BTreeMap::new(),
+            fd_counter: 0,
         })
     }
 
