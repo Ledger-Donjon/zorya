@@ -1,10 +1,12 @@
+use std::path::Path;
 /// Maintains the state of CPU registers and possibly other aspects of the CPU's status
 
 use std::{collections::BTreeMap, sync::Mutex};
-use std::fmt;
+use std::{fmt, fs};
 use anyhow::{Error, Result};
 use z3::ast::Bool;
 use std::sync::Arc;
+use anyhow::anyhow;
 
 use z3::{ast::BV, Context};
 
@@ -314,14 +316,14 @@ impl<'ctx> CpuState<'ctx> {
             ("DF", "0x20a", "1"),   // Direction Flag
             ("OF", "0x20b", "1"),   // Overflow Flag
             ("IOPL", "0x20c", "2"), // I/O Privilege Level (2 bits)
-            ("NT", "0x20e", "1"),   // Nested Task Flag
-            ("F15", "0x20f", "1"),  // Reserved
-            ("RF", "0x210", "1"),   // Resume Flag
-            ("VM", "0x211", "1"),   // Virtual 8086 Mode
-            ("AC", "0x212", "1"),   // Alignment Check (Alignment Mask)
-            ("VIF", "0x213", "1"),  // Virtual Interrupt Flag
-            ("VIP", "0x214", "1"),  // Virtual Interrupt Pending
-            ("ID", "0x215", "1"),   // ID Flag 
+            ("NT", "0x20d", "1"),   // Nested Task Flag
+            ("F15", "0x20e", "1"),  // Reserved
+            ("RF", "0x20f", "1"),   // Resume Flag
+            ("VM", "0x210", "1"),   // Virtual 8086 Mode
+            ("AC", "0x211", "1"),   // Alignment Check (Alignment Mask)
+            ("VIF", "0x212", "1"),  // Virtual Interrupt Flag
+            ("VIP", "0x213", "1"),  // Virtual Interrupt Pending
+            ("ID", "0x214", "1"),   // ID Flag 
             
             // RIP
             ("RIP", "0x288", "8"),
@@ -329,8 +331,8 @@ impl<'ctx> CpuState<'ctx> {
             // Debug and Control Registers
             ("DR0", "0x300", "8"), ("DR1", "0x308", "8"), ("DR2", "0x310", "8"), ("DR3", "0x318", "8"),
             ("DR4", "0x320", "8"), ("DR5", "0x328", "8"), ("DR6", "0x330", "8"), ("DR7", "0x338", "8"),
-            ("CR0", "0x340", "8"), ("CR2", "0x348", "8"), ("CR3", "0x350", "8"), ("CR4", "0x358", "8"),
-            ("CR8", "0x360", "8"), ("FS_BASE", "0x108", "8"), ("GS_BASE", "0x10a", "8"), ("K_GS_BASE", "0x10c", "8"),
+            ("CR0", "0x380", "8"), ("CR2", "0x390", "8"), ("CR3", "0x398", "8"), ("CR4", "0x3a0", "8"),
+            ("CR8", "0x3c0", "8"),
 
             // Processor State Register and MPX Registers
             ("XCR0", "0x600", "8"), ("BNDCFGS", "0x700", "8"), ("BNDCFGU", "0x708", "8"),
@@ -339,16 +341,6 @@ impl<'ctx> CpuState<'ctx> {
 
             // ST registers
             ("MXCSR", "0x1094", "4"),
-
-            // Floating-point control, status, and tag registers
-            ("FCTRL", "0x1090", "2"),
-            ("FSTAT", "0x1092", "2"),
-            ("FTAG", "0x1094", "2"),
-            ("FISEG", "0x1096", "2"),
-            ("FIOFF", "0x1098", "4"),
-            ("FOSEG", "0x109c", "2"),
-            ("FOOFF", "0x109e", "4"),
-            ("FOP", "0x10a2", "2"),
 
             // Extended SIMD Registers
             ("YMM0", "0x1200", "32"), ("YMM1", "0x1220", "32"), ("YMM2", "0x1240", "32"), ("YMM3", "0x1260", "32"),
@@ -360,22 +352,58 @@ impl<'ctx> CpuState<'ctx> {
             ("xmmTmp1", "0x1400", "16"), ("xmmTmp2", "0x1410", "16"),
         ];
 
-        for &(name, offset_hex, size_str) in register_definitions.iter() {
-            let offset = u64::from_str_radix(offset_hex.trim_start_matches("0x"), 16)?;
-            let size = size_str.parse::<u32>()?;
+        for &(name, offset_hex, _size_str) in register_definitions.iter() {
+            let offset = u64::from_str_radix(offset_hex.trim_start_matches("0x"), 16)
+                .map_err(|e| anyhow!("Error parsing offset for {}: {}", name, e))?;
+
+            if !self.is_valid_register_offset(name, offset) {
+                return Err(anyhow!("Invalid register offset 0x{:X} for {}", offset, name));
+            }
+
             let initial_value = 0;  // Default initialization value for all registers.
 
             // Create a new concolic value for the register.
             let concolic_value = CpuConcolicValue::new(self.ctx, initial_value);
             // Insert the new register into the map using its offset as the key.
             self.registers.insert(offset, concolic_value);
-            // Also, map the offset to the register name for easy lookup.
+            // Map the offset to the register name for easy lookup
             self.register_map.insert(offset, name.to_string());
 
-            println!("Initialized register {} at offset 0x{:X} with size {}.", name, offset, size);
+            // Print debug info to trace the initialization of registers
+            // println!("Initialized register {} at offset 0x{:X} with size {}.", name, offset, size);
         }
 
         Ok(())
+    }
+
+    // Function to check if a given offset corresponds to a valid x86-64 register from the x86-64.sla file
+    pub fn is_valid_register_offset(&self, name: &str, offset: u64) -> bool {
+        let path = Path::new("src/concolic/specfiles/x86-64.sla");
+        let sla_file_content = fs::read_to_string(path).expect("Failed to read SLA file");
+
+        let relevant_section = sla_file_content.split("<start_sym name=\"inst_start\"").last().unwrap_or("");
+
+        for line in relevant_section.lines() {
+            if line.contains("<varnode_sym") && line.contains(format!("name=\"{}\"", name).as_str()) {
+                let line_offset_hex = self.extract_value(line, "offset=\"", "\"");
+                let line_offset = u64::from_str_radix(line_offset_hex.trim_start_matches("0x"), 16).unwrap();
+
+                // Print debug info to trace the value comparisons
+                // println!("Checking Register: {}, Given Offset: 0x{:X}, Found Offset in SLA: 0x{:X}, Line: {}", name, offset, line_offset, line);
+
+                if offset == line_offset {
+                    return true;
+                }
+            }
+        }
+
+        println!("No matching register found for {} with offset 0x{:X}", name, offset);
+        false
+    }
+
+    // Helper function to extract a value from a string using start and end delimiters
+    fn extract_value<'a>(&self, from: &'a str, start_delim: &str, end_delim: &str) -> &'a str {
+        from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
 
     /// Sets the value of a register identified by its offset.

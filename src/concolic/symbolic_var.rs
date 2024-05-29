@@ -1,7 +1,7 @@
 extern crate z3;
 use z3::ast::{Ast, Bool, Float, BV};
-use z3::{AstKind, Context};
-use z3_sys::{Z3_get_ast_kind, Z3_context, Z3_ast};
+use z3::Context;
+use z3_sys::Z3_ast;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SymbolicVar<'ctx> {
@@ -54,7 +54,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         }
     } 
 
-    pub fn sub_with_overflow_check(&self, other: &Self, ctx: &'ctx Context) -> Result<(Self, bool), &'static str> {
+    pub fn sub_with_overflow_check(&self, other: &Self, _ctx: &'ctx Context) -> Result<(Self, bool), &'static str> {
         match (self, other) {
             (SymbolicVar::Int(bv1), SymbolicVar::Int(bv2)) => {
                 let result = bv1.bvsub(bv2);
