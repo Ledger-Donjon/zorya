@@ -1,5 +1,7 @@
 use z3::{ast::{Ast, Float, BV}, Context, SatResult, Solver};
 
+use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
+
 use super::{ConcolicEnum, ConcreteVar, SymbolicVar};
 
 #[derive(Clone, Debug)]
@@ -9,11 +11,11 @@ pub struct ConcolicVar<'ctx> {
     pub ctx: &'ctx Context,
 }
 
-impl<'a> ConcolicVar<'a> {
+impl<'ctx> ConcolicVar<'ctx> {
 
     // Function to create a new ConcolicVar with a symbolic integer
-    pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic_name: &str, ctx: &'a Context, sz: u32) -> Self {        
-        let symbolic: BV<'a> = BV::new_const(ctx, symbolic_name, sz);
+    pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic_name: &str, ctx: &'ctx Context, sz: u32) -> Self {        
+        let symbolic: BV<'ctx> = BV::new_const(ctx, symbolic_name, sz);
         
         let new_var = ConcolicVar { 
             concrete: ConcreteVar::Int(concrete),
@@ -24,8 +26,8 @@ impl<'a> ConcolicVar<'a> {
     }
 
     // Function to create a new ConcolicVar with a symbolic double-precision float
-    pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic_name: &str, ctx: &'a Context) -> Self {        
-        let symbolic: Float<'a> = Float::new_const_double(ctx, symbolic_name);
+    pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic_name: &str, ctx: &'ctx Context) -> Self {        
+        let symbolic: Float<'ctx> = Float::new_const_double(ctx, symbolic_name);
         
         let new_var = ConcolicVar {
             concrete: ConcreteVar::Float(concrete),
@@ -37,7 +39,7 @@ impl<'a> ConcolicVar<'a> {
 
     // Add operation on two concolic variables 
     pub fn concolic_add(self, other: Self) -> Result<Self, &'static str> {
-        let new_concrete = self.concrete.add(&other.concrete); // Ensure ConcreteVar.add takes references
+        let new_concrete = self.concrete.add(&other.concrete); 
         let new_symbolic = self.symbolic.add(&other.symbolic)?;
         Ok(ConcolicVar {
             concrete: new_concrete,
@@ -46,8 +48,79 @@ impl<'a> ConcolicVar<'a> {
         })
     }
 
+    // Function to perform a safe unsigned addition with overflow detection
+    pub fn carrying_add<'a>(&self, other: &'a ConcolicVar<'ctx>, carry: bool) -> Result<(Self, bool), &'static str> {
+        let (result, overflow) = self.concrete.carrying_add(&other.concrete, carry);
+        let symbolic_result = self.symbolic.add(&other.symbolic)?;
+        Ok((ConcolicVar {
+            concrete: result,
+            symbolic: symbolic_result,
+            ctx: self.ctx,
+        }, overflow))
+    }
+
+    // Carrying add operation between a ConcolicVar and a CpuConcolicValue
+    pub fn carrying_add_with_cpu<'a>(&self, other: &'a CpuConcolicValue<'ctx>, carry: bool) -> (CpuConcolicValue<'ctx>, bool) {
+        let (result, overflow) = self.concrete.carrying_add(&other.concrete, carry);
+        let symbolic_result = self.symbolic.add(&other.symbolic); 
+        let result_var = CpuConcolicValue {
+            concrete: result,
+            symbolic: symbolic_result.unwrap(),
+            ctx: self.ctx,
+        };
+        (result_var, overflow)
+    }
+
+    // Carrying add operation between a ConcolicVar and a MemoryConcolicValue
+    pub fn carrying_add_with_mem<'a>(&self, other: &'a MemoryConcolicValue<'ctx>, carry: bool) -> (MemoryConcolicValue<'ctx>, bool) {
+        let (result, overflow) = self.concrete.carrying_add(&other.concrete, carry);
+        let symbolic_result = self.symbolic.add(&other.symbolic);  
+        let result_var = MemoryConcolicValue {
+            concrete: result,
+            symbolic: symbolic_result.unwrap(),
+            ctx: self.ctx,
+        };
+        (result_var, overflow)
+    }
+
+    // Method to perform signed addition and detect overflow
+    pub fn signed_add(&self, other: &Self) -> Result<(Self, bool), &'static str> {
+        let (result, overflow) = self.concrete.to_i64()?.overflowing_add(other.concrete.to_i64()?);
+        let new_concrete = ConcreteVar::Int(result as u64);
+        let new_symbolic = self.symbolic.add(&other.symbolic)?;
+        Ok((ConcolicVar {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }, overflow))
+    }
+
+    // Method to perform signed addition with CpuConcolicValue and detect overflow
+    pub fn signed_add_with_cpu(&self, other: &CpuConcolicValue<'ctx>) -> Result<(CpuConcolicValue<'ctx>, bool), &'static str> {
+        let (result, overflow) = self.concrete.to_i64()?.overflowing_add(other.concrete.to_i64()?);
+        let new_concrete = ConcreteVar::Int(result as u64);
+        let new_symbolic = self.symbolic.add(&other.symbolic)?;
+        Ok((CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }, overflow))
+    }
+
+    // Method to perform signed addition with MemoryConcolicValue and detect overflow
+    pub fn signed_add_with_mem(&self, other: &MemoryConcolicValue<'ctx>) -> Result<(MemoryConcolicValue<'ctx>, bool), &'static str> {
+        let (result, overflow) = self.concrete.to_i64()?.overflowing_add(other.concrete.to_i64()?);
+        let new_concrete = ConcreteVar::Int(result as u64);
+        let new_symbolic = self.symbolic.add(&other.symbolic)?;
+        Ok((MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }, overflow))
+    }
+
     // Function to perform a safe unsigned subtraction with overflow detection
-    pub fn concolic_sub(self, other: Self, ctx: &'a Context) -> Result<ConcolicEnum<'a>, &'static str> {
+    pub fn concolic_sub(self, other: Self, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
         let (result, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
         if overflow {
             Err("Overflow or underflow occurred during subtraction")
@@ -62,7 +135,7 @@ impl<'a> ConcolicVar<'a> {
     }
 
     // And operation on two concolic variables
-    pub fn concolic_and(self, ctx: &'a Context, other: Self) -> Result<Self, &'static str> {
+    pub fn concolic_and(self, ctx: &'ctx Context, other: Self) -> Result<Self, &'static str> {
         println!("Performing concolic AND operation between two ConcolicVars");
         println!("Current context: {:?}", ctx);
         let new_concrete = self.concrete.and(other.concrete);
@@ -89,31 +162,23 @@ impl<'a> ConcolicVar<'a> {
         })
     }
     
-    // Subtract operation on two concolic variables 
-    pub fn concolic_sborrow(self, other: Self, ctx: &'a Context) -> Result<Self, &'static str> {
+    // Function to perform a safe signed subtraction with overflow detection
+    pub fn concolic_sborrow(self, other: Self, ctx: &'ctx Context) -> Result<bool, &'static str> {
         match self.concrete.to_i64()?.checked_sub(other.concrete.to_i64()?) {
-            Some(result) => {
-                let (symbolic_result, overflow) = self.symbolic.sub_with_overflow_check(&other.symbolic, ctx)?;
-                if overflow {
-                    Err("Overflow occurred")
-                } else {
-                    Ok(ConcolicVar {
-                        concrete: ConcreteVar::Int(result as u64),
-                        symbolic: symbolic_result,
-                        ctx,
-                    })
-                }
+            Some(_) => {
+                let (_, overflow) = self.symbolic.sub_with_overflow_check(&other.symbolic, ctx)?;
+                Ok(overflow)
             },
             None => Err("Overflow occurred"),
         }
-    }
+    } 
 
-    pub fn popcount(&self) -> BV<'a> {
+    pub fn popcount(&self) -> BV<'ctx> {
         self.symbolic.popcount()
     }
 
     // Or operation on two concolic variables
-    pub fn concolic_or(self, ctx: &'a Context, other: Self) -> Result<Self, &'static str> {
+    pub fn concolic_or(self, ctx: &'ctx Context, other: Self) -> Result<Self, &'static str> {
         let new_concrete = self.concrete.or(other.concrete);
         let new_symbolic = self.symbolic.or(&other.symbolic, ctx)?;
         match &new_symbolic {
@@ -141,7 +206,7 @@ impl<'a> ConcolicVar<'a> {
         self.concrete = ConcreteVar::Float(new_value);
     }
 
-    pub fn update_symbolic_int(&mut self, new_expr: BV<'a>) {
+    pub fn update_symbolic_int(&mut self, new_expr: BV<'ctx>) {
         if let SymbolicVar::Int(ref mut sym) = self.symbolic {
             *sym = new_expr;
         } else {
@@ -149,7 +214,7 @@ impl<'a> ConcolicVar<'a> {
         }
     }
 
-    pub fn update_symbolic_float(&mut self, new_expr: Float<'a>) {
+    pub fn update_symbolic_float(&mut self, new_expr: Float<'ctx>) {
         if let SymbolicVar::Float(ref mut sym) = self.symbolic {
             *sym = new_expr;
         } else {
@@ -161,7 +226,7 @@ impl<'a> ConcolicVar<'a> {
         format!("{:p}", self.ctx)
     }
 
-    pub fn can_address_be_zero(ctx: &'a Context, address_var: &ConcolicVar<'a>) -> bool {
+    pub fn can_address_be_zero(ctx: &'ctx Context, address_var: &ConcolicVar<'ctx>) -> bool {
         let solver = Solver::new(ctx);
 
         match &address_var.symbolic {

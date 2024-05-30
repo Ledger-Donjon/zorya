@@ -10,7 +10,7 @@ mod tests {
     use std::{collections::BTreeMap, time::{Duration, Instant}};
 
     use parser::parser::Size;
-    use zorya::state::memory_x86_64::MemoryConcolicValue;
+    use zorya::{executor::ConcreteVar, state::memory_x86_64::MemoryConcolicValue};
 
     use super::*;
     
@@ -102,5 +102,49 @@ mod tests {
         let unique_name = "Unique(0x5000)".to_string();
         let unique_var = executor.unique_variables.get(&unique_name).expect("Unique variable not found");
         assert_eq!(unique_var.concrete.to_u64(), 4); // 0b10101010 has 4 bits set to 1
+    }
+
+    #[test]
+    fn test_handle_store() {
+        let mut executor = setup_executor();
+        
+        // Define the STORE instruction
+        let store_inst = Inst {
+            opcode: Opcode::Store,
+            output: None,
+            inputs: vec![
+                Varnode {
+                    var: Var::Const("1".to_string()), // Space ID (ignored in our implementation)
+                    size: Size::Byte,
+                },
+                Varnode {
+                    var: Var::Const("0x1000".to_string()), // Pointer offset
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Const("0xDEADBEEF".to_string()), // Data to store
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        let result = executor.handle_store(store_inst);
+        assert!(result.is_ok());
+
+        // Check memory state to ensure data is stored at the correct address
+        let memory_guard = executor.state.memory.memory.read().unwrap();
+        if let Some(stored_value) = memory_guard.get(&0x1000) {
+            assert_eq!(stored_value.concrete, ConcreteVar::Int(0xDEADBEEF));
+        } else {
+            panic!("Memory not updated correctly");
+        }
+
+        // Check CPU state to ensure data is also stored in the register if applicable
+        let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+        if let Some(register_value) = cpu_state_guard.get_register_value_by_offset(0x1000) {
+            assert_eq!(register_value, 0xDEADBEEF);
+        } else {
+            println!("Register not updated, but this may be expected if the address does not map to a register.");
+        }
     }
 }

@@ -17,6 +17,38 @@ impl ConcreteVar {
         }
     }
 
+    pub fn overflowing_add(&self, other: &Self) -> (Self, bool) {
+        match (self, other) {
+            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => {
+                let (result, overflow) = a.overflowing_add(*b);
+                (ConcreteVar::Int(result), overflow)
+            },
+            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => {
+                // Floats do not overflow in the same way integers do
+                (ConcreteVar::Float(a + b), false)
+            },
+            _ => panic!("Type mismatch in overflowing_add")
+        }
+    }
+
+    // Custom carrying add operation
+    pub fn carrying_add(&self, other: &ConcreteVar, carry: bool) -> (Self, bool) {
+        match (self, other) {
+            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => {
+                let carry_value = if carry { 1 } else { 0 };
+                let (intermediate, overflow1) = a.overflowing_add(*b);
+                let (result, overflow2) = intermediate.overflowing_add(carry_value);
+                (ConcreteVar::Int(result), overflow1 || overflow2)
+            },
+            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => {
+                // Floats do not carry in the same way integers do
+                (ConcreteVar::Float(a + b + if carry { 1.0 } else { 0.0 }), false)
+            },
+            _ => panic!("Type mismatch in carrying_add"),
+        }
+    }
+
+
     // Subtraction operation
     pub fn sub(&self, other: &ConcreteVar) -> Self {
         match (self, other) {

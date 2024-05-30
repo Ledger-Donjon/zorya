@@ -20,12 +20,12 @@ impl<'ctx> ConcolicEnum<'ctx> {
             // Adding ConcolicVar with CpuConcolicValue
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
             (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.add_with_var(a)
+                b.add_with_var(a).map(ConcolicEnum::CpuConcolicValue)
             },
             // Adding ConcolicVar with MemoryConcolicValue
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.add_with_var(a)
+                b.add_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             // Adding CpuConcolicValue with CpuConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
@@ -34,7 +34,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
             // Adding CpuConcolicValue with MemoryConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => {
-                b.add_with_other(a)
+                b.add_with_other(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             // Adding MemoryConcolicValue with MemoryConcolicValue
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
@@ -43,6 +43,112 @@ impl<'ctx> ConcolicEnum<'ctx> {
         }
     }
 
+    // Method to perform concolic unsigned addition with carry detection
+    pub fn concolic_carry(self, other: ConcolicEnum<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    match (self, other) {
+        // Carrying ConcolicVar with ConcolicVar
+        (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+            match a.carrying_add(&b, false) {
+                Ok((_result, carry)) => {
+                    let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
+                    Ok(ConcolicEnum::ConcolicVar(carry_var))
+                },
+                Err(e) => Err(e),
+            }
+        },
+        // Carrying ConcolicVar with CpuConcolicValue
+        (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
+        (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+            let (_result, carry) = a.carrying_add_with_cpu(&b, false);
+            let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
+            Ok(ConcolicEnum::ConcolicVar(carry_var))
+        },
+        // Carrying ConcolicVar with MemoryConcolicValue
+        (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
+        (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+            let (_result, carry) = a.carrying_add_with_mem(&b, false);
+            let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
+            Ok(ConcolicEnum::ConcolicVar(carry_var))
+        },
+        // Carrying CpuConcolicValue with CpuConcolicValue
+        (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+            let (_result, carry) = a.carrying_add(&b, false);
+            let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
+            Ok(ConcolicEnum::ConcolicVar(carry_var))
+        },
+        // Carrying CpuConcolicValue with MemoryConcolicValue
+        (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
+        (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => {
+            let (_result, carry) = a.carrying_add_with_mem(&b, false);
+            let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
+            Ok(ConcolicEnum::ConcolicVar(carry_var))
+        },
+        // Carrying MemoryConcolicValue with MemoryConcolicValue
+        (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+            let (_result, carry) = a.carrying_add(&b, false);
+            let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
+            Ok(ConcolicEnum::ConcolicVar(carry_var))
+        }
+    }
+}
+
+    // Method to perform concolic signed carry detection
+    pub fn concolic_scarry(self: ConcolicEnum<'ctx>, other: ConcolicEnum<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        match (self, other) {
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+                let (_, overflow) = a.signed_add(&b)?;
+                let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
+                    overflow as u64, "carry", a.ctx, 1
+                );
+                Ok(ConcolicEnum::ConcolicVar(carry_var))
+            },
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
+            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                let (_, overflow) = a.signed_add_with_cpu(&b)?;
+                let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
+                    overflow as u64, "carry", a.ctx, 1
+                );
+                Ok(ConcolicEnum::ConcolicVar(carry_var))
+            },
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                let (_, overflow) = a.signed_add_with_mem(&b)?;
+                let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
+                    overflow as u64, "carry", a.ctx, 1
+                );
+                Ok(ConcolicEnum::ConcolicVar(carry_var))
+            },
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                let (_, overflow) = a.signed_add(&b)?;
+                let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
+                    overflow as u64, "carry", a.ctx, 1
+                );
+                Ok(ConcolicEnum::ConcolicVar(carry_var))
+            },
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                let (_, overflow) = a.signed_add_with_mem(&b)?;
+                let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
+                    overflow as u64, "carry", a.ctx, 1
+                );
+                Ok(ConcolicEnum::ConcolicVar(carry_var))
+            },
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                let (_, overflow) = a.signed_add_with_cpu(&b)?;
+                let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
+                    overflow as u64, "carry", a.ctx, 1
+                );
+                Ok(ConcolicEnum::ConcolicVar(carry_var))
+            },
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                let (_, overflow) = a.signed_add(&b)?;
+                let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
+                    overflow as u64, "carry", a.ctx, 1
+                );
+                Ok(ConcolicEnum::ConcolicVar(carry_var))
+            },
+        }
+        
+    }
     // Method to perform integer subtraction
     pub fn concolic_sub(self, other: ConcolicEnum<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
         match (self, other) {
@@ -50,15 +156,15 @@ impl<'ctx> ConcolicEnum<'ctx> {
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concolic_sub(b, ctx),
             // Subtracting CpuConcolicValue from ConcolicVar
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
-            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.sub_with_var(a, ctx),
+            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.sub_with_var(a, ctx).map(ConcolicEnum::CpuConcolicValue),
             // Subtracting MemoryConcolicValue from ConcolicVar
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.sub_with_var(a, ctx),
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.sub_with_var(a, ctx).map(ConcolicEnum::MemoryConcolicValue),
             // Subtracting CpuConcolicValue from CpuConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.sub(b, ctx).map(ConcolicEnum::CpuConcolicValue),
             // Subtracting CpuConcolicValue from MemoryConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => b.sub_with_other(a, ctx),
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => b.sub_with_other(a, ctx).map(ConcolicEnum::MemoryConcolicValue),
             // Subtracting MemoryConcolicValue from MemoryConcolicValue
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.sub(b, ctx).map(ConcolicEnum::MemoryConcolicValue),
         }
@@ -129,21 +235,20 @@ impl<'ctx> ConcolicEnum<'ctx> {
     }
 
     // Method to perform signed subtraction with overflow check
-    pub fn concolic_sborrow(self, other: ConcolicEnum<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn concolic_sborrow(self, other: ConcolicEnum<'ctx>, ctx: &'ctx Context) -> Result<bool, &'static str> {
         match (self, other) {
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concolic_sborrow(b, ctx).map(ConcolicEnum::ConcolicVar),
-            // Adjustments and corrections for handling subtractions across different types
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concolic_sborrow(b, ctx),
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
-            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.signed_sub_with_var(a, ctx),
+            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.signed_sub_with_var(a, ctx).map(|_| false),
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.signed_sub_with_var(a, ctx),
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.signed_sub_with_var(a, ctx).map(|_| false),
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                a.signed_sub(b, ctx).map(ConcolicEnum::CpuConcolicValue)
+                a.signed_sub(b, ctx).map(|_| false)
             },
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => b.signed_sub_with_other(a, ctx),
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => b.signed_sub_with_other(a, ctx).map(|_| false),
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                a.signed_sub(b, ctx).map(ConcolicEnum::MemoryConcolicValue)
+                a.signed_sub(b, ctx).map(|_| false)
             }
         }
     }
@@ -189,22 +294,17 @@ impl<'ctx> ConcolicEnum<'ctx> {
             },
             // AND operation between ConcolicVar and CpuConcolicValue, handling both orderings
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                b.and_with_var(a)
-                    .map_err(|_| "Failed AND operation between CpuConcolicValue and ConcolicVar")
+                b.and_with_var(a).map(ConcolicEnum::CpuConcolicValue)
             },
             (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.and_with_var(a)
-                    .map_err(|_| "Failed AND operation between CpuConcolicValue and ConcolicVar")
+                b.and_with_var(a).map(ConcolicEnum::CpuConcolicValue)
             },
             // AND operation between ConcolicVar and MemoryConcolicValue, handling both orderings
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                b.and_with_var(a)
-                    .map_err(|_| "Failed AND operation between MemoryConcolicValue and ConcolicVar")
-                    
+                b.and_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.and_with_var(a)    
-                    .map_err(|_| "Failed AND operation between MemoryConcolicValue and ConcolicVar")
+                b.and_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             // AND operation between two CpuConcolicValues
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
@@ -212,10 +312,10 @@ impl<'ctx> ConcolicEnum<'ctx> {
             },
             // AND operation between CpuConcolicValue and MemoryConcolicValue, and vice versa
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                a.and_with_memory(b)
+                a.and_with_memory(b).map(ConcolicEnum::CpuConcolicValue)
             },
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                a.and_with_cpu(b)
+                a.and_with_cpu(b).map(ConcolicEnum::MemoryConcolicValue)
             },
             // AND operation between two MemoryConcolicValues
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
@@ -233,17 +333,17 @@ impl<'ctx> ConcolicEnum<'ctx> {
             },
             // OR operation between ConcolicVar and CpuConcolicValue, handling both orderings
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                b.or_with_var(a).map_err(|_| "Failed OR operation between CpuConcolicValue and ConcolicVar")
+                b.or_with_var(a).map(ConcolicEnum::CpuConcolicValue)
             },
             (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.or_with_var(a).map_err(|_| "Failed OR operation between CpuConcolicValue and ConcolicVar")
+                b.or_with_var(a).map(ConcolicEnum::CpuConcolicValue)
             },
             // OR operation between ConcolicVar and MemoryConcolicValue, handling both orderings
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                b.or_with_var(a).map_err(|_| "Failed OR operation between MemoryConcolicValue and ConcolicVar")
+                b.or_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.or_with_var(a).map_err(|_| "Failed OR operation between MemoryConcolicValue and ConcolicVar")
+                b.or_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             // OR operation between two CpuConcolicValues
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
@@ -251,10 +351,10 @@ impl<'ctx> ConcolicEnum<'ctx> {
             },
             // OR operation between CpuConcolicValue and MemoryConcolicValue, and vice versa
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                a.or_with_memory(b)
+                a.or_with_memory(b).map(ConcolicEnum::CpuConcolicValue)
             },
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                a.or_with_cpu(b)
+                a.or_with_cpu(b).map(ConcolicEnum::MemoryConcolicValue)
             },
             // OR operation between two MemoryConcolicValues
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {

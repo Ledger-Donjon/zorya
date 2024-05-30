@@ -92,25 +92,73 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     }
 
     // Add a memory concolic value to a const var
-    pub fn add_with_var(self, var: ConcolicVar<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn add_with_var(self, var: ConcolicVar<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let new_concrete = self.concrete.add(&var.concrete);
         let new_symbolic = self.symbolic.add(&var.symbolic)?;
-        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+        Ok(MemoryConcolicValue {
             concrete: new_concrete,
             symbolic: new_symbolic,
             ctx: self.ctx,
-        }))
+        })
     }
 
     // Add a memory concolic value to a cpu var
-    pub fn add_with_other(self, var: CpuConcolicValue<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn add_with_other(self, var: CpuConcolicValue<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let new_concrete = self.concrete.add(&var.concrete);
         let new_symbolic = self.symbolic.add(&var.symbolic)?;
-        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+        Ok(MemoryConcolicValue {
             concrete: new_concrete,
             symbolic: new_symbolic,
             ctx: self.ctx,
-        }))
+        })
+    }
+
+    // Perform a carrying addition on two MemoryConcolicValues
+    pub fn carrying_add(&self, other: &MemoryConcolicValue<'ctx>, carry: bool) -> (MemoryConcolicValue<'ctx>, bool) {
+        let (result, overflow) = self.concrete.carrying_add(&other.concrete, carry);
+        let symbolic_result = self.symbolic.add(&other.symbolic);  
+        let result_var = MemoryConcolicValue {
+            concrete: result,
+            symbolic: symbolic_result.unwrap(),
+            ctx: self.ctx,
+        };
+        (result_var, overflow)
+    }
+
+    // Perform a carrying addition on a MemoryConcolicValue and a CpuConcolicValue
+    pub fn carrying_add_with_cpu(&self, other: &CpuConcolicValue<'ctx>, carry: bool) -> (MemoryConcolicValue<'ctx>, bool) {
+        let (result, overflow) = self.concrete.carrying_add(&other.concrete, carry);
+        let symbolic_result = self.symbolic.add(&other.symbolic); 
+        let result_var = MemoryConcolicValue {
+            concrete: result,
+            symbolic: symbolic_result.unwrap(),
+            ctx: self.ctx,
+        };
+        (result_var, overflow)
+    }
+
+    // Method to perform signed addition and detect overflow
+    pub fn signed_add(&self, other: &Self) -> Result<(Self, bool), &'static str> {
+        let (result, overflow) = self.concrete.to_i64()?.overflowing_add(other.concrete.to_i64()?);
+        let new_concrete = ConcreteVar::Int(result as u64);
+        let new_symbolic = self.symbolic.add(&other.symbolic)?;
+        Ok((MemoryConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }, overflow))
+    }
+
+    // Method to perform signed addition with CpuConcolicValue and detect overflow
+    pub fn signed_add_with_cpu(&self, other: &CpuConcolicValue<'ctx>) -> Result<(CpuConcolicValue<'ctx>, bool), &'static str> {
+        let (result, overflow) = self.concrete.to_i64()?.overflowing_add(other.concrete.to_i64()?);
+        let new_concrete = ConcreteVar::Int(result as u64);
+        let new_symbolic = self.symbolic.add(&other.symbolic)?;
+        Ok((CpuConcolicValue {
+            concrete: new_concrete,
+            symbolic: new_symbolic,
+            ctx: self.ctx,
+        }, overflow))
     }
 
     pub fn sub(self, other: MemoryConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
@@ -127,31 +175,31 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
         }
     }
 
-    pub fn sub_with_var(self, other: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn sub_with_var(self, other: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
         if overflow {
             Err("Overflow or underflow occurred during subtraction")
         } else {
             let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-            Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+            Ok(MemoryConcolicValue {
                 concrete: ConcreteVar::Int(new_concrete),
                 symbolic: new_symbolic,
                 ctx,
-            }))
+            })
         }
     }
 
-    pub fn sub_with_other(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn sub_with_other(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
         if overflow {
             Err("Overflow or underflow occurred during subtraction")
         } else {
             let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-            Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+            Ok(MemoryConcolicValue {
                 concrete: ConcreteVar::Int(new_concrete),
                 symbolic: new_symbolic,
                 ctx,
-            }))
+            })
         }
     }
     
@@ -170,30 +218,30 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     }
     
     // Handle signed subtraction with another ConcolicVar
-    pub fn signed_sub_with_var(self, var: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn signed_sub_with_var(self, var: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let (new_concrete, overflow) = self.concrete.signed_sub_overflow(&var.concrete);
         if overflow {
             return Err("Signed subtraction overflow detected");
         }
         let new_symbolic = self.symbolic.sub(&var.symbolic, ctx)?;
-        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+        Ok(MemoryConcolicValue {
             concrete: new_concrete,
             symbolic: new_symbolic,
             ctx: self.ctx,
-        }))
+        })
     }
 
-    pub fn signed_sub_with_other(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn signed_sub_with_other(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let (new_concrete, overflow) = self.concrete.signed_sub_overflow(&other.concrete);
         if overflow {
             return Err("Signed subtraction overflow detected");
         }
         let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+        Ok(MemoryConcolicValue {
             concrete: new_concrete,
             symbolic: new_symbolic,
             ctx: self.ctx,
-        }))
+        })
     }
 
     pub fn handle_overflow_condition(&self, overflow: Bool) -> bool {
@@ -214,7 +262,7 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     }
 
     // Logical AND operation between MemoryConcolicValue and ConcolicVar
-    pub fn and_with_var(self, other: ConcolicVar<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn and_with_var(self, other: ConcolicVar<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         println!("Inside and_with_var function of memory_concolic_value.rs");
 
         // Print context addresses to debug context consistency
@@ -262,20 +310,24 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
             64
         );
 
-        Ok(ConcolicEnum::ConcolicVar(new_concolic_var))
+        Ok(MemoryConcolicValue {
+            concrete: new_concolic_var.concrete,
+            symbolic: new_concolic_var.symbolic,
+            ctx: self.ctx,
+        })
     }
 
     // Logical AND operation with CpuConcolicValue
-    pub fn and_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn and_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let concrete_value = self.concrete.to_u64() & other.concrete.to_u64();
         let new_symbolic = self.symbolic.and(&other.symbolic, self.ctx)
             .map_err(|_| "Failed to combine symbolic values")?;
 
-        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+        Ok(MemoryConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
             symbolic: new_symbolic,
             ctx: self.ctx,
-        }))
+        })
     }
 
     pub fn popcount(&self) -> BV<'ctx> {
@@ -283,15 +335,15 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     }
 
     // Logical OR operation between MemoryConcolicValue and ConcolicVar
-    pub fn or_with_var(self, var: ConcolicVar<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn or_with_var(self, var: ConcolicVar<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let concrete_value = self.concrete.to_u64() | var.concrete.to_u64();
         let new_symbolic = self.symbolic.or(&var.symbolic, self.ctx)
             .map_err(|_| "Failed to combine symbolic values")?;
-        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+        Ok(MemoryConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
             symbolic: new_symbolic,
             ctx: self.ctx,
-        }))
+        })
     }
 
     // Logical OR operation between two MemoryConcolicValues
@@ -307,15 +359,15 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     }
 
     // Logical OR operation with CpuConcolicValue
-    pub fn or_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn or_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         let concrete_value = self.concrete.to_u64() | other.concrete.to_u64();
         let new_symbolic = self.symbolic.or(&other.symbolic, self.ctx)
             .map_err(|_| "Failed to combine symbolic values")?;
-        Ok(ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+        Ok(MemoryConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
             symbolic: new_symbolic,
             ctx: self.ctx,
-        }))
+        })
     }
 
     // Method to retrieve the concrete u64 value
@@ -338,6 +390,14 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
 
     pub fn get_context_id(&self) -> String {
         format!("{:p}", self.ctx)
+    }
+
+    // Helper method to convert CpuConcolicValue or MemoryConcolicValue to ConcolicVar
+    pub fn as_var(&self) -> Result<ConcolicVar<'ctx>, &'static str> {
+        match self {
+            MemoryConcolicValue { concrete: mem_var, symbolic, ctx } => Ok(ConcolicVar::new_concrete_and_symbolic_int(mem_var.to_u64(), &symbolic.to_str(), *ctx, 64)),
+            _ => Err("Unsupported type for conversion"),
+        }
     }
 }
 

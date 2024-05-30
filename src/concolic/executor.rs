@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use crate::state::memory_x86_64::MemoryConcolicValue;
 use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
@@ -501,57 +502,46 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
             return Err("Invalid instruction format for STORE".to_string());
         }
+      
+        // Fetch the pointer offset
+        println!("* Fetching pointer offset from instruction.input[1]");  
+        let pointer_offset_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+        let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
+        println!("Pointer offset concrete: {:x}", pointer_offset_concrete);
     
-        // Evaluate the address from input1 to determine the destination for storing the data.
-        let address = match &instruction.inputs[1].var {
-            Var::Const(addr_str) => {
-                let addr_str = addr_str.trim_start_matches("0x");
-                u64::from_str_radix(addr_str, 16)
-                    .map_err(|_| format!("Failed to parse return address '{}' from Const variant in RETURN operation", addr_str))
-            },
-            Var::Unique(addr) | Var::Memory(addr) => Ok(*addr),
-            Var::Register(addr, _size) => Ok(*addr),
-            Var::MemoryRam => todo!(),
-        }?;
+        // Fetch the data to be stored
+        println!("* Fetching data to store from instruction.input[2]");
+        let data_to_store_concolic = self.varnode_to_concolic(&instruction.inputs[2]).map_err(|e| e.to_string())?;
+        let data_to_store_concrete = data_to_store_concolic.get_concrete_value();
+        println!("Data to store concrete: {:x}", data_to_store_concrete);
     
-        // Evaluate the value from input2 to be stored.
-        let value = match &instruction.inputs[2].var {
-            Var::Const(val_str) => {
-                let val_str = val_str.trim_start_matches("0x"); // Remove "0x" prefix if present
-                u64::from_str_radix(val_str, 16)
-                    .map_err(|_| format!("Failed to parse value '{}' from Const variant in STORE operation", val_str))
-            },
-            Var::Unique(addr) | Var::Memory(addr) => Ok(*addr),
-            Var::Register(addr, _size) => Ok(*addr),
-            Var::MemoryRam => todo!(),
-        }?;
+        // Store the data in the memory at the calculated offset
+        {
+            let mut memory_guard = self.state.memory.memory.write().unwrap();
+            memory_guard.insert(pointer_offset_concrete, MemoryConcolicValue::new(self.context, data_to_store_concrete));
+            println!("Stored data at byte offset 0x{:x}: {:?}", pointer_offset_concrete, data_to_store_concolic);
+        }
     
-        // Determine the size of the value to be stored based on the size attribute of input2.
-        let size_in_bytes = instruction.inputs[2].size.to_bitvector_size() / 8;
-
-        // Prepare the value bytes for storage, considering endianess.
-        let mut value_bytes = Vec::with_capacity(size_in_bytes as usize);
-        for i in 0..size_in_bytes {
-            // Protect against shifting more bits than exist in the type.
-            if i * 8 < 64 {
-                value_bytes.push(((value >> (8 * i)) & 0xFF) as u8);
-            } else {
-                // Handle error or break as needed if this case should not occur
-                return Err(format!("Attempted to shift {} bits, exceeding the u64 limit", 8 * i));
+        // If the address falls within the range of the CPU registers, update the register as well
+        {
+            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            if let Some(_register_value) = cpu_state_guard.get_register_value_by_offset(pointer_offset_concrete) {
+                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concrete)?;
+                println!("Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
             }
-        } 
+        }
     
-        // Perform the memory write operation.
-        self.state.memory.write_memory(address, &value_bytes)
-            .map_err(|e| format!("Error writing memory for STORE: {}", e))?;
+        println!("{}\n", self);
     
-        // Update the concolic variable for the stored value with a unique name based on the current address and instruction counter.
+        // Create a concolic variable for the result of the store operation
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-        let var_name = format!("store_{}_{}_{}", current_addr_hex, format!("{:02}", self.instruction_counter), format!("{:?}", instruction.inputs[2].var));
-        self.state.create_or_update_concolic_var_int(&var_name, value, 64); // Assuming the value is always an integer, adjust as needed.
+        let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
+        self.state.create_concolic_var_int(&result_var_name, data_to_store_concrete, data_to_store_concolic.get_size());
+    
+        println!("{}", self.state);
     
         Ok(())
-    }
+    }    
     
     // Helper function
     pub fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {

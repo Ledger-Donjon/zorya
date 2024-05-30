@@ -27,7 +27,7 @@ impl<'ctx> SymbolicVar<'ctx> {
             _ => Err("Cannot add different types"),
         }
     }
-
+    
     pub fn sub(&self, other: &SymbolicVar<'ctx>, _ctx: &'ctx Context) -> Result<SymbolicVar<'ctx>, &'static str> {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
