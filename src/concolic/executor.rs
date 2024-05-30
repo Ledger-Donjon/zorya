@@ -312,64 +312,55 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("Invalid instruction format for CALL".to_string());
         }
     
-        // Assuming a method exists to resolve the target address for CALL operations
-        let target_address = self.resolve_varnode_to_address(&instruction.inputs[0])
-            .ok_or_else(|| "Unable to evaluate target address for CALL operation".to_string())?;
+        // Fetch the location of the next instruction to execute
+        println!("* Fetching next instruction location from instruction.input[0]");
+        let next_instruction_location_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let next_instruction_location_concrete = next_instruction_location_concolic.get_concrete_value();
+        println!("Next instruction location concrete: {:x}", next_instruction_location_concrete);
     
-        // Update the current execution address to the target address
-        self.current_address = Some(target_address);
+        // Perform the branch to the next instruction location
+        self.current_address = Some(next_instruction_location_concrete);
+        println!("Branched to next instruction location: {:x}", next_instruction_location_concrete);
     
-        // Update the concolic variable
+        println!("{}\n", self);
+    
+        // Create a concolic variable for the result of the call operation (optional, depends on the semantics)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-        let var_name = format!("{}_{}_call", current_addr_hex, format!("{:02}", self.instruction_counter));
-        self.state.create_concolic_var_int(&var_name, target_address, 64); // Assuming x86-64 architecture, thus 64 bits
+        let result_var_name = format!("{}-{:02}-call", current_addr_hex, self.instruction_counter);
+        self.state.create_concolic_var_int(&result_var_name, next_instruction_location_concrete, next_instruction_location_concolic.get_size());
+    
+        println!("{}", self.state);
     
         Ok(())
     }
-    
-    // Helper function
-    fn resolve_varnode_to_address(&self, varnode: &Varnode) -> Option<u64> {
-        match &varnode.var {
-            Var::Register(addr, _size) => {
-                // if needed add the use of addr
-                Some(*addr)
-            },
-            Var::Unique(addr) | Var::Memory(addr) => {
-                Some(*addr)
-            },
-            Var::Const(addr_str) => {
-                // Address is in hexadecimal format without the "0x" prefix
-                let addr_str = addr_str.trim_start_matches("0x");
-                u64::from_str_radix(addr_str, 16).ok()
-            },
-            Var::MemoryRam => todo!(),
-        }
-    }
-
     
     pub fn handle_callind(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::CallInd || instruction.inputs.len() < 1 {
             return Err("Invalid instruction format for CALLIND".to_string());
         }
     
-        // Evaluate the target address based on the type of the input variable
-        let target_address = match &instruction.inputs[0].var {
-            Var::Const(addr_str) => addr_str.parse::<u64>().map_err(|_| "Failed to parse target address from Const variant".to_string())?,
-            Var::Unique(addr) | Var::Memory(addr) => *addr,
-            Var::Register(addr, _size) => *addr,
-            Var::MemoryRam => todo!(),
-        };
+        // Fetch the offset of the next instruction from the first input
+        println!("* Fetching offset of the next instruction from instruction.input[0]");
+        let next_instruction_offset_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let next_instruction_offset_concrete = next_instruction_offset_concolic.get_concrete_value();
+        println!("Next instruction offset concrete: {:x}", next_instruction_offset_concrete);
     
-        // Update the current execution address to the target address
-        self.current_address = Some(target_address);
+        // Perform the indirect branch to the next instruction location
+        self.current_address = Some(next_instruction_offset_concrete);
+        println!("Branched to next instruction offset: {:x}", next_instruction_offset_concrete);
     
-        // Update the concolic variable to reflect the indirect call
+        println!("{}\n", self);
+    
+        // Create a concolic variable for the result of the callind operation (optional, depends on the semantics)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-        let var_name = format!("callind_{}_{}", current_addr_hex, format!("{:02}", self.instruction_counter));
-        self.state.create_concolic_var_int(&var_name, target_address, 64); // Assuming x86-64 architecture, thus 64 bits
+        let result_var_name = format!("{}-{:02}-callind", current_addr_hex, self.instruction_counter);
+        self.state.create_concolic_var_int(&result_var_name, next_instruction_offset_concrete, next_instruction_offset_concolic.get_size());
+    
+        println!("{}", self.state);
     
         Ok(())
     }
+    
     
     pub fn handle_return(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Return || instruction.inputs.is_empty() {

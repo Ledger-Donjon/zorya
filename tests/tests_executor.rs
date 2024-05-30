@@ -147,4 +147,53 @@ mod tests {
             println!("Register not updated, but this may be expected if the address does not map to a register.");
         }
     }
+
+    #[test]
+    fn test_handle_call() {
+        let mut executor = setup_executor();
+        let call_inst = Inst {
+            opcode: Opcode::Call,
+            output: None, // CALL typically doesn't have an output
+            inputs: vec![
+                Varnode {
+                    var: Var::Const("0x400123".to_string()), // Example address to branch to
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        let result = executor.handle_call(call_inst);
+        assert!(result.is_ok(), "handle_call returned an error: {:?}", result);
+
+        // Validate the state after the call
+        let expected_address = 0x400123;
+        assert_eq!(executor.current_address.unwrap(), expected_address, "Expected to branch to address: 0x{:x}", expected_address);
+    }
+
+        #[test]
+    fn test_handle_callind() {
+        let mut executor = setup_executor();
+        let callind_inst = Inst {
+            opcode: Opcode::CallInd,
+            output: None, // CALLIND typically doesn't have an output
+            inputs: vec![
+                Varnode {
+                    var: Var::Const("0x500123".to_string()), // Example address to branch to indirectly
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Const("20".to_string()), // Example parameter (optional)
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        let result = executor.handle_callind(callind_inst);
+        assert!(result.is_ok(), "handle_callind returned an error: {:?}", result);
+
+        // Validate the state after the callind
+        let expected_address = 0x500123;
+        assert_eq!(executor.current_address.unwrap(), expected_address, "Expected to branch to address: 0x{:x}", expected_address);
+    }
+
 }
