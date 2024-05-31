@@ -1,9 +1,10 @@
 /// Focuses on implementing the execution of the INT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{concolic::{executor::ConcolicExecutor, ConcolicEnum}, state::memory_x86_64::MemoryConcolicValue};
+use crate::{concolic::{executor::ConcolicExecutor, ConcolicEnum, SymbolicVar}, state::memory_x86_64::MemoryConcolicValue};
 use parser::parser::{Inst, Opcode, Size, Var};
 use ethnum::I256;
+use z3::ast::BV;
 
 use super::{ConcolicVar, ConcreteVar};
 
@@ -56,14 +57,14 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let result_var_name = format!("{}-{:02}-intcarry", current_addr_hex, executor.instruction_counter);
     match carry_result {
         ConcolicEnum::ConcolicVar(var) => {
-            executor.state.create_concolic_var_int(&result_var_name, var.concrete.to_u64(), var.concrete.get_size());
-            println!("Created concolic variable for the result: {}", result_var_name);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
         },
         ConcolicEnum::CpuConcolicValue(cpu_var) => {
-            executor.state.create_concolic_var_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.get_size());
-            println!("Created concolic variable for the result: {}", result_var_name);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
         },
-        _ => return Err("Result of INT_CARRY is not a ConcolicVar or CpuConcolicValue".to_string()),
+        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+        },
     }
 
     println!("{}\n", executor.state);
@@ -118,15 +119,23 @@ pub fn handle_int_scarry(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     // Create a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intscarry", current_addr_hex, executor.instruction_counter);
-    if let ConcolicEnum::ConcolicVar(var) = scarry_result {
-        executor.state.create_concolic_var_int(&result_var_name, var.concrete.to_u64(), var.concrete.get_size());
-        println!("Created concolic variable for the result: {}", result_var_name);
+    match scarry_result {
+        ConcolicEnum::ConcolicVar(var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
+        },
+        ConcolicEnum::CpuConcolicValue(cpu_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
+        },
+        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+        },
     }
 
     println!("{}\n", executor.state);
 
     Ok(())
 }
+
 
 pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntAdd || instruction.inputs.len() != 2 {
@@ -185,10 +194,20 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     println!("{}\n", executor);
 
-    // Create a concolic variable for the result
+    // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intadd", current_addr_hex, executor.instruction_counter);
-    executor.state.create_concolic_var_int(&result_var_name, result_value.get_concrete_value(), result_value.get_size());
+    match result_value {
+        ConcolicEnum::ConcolicVar(var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
+        },
+        ConcolicEnum::CpuConcolicValue(cpu_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
+        },
+        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+        },
+    }
 
     println!("{}\n", executor.state);
 
@@ -328,18 +347,14 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let result_var_name = format!("{}-{:02}-intsub", current_addr_hex, executor.instruction_counter);
     match result_value {
         ConcolicEnum::ConcolicVar(var) => {
-            executor.state.create_concolic_var_int(&result_var_name, var.concrete.to_u64(), var.concrete.get_size());
-            println!("Created concolic variable for the result: {}", result_var_name);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
         },
         ConcolicEnum::CpuConcolicValue(cpu_var) => {
-            executor.state.create_concolic_var_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.concrete.get_size());
-            println!("Created concolic variable for the result: {}", result_var_name);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
         },
         ConcolicEnum::MemoryConcolicValue(mem_var) => {
-            executor.state.create_concolic_var_int(&result_var_name, mem_var.get_concrete_value().unwrap_or(0), mem_var.concrete.get_size());
-            println!("Created concolic variable for the result: {}", result_var_name);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
         },
-        _ => return Err("Result of INT_SUB is not a ConcolicVar, CpuConcolicValue, or MemoryConcolicValue".to_string()),
     }
 
     println!("{}\n", executor.state);
@@ -474,11 +489,11 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let result_var_name = format!("{}-{:02}-intequal", current_addr_hex, executor.instruction_counter);
     match result_value {
         ConcolicEnum::ConcolicVar(var) => {
-            executor.state.create_concolic_var_int(&result_var_name, var.concrete.to_u64(), var.concrete.get_size());
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
             println!("Created concolic variable for the result: {}", result_var_name);
         },
         ConcolicEnum::CpuConcolicValue(cpu_var) => {
-            executor.state.create_concolic_var_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.concrete.get_size());
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
             println!("Created concolic variable for the result: {}", result_var_name);
         },
         _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
@@ -576,7 +591,17 @@ pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Create a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intless", current_addr_hex, executor.instruction_counter);
-    executor.state.create_concolic_var_int(&result_var_name, result_value.get_concrete_value(), result_value.get_size());
+    match result_value {
+        ConcolicEnum::ConcolicVar(var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
+        },
+        ConcolicEnum::CpuConcolicValue(cpu_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
+        },
+        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+        },
+    } 
 
     println!("{}\n", executor.state);
 
@@ -644,7 +669,17 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Create a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsless", current_addr_hex, executor.instruction_counter);
-    executor.state.create_concolic_var_int(&result_var_name, result_value.get_concrete_value(), result_value.get_size());
+    match result_value {
+        ConcolicEnum::ConcolicVar(var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
+        },
+        ConcolicEnum::CpuConcolicValue(cpu_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
+        },
+        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+        },
+    }  
 
     println!("{}\n", executor.state);
 
@@ -826,7 +861,7 @@ pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) ->
     // Create a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-sborrow", current_addr_hex, executor.instruction_counter);
-    executor.state.create_concolic_var_int(&result_var_name, concolic_var.concrete.to_u64(), concolic_var.concrete.get_size());
+    executor.state.create_or_update_concolic_variable_int(&result_var_name, overflow as u64, SymbolicVar::Int(BV::from_u64(&executor.context, overflow as u64, 1)));
 
     println!("{}\n", executor.state);
 
@@ -977,11 +1012,11 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let result_var_name = format!("{}-{:02}-intand", current_addr_hex, executor.instruction_counter);
     match result_value {
         ConcolicEnum::ConcolicVar(var) => {
-            executor.state.create_concolic_var_int(&result_var_name, var.concrete.to_u64(), var.concrete.get_size());
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
             println!("Created concolic variable for the result: {}", result_var_name);
         },
         ConcolicEnum::MemoryConcolicValue(mem_var) => {
-            executor.state.create_concolic_var_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.get_size());
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
             println!("Created concolic variable for the result: {}", result_var_name);
         },
         _ => return Err("Result of INT_AND is not a ConcolicVar or MemoryConcolicValue".to_string()),

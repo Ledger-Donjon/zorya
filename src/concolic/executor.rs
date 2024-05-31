@@ -6,6 +6,7 @@ use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
 use parser::parser::{Inst, Opcode, Var, Varnode};
+use z3::ast::BV;
 use z3::{Context, Solver};
 use crate::concolic::ConcolicVar;
 use super::executor_bool;
@@ -280,6 +281,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("* Fetching branch condition from instruction.input[1]");
         let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
         let branch_condition_concrete = branch_condition_concolic.get_concrete_value();
+        let branch_condition_symbolic = match branch_condition_concolic {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic,
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+        };
         println!("Branch condition concrete : {}", branch_condition_concrete);
 
         // Check the branch condition
@@ -297,15 +303,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         println!("{}\n", self);
 
-        // Create a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
+        // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
-        self.state.create_concolic_var_int(&result_var_name, branch_condition_concrete, 1); // 1-bit for boolean
+        self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
 
         println!("{}", self.state);
 
         Ok(())
-    }
+    } 
     
     pub fn handle_call(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Call || instruction.inputs.len() < 1 {
@@ -316,6 +322,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("* Fetching next instruction location from instruction.input[0]");
         let next_instruction_location_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
         let next_instruction_location_concrete = next_instruction_location_concolic.get_concrete_value();
+        let next_instruction_location_symbolic = match next_instruction_location_concolic {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic,
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+        };
         println!("Next instruction location concrete: {:x}", next_instruction_location_concrete);
     
         // Perform the branch to the next instruction location
@@ -324,15 +335,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         println!("{}\n", self);
     
-        // Create a concolic variable for the result of the call operation (optional, depends on the semantics)
+        // Create or update a concolic variable for the result of the call operation (optional, depends on the semantics)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-call", current_addr_hex, self.instruction_counter);
-        self.state.create_concolic_var_int(&result_var_name, next_instruction_location_concrete, next_instruction_location_concolic.get_size());
+        self.state.create_or_update_concolic_variable_int(&result_var_name, next_instruction_location_concrete, next_instruction_location_symbolic);
     
         println!("{}", self.state);
     
         Ok(())
-    }
+    } 
     
     pub fn handle_callind(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::CallInd || instruction.inputs.len() < 1 {
@@ -343,6 +354,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("* Fetching offset of the next instruction from instruction.input[0]");
         let next_instruction_offset_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
         let next_instruction_offset_concrete = next_instruction_offset_concolic.get_concrete_value();
+        let next_instruction_offset_symbolic = match next_instruction_offset_concolic {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic,
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+        };
         println!("Next instruction offset concrete: {:x}", next_instruction_offset_concrete);
     
         // Perform the indirect branch to the next instruction location
@@ -351,10 +367,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         println!("{}\n", self);
     
-        // Create a concolic variable for the result of the callind operation (optional, depends on the semantics)
+        // Create or update a concolic variable for the result of the callind operation (optional, depends on the semantics)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-callind", current_addr_hex, self.instruction_counter);
-        self.state.create_concolic_var_int(&result_var_name, next_instruction_offset_concrete, next_instruction_offset_concolic.get_size());
+        self.state.create_or_update_concolic_variable_int(&result_var_name, next_instruction_offset_concrete, next_instruction_offset_symbolic);
     
         println!("{}", self.state);
     
@@ -416,7 +432,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("pointer offset concrete : {:x}", pointer_offset_concrete);
     
         // Attempt to dereference the address from the CPU registers first
-        let dereferenced_value = {
+        let dereferenced_concrete_value = {
             let cpu_state_guard = self.state.cpu_state.lock().unwrap();
             // Use the offset directly to retrieve register value
             let value = cpu_state_guard.get_register_value_by_offset(pointer_offset_concrete);
@@ -442,14 +458,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }
             }
         };
-        println!("Dereferenced value: {:?}", dereferenced_value);
+        println!("Dereferenced value: {:?}", dereferenced_concrete_value);
     
         // Determine the output variable and update it with the loaded data
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
                 Var::Unique(id) => {
                     println!("Output is a Unique type with ID: 0x{:x}", id);
-                    let concrete_value = dereferenced_value.parse::<u64>().map_err(|e| format!("Failed to parse dereferenced value: {}", e))?;
+                    let concrete_value = dereferenced_concrete_value.parse::<u64>().map_err(|e| format!("Failed to parse dereferenced value: {}", e))?;
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         concrete_value,
                         &format!("Unique(0x{:x})", id),
@@ -461,7 +477,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 },
                 Var::Register(offset, _) => {
                     println!("Output is a Register type");
-                    let concrete_value = dereferenced_value.parse::<u64>().map_err(|e| format!("Failed to parse dereferenced value: {}", e))?;
+                    let concrete_value = dereferenced_concrete_value.parse::<u64>().map_err(|e| format!("Failed to parse dereferenced value: {}", e))?;
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                     // Use offset directly to set the register value
                     let _ = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
@@ -481,21 +497,21 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Create a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
-        // The LOAD operation doesn't have a result value, so we choose to put 0x0
-        self.state.create_concolic_var_int(&result_var_name, 0x0, 64);
+        let concrete_value = dereferenced_concrete_value.parse::<u64>().map_err(|e| format!("Failed to parse dereferenced value: {}", e))?;
+        self.state.create_or_update_concolic_variable_int(&result_var_name, concrete_value, SymbolicVar::Int(BV::from_u64(self.context, concrete_value, 64)));
     
         println!("{}", self.state);
     
         Ok(())
-    }   
+    }  
 
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
             return Err("Invalid instruction format for STORE".to_string());
         }
-      
+    
         // Fetch the pointer offset
-        println!("* Fetching pointer offset from instruction.input[1]");  
+        println!("* Fetching pointer offset from instruction.input[1]");
         let pointer_offset_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         println!("Pointer offset concrete: {:x}", pointer_offset_concrete);
@@ -504,6 +520,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("* Fetching data to store from instruction.input[2]");
         let data_to_store_concolic = self.varnode_to_concolic(&instruction.inputs[2]).map_err(|e| e.to_string())?;
         let data_to_store_concrete = data_to_store_concolic.get_concrete_value();
+        let data_to_store_symbolic = match data_to_store_concolic.clone() {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic,
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+        };
         println!("Data to store concrete: {:x}", data_to_store_concrete);
     
         // Store the data in the memory at the calculated offset
@@ -524,10 +545,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         println!("{}\n", self);
     
-        // Create a concolic variable for the result of the store operation
+        // Create or update a concolic variable for the result of the store operation
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
-        self.state.create_concolic_var_int(&result_var_name, data_to_store_concrete, data_to_store_concolic.get_size());
+        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, data_to_store_symbolic);
     
         println!("{}", self.state);
     
@@ -559,6 +580,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Fetch the source varnode
         println!("* Fetching source from instruction.input[0]");
         let source_var = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let source_concrete_value = source_var.get_concrete_value();
+        let source_symbolic_value = match source_var.clone() {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic,
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+        };
         println!("Value to be copied into output: {:?}", source_var);
         
         // Check the output destination and copy the source to it
@@ -568,35 +595,20 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     println!("Output is a Unique type");
                     let unique_name = format!("Unique(0x{:x})", id);
                     // Convert source to ConcolicVar if needed and update or insert into unique variables
-                    let concolic_var = match source_var {
-                        ConcolicEnum::ConcolicVar(var) => var,
-                        ConcolicEnum::CpuConcolicValue(cpu_var) => {
-                            ConcolicVar::new_concrete_and_symbolic_int(
-                                cpu_var.get_concrete_value()?,
-                                &unique_name,
-                                self.context,
-                                cpu_var.get_size()  
-                            )
-                        },
-                        ConcolicEnum::MemoryConcolicValue(mem_var) => {
-                            ConcolicVar::new_concrete_and_symbolic_int(
-                                mem_var.get_concrete_value()?,
-                                &unique_name,
-                                self.context,
-                                mem_var.get_size() 
-                            )
-                        }
-                    };
-    
+                    let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
+                        source_concrete_value,
+                        &unique_name,
+                        self.context,
+                        source_symbolic_value.get_size()  
+                    );
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
                     println!("Content of output {:?} after copying: {:?}", unique_name, concolic_var);
                 },
                 Var::Register(offset, _) => {
                     println!("Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let concrete_value = source_var.get_concrete_value();
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
-                    println!("Updated register at offset 0x{:x} with value {}", offset, concrete_value);
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concrete_value);
+                    println!("Updated register at offset 0x{:x} with value {}", offset, source_concrete_value);
                 },
                 _ => {
                     println!("Output type is unsupported for COPY");
@@ -609,11 +621,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         println!("{}", self);
     
-        // Create a concolic variable for the result
+        // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
-        // The COPY operation doesn't have a result value, so we choose to put 0x0
-        self.state.create_concolic_var_int(&result_var_name, 0x0, 64);
+        self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, source_symbolic_value);
     
         println!("{}", self.state);
     

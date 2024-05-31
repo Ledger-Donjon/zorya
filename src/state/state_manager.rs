@@ -1,5 +1,5 @@
 use std::{collections::BTreeMap, fs::File, io::Read, path::{Path, PathBuf}, sync::{Arc, Mutex}};
-use crate::{concolic::ConcreteVar, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
+use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
 use goblin::elf::Elf;
 use parser::parser::{Inst, Varnode};
 use z3::Context;
@@ -98,6 +98,23 @@ impl<'a> State<'a> {
         self.fd_paths.get(&fd_id)
             .map(|path_buf| path_buf.to_str().unwrap_or("").to_string())
             .ok_or_else(|| "File descriptor ID does not exist".to_string())
+    }
+
+    // Method to create or update a concolic variable while preserving the symbolic history
+    pub fn create_or_update_concolic_variable_int(
+        &mut self,
+        var_name: &str,
+        concrete_value: u64,
+        symbolic_var: SymbolicVar<'a>,
+    ) -> &ConcolicVar<'a> {
+        // Create a new ConcolicVar with the provided symbolic variable
+        let new_var = ConcolicVar {
+            concrete: ConcreteVar::Int(concrete_value),
+            symbolic: symbolic_var,
+            ctx: self.ctx,
+        };
+        // Insert the new concolic variable into the map, updating or creating as necessary
+        self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
     }
 
     // Method to create a concolic variable with int
