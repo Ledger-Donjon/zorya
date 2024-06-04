@@ -7,10 +7,9 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, time::{Duration, Instant}};
-
+    use std::{collections::BTreeMap, sync::{Arc, Mutex}};
     use parser::parser::Size;
-    use zorya::{executor::ConcreteVar, state::memory_x86_64::MemoryConcolicValue};
+    use zorya::executor::{ConcreteVar, Logger};
 
     use super::*;
     
@@ -18,6 +17,7 @@ mod tests {
         let cfg = Config::new();
         let ctx = Box::leak(Box::new(Context::new(&cfg)));
         let state = State::default_for_tests(ctx).expect("Failed to create state.");
+        let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
         ConcolicExecutor {
             context: ctx,
             solver: Solver::new(ctx),
@@ -25,6 +25,7 @@ mod tests {
             current_address: None,
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
+            logger,
         }
     }
     
@@ -236,5 +237,27 @@ mod tests {
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
         let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
         assert_eq!(rip_value, 0x4000);
+    }
+
+    #[test]
+    fn test_handle_return() {
+        let mut executor = setup_executor();
+        let branchind_inst = Inst {
+            opcode: Opcode::BranchInd,
+            output: None,
+            inputs: vec![
+                Varnode {
+                    var: Var::Const("0x5000".to_string()),
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        let result = executor.handle_branchind(branchind_inst);
+        assert!(result.is_ok(), "handle_branchind returned an error: {:?}", result);
+
+        let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+        let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
+        assert_eq!(rip_value, 0x5000);
     }
 }

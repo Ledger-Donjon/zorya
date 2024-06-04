@@ -1,48 +1,55 @@
-/// Main code to perform the concolic execution on the target binary described in /src/target_info.rs
-
 use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
+use std::sync::{Arc, Mutex};
 
 use parser::parser::Inst;
 use z3::{Config, Context};
-use zorya::executor::ConcolicExecutor;
+use zorya::executor::{ConcolicExecutor, Logger};
 use zorya::state::cpu_state::DisplayableCpuState;
 use zorya::target_info::GLOBAL_TARGET_INFO;
+
+macro_rules! log {
+    ($logger:expr, $($arg:tt)*) => {{
+        use std::io::Write;
+        writeln!($logger, $($arg)*).unwrap();
+    }};
+}
 
 fn main() {
     let config = Config::new();
     let context = Context::new(&config);
+    let mut logger = Logger::new("execution_log.txt").expect("Failed to create logger");
 
-    println!("Configuration and context have been initialized.");
+    log!(logger, "Configuration and context have been initialized.");
 
     let (pcode_file_path, main_program_addr) = {
         let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
-        println!("Acquired target information.");
+        log!(logger, "Acquired target information.");
         (target_info.pcode_file_path.clone(), target_info.main_program_addr.clone())
     };
 
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
-    let instructions_map = preprocess_pcode_file(pcode_file_path_str)
+    let instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut logger.clone())
         .expect("Failed to preprocess the p-code file.");
 
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
 
-    let mut executor = ConcolicExecutor::new(&context).expect("Failed to initialize the ConcolicExecutor.");
+    let mut executor = ConcolicExecutor::new(&context, logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
 
-    execute_instructions_from(&mut executor, start_address, &instructions_map);
+    execute_instructions_from(&mut executor, start_address, &instructions_map, &mut logger);
 
-    println!("The concolic execution has completed successfully.");
+    log!(logger, "The concolic execution has completed successfully.");
 }
 
-fn preprocess_pcode_file(path: &str) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
+fn preprocess_pcode_file(path: &str, logger: &mut Logger) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
     let file = File::open(path)?;
     let reader = io::BufReader::new(file);
     let mut instructions_map = BTreeMap::new();
 
-    println!("Preprocessing the p-code file...");
+    log!(logger, "Preprocessing the p-code file...");
 
     for line in reader.lines().filter_map(Result::ok) {
         if line.trim_start().starts_with("0x") {
@@ -55,46 +62,44 @@ fn preprocess_pcode_file(path: &str) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
         }
     }
 
-    println!("Completed preprocessing.");
+    log!(logger, "Completed preprocessing.");
 
     Ok(instructions_map)
 }
 
-fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
+fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, logger: &mut Logger) {
     let mut executed_addresses = HashSet::new();
     let mut current_rip = start_address;
 
-    println!("Beginning execution from address: 0x{:x}\n", start_address);
+    log!(logger, "Beginning execution from address: 0x{:x}\n", start_address);
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
         if !executed_addresses.insert(current_rip) {
-            println!("Detected a loop or previously executed address. Stopping execution.");
+            log!(logger, "Detected a loop or previously executed address. Stopping execution.");
             break;
         }
-        println!("*******************************************");
-        println!("EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
-        println!("*******************************************\n");
-
+        log!(logger, "*******************************************");
+        log!(logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
+        log!(logger, "*******************************************\n");
 
         for inst in instructions {
-            println!("-------> Processing instruction : {:?}\n", inst);
+            log!(logger, "-------> Processing instruction : {:?}\n", inst);
 
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
-                println!("Failed to execute instruction: {}", e);
+                log!(logger, "Failed to execute instruction: {}", e);
                 continue;
             }
         }
 
         // When all instructions of an address have been executed, find the next sequential address in the BTreeMap
         if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
-            println!("Next address should be : {:#x}", next_address);
+            log!(logger, "Next address should be : {:#x}", next_address);
             current_rip = next_address; // Move to the next instruction address
             let displayable_cpu_state = DisplayableCpuState(executor.state.cpu_state.clone());
-            println!("Current CPU State: {}", displayable_cpu_state);
+            log!(logger, "Current CPU State: {}", displayable_cpu_state);
         } else {
-            println!("No further instructions. Execution completed.");
+            log!(logger, "No further instructions. Execution completed.");
             break;
         }
-        
     }
 }
