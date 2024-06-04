@@ -195,5 +195,46 @@ mod tests {
         let expected_address = 0x500123;
         assert_eq!(executor.current_address.unwrap(), expected_address, "Expected to branch to address: 0x{:x}", expected_address);
     }
+    #[test]
+    fn test_handle_branch() {
+        let mut executor = setup_executor();
+        let branch_inst = Inst {
+            opcode: Opcode::Branch,
+            output: None,
+            inputs: vec![
+                Varnode {
+                    var: Var::Const("0x2000".to_string()),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = executor.handle_branch(branch_inst);
+        assert!(result.is_ok(), "handle_branch returned an error: {:?}", result);
 
+        let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+        let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
+        assert_eq!(rip_value, 0x2000);
+    }
+
+    #[test]
+    fn test_handle_branchind() {
+        let mut executor = setup_executor();
+        let branchind_inst = Inst {
+            opcode: Opcode::BranchInd,
+            output: None,
+            inputs: vec![
+                Varnode {
+                    var: Var::Const("0x4000".to_string()),
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        let result = executor.handle_branchind(branchind_inst);
+        assert!(result.is_ok(), "handle_branchind returned an error: {:?}", result);
+
+        let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+        let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
+        assert_eq!(rip_value, 0x4000);
+    }
 }

@@ -7,6 +7,7 @@ use std::io::{self, BufRead};
 use parser::parser::Inst;
 use z3::{Config, Context};
 use zorya::executor::ConcolicExecutor;
+use zorya::state::cpu_state::DisplayableCpuState;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 fn main() {
@@ -88,6 +89,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
             println!("Next address should be : {:#x}", next_address);
             current_rip = next_address; // Move to the next instruction address
+            let displayable_cpu_state = DisplayableCpuState(executor.state.cpu_state.clone());
+            println!("Current CPU State: {}", displayable_cpu_state);
         } else {
             println!("No further instructions. Execution completed.");
             break;

@@ -198,70 +198,80 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
+    // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
-        // Ensure there is one input representing the destination.
-        if instruction.inputs.len() != 1 {
-            return Err("Branch instruction must have exactly one input".to_string());
+        if instruction.opcode != Opcode::Branch || instruction.inputs.len() != 1 {
+            return Err("Invalid instruction format for BRANCH".to_string());
         }
-    
-        let destination = &instruction.inputs[0];
-        let dest_address = match &destination.var {
-            Var::Const(addr_str) => addr_str.parse::<u64>()
-                .map_err(|_| "Failed to parse destination address from Const variant in BRANCH operation".to_string())?,
-            Var::Unique(addr) | Var::Memory(addr) => *addr,
-            Var::Register(addr, _size) => *addr,
-            Var::MemoryRam => todo!(),
-        };
-    
-        // Temporarily store the destination address to be used after releasing the lock
-        let dest_address_for_concolic = dest_address;
-    
-        // Access the shared CPU state with a lock
-        {
-            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            // Update the program counter (RIP) in the CPU state
-            //cpu_state_guard.set_register_value("rip", dest_address)
-            //    .map_err(|e| e.to_string())?;
-        } // MutexGuard drops here, releasing the lock
-    
-        // CPU state lock is released, we can mutate self.state
-        let var_name = format!("branch_{:x}", dest_address_for_concolic);
-        self.state.create_concolic_var_int(&var_name, dest_address_for_concolic, 64); // Assume 64-bit addresses.
-    
-        Ok(())
-    }
-    
 
+        // Fetch the branch target (input0) and condition (input1)
+        println!("* Fetching branch target from instruction.input[0]");
+        let branch_target_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let branch_target_concrete = branch_target_concolic.get_concrete_value();
+        let branch_target_symbolic = match branch_target_concolic {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic,
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+        };
+        println!("Branch target concrete : {:x}", branch_target_concrete); 
+
+        println!("Branching to address {:x}", branch_target_concrete);
+        // Update the RIP register to the branch target address
+        {
+        let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+        cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete).map_err(|e| e.to_string())?;
+        }
+        // Update the instruction counter
+        self.instruction_counter += 1;
+
+        println!("{}\n", self);
+
+        // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-branch", current_addr_hex, self.instruction_counter);
+
+        // Move the mutable borrow outside of the block
+        self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, branch_target_symbolic);
+
+        println!("{}", self.state);
+
+        Ok(())
+    } 
+    
     // Handle indirect branch operation
     pub fn handle_branchind(&mut self, instruction: Inst) -> Result<(), String> {
-        if instruction.inputs.is_empty() {
-            return Err("BRANCHIND operation requires an input".to_string());
+        if instruction.opcode != Opcode::BranchInd || instruction.inputs.len() != 1 {
+            return Err("Invalid instruction format for BRANCHIND".to_string());
         }
 
-        let dest_address = match &instruction.inputs[0].var {
-            Var::Const(addr_str) => addr_str.parse::<u64>().map_err(|_| "Failed to parse target address from Const variant".to_string())?,
-            Var::Unique(addr) | Var::Memory(addr) => *addr,
-            Var::Register(addr, _size) => *addr,
-            Var::MemoryRam => todo!(),
+        // Fetch the branch target (input0)
+        println!("* Fetching branch target from instruction.input[0]");
+        let branch_target_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let branch_target_concrete = branch_target_concolic.get_concrete_value();
+        let branch_target_symbolic = match branch_target_concolic {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic,
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
         };
+        println!("Branch target concrete : {:x}", branch_target_concrete);
 
-        // Access the shared CPU state with a lock
+        println!("Branching to address {:x}", branch_target_concrete);
+        // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            // Update the program counter (RIP) in the CPU state
-            //cpu_state_guard.set_register_value("rip", dest_address)
-            //    .map_err(|e| e.to_string())?;
-        } // MutexGuard drops here
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete).map_err(|e| e.to_string())?;
+        }
+        // Update the instruction counter
+        self.instruction_counter += 1;
 
-        // Process target address after releasing the lock
-        let target_address_result = self.state.get_concrete_var(&instruction.inputs[0]);
-        let target_address = match target_address_result {
-            Ok(ConcreteVar::Int(addr)) => addr,
-            _ => return Err("Unable to evaluate target address for BRANCHIND operation".to_string()),
-        };
+        println!("{}\n", self);
+
+        // Create or update a concolic variable for the result (BRANCHIND doesn't produce a result, but we log the branch decision)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-        let var_name = format!("{}_{}_branchind", current_addr_hex, format!("{:02}", self.instruction_counter));
-        self.state.create_concolic_var_int(&var_name, target_address, 64); // x86-64, thus 64 bits
+        let result_var_name = format!("{}-{:02}-branchind", current_addr_hex, self.instruction_counter);
+        self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, branch_target_symbolic);
+
+        println!("{}", self.state);
 
         Ok(())
     }
@@ -329,9 +339,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
         println!("Next instruction location concrete: {:x}", next_instruction_location_concrete);
     
-        // Perform the branch to the next instruction location
-        self.current_address = Some(next_instruction_location_concrete);
-        println!("Branched to next instruction location: {:x}", next_instruction_location_concrete);
+        println!("Branching to address {:x}", next_instruction_location_concrete);
+        // Update the RIP register to the branch target address
+        {
+            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            cpu_state_guard.set_register_value_by_offset(0x288, next_instruction_location_concrete).map_err(|e| e.to_string())?;
+        }
     
         println!("{}\n", self);
     

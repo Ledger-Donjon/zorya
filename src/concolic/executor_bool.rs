@@ -156,16 +156,18 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Create a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}-{:02}-boolor", current_addr_hex, executor.instruction_counter);
+    let result_var_name = format!("{}-{:02}-intequal", current_addr_hex, executor.instruction_counter);
     match result_value {
         ConcolicEnum::ConcolicVar(var) => {
-            executor.state.create_concolic_var_int(&result_var_name, var.concrete.to_u64(), var.concrete.get_size());
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
+            println!("Created concolic variable for the result: {}", result_var_name);
         },
         ConcolicEnum::CpuConcolicValue(cpu_var) => {
-            executor.state.create_concolic_var_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.get_size());
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
+            println!("Created concolic variable for the result: {}", result_var_name);
         },
-        _ => return Err("Result of BOOL_OR is not a ConcolicVar or CpuConcolicValue".to_string()),
-    }
+        _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
+    } 
 
     println!("{}\n", executor.state);
 
