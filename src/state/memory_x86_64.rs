@@ -12,7 +12,7 @@ use std::{fmt, io};
 use std::path::{Path, PathBuf};
 
 use crate::target_info::GLOBAL_TARGET_INFO;
-use crate::concolic::{ConcolicEnum, ConcolicVar, ConcreteVar, SymbolicVar};
+use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
 
 use super::cpu_state::CpuConcolicValue;
 
@@ -250,19 +250,6 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
 
     // Logical AND operation between two MemoryConcolicValues
     pub fn and(self, other: Self) -> Result<Self, &'static str> {
-        let concrete_value = self.concrete.to_u64() & other.concrete.to_u64();
-        let new_symbolic = self.symbolic.and(&other.symbolic, self.ctx)
-            .map_err(|_| "Failed to combine symbolic values")?;
-
-        Ok(MemoryConcolicValue {
-            concrete: ConcreteVar::Int(concrete_value),
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Logical AND operation between MemoryConcolicValue and ConcolicVar
-    pub fn and_with_var(self, other: ConcolicVar<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
         println!("Inside and_with_var function of memory_concolic_value.rs");
 
         // Print context addresses to debug context consistency
@@ -317,15 +304,101 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
         })
     }
 
-    // Logical AND operation with CpuConcolicValue
-    pub fn and_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
+    // Logical AND operation between MemoryConcolicValue and ConcolicVar
+    pub fn and_with_var(self, other: ConcolicVar<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
+        log::debug!("Inside and_with_var function of memory_concolic_value.rs");
+
+        // Ensure context consistency
+        if !self.symbolic.get_ctx().eq(other.symbolic.get_ctx()) {
+            return Err("Context mismatch between the two symbolic values.");
+        }
+
         let concrete_value = self.concrete.to_u64() & other.concrete.to_u64();
-        let new_symbolic = self.symbolic.and(&other.symbolic, self.ctx)
-            .map_err(|_| "Failed to combine symbolic values")?;
+        log::debug!("Concrete value: {}", concrete_value);
+
+        let symbolic_self = match &self.symbolic {
+            SymbolicVar::Int(bv) => bv,
+            _ => return Err("Unsupported symbolic type in MemoryConcolicValue"),
+        };
+
+        let symbolic_other = match &other.symbolic {
+            SymbolicVar::Int(bv) => bv,
+            _ => return Err("Unsupported symbolic type in ConcolicVar"),
+        };
+
+        log::debug!("Symbolic self: {}", symbolic_self.to_string());
+        log::debug!("Symbolic other: {}", symbolic_other.to_string());
+
+        // Perform the AND operation
+        let symbolic_value = symbolic_self.bvand(symbolic_other);
+
+        // Check if the symbolic value is valid
+        if symbolic_value.get_z3_ast().is_null() {
+            log::error!("Symbolic value is invalid after AND operation");
+            return Err("Symbolic value is invalid in and_with_var");
+        }
+
+        log::debug!("Symbolic AND result: {}", symbolic_value.to_string());
 
         Ok(MemoryConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
-            symbolic: new_symbolic,
+            symbolic: SymbolicVar::Int(symbolic_value),
+            ctx: self.ctx,
+        })
+    }
+
+    // Logical AND operation with CpuConcolicValue
+    pub fn and_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<MemoryConcolicValue<'ctx>, &'static str> {
+        println!("Inside and_with_var function of memory_concolic_value.rs");
+
+        // Print context addresses to debug context consistency
+        println!("Context address for symbolic_self: {:p}", self.symbolic.get_ctx());
+        println!("Context address for symbolic_other: {:p}", other.symbolic.get_ctx());
+
+        // Ensure context consistency
+        if !self.symbolic.get_ctx().eq(other.symbolic.get_ctx()) {
+            return Err("Context mismatch between the two symbolic values.");
+        }
+
+        let concrete_value = self.concrete.to_u64() & other.concrete.to_u64();
+        println!("Concrete value: {}", concrete_value);
+
+        let symbolic_self = match &self.symbolic {
+            SymbolicVar::Int(bv) => bv,
+            _ => return Err("Unsupported symbolic type in MemoryConcolicValue"),
+        };
+
+        let symbolic_other = match &other.symbolic {
+            SymbolicVar::Int(bv) => bv,
+            _ => return Err("Unsupported symbolic type in ConcolicVar"),
+        };
+
+        println!("Symbolic self: {}", symbolic_self.to_string());
+        println!("Symbolic other: {}", symbolic_other.to_string());
+
+        // Perform the AND operation
+        let symbolic_value = symbolic_self.bvand(symbolic_other);
+
+        // Check if the symbolic value is valid
+        if symbolic_value.get_z3_ast().is_null() {
+            eprintln!("Symbolic value is invalid after AND operation");
+            return Err("Symbolic value is invalid in and_with_var");
+        }
+
+        println!("Symbolic AND result: {}", symbolic_value.to_string());
+        println!("Symbolic value is valid");
+
+        // Create a new ConcolicVar with the result
+        let new_concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
+            concrete_value,
+            &format!("and_{}_{}", symbolic_self.to_string(), symbolic_other.to_string()),
+            self.ctx,
+            64
+        );
+
+        Ok(MemoryConcolicValue {
+            concrete: new_concolic_var.concrete,
+            symbolic: new_concolic_var.symbolic,
             ctx: self.ctx,
         })
     }
@@ -396,7 +469,6 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     pub fn as_var(&self) -> Result<ConcolicVar<'ctx>, &'static str> {
         match self {
             MemoryConcolicValue { concrete: mem_var, symbolic, ctx } => Ok(ConcolicVar::new_concrete_and_symbolic_int(mem_var.to_u64(), &symbolic.to_str(), *ctx, 64)),
-            _ => Err("Unsupported type for conversion"),
         }
     }
 }

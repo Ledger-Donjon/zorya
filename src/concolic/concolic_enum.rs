@@ -286,41 +286,63 @@ impl<'ctx> ConcolicEnum<'ctx> {
     }
 
     // Function to perform concolic AND operation
-    pub fn concolic_and(self, other: ConcolicEnum<'ctx>, _ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn concolic_and(self, context: &'ctx Context, other: ConcolicEnum<'ctx>) -> Result<ConcolicEnum<'ctx>, String> {
         match (self, other) {
-            // AND operation between two ConcolicVars
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
-                a.concolic_and(_ctx, b).map(ConcolicEnum::ConcolicVar)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                a.concolic_and(context, b).map(ConcolicEnum::ConcolicVar).map_err(|e| e.to_string())
             },
-            // AND operation between ConcolicVar and CpuConcolicValue, handling both orderings
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                b.and_with_var(a).map(ConcolicEnum::CpuConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                b.and_with_var(a).map(ConcolicEnum::CpuConcolicValue).map_err(|e| e.to_string())
             },
             (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.and_with_var(a).map(ConcolicEnum::CpuConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                b.and_with_var(a).map(ConcolicEnum::CpuConcolicValue).map_err(|e| e.to_string())
             },
-            // AND operation between ConcolicVar and MemoryConcolicValue, handling both orderings
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                b.and_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                b.and_with_var(a).map(ConcolicEnum::MemoryConcolicValue).map_err(|e| e.to_string())
             },
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
-                b.and_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                b.and_with_var(a).map(ConcolicEnum::MemoryConcolicValue).map_err(|e| e.to_string())
             },
-            // AND operation between two CpuConcolicValues
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                a.and(b).map(ConcolicEnum::CpuConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                a.and(b).map(ConcolicEnum::CpuConcolicValue).map_err(|e| e.to_string())
             },
-            // AND operation between CpuConcolicValue and MemoryConcolicValue, and vice versa
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                a.and_with_memory(b).map(ConcolicEnum::CpuConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                a.and_with_memory(b).map(ConcolicEnum::CpuConcolicValue).map_err(|e| e.to_string())
             },
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                a.and_with_cpu(b).map(ConcolicEnum::MemoryConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                a.and_with_cpu(b).map(ConcolicEnum::MemoryConcolicValue).map_err(|e| e.to_string())
             },
-            // AND operation between two MemoryConcolicValues
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                a.and(b).map(ConcolicEnum::MemoryConcolicValue)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation".to_string());
+                }
+                a.and(b).map(ConcolicEnum::MemoryConcolicValue).map_err(|e| e.to_string())
             },
+            _ => Err("Unsupported types for AND operation".to_string())
         }
     }
 

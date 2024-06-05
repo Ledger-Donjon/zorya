@@ -160,7 +160,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         match &varnode.var {
             // It is a CPU register address
             Var::Register(offset, _) => {
-                log!(self.logger.clone().clone(), "Varnode is a CPU register with offset: {:x}", offset);
+                log!(self.logger.clone(), "Varnode is a CPU register with offset: {:x}", offset);
                 // Using the offset directly to get or initialize the register
                 let register = cpu_state_guard.get_or_init_register_by_offset(*offset);
                 log!(self.logger.clone(), "Retrieved or initialized register: {:?}", register);
@@ -168,14 +168,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             // Keep track of the unique variables defined inside one address execution
             Var::Unique(id) => {
-                log!(self.logger.clone(), "Varnode is of type 'unique' with ID: {}", id);
+                log!(self.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
                 let unique_name = format!("Unique(0x{:x})", id);
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
-                        log!(self.logger.clone(), "Creating new unique variable '{}' with initial value {}", unique_name, *id as u64);
+                        log!(self.logger.clone(), "Creating new unique variable '{}' with initial value {} and size {:?}", unique_name, *id as u64, varnode.size);
                         ConcolicVar::new_concrete_and_symbolic_int(*id as u64, &unique_name, self.context, varnode.size as u32)
                     })
                     .clone();
+                log!(self.logger.clone(), "Retrieved unique variable: {:?} with symbolic size: {:?}", var, var.symbolic.get_size());
                 Ok(ConcolicEnum::ConcolicVar(var))
             },
             Var::Const(value) => {
@@ -799,7 +800,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
 impl<'ctx> fmt::Display for ConcolicExecutor<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        println!("***");
+        writeln!(f, "***")?;
         writeln!(f, "ConcolicExecutor State after the instruction:")?;
         writeln!(f, "Current Address: {:?}", self.current_address)?;
         writeln!(f, "Instruction Counter: {}", self.instruction_counter)?;
