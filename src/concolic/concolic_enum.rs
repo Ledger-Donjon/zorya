@@ -2,6 +2,12 @@ use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicVal
 use z3::Context;
 use super::ConcolicVar;
 
+macro_rules! log {
+    ($logger:expr, $($arg:tt)*) => {{
+        writeln!($logger, $($arg)*).unwrap();
+    }};
+}
+
 #[derive(Clone, Debug)]
 pub enum ConcolicEnum<'ctx> {
     ConcolicVar(ConcolicVar<'ctx>),
@@ -153,20 +159,38 @@ impl<'ctx> ConcolicEnum<'ctx> {
     pub fn concolic_sub(self, other: ConcolicEnum<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
         match (self, other) {
             // Subtracting ConcolicVar from ConcolicVar
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concolic_sub(b, ctx),
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+                a.concolic_sub(b, ctx).map(ConcolicEnum::ConcolicVar)
+            },
             // Subtracting CpuConcolicValue from ConcolicVar
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
-            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.sub_with_var(a, ctx).map(ConcolicEnum::CpuConcolicValue),
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                b.sub_with_var(a, ctx).map(ConcolicEnum::CpuConcolicValue)
+            },
+            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                b.sub_with_var(a, ctx).map(ConcolicEnum::CpuConcolicValue)
+            },
             // Subtracting MemoryConcolicValue from ConcolicVar
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.sub_with_var(a, ctx).map(ConcolicEnum::MemoryConcolicValue),
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                a.concolic_sub_with_mem(b, ctx).map(ConcolicEnum::ConcolicVar)
+            },
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                b.sub_with_var(a, ctx).map(ConcolicEnum::MemoryConcolicValue)
+            },
             // Subtracting CpuConcolicValue from CpuConcolicValue
-            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.sub(b, ctx).map(ConcolicEnum::CpuConcolicValue),
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                a.sub(b, ctx).map(ConcolicEnum::CpuConcolicValue)
+            },
             // Subtracting CpuConcolicValue from MemoryConcolicValue
-            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => b.sub_with_other(a, ctx).map(ConcolicEnum::MemoryConcolicValue),
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                a.sub_with_mem(b, ctx).map(ConcolicEnum::CpuConcolicValue)
+            },
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => {
+                a.sub_with_mem(b, ctx).map(ConcolicEnum::CpuConcolicValue)
+            },
             // Subtracting MemoryConcolicValue from MemoryConcolicValue
-            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.sub(b, ctx).map(ConcolicEnum::MemoryConcolicValue),
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                a.sub(b, ctx).map(ConcolicEnum::MemoryConcolicValue)
+            },
         }
     }
     

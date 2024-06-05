@@ -123,7 +123,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         }, overflow))
     }
 
-    pub fn sub(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<CpuConcolicValue<'ctx>, &'static str> {
+    pub fn sub(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
         let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
         if overflow {
             Err("Overflow or underflow occurred during subtraction")
@@ -137,7 +137,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         }
     }
 
-    pub fn sub_with_var(self, other: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<CpuConcolicValue<'ctx>, &'static str> {
+    pub fn sub_with_var(self, other: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
         let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
         if overflow {
             Err("Overflow or underflow occurred during subtraction")
@@ -151,7 +151,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         }
     }
 
-    pub fn sub_with_other(self, other: MemoryConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<CpuConcolicValue<'ctx>, &'static str> {
+    pub fn sub_with_mem(self, other: MemoryConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
         let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
         if overflow {
             Err("Overflow or underflow occurred during subtraction")
@@ -421,7 +421,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
 impl<'ctx> fmt::Display for CpuConcolicValue<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Concrete: {:?}, Symbolic: {:?}", self.concrete, self.symbolic)
+        write!(f, "Concrete: Int(0x{:x}), Symbolic: {:?}", self.concrete, self.symbolic)
     }
 }
 

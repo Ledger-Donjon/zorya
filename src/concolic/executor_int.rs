@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the INT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{concolic::{executor::ConcolicExecutor, ConcolicEnum, SymbolicVar}, state::memory_x86_64::MemoryConcolicValue};
+use crate::concolic::{executor::ConcolicExecutor, ConcolicEnum, SymbolicVar};
 use parser::parser::{Inst, Opcode, Size, Var};
 use ethnum::I256;
 use z3::ast::BV;

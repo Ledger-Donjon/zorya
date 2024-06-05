@@ -1,4 +1,6 @@
-use std::{error::Error, fmt, num::Wrapping};
+use std::{error::Error, fmt::{self, LowerHex}, num::Wrapping};
+
+use parser::parser::Var;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConcreteVar {
@@ -176,3 +178,14 @@ impl fmt::Display for VarError {
 }
 
 impl Error for VarError {}
+
+impl<'ctx> LowerHex for ConcreteVar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let _ = match self {
+            ConcreteVar::Int(value) => LowerHex::fmt(value, f),
+            ConcreteVar::Float(value) => LowerHex::fmt(&value.to_bits(), f),
+            ConcreteVar::Str(_s) => Err(fmt::Error::default()),
+        };
+        Ok(())
+    }
+}

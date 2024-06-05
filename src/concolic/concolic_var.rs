@@ -1,8 +1,10 @@
+use std::fmt;
+
 use z3::{ast::{Ast, Float, BV}, Context, SatResult, Solver};
 
 use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
 
-use super::{ConcolicEnum, ConcreteVar, SymbolicVar};
+use super::{ConcreteVar, SymbolicVar};
 
 #[derive(Clone, Debug)]
 pub struct ConcolicVar<'ctx> {
@@ -120,17 +122,47 @@ impl<'ctx> ConcolicVar<'ctx> {
     }
 
     // Function to perform a safe unsigned subtraction with overflow detection
-    pub fn concolic_sub(self, other: Self, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn concolic_sub(self, other: Self, ctx: &'ctx Context) -> Result<Self, &'static str> {
         let (result, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
         if overflow {
             Err("Overflow or underflow occurred during subtraction")
         } else {
             let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-            Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
+            Ok(ConcolicVar {
                 concrete: ConcreteVar::Int(result),
                 symbolic: new_symbolic,
                 ctx,
-            }))
+            })
+        }
+    }
+
+    // Function to perform a safe unsigned subtraction with overflow detection
+    pub fn concolic_sub_with_mem(self, other: MemoryConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
+        let (result, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
+        if overflow {
+            Err("Overflow or underflow occurred during subtraction")
+        } else {
+            let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+            Ok(ConcolicVar {
+                concrete: ConcreteVar::Int(result),
+                symbolic: new_symbolic,
+                ctx,
+            })
+        }
+    }
+
+    // Function to perform a safe unsigned subtraction with overflow detection
+    pub fn concolic_sub_with_cpu(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
+        let (result, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
+        if overflow {
+            Err("Overflow or underflow occurred during subtraction")
+        } else {
+            let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
+            Ok(ConcolicVar {
+                concrete: ConcreteVar::Int(result),
+                symbolic: new_symbolic,
+                ctx,
+            })
         }
     }
 
@@ -253,3 +285,8 @@ impl<'ctx> ConcolicVar<'ctx> {
     }
 }
 
+impl<'ctx> fmt::Display for ConcolicVar<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Concrete: Int(0x{:x}), Symbolic: {:?}", self.concrete, self.symbolic)
+    }
+}

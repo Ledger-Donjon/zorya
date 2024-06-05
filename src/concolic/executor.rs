@@ -163,7 +163,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 log!(self.logger.clone(), "Varnode is a CPU register with offset: {:x}", offset);
                 // Using the offset directly to get or initialize the register
                 let register = cpu_state_guard.get_or_init_register_by_offset(*offset);
-                log!(self.logger.clone(), "Retrieved or initialized register: {:?}", register);
+                log!(self.logger.clone(), "Retrieved register: {}", register);
                 Ok(ConcolicEnum::CpuConcolicValue(register.clone()))
             },
             // Keep track of the unique variables defined inside one address execution
@@ -176,7 +176,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         ConcolicVar::new_concrete_and_symbolic_int(*id as u64, &unique_name, self.context, varnode.size as u32)
                     })
                     .clone();
-                log!(self.logger.clone(), "Retrieved unique variable: {:?} with symbolic size: {:?}", var, var.symbolic.get_size());
+                log!(self.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
                 Ok(ConcolicEnum::ConcolicVar(var))
             },
             Var::Const(value) => {
@@ -203,7 +203,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Memory(addr) => {
                 log!(self.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
                 let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, *addr);
-                log!(self.logger.clone(), "Specific memory address, created or retrieved: {:?}", memory_var);
+                log!(self.logger.clone(), "Retrieved memory address: {}", memory_var);
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
         }
@@ -725,8 +725,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-popcount", current_addr_hex, self.instruction_counter);
-        self.state.create_concolic_var_int(&result_var_name, popcount_result.concrete.to_u64(), popcount_result.concrete.get_size());
-        log!(self.logger.clone(), "Created concolic variable for the result: {}", result_var_name);
+        self.state.create_or_update_concolic_variable_int(&result_var_name, popcount_result.concrete.to_u64(), popcount_result.symbolic); 
     
         log!(self.logger.clone(), "{}\n", self.state);
     

@@ -3,8 +3,15 @@
 
 use crate::{concolic::ConcolicEnum, executor::ConcolicExecutor};
 use parser::parser::{Inst, Opcode, Size, Var};
+use std::io::Write;
 
 use super::ConcolicVar;
+
+macro_rules! log {
+    ($logger:expr, $($arg:tt)*) => {{
+        writeln!($logger, $($arg)*).unwrap();
+    }};
+}
 
 pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Validate instruction format and sizes
@@ -61,29 +68,44 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     }
     
     // Fetch concolic variables
-    println!("* Fetching instruction.input[0] for BOOL_OR");
+    log!(executor.logger.clone(), "* Fetching instruction.input[0] for BOOL_OR");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| {
-        eprintln!("Error converting input0_var: {}", e);
+        log!(executor.logger.clone(), "Error converting input0_var: {}", e);
         e.to_string()
     })?;
-    println!("* Fetching instruction.input[1] for BOOL_OR");
+    log!(executor.logger.clone(), "* Fetching instruction.input[1] for BOOL_OR");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| {
-        eprintln!("Error converting input1_var: {}", e);
+        log!(executor.logger.clone(), "Error converting input1_var: {}", e);
         e.to_string()
     })?;
 
-    println!("Just before result calculation");
+    // Log the sizes of the symbolic parts
+    let size0 = match &input0_var {
+        ConcolicEnum::ConcolicVar(v) => v.symbolic.get_size(),
+        ConcolicEnum::CpuConcolicValue(v) => v.symbolic.get_size(),
+        ConcolicEnum::MemoryConcolicValue(v) => v.symbolic.get_size(),
+    };
+    let size1 = match &input1_var {
+        ConcolicEnum::ConcolicVar(v) => v.symbolic.get_size(),
+        ConcolicEnum::CpuConcolicValue(v) => v.symbolic.get_size(),
+        ConcolicEnum::MemoryConcolicValue(v) => v.symbolic.get_size(),
+    };
+
+    log!(executor.logger.clone(), "Symbolic size of input0_var: {}", size0);
+    log!(executor.logger.clone(), "Symbolic size of input1_var: {}", size1);
+
+    log!(executor.logger.clone(), "Just before result calculation");
     // Perform the OR operation
     let result_value = input0_var.concolic_or(input1_var, executor.context).map_err(|e| {
-        eprintln!("Error performing OR operation: {}", e);
+        log!(executor.logger.clone(), "Error performing OR operation: {}", e);
         e.to_string()
     })?;
-    println!("*** The result of BOOL_OR is: {:?}\n", result_value.clone());
+    log!(executor.logger.clone(), "*** The result of BOOL_OR is: {:?}\n", result_value.clone());
 
     // Handle the result based on the output varnode
     match instruction.output.as_ref().map(|v| &v.var) {
         Some(Var::Unique(id)) => {
-            println!("Output is a Unique type");
+            log!(executor.logger.clone(), "Output is a Unique type");
             let unique_name = format!("Unique(0x{:x})", id);
             match &result_value {
                 ConcolicEnum::ConcolicVar(concolic_var) => {
@@ -102,7 +124,7 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
             }
         },
         Some(Var::Register(offset, _)) => {
-            println!("Output is a Register type");
+            log!(executor.logger.clone(), "Output is a Register type");
             let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
             match &result_value {
                 ConcolicEnum::ConcolicVar(var) => {
@@ -112,14 +134,14 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                         Ok(_) => {
                             let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
                             if updated_value == concrete_value {
-                                println!("Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
+                                log!(executor.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
                             } else {
-                                println!("Failed to verify updated register at offset 0x{:x}", offset);
+                                log!(executor.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);
                                 return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
                             }
                         },
                         Err(e) => {
-                            println!("Failed to set register value: {}", e);
+                            log!(executor.logger.clone(), "Failed to set register value: {}", e);
                             return Err(format!("Failed to set register value at offset 0x{:x}", offset));
                         }
                     }
@@ -131,14 +153,14 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                         Ok(_) => {
                             let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
                             if updated_value == concrete_value {
-                                println!("Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
+                                log!(executor.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
                             } else {
-                                println!("Failed to verify updated register at offset 0x{:x}", offset);
+                                log!(executor.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);
                                 return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
                             }
                         },
                         Err(e) => {
-                            println!("Failed to set register value: {}", e);
+                            log!(executor.logger.clone(), "Failed to set register value: {}", e);
                             return Err(format!("Failed to set register value at offset 0x{:x}", offset));
                         }
                     }
@@ -147,12 +169,12 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
             }
         },
         _ => {
-            println!("Output type is unsupported");
+            log!(executor.logger.clone(), "Output type is unsupported");
             return Err("Output type not supported".to_string());
         }
     }
 
-    println!("{}\n", executor);
+    log!(executor.logger.clone(), "{}\n", executor);
 
     // Create a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -160,16 +182,16 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     match result_value {
         ConcolicEnum::ConcolicVar(var) => {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
-            println!("Created concolic variable for the result: {}", result_var_name);
+            log!(executor.logger.clone(), "Created concolic variable for the result: {}", result_var_name);
         },
         ConcolicEnum::CpuConcolicValue(cpu_var) => {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
-            println!("Created concolic variable for the result: {}", result_var_name);
+            log!(executor.logger.clone(), "Created concolic variable for the result: {}", result_var_name);
         },
         _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
     } 
 
-    println!("{}\n", executor.state);
+    log!(executor.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
