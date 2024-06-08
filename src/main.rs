@@ -89,17 +89,36 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 log!(logger, "Failed to execute instruction: {}", e);
                 continue;
             }
+
+            // Fetch the current RIP value after executing instructions
+            let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
+            log!(logger, "Current RIP value: 0x{:x}", rip_value);
         }
 
-        // When all instructions of an address have been executed, find the next sequential address in the BTreeMap
-        if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
-            log!(logger, "Next address should be : {:#x}", next_address);
-            current_rip = next_address; // Move to the next instruction address
-            let displayable_cpu_state = DisplayableCpuState(executor.state.cpu_state.clone());
-            log!(logger, "Current CPU State: {}", displayable_cpu_state);
+        // Fetch the current RIP value after executing instructions
+        let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
+        log!(logger, "Current RIP value: 0x{:x}", rip_value);
+
+        // Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
+        if rip_value != current_rip {
+            log!(logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value);
+            current_rip = rip_value;
         } else {
-            log!(logger, "No further instructions. Execution completed.");
-            break;
+            // Move to the next sequential address if no control flow change occurred
+            if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
+                log!(logger, "Next address should be : {:#x}", next_address);
+                current_rip = next_address;
+                // Update the RIP register to the branch target address
+                {
+                    let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+                    let _ = cpu_state_guard.set_register_value_by_offset(0x288, next_address).map_err(|e| e.to_string());
+                }
+            } else {
+                log!(logger, "No further instructions. Execution completed.");
+                break;
+            }
         }
     }
 }
+
+            

@@ -79,21 +79,6 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         e.to_string()
     })?;
 
-    // Log the sizes of the symbolic parts
-    let size0 = match &input0_var {
-        ConcolicEnum::ConcolicVar(v) => v.symbolic.get_size(),
-        ConcolicEnum::CpuConcolicValue(v) => v.symbolic.get_size(),
-        ConcolicEnum::MemoryConcolicValue(v) => v.symbolic.get_size(),
-    };
-    let size1 = match &input1_var {
-        ConcolicEnum::ConcolicVar(v) => v.symbolic.get_size(),
-        ConcolicEnum::CpuConcolicValue(v) => v.symbolic.get_size(),
-        ConcolicEnum::MemoryConcolicValue(v) => v.symbolic.get_size(),
-    };
-
-    log!(executor.logger.clone(), "Symbolic size of input0_var: {}", size0);
-    log!(executor.logger.clone(), "Symbolic size of input1_var: {}", size1);
-
     log!(executor.logger.clone(), "Just before result calculation");
     // Perform the OR operation
     let result_value = input0_var.concolic_or(input1_var, executor.context).map_err(|e| {

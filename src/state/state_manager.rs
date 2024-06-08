@@ -211,7 +211,7 @@ impl<'a> fmt::Display for State<'a> {
         // Concolic Variables
         writeln!(f, "  Concolic Variables:")?;
         for (var_name, concolic_var) in &self.concolic_vars {
-            writeln!(f, "    {}: {:?}", var_name, concolic_var)?;
+            writeln!(f, "    {}: {}", var_name, concolic_var)?;
         }
 
         // Memory
