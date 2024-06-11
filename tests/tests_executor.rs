@@ -1,23 +1,21 @@
 use z3::{Config, Context, Solver};
-
-// Assuming these are defined in your project under the respective modules
 use zorya::concolic::ConcolicExecutor;
 use zorya::state::State;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::{Arc, Mutex}};
+    use std::collections::BTreeMap;
     use parser::parser::Size;
-    use zorya::executor::{ConcreteVar, Logger};
+    use zorya::{concolic::Logger, executor::ConcreteVar};
 
     use super::*;
     
     fn setup_executor() -> ConcolicExecutor<'static> {
         let cfg = Config::new();
         let ctx = Box::leak(Box::new(Context::new(&cfg)));
-        let state = State::default_for_tests(ctx).expect("Failed to create state.");
         let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
+        let state = State::default_for_tests(ctx, logger).expect("Failed to create state.");
         ConcolicExecutor {
             context: ctx,
             solver: Solver::new(ctx),
@@ -25,7 +23,6 @@ mod tests {
             current_address: None,
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
-            logger,
         }
     }
     

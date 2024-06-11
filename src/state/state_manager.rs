@@ -1,11 +1,17 @@
-use std::{collections::BTreeMap, fs::File, io::Read, path::{Path, PathBuf}, sync::{Arc, Mutex}};
+use std::{collections::BTreeMap, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
 use goblin::elf::Elf;
 use parser::parser::{Inst, Varnode};
 use z3::Context;
 use std::fmt;
-
 use super::{cpu_state::SharedCpuState, memory_x86_64::MemoryX86_64, state_initializer, virtual_file_system::FileDescriptor, CpuState, VirtualFileSystem};
+
+macro_rules! log {
+    ($logger:expr, $($arg:tt)*) => {{
+        writeln!($logger, $($arg)*).unwrap();
+    }};
+}
+
 
 #[derive(Clone, Debug)]
 pub struct State<'a> {
@@ -17,29 +23,30 @@ pub struct State<'a> {
     pub file_descriptors: BTreeMap<u64, FileDescriptor>, // Maps syscall file descriptors to FileDescriptor objects.
     pub fd_paths: BTreeMap<u64, PathBuf>, // Maps syscall file descriptors to file paths.
     pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
+    pub logger: Logger,
 }
 
 impl<'a> State<'a> {
-    pub fn new(ctx: &'a Context) -> Result<Self, Box<dyn std::error::Error>> {
-        println!("Initializing State...\n");
+    pub fn new(ctx: &'a Context, logger: Logger) -> Result<Self, Box<dyn std::error::Error>> {
+        log!(logger.clone(), "Initializing State...\n");
 
         // Initialize CPU state in a shared and thread-safe manner
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         
-        println!("Initializing mock CPU state...\n");
+        log!(logger.clone(), "Initializing mock CPU state...\n");
         let _ = state_initializer::get_mock(cpu_state.clone());
 
         // Print the CPU registers after initialization
         let displayable_cpu_state = DisplayableCpuState(cpu_state.clone());
-        println!("Current CPU State: {}", displayable_cpu_state);
+        log!(logger.clone(), "Current CPU State: {}", displayable_cpu_state);
 
         let memory_size: u64 = 0x10000000; // 10GB memory size because dumps are 730 MB
-        println!("Initializing memory...\n");
+        log!(logger.clone(), "Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, memory_size)?;
         let _ = memory.load_all_dumps();
 
         // Virtual file system initialization
-        println!("Initializing virtual file system...\n");
+        log!(logger.clone(), "Initializing virtual file system...\n");
         let vfs = VirtualFileSystem::new();
 
         Ok(State {
@@ -51,11 +58,12 @@ impl<'a> State<'a> {
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
             vfs,
+            logger,
         })
     }
 
     // Function only used in tests to avoid the loading of all memory section and CPU registers
-    pub fn default_for_tests(ctx: &'a Context) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn default_for_tests(ctx: &'a Context, logger: Logger) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize CPU state in a shared and thread-safe manner
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         let memory_size: u64 = 0x100000; // 1GB memory size because dumps are 730 MB
@@ -69,6 +77,7 @@ impl<'a> State<'a> {
             file_descriptors: BTreeMap::new(),
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
+            logger,
         })
     }
 
@@ -182,7 +191,7 @@ impl<'a> State<'a> {
     pub fn check_nil_deref(&mut self, address: u64, current_address: u64, instruction: &Inst) -> Result<(), String> {
     	// Special case for entry point where accessing 0x0 might be expected
     	//if current_address == Self::ENTRY_POINT_ADDRESS && address == 0x0 {
-        //	println!("Special case at entry point, accessing 0x0 is not considered a nil dereference.");
+        //	log!(self.logger.clone(), "Special case at entry point, accessing 0x0 is not considered a nil dereference.");
         //	return Ok(());
     	//}
 
@@ -224,5 +233,41 @@ impl<'a> fmt::Display for State<'a> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Logger {
+    file: Arc<Mutex<File>>,
+    terminal: Arc<Mutex<io::Stdout>>,
+}
+
+impl Logger {
+    pub fn new(file_path: &str) -> io::Result<Self> {
+        let file = File::create(file_path)?;
+        let terminal = io::stdout();
+        Ok(Logger {
+            file: Arc::new(Mutex::new(file)),
+            terminal: Arc::new(Mutex::new(terminal)),
+        })
+    }
+}
+
+impl Write for Logger {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut file = self.file.lock().unwrap();
+        let mut terminal = self.terminal.lock().unwrap();
+
+        file.write_all(buf)?;
+        terminal.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let mut file = self.file.lock().unwrap();
+        let mut terminal = self.terminal.lock().unwrap();
+
+        file.flush()?;
+        terminal.flush()?;
+        Ok(())
+    }
+}
 
 

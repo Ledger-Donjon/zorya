@@ -1,6 +1,7 @@
-use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
+use crate::{executor, state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue}};
 use z3::Context;
-use super::ConcolicVar;
+use super::{ConcolicExecutor, ConcolicVar};
+use std::io::Write;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -21,29 +22,47 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match (self, other) {
             // Adding ConcolicVar with ConcolicVar
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 Ok(ConcolicEnum::ConcolicVar(a.concolic_add(b)?))
             },
             // Adding ConcolicVar with CpuConcolicValue
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
             (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 b.add_with_var(a).map(ConcolicEnum::CpuConcolicValue)
             },
             // Adding ConcolicVar with MemoryConcolicValue
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 b.add_with_var(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             // Adding CpuConcolicValue with CpuConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 Ok(ConcolicEnum::CpuConcolicValue(a.add(b)?))
             },
             // Adding CpuConcolicValue with MemoryConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 b.add_with_other(a).map(ConcolicEnum::MemoryConcolicValue)
             },
             // Adding MemoryConcolicValue with MemoryConcolicValue
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 Ok(ConcolicEnum::MemoryConcolicValue(a.add(b)?))
             }
         }
@@ -54,6 +73,9 @@ impl<'ctx> ConcolicEnum<'ctx> {
     match (self, other) {
         // Carrying ConcolicVar with ConcolicVar
         (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+            if a.symbolic.get_size() != b.symbolic.get_size() {
+                return Err("Bit-vector sizes do not match for AND operation");
+            }
             match a.carrying_add(&b, false) {
                 Ok((_result, carry)) => {
                     let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
@@ -65,6 +87,9 @@ impl<'ctx> ConcolicEnum<'ctx> {
         // Carrying ConcolicVar with CpuConcolicValue
         (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
         (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+            if a.symbolic.get_size() != b.symbolic.get_size() {
+                return Err("Bit-vector sizes do not match for AND operation");
+            }
             let (_result, carry) = a.carrying_add_with_cpu(&b, false);
             let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
             Ok(ConcolicEnum::ConcolicVar(carry_var))
@@ -72,12 +97,18 @@ impl<'ctx> ConcolicEnum<'ctx> {
         // Carrying ConcolicVar with MemoryConcolicValue
         (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
         (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+            if a.symbolic.get_size() != b.symbolic.get_size() {
+                return Err("Bit-vector sizes do not match for AND operation");
+            }
             let (_result, carry) = a.carrying_add_with_mem(&b, false);
             let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
             Ok(ConcolicEnum::ConcolicVar(carry_var))
         },
         // Carrying CpuConcolicValue with CpuConcolicValue
         (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+            if a.symbolic.get_size() != b.symbolic.get_size() {
+                return Err("Bit-vector sizes do not match for AND operation");
+            }
             let (_result, carry) = a.carrying_add(&b, false);
             let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
             Ok(ConcolicEnum::ConcolicVar(carry_var))
@@ -85,12 +116,18 @@ impl<'ctx> ConcolicEnum<'ctx> {
         // Carrying CpuConcolicValue with MemoryConcolicValue
         (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
         (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => {
+            if a.symbolic.get_size() != b.symbolic.get_size() {
+                return Err("Bit-vector sizes do not match for AND operation");
+            }
             let (_result, carry) = a.carrying_add_with_mem(&b, false);
             let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
             Ok(ConcolicEnum::ConcolicVar(carry_var))
         },
         // Carrying MemoryConcolicValue with MemoryConcolicValue
         (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+            if a.symbolic.get_size() != b.symbolic.get_size() {
+                return Err("Bit-vector sizes do not match for AND operation");
+            }
             let (_result, carry) = a.carrying_add(&b, false);
             let carry_var = ConcolicVar::new_concrete_and_symbolic_int(carry as u64, "carry", a.ctx, 1);
             Ok(ConcolicEnum::ConcolicVar(carry_var))
@@ -99,17 +136,25 @@ impl<'ctx> ConcolicEnum<'ctx> {
 }
 
     // Method to perform concolic signed carry detection
-    pub fn concolic_scarry(self: ConcolicEnum<'ctx>, other: ConcolicEnum<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
+    pub fn concolic_scarry(self: ConcolicEnum<'ctx>, other: ConcolicEnum<'ctx>, executor: &mut ConcolicExecutor) -> Result<ConcolicEnum<'ctx>, &'static str> {
         match (self, other) {
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 let (_, overflow) = a.signed_add(&b)?;
+                log!(executor.state.logger.clone(), "Overflow: {}", overflow);
                 let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
                     overflow as u64, "carry", a.ctx, 1
                 );
+                log!(executor.state.logger.clone(), "Carry var: {:?}", carry_var);
                 Ok(ConcolicEnum::ConcolicVar(carry_var))
             },
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
             (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 let (_, overflow) = a.signed_add_with_cpu(&b)?;
                 let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
                     overflow as u64, "carry", a.ctx, 1
@@ -118,13 +163,22 @@ impl<'ctx> ConcolicEnum<'ctx> {
             },
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 let (_, overflow) = a.signed_add_with_mem(&b)?;
+                log!(executor.state.logger.clone(), "Overflow: {}", overflow);
+
                 let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
                     overflow as u64, "carry", a.ctx, 1
                 );
+                log!(executor.state.logger.clone(), "Carry var: {:?}", carry_var);
                 Ok(ConcolicEnum::ConcolicVar(carry_var))
             },
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 let (_, overflow) = a.signed_add(&b)?;
                 let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
                     overflow as u64, "carry", a.ctx, 1
@@ -132,6 +186,9 @@ impl<'ctx> ConcolicEnum<'ctx> {
                 Ok(ConcolicEnum::ConcolicVar(carry_var))
             },
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 let (_, overflow) = a.signed_add_with_mem(&b)?;
                 let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
                     overflow as u64, "carry", a.ctx, 1
@@ -139,6 +196,9 @@ impl<'ctx> ConcolicEnum<'ctx> {
                 Ok(ConcolicEnum::ConcolicVar(carry_var))
             },
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 let (_, overflow) = a.signed_add_with_cpu(&b)?;
                 let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
                     overflow as u64, "carry", a.ctx, 1
@@ -146,6 +206,9 @@ impl<'ctx> ConcolicEnum<'ctx> {
                 Ok(ConcolicEnum::ConcolicVar(carry_var))
             },
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 let (_, overflow) = a.signed_add(&b)?;
                 let carry_var = ConcolicVar::new_concrete_and_symbolic_int(
                     overflow as u64, "carry", a.ctx, 1
@@ -160,35 +223,62 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match (self, other) {
             // Subtracting ConcolicVar from ConcolicVar
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 a.concolic_sub(b, ctx).map(ConcolicEnum::ConcolicVar)
             },
             // Subtracting CpuConcolicValue from ConcolicVar
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 b.sub_with_var(a, ctx).map(ConcolicEnum::CpuConcolicValue)
             },
             (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 b.sub_with_var(a, ctx).map(ConcolicEnum::CpuConcolicValue)
             },
             // Subtracting MemoryConcolicValue from ConcolicVar
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 a.concolic_sub_with_mem(b, ctx).map(ConcolicEnum::ConcolicVar)
             },
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 b.sub_with_var(a, ctx).map(ConcolicEnum::MemoryConcolicValue)
             },
             // Subtracting CpuConcolicValue from CpuConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 a.sub(b, ctx).map(ConcolicEnum::CpuConcolicValue)
             },
             // Subtracting CpuConcolicValue from MemoryConcolicValue
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 a.sub_with_mem(b, ctx).map(ConcolicEnum::CpuConcolicValue)
             },
             (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 a.sub_with_mem(b, ctx).map(ConcolicEnum::CpuConcolicValue)
             },
             // Subtracting MemoryConcolicValue from MemoryConcolicValue
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                    return Err("Bit-vector sizes do not match for AND operation");
+                }
                 a.sub(b, ctx).map(ConcolicEnum::MemoryConcolicValue)
             },
         }
@@ -366,7 +456,6 @@ impl<'ctx> ConcolicEnum<'ctx> {
                 }
                 a.and(b).map(ConcolicEnum::MemoryConcolicValue).map_err(|e| e.to_string())
             },
-            _ => Err("Unsupported types for AND operation".to_string())
         }
     }
 

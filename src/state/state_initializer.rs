@@ -4,10 +4,11 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use anyhow::{Context, Result};
+use std::process::{Child, Command, Stdio};
 use regex::Regex;
 use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Result;
 
 use crate::target_info::GLOBAL_TARGET_INFO;
 
@@ -28,6 +29,14 @@ fn start_qemu(binary_path: &str) -> Result<std::process::Child> {
     // Give QEMU some time to initialize
     // thread::sleep(Duration::from_secs(1));
     Ok(qemu)
+}
+
+/// Function to cleanly close QEMU process.
+fn close_qemu(qemu_process: &mut Child) -> Result<(), std::io::Error> {
+    qemu_process.kill()?; // Send the kill signal to the QEMU process
+    qemu_process.wait()?; // Wait for the process to exit completely
+    println!("QEMU process has been closed cleanly.");
+    Ok(())
 }
 
 /// Execute GDB locally to get the memory mapping (because 'info proc mappings' doesn't work with remote GDB and QEMU)
@@ -154,7 +163,7 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
     } 
 
     // Ensure the QEMU process finishes cleanly
-    let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
+    close_qemu(&mut qemu)?;
 
     // Get memory mappings from GDB locally (because gdb remote do not handle 'info proc mappings')
     println!("Capturing memory mappings locally...");
@@ -188,7 +197,7 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
     println!("Memory dump executed successfully!");
 
     // Ensure the QEMU process finishes cleanly
-    let _ = qemu.wait().context("Failed to cleanly shut down QEMU")?;
+    close_qemu(&mut qemu)?; 
 
     Ok(())
 }
@@ -330,7 +339,7 @@ fn automate_break_run_and_dump(binary_path: &str, dump_commands_path: &Path, dum
         println!("--> Writting finished for this section!\n");
 
         // Ensure the QEMU process finishes cleanly
-        qemu.wait().context("Failed to cleanly shut down QEMU")?;
+        close_qemu(&mut qemu)?;
 
     }
 

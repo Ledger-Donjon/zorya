@@ -1,7 +1,5 @@
 use std::{error::Error, fmt::{self, LowerHex}, num::Wrapping};
 
-use parser::parser::Var;
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConcreteVar {
     Int(u64),
