@@ -13,15 +13,15 @@ The id/password for the Qemu instance are ```ubuntu/ubuntu```.
 ```
 sudo loadkeys fr
 sudo apt-get update 
-sudo install gdb 9mount
+sudo apt-get install gdb 9mount
 sudo mkdir /mnt/host
 sudo mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/host
 cd /mnt/host
-gdb [bin]
+sudo gdb [bin]
 	(gdb) set disable-randomization on
 	(gdb) break *0x[main.main addr]
 	(gdb) run
-    (gdb) set logging file cpu_mapping.txt
+        (gdb) set logging file cpu_mapping.txt
 	(gdb) set logging on
 	(gdb) info all-registers
 	(gdb) set logging off
