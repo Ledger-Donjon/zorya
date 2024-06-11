@@ -33,6 +33,7 @@ sudo gdb [bin]
 3. **Terminal on local computer**
 This command is supposed to create a dump_commands.txt file with commands to dump memory sections.
 ```
+# To be done in another terminal in /zorya/external/qemu-mount
 python3 parse_and_generate.py
 ```
 4. **Terminal in Qemu**
