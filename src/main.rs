@@ -40,6 +40,17 @@ fn main() {
 
     log!(executor.state.logger, "The concolic execution has completed successfully.");
 }
+ 
+pub fn print_memory_content(executor: &mut ConcolicExecutor, start_address: u64, range: u64) {
+    let memory_guard = executor.state.memory.memory.read().unwrap();
+    for addr in start_address..=start_address + range {
+        if let Some(mem_val) = memory_guard.get(&addr) {
+            log!(executor.state.logger, "Address 0x{:x}: {:?}", addr, mem_val);
+        } else {
+            log!(executor.state.logger, "Address 0x{:x}: Uninitialized", addr);
+        }
+    }
+}
 
 fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
     let file = File::open(path)?;
@@ -70,6 +81,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address);
 
+    let address = 0xc0000061b0;
+    let range = 0x20; // Define the range to read before and after the address
+    
     while let Some(instructions) = instructions_map.get(&current_rip) {
         if !executed_addresses.insert(current_rip) {
             log!(executor.state.logger, "Detected a loop or previously executed address. Stopping execution.");
@@ -90,13 +104,15 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // Fetch the current RIP value after executing instructions
             let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
             log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
+   	    log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+            executor.state.print_memory_content(address, range);
         }
 
         // Fetch the current RIP value after executing instructions
         let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
         log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
 
-        // Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
+	// Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
         if rip_value != current_rip {
             log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value);
             current_rip = rip_value;

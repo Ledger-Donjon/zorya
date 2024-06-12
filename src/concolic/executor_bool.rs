@@ -176,7 +176,7 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
     } 
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }

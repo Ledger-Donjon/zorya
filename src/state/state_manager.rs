@@ -44,12 +44,17 @@ impl<'a> State<'a> {
         log!(logger.clone(), "Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, memory_size)?;
         let _ = memory.load_all_dumps();
-
-        // Virtual file system initialization
+	
+	// Virtual file system initialization
         log!(logger.clone(), "Initializing virtual file system...\n");
-        let vfs = VirtualFileSystem::new();
+	let vfs = VirtualFileSystem::new();
 
-        Ok(State {
+	// Print memory content at address 0xc0000061b0 and nearby
+        let address = 0xc0000061b0;
+        let range = 0x20; // Define the range to read before and after the address
+        log!(logger.clone(), "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+	
+        let state = State {
             concolic_vars: BTreeMap::new(),
             ctx,
             memory,
@@ -57,9 +62,23 @@ impl<'a> State<'a> {
             file_descriptors: BTreeMap::new(),
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
-            vfs,
+            vfs: VirtualFileSystem::new(),
             logger,
-        })
+        };
+        state.print_memory_content(address, range);
+
+        Ok(state)
+    }
+
+    pub fn print_memory_content(&self, start_address: u64, range: u64) {
+        let memory_guard = self.memory.memory.read().unwrap();
+        for addr in start_address..=start_address + range {
+            if let Some(mem_val) = memory_guard.get(&addr) {
+                log!(self.logger.clone(), "Address 0x{:x}: {:?}", addr, mem_val);
+            } else {
+                log!(self.logger.clone(), "Address 0x{:x}: Uninitialized", addr);
+            }
+        }
     }
 
     // Function only used in tests to avoid the loading of all memory section and CPU registers

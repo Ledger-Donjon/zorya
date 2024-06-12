@@ -30,15 +30,15 @@ lazy_static::lazy_static! {
         // *********************************
         // MODIFY INFO HERE
         // 1. Path to target binary
-        "/home/kgorna/Documents/tools/pcode-generator/tests/additiongo/additiongo",
+        "/home/kgorna/pcode-generator/tests/additiongo/additiongo",
         // 2. Address of the main or main.main function in your binary (check Ghidra or readelf)
         "0x4585c0",
         // 3. Absolute path to the .txt file with the pcode commands of your binary generated with Pcode-generator
-        PathBuf::from("/home/kgorna/Documents/tools/pcode-generator/results/additiongo_low_pcode.txt"),
+        PathBuf::from("/home/kgorna/pcode-generator/results/additiongo_low_pcode.txt"),
         // 4. Absolute path to the /src/state/working_files dir
-        PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files"),
+        PathBuf::from("/home/kgorna/zorya/src/state/working_files"),
         // 5. Absolute path to the memory dumps from qemu-mount dir
-        PathBuf::from("/home/kgorna/Documents/zorya/external/qemu-mount"),
+        PathBuf::from("/home/kgorna/zorya/external/qemu-mount"),
         // *********************************
     ));
 }

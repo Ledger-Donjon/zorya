@@ -564,14 +564,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     pub fn load_all_dumps(&self) -> Result<(), MemoryError> {
-        // let dumps_dir = {
-        //     let info = GLOBAL_TARGET_INFO.lock().unwrap();
-        //     info.memory_dumps.clone()
-        // };
+        let dumps_dir = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            info.memory_dumps.clone()
+        };
 
-        // let dumps_dir_path = dumps_dir.join("dumps");
+        let dumps_dir_path = dumps_dir.join("dumps");
 
-        let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files/additiongo_all-u-need");
+        // let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files/additiongo_all-u-need");
 
         let entries = fs::read_dir(dumps_dir_path)?;
         for entry in entries {

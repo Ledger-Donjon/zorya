@@ -250,7 +250,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Move the mutable borrow outside of the block
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, SymbolicVar::Int(BV::from_u64(self.context, branch_target_concrete, 64)));
     
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
     
         Ok(())
     }     
@@ -291,7 +291,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Move the mutable borrow outside of the block
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, branch_target_symbolic);
     
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
     
         Ok(())
     }
@@ -352,7 +352,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
     
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
     
         Ok(())
     } 
@@ -395,9 +395,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-call", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_call_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_call_concrete, 64)));
 
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
 
-        log!(self.state.logger.clone(), "{:?}", self.state.cpu_state);
+        //log!(self.state.logger.clone(), "{:?}", self.state.cpu_state);
 
         Ok(())
     } 
@@ -467,9 +467,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-return", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, branch_target_symbolic);
 
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
 
-        log!(self.state.logger.clone(), "{:?}", self.state.cpu_state);
+        //log!(self.state.logger.clone(), "{:?}", self.state.cpu_state);
         Ok(())
     }    
 
@@ -552,7 +552,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, dereferenced_concrete_value, SymbolicVar::Int(BV::from_u64(self.context, dereferenced_concrete_value, 64)));
     
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
     
         Ok(())
     }
@@ -610,7 +610,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete, 64)));
 
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
 
         Ok(())
     }
@@ -687,7 +687,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, source_symbolic_value);
     
-        log!(self.state.logger.clone(), "{}", self.state);
+        //log!(self.state.logger.clone(), "{}", self.state);
     
         Ok(())
     }    
@@ -771,7 +771,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-popcount", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, popcount_result.concrete.to_u64(), popcount_result.symbolic); 
     
-        log!(self.state.logger.clone(), "{}\n", self.state);
+        //log!(self.state.logger.clone(), "{}\n", self.state);
     
         Ok(())
     }   

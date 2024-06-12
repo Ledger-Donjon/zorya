@@ -75,7 +75,7 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         },
     }
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -139,7 +139,7 @@ pub fn handle_int_scarry(executor: &mut ConcolicExecutor, instruction: Inst) -> 
         },
     }
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -217,7 +217,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         },
     }
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -363,7 +363,7 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         },
     }
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -515,7 +515,7 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
     }
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -619,7 +619,7 @@ pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         },
     } 
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -697,7 +697,7 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         },
     }  
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -879,7 +879,7 @@ pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) ->
     let result_var_name = format!("{}-{:02}-sborrow", current_addr_hex, executor.instruction_counter);
     executor.state.create_or_update_concolic_variable_int(&result_var_name, overflow as u64, SymbolicVar::Int(BV::from_u64(&executor.context, overflow as u64, 1)));
 
-    log!(executor.state.logger.clone(), "{}\n", executor.state);
+    //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
     Ok(())
 }
@@ -1033,7 +1033,7 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         },
     }
 
-    log!(executor.state.logger.clone(), "{}", executor.state);
+    //log!(executor.state.logger.clone(), "{}", executor.state);
 
     Ok(())
 }

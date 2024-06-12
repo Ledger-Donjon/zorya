@@ -351,18 +351,39 @@ impl<'ctx> ConcolicEnum<'ctx> {
     // Method to perform signed subtraction with overflow check
     pub fn concolic_sborrow(self, other: ConcolicEnum<'ctx>, ctx: &'ctx Context) -> Result<bool, &'static str> {
         match (self, other) {
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concolic_sborrow(b, ctx),
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => {
+		if a.symbolic.get_size() != b.symbolic.get_size() {
+                	return Err("Bit-vector sizes do not match for AND operation");
+            	}
+		a.concolic_sborrow(b, ctx)},
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) |
-            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.signed_sub_with_var(a, ctx).map(|_| false),
+            (ConcolicEnum::CpuConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+		if a.symbolic.get_size() != b.symbolic.get_size() {
+                	return Err("Bit-vector sizes do not match for AND operation");
+            	}
+		b.signed_sub_with_var(a, ctx).map(|_| false)},
             (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => b.signed_sub_with_var(a, ctx).map(|_| false),
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::ConcolicVar(a)) => {
+		if a.symbolic.get_size() != b.symbolic.get_size() {
+                	return Err("Bit-vector sizes do not match for AND operation");
+            	}
+		b.signed_sub_with_var(a, ctx).map(|_| false)},
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => {
-                a.signed_sub(b, ctx).map(|_| false)
-            },
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                	return Err("Bit-vector sizes do not match for AND operation");
+            	}
+		a.signed_sub(b, ctx).map(|_| false)},
             (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) |
-            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => b.signed_sub_with_other(a, ctx).map(|_| false),
+            (ConcolicEnum::MemoryConcolicValue(b), ConcolicEnum::CpuConcolicValue(a)) => {
+		if a.symbolic.get_size() != b.symbolic.get_size() {
+                	return Err("Bit-vector sizes do not match for AND operation");
+            	}
+		b.signed_sub_with_other(a, ctx).map(|_| false)},
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
-                a.signed_sub(b, ctx).map(|_| false)
+                if a.symbolic.get_size() != b.symbolic.get_size() {
+                	return Err("Bit-vector sizes do not match for AND operation");
+            	}
+		a.signed_sub(b, ctx).map(|_| false)
             }
         }
     }

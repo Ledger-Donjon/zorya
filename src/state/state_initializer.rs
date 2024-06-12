@@ -131,26 +131,31 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
 
     // Create the target binary directory
     let binary_name = Path::new(&binary_path).file_stem().unwrap().to_str().unwrap();
-    let dumps_dir = working_files_dir.join(format!("{}_all-u-need", binary_name));
-    fs::create_dir_all(&dumps_dir).context("Failed to create memory dumps directory")?;
+    //let dumps_dir = working_files_dir.join(format!("{}_all-u-need", binary_name));
+    //fs::create_dir_all(&dumps_dir).context("Failed to create memory dumps directory")?;
 
+    let dumps_dir = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            info.memory_dumps.clone()
+        };
 
     // Start the first time Qemu to get CPU registers
-    let mut qemu = start_qemu(&binary_path)?;
+    //let mut qemu = start_qemu(&binary_path)?;
 
-    let cpu_output_path = dumps_dir.join("cpu_registers_output.txt");
+    //let cpu_output_path = dumps_dir.join("cpu_registers_output.txt");
+    let cpu_output_path = dumps_dir.join("cpu_mapping.txt");    
 
-    let break_command = format!("break *{}", main_program_addr);
-    let capture_cpu_state_commands = vec![
-        "target remote localhost:1234",
-        &break_command,
-        "continue",
-        "info all-registers",
-        "quit",
-    ];
+    //let break_command = format!("break *{}", main_program_addr);
+    //let capture_cpu_state_commands = vec![
+    //    "target remote localhost:1234",
+    //    &break_command,
+    //    "continue",
+    //    "info all-registers",
+    //    "quit",
+    //];
 
-    println!("Starting the remote execution on QEMU...");
-    execute_gdb_commands(&binary_path, &capture_cpu_state_commands, &cpu_output_path)?;
+    //println!("Starting the remote execution on QEMU...");
+    //execute_gdb_commands(&binary_path, &capture_cpu_state_commands, &cpu_output_path)?;
 
     let cpu_output = fs::read_to_string(&cpu_output_path)
         .context("Failed to read CPU registers output file")?;
@@ -163,41 +168,41 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
     } 
 
     // Ensure the QEMU process finishes cleanly
-    close_qemu(&mut qemu)?;
+    //close_qemu(&mut qemu)?;
 
     // Get memory mappings from GDB locally (because gdb remote do not handle 'info proc mappings')
-    println!("Capturing memory mappings locally...");
-    let memory_output_path = dumps_dir.join("memory_mappings_output.txt");
+    //println!("Capturing memory mappings locally...");
+    //let memory_output_path = dumps_dir.join("memory_mappings_output.txt");
 
-    let capture_memory_commands = vec![
-        &break_command,
-        "run",
-        "info proc mappings",
-        "quit",
-    ];
+    //let capture_memory_commands = vec![
+    //    &break_command,
+    //    "run",
+    //    "info proc mappings",
+    //    "quit",
+    //];
 
-    get_memory_mapping_with_local_gdb(&binary_path, &capture_memory_commands, &memory_output_path)?;
-    let memory_output = fs::read_to_string(&memory_output_path)
-        .context("Failed to read memory mappings output file")?;
+    //get_memory_mapping_with_local_gdb(&binary_path, &capture_memory_commands, &memory_output_path)?;
+    //let memory_output = fs::read_to_string(&memory_output_path)
+    //    .context("Failed to read memory mappings output file")?;
 
-    let mappings = extract_memory_mappings(&memory_output)?;
+    //let mappings = extract_memory_mappings(&memory_output)?;
 
-    println!("Memory mapping extracted correctly!");
+    //println!("Memory mapping extracted correctly!");
  
-    create_and_execute_dump_commands(&mappings, &dumps_dir)?;
+    //create_and_execute_dump_commands(&mappings, &dumps_dir)?;
     
     // Dump memory from the binary in AMD Opteron
     // Below is the file with all the dumps commands to get the memory sections
-    let commands_file_path = dumps_dir.join("dump_commands.gdb");
+    //let commands_file_path = dumps_dir.join("dump_commands.gdb");
 
-    println!("Preparing the dumping : commands to execute written to {:?}", commands_file_path);
+    //println!("Preparing the dumping : commands to execute written to {:?}", commands_file_path);
 
-    automate_break_run_and_dump(&binary_path, &commands_file_path, &dumps_dir, &main_program_addr)?;
+    //automate_break_run_and_dump(&binary_path, &commands_file_path, &dumps_dir, &main_program_addr)?;
 
-    println!("Memory dump executed successfully!");
+    //println!("Memory dump executed successfully!");
 
     // Ensure the QEMU process finishes cleanly
-    close_qemu(&mut qemu)?; 
+    //close_qemu(&mut qemu)?; 
 
     Ok(())
 }
