@@ -485,33 +485,26 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "pointer offset concrete : {:x}", pointer_offset_concrete);
     
-        // Attempt to dereference the address from the CPU registers first
+        // Dereference the address from the CPU registers or memory
         let dereferenced_concrete_value = {
             let cpu_state_guard = self.state.cpu_state.lock().unwrap();
             // Use the offset directly to retrieve register value
-            let value = cpu_state_guard.get_register_value_by_offset(pointer_offset_concrete);
-    
-            if let Some(value) = value {
+            if let Some(value) = cpu_state_guard.get_register_value_by_offset(pointer_offset_concrete) {
                 log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value);
                 value
             } else {
-                // If not found in registers, attempt to dereference from memory
+                // If not found in registers, attempt to dereference from memory and assemble the 64-bit value from 8 bytes
                 let memory_guard = self.state.memory.memory.read().unwrap();
-                if let Some(value) = memory_guard.get(&pointer_offset_concrete) {
-                    value.concrete.to_u64()
-                } else {
-                    log!(self.state.logger.clone(), "Memory at address 0x{:x} not initialized, initializing now.", pointer_offset_concrete);
-                    // Ensure the address range is initialized
-                    self.state.memory.ensure_address_initialized(pointer_offset_concrete, 8);
-                    let memory_guard = self.state.memory.memory.read().unwrap();
-                    if let Some(value) = memory_guard.get(&pointer_offset_concrete) {
-                        value.concrete.to_u64()
-                    } else {
-                        return Err(format!("Failed to dereference address from memory or registers: {:x}", pointer_offset_concrete));
-                    }
+                let mut full_value = 0u64;
+                for i in 0..8 {
+                    let byte_address = pointer_offset_concrete + i as u64;
+                    let byte_value = memory_guard.get(&byte_address).map_or(0, |v| v.concrete.to_u64() as u64);
+                    full_value |= byte_value << (8 * i);
                 }
+                log!(self.state.logger.clone(), "Assembled 64-bit value from memory starting at 0x{:x}: 0x{:x}", pointer_offset_concrete, full_value);
+                full_value
             }
-        };
+        };    
         
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", dereferenced_concrete_value);
     

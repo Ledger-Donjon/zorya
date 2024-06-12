@@ -11,8 +11,9 @@ use std::sync::{Arc, RwLock};
 use std::{fmt, io};
 use std::path::{Path, PathBuf};
 
-use crate::target_info::GLOBAL_TARGET_INFO;
+
 use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
+use crate::target_info::GLOBAL_TARGET_INFO;
 
 use super::cpu_state::CpuConcolicValue;
 
