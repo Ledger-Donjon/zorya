@@ -169,7 +169,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let unique_name = format!("Unique(0x{:x})", id);
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
-                        log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {} and size {:?}", unique_name, *id as u64, varnode.size);
+                        log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {:x} and size {:?}", unique_name, *id as u64, varnode.size);
                         ConcolicVar::new_concrete_and_symbolic_int(*id as u64, &unique_name, self.context, varnode.size as u32)
                     })
                     .clone();

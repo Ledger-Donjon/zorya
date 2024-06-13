@@ -106,7 +106,7 @@ impl<'ctx> SymbolicVar<'ctx> {
     // Additional method to negate a boolean bit vector
     pub fn bool_not(&self, ctx: &'ctx Context) -> Result<SymbolicVar<'ctx>, &'static str> {
         match self {
-            SymbolicVar::Int(bv) if bv.get_size() == 1 => { // Ensure it's treated as a boolean
+            SymbolicVar::Int(bv) => { // Ensure it's treated as a boolean
                 Ok(SymbolicVar::Int(bv.bvnot())) // Negate the bit vector
             },
             _ => Err("bool_not is applicable only to 1-bit wide integer bit vectors"),
