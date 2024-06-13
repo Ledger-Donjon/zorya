@@ -7,7 +7,7 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 mod tests {
     use std::collections::BTreeMap;
     use parser::parser::Size;
-    use zorya::concolic::{executor_int::{handle_int_add, handle_int_and, handle_int_carry, handle_int_equal, handle_int_less, handle_int_sborrow, handle_int_scarry, handle_int_sless, handle_int_sub}, Logger};
+    use zorya::concolic::{executor_int::{handle_int_add, handle_int_and, handle_int_carry, handle_int_equal, handle_int_less, handle_int_sborrow, handle_int_scarry, handle_int_sless, handle_int_sub, handle_int_zext}, ConcolicVar, Logger};
 
     use super::*;
     
@@ -311,6 +311,41 @@ mod tests {
         let unique_name = "Unique(0xe000)".to_string();
         let unique_var = executor.unique_variables.get(&unique_name).expect("Unique variable not found");
         assert_eq!(unique_var.concrete.to_u64(), 1); // Ensure it correctly identifies the signed carry
+    }
+
+    #[test]
+    fn test_handle_int_zext() {
+        let mut executor = setup_executor();
+
+        // Setup a varnode with a small size (e.g., Byte) and expect it to zero-extend to a Quad size
+        let input_varnode = Varnode {
+            var: Var::Unique(0x5000),
+            size: Size::Byte,  // Original smaller size
+        };
+        let output_varnode = Varnode {
+            var: Var::Unique(0x6000),
+            size: Size::Quad,  // Extended larger size
+        };
+
+        // Inserting a predefined small-sized value into the unique_variables
+        let initial_concolic_var = ConcolicVar::new_concrete_and_symbolic_int(0xAB, "input0", executor.context, 8);  // 0xAB is 10101011 in binary
+        executor.unique_variables.insert(format!("Unique(0x{:x})", 0x5000), initial_concolic_var);
+
+        let zext_inst = Inst {
+            opcode: Opcode::IntZExt,
+            output: Some(output_varnode),
+            inputs: vec![input_varnode],
+        };
+
+        let result = handle_int_zext(&mut executor, zext_inst);
+        assert!(result.is_ok(), "handle_int_zext returned an error: {:?}", result);
+
+        // Check if the result is zero-extended correctly
+        let unique_name = format!("Unique(0x{:x})", 0x6000);
+        let zero_extended_var = executor.unique_variables.get(&unique_name).expect("Zero-extended variable not found");
+
+        // The expected result should be 0x00000000000000AB when zero-extended from Byte to Quad
+        assert_eq!(zero_extended_var.concrete.to_u64(), 0xAB, "Zero extension did not work as expected");
     }
 
 }

@@ -1,6 +1,6 @@
-use crate::{executor, state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue}};
+use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
 use z3::Context;
-use super::{ConcolicExecutor, ConcolicVar};
+use super::{ConcolicExecutor, ConcolicVar, ConcreteVar, SymbolicVar};
 use std::io::Write;
 
 macro_rules! log {
@@ -17,6 +17,14 @@ pub enum ConcolicEnum<'ctx> {
 }
 
 impl<'ctx> ConcolicEnum<'ctx> {
+
+    pub fn get_concrete(&self) -> Option<u64> {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => Some(var.concrete.to_u64()),
+            ConcolicEnum::CpuConcolicValue(cpu_value) => Some(cpu_value.concrete.to_u64()),
+            ConcolicEnum::MemoryConcolicValue(mem_value) => Some(mem_value.concrete.to_u64()),
+        }
+    }
     
     pub fn concolic_add(self, other: ConcolicEnum<'ctx>) -> Result<ConcolicEnum<'ctx>, &'static str> {
         match (self, other) {
@@ -515,6 +523,71 @@ impl<'ctx> ConcolicEnum<'ctx> {
             // OR operation between two MemoryConcolicValues
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => {
                 a.or(b).map(ConcolicEnum::MemoryConcolicValue)
+            },
+        }
+    }
+
+    /// Zero-extend the concolic variable to a larger bit size.
+    pub fn concolic_zero_extend(&self, new_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => {
+                Ok(var.concolic_zero_extend(new_size).map(ConcolicEnum::ConcolicVar)?)
+            },
+            ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                // Assuming similar implementation for CpuConcolicValue
+                Ok(cpu_var.concolic_zero_extend(new_size).map(ConcolicEnum::CpuConcolicValue)?)
+            },
+            ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                // Assuming similar implementation for MemoryConcolicValue
+                Ok(mem_var.concolic_zero_extend(new_size).map(ConcolicEnum::MemoryConcolicValue)?)
+            },
+        }
+    }
+
+    // Function to perform logical negation on a concolic boolean
+    pub fn concolic_bool_negate(&self) -> Result<Self, &'static str> {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => {
+                var.symbolic.bool_not(var.ctx).map(|negated_symbolic| {
+                    ConcolicEnum::ConcolicVar(ConcolicVar {
+                        concrete: if var.concrete.to_u64() == 0 { ConcreteVar::Int(1) } else { ConcreteVar::Int(0) },
+                        symbolic: negated_symbolic,
+                        ctx: var.ctx,
+                    })
+                })
+            },
+            ConcolicEnum::CpuConcolicValue(cpu_value) => {
+                cpu_value.symbolic.bool_not(cpu_value.ctx).map(|negated_symbolic| {
+                    ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+                        concrete: if cpu_value.concrete.to_u64() == 0 { ConcreteVar::Int(1) } else { ConcreteVar::Int(0) },
+                        symbolic: negated_symbolic,
+                        ctx: cpu_value.ctx,
+                    })
+                })
+            },
+            ConcolicEnum::MemoryConcolicValue(mem_value) => {
+                mem_value.symbolic.bool_not(mem_value.ctx).map(|negated_symbolic| {
+                    ConcolicEnum::MemoryConcolicValue(MemoryConcolicValue {
+                        concrete: if mem_value.concrete.to_u64() == 0 { ConcreteVar::Int(1) } else { ConcreteVar::Int(0) },
+                        symbolic: negated_symbolic,
+                        ctx: mem_value.ctx,
+                    })
+                })
+            },
+        }
+    }
+
+    // Method to perform concolic subpiece operation
+    pub fn concolic_subpiece(self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => {
+                var.truncate(offset, new_size, ctx).map(ConcolicEnum::ConcolicVar)
+            },
+            ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                cpu_var.truncate(offset, new_size, ctx).map(ConcolicEnum::CpuConcolicValue)
+            },
+            ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                mem_var.truncate(offset, new_size, ctx).map(ConcolicEnum::MemoryConcolicValue)
             },
         }
     }

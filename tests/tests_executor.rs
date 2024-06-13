@@ -7,7 +7,7 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 mod tests {
     use std::collections::BTreeMap;
     use parser::parser::Size;
-    use zorya::{concolic::Logger, executor::ConcreteVar};
+    use zorya::{concolic::{ConcolicVar, Logger}, executor::ConcreteVar};
 
     use super::*;
     
@@ -256,5 +256,43 @@ mod tests {
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
         let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
         assert_eq!(rip_value, 0x5000);
+    }
+
+    #[test]
+    fn test_handle_subpiece() {
+        let mut executor = setup_executor();
+
+        // Mock input varnode for the SUBPIECE operation
+        let input_var = ConcolicVar::new_concrete_and_symbolic_int(0x12345678, "input_var", executor.context, 32);
+        executor.unique_variables.insert("Unique(0x100)".to_string(), input_var);
+
+        let subpiece_inst = Inst {
+            opcode: Opcode::SubPiece,
+            output: Some(Varnode {
+                var: Var::Unique(0x100),
+                size: Size::Half, // Assuming Word is 16-bits
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x100),
+                    size: Size::Word, // Assuming DWord is 32-bits
+                },
+                Varnode {
+                    var: Var::Const("2".to_string()), // Truncate the first 2 bytes
+                    size: Size::Byte,
+                },
+            ],
+        };
+
+        assert!(executor.handle_subpiece(subpiece_inst).is_ok());
+
+        // Verify the result
+        let result_var = executor.unique_variables.get("Unique(0x100)").expect("Result variable not found");
+        match result_var {
+            concolic_var => {
+                assert_eq!(concolic_var.concrete.to_u64(), 0x5678, "The result of SUBPIECE did not match expected value");
+            },
+            _ => panic!("Unexpected result type"),
+        }
     }
 }

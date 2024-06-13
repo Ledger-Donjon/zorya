@@ -791,47 +791,73 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }    
 
+    // Handle the SUBPIECE operation
     pub fn handle_subpiece(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::SubPiece || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for SUBPIECE".to_string());
         }
-    
-        let source_varnode = &instruction.inputs[0];
-        let truncate_bytes_constant = match instruction.inputs[1].var {
-            Var::Const(ref val_str) => {
-                // Check if the string starts with "0x" for a hexadecimal constant
-                if val_str.starts_with("0x") {
-                    // Strip the "0x" prefix and parse the remaining string as a hexadecimal number
-                    usize::from_str_radix(&val_str[2..], 16).map_err(|e| format!("Failed to parse constant for truncation from '{}': {}", val_str, e))
-                } else {
-                    // Directly parse the string as a decimal number
-                    val_str.parse::<usize>().map_err(|e| format!("Failed to parse constant for truncation from '{}': {}", val_str, e))
+
+        log!(self.state.logger.clone(), "* Fetching source data from instruction.input[0] for SUBPIECE");
+        let input_var = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let input_size = input_var.get_size(); // Assuming get_size() method exists to fetch the size of the input varnode
+
+        log!(self.state.logger.clone(), "* Fetching truncation offset from instruction.input[1] for SUBPIECE");
+        let truncate_offset = match &instruction.inputs[1].var {
+            Var::Const(value) => value.parse::<usize>().map_err(|_| "Invalid truncation offset".to_string())?,
+            _ => return Err("Second input for SUBPIECE must be a constant".to_string()),
+        };
+
+        // Calculate the new size after truncation
+        let new_size = input_size.checked_sub(truncate_offset.try_into().unwrap()).ok_or("Truncation offset is larger than the input size")?;
+
+        // Perform truncation operation considering endianess
+        let result_value = input_var.concolic_subpiece(truncate_offset, new_size, self.context)
+            .map_err(|e| e.to_string())?;
+        log!(self.state.logger.clone(), "*** The result of SUBPIECE is: {:?}", result_value.clone());
+
+        // Determine the output variable and update it with the truncated data
+        if let Some(output_varnode) = instruction.output.as_ref() {
+            match &output_varnode.var {
+                Var::Unique(id) => {
+                    let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
+                        result_value.get_concrete_value(),
+                        &format!("Unique(0x{:x})", id),
+                        self.context,
+                        new_size as u32, // new_size needs to be cast to u32 ?
+                    );
+                    let unique_name = format!("Unique(0x{:x})", id);
+                    self.unique_variables.insert(unique_name.clone(), concolic_var);
+                    log!(self.state.logger.clone(), "Updated unique_variables with truncated result: {:?}", self.unique_variables);
+                },
+                _ => {
+                    log!(self.state.logger.clone(), "Output type is unsupported for SUBPIECE");
+                    return Err("Output type not supported".to_string());
                 }
+            }
+        } else {
+            return Err("No output variable specified for SUBPIECE instruction".to_string());
+        }
+
+        log!(self.state.logger.clone(), "{}\n", self);
+
+        // Create a concolic variable for the result
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-subpiece", current_addr_hex, self.instruction_counter);
+        match result_value {
+            ConcolicEnum::ConcolicVar(var) => {
+                self.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
             },
-            _ => Err("Second input for SUBPIECE must be a constant representing the number of bytes to truncate.".to_string()),
-        }?;
-    
-        let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required for SUBPIECE".to_string())?;
-    
-        // Fetch the concrete value for the source variable
-        let source_value = self.state.get_concrete_var(source_varnode)?;
-        match source_value {
-            ConcreteVar::Int(source_int) => {
-                // Assuming the source integer is treated as a byte array, we need to truncate it accordingly.
-                // This approach is simplistic and might need adjustment based on your actual data representation.
-                let source_bytes = source_int.to_le_bytes(); // Convert to bytes assuming little-endian
-                let truncated_bytes = &source_bytes[truncate_bytes_constant.min(8)..]; // Ensure we don't exceed the length
-                let truncated_int = u64::from_le_bytes(truncated_bytes.try_into().unwrap_or_default()); // Convert back to int
-    
-                // Create or update the variable for the truncated value
-                let var_name = format!("subpiece_result_{:?}", output_varnode.var);
-                self.state.create_or_update_concolic_var_int(&var_name, truncated_int, output_varnode.size.to_bitvector_size());
+            ConcolicEnum::CpuConcolicValue(cpu_var) => {
+                self.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
             },
-            _ => return Err("SUBPIECE operation currently supports only integer source data".to_string()),
+            ConcolicEnum::MemoryConcolicValue(mem_var) => {
+                self.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+            },
         }
     
         Ok(())
-    }        
+    }
+        
 }
 
 impl<'ctx> fmt::Display for ConcolicExecutor<'ctx> {

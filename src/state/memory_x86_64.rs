@@ -444,6 +444,43 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
         })
     }
 
+    pub fn concolic_zero_extend(&self, new_size: u32) -> Result<Self, &'static str> {
+        let current_size = self.symbolic.get_size() as u32;
+        if new_size <= current_size {
+            return Err("New size must be greater than current size.");
+        }
+        
+        let extension_size = new_size - current_size;
+        let zero_extended_symbolic = match &self.symbolic {
+            SymbolicVar::Int(bv) => SymbolicVar::Int(bv.zero_ext(extension_size)),
+            _ => return Err("Zero extension is only applicable to integer bit vectors."),
+        };
+
+        Ok(Self {
+            concrete: ConcreteVar::Int(self.concrete.to_u64()),  // Concrete value remains unchanged
+            symbolic: zero_extended_symbolic,
+            ctx: self.ctx,
+        })
+    }
+
+    // Truncate both concrete and symbolic values
+    pub fn truncate(&self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<Self, &'static str> {
+        let new_symbolic = match &self.symbolic {
+            SymbolicVar::Int(bv) => SymbolicVar::Int(bv.extract((offset + new_size as usize - 1) as u32, offset as u32)),
+            _ => return Err("Unsupported operation for this symbolic type"),
+        };
+        
+        let mask = (1u64 << new_size) - 1;
+        let new_concrete = self.concrete.right_shift(offset);
+        let new_concrete_final = new_concrete.bitand(&ConcreteVar::Int(mask));
+
+        Ok(MemoryConcolicValue {
+            concrete: new_concrete_final,
+            symbolic: new_symbolic,
+            ctx,
+        })
+    }
+
     // Method to retrieve the concrete u64 value
     pub fn get_concrete_value(&self) -> Result<u64, String> {
         match self.concrete {

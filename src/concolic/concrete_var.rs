@@ -160,6 +160,22 @@ impl ConcreteVar {
             ConcreteVar::Str(s) => (s.len() * 8) as u32,  // Example, size in bits
         }
     }
+
+    pub fn right_shift(&self, shift: usize) -> Self {
+        match *self {
+            ConcreteVar::Int(val) => ConcreteVar::Int(val >> shift),
+            // Define behavior for other types or restrict operation to integers only
+            _ => panic!("Right shift operation not supported for this type"),
+        }
+    }
+
+    // Bitwise AND operation for ConcreteVar
+    pub fn bitand(&self, other: &ConcreteVar) -> Self {
+        match (self, other) {
+            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(a & b),
+            _ => panic!("Bitwise AND operation is not defined for floats"),
+        }
+    }
 }
 
 #[derive(Debug)]
