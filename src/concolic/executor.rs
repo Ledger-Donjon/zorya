@@ -129,7 +129,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::IntLessEqual => executor_int::handle_int_lessequal(self, instruction),
             Opcode::IntMult => executor_int::handle_int_mult(self, instruction),
             Opcode::IntNegate => executor_int::handle_int_negate(self, instruction),
-            Opcode::IntNotEqual => executor_int::handle_int_not_equal(self, instruction),
+            Opcode::IntNotEqual => executor_int::handle_int_notequal(self, instruction),
             Opcode::IntOr => executor_int::handle_int_or(self, instruction),
             Opcode::IntRem => executor_int::handle_int_rem(self, instruction),
             Opcode::IntRight => executor_int::handle_int_right(self, instruction),

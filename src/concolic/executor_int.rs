@@ -506,13 +506,13 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     match result_value {
         ConcolicEnum::ConcolicVar(var) => {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
-            log!(executor.state.logger.clone(), "Created concolic variable for the result: {}", result_var_name);
         },
         ConcolicEnum::CpuConcolicValue(cpu_var) => {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
-            log!(executor.state.logger.clone(), "Created concolic variable for the result: {}", result_var_name);
         },
-        _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
+        ConcolicEnum::MemoryConcolicValue(mem_var) => {
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+        },
     }
 
     //log!(executor.state.logger.clone(), "{}\n", executor.state);
@@ -520,28 +520,41 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     Ok(())
 }
 
-pub fn handle_int_not_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
-    // Ensure the correct instruction format
-    if instruction.opcode != Opcode::IntNotEqual || instruction.inputs.len() != 2 {
+pub fn handle_int_notequal(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+    if instruction.opcode != Opcode::IntNotEqual || instruction.inputs.len() != 2 || instruction.output.is_none() {
         return Err("Invalid instruction format for INT_NOTEQUAL".to_string());
     }
 
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
-    // Ensure output size is 1 (boolean)
-    if output_varnode.size != Size::Byte {
-        return Err("Output varnode size must be 1 (Byte) for INT_NOTEQUAL".to_string());
+    log!(executor.state.logger.clone(), "* Fetching operands for INT_NOTEQUAL");
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+
+    if input0_var.get_size() != input1_var.get_size() {
+        return Err("Inputs sizes do not match".to_string());
     }
 
-    let value0 = executor.initialize_var_if_absent(&instruction.inputs[0])?;
-    let value1 = executor.initialize_var_if_absent(&instruction.inputs[1])?;
+    let result_bool = input0_var.get_concrete_value() != input1_var.get_concrete_value();
+    log!(executor.state.logger.clone(), "*** INT_NOTEQUAL result: {}", result_bool);
 
-    // Compare the two values
-    let result = (value0 != value1) as u32; // Convert boolean result to u32
-
-    // Store the result
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_int(result.into(), &result_var_name, executor.context, 1));
+    // Convert the result to a ConcolicVar or handle directly as a boolean
+    match instruction.output.as_ref().unwrap().var {
+        Var::Unique(id) => {
+            let unique_name = format!("Unique(0x{:x})", id);
+            let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(result_bool.into(), &unique_name, executor.context, 1);
+            executor.unique_variables.insert(unique_name, concolic_var);
+            log!(executor.state.logger.clone(), "Updated unique variable with result: Unique(0x{:x})", id);
+        },
+        Var::Register(offset, size) if size == Size::Byte => {
+            let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+            let concrete_value = result_bool as u64;
+            cpu_state_guard.set_register_value_by_offset(offset, concrete_value).map_err(|e| e.to_string())?;
+            log!(executor.state.logger.clone(), "Set register at offset 0x{:x} with value {}", offset, concrete_value);
+        },
+        _ => {
+            log!(executor.state.logger.clone(), "Unsupported output type for INT_NOTEQUAL");
+            return Err("Output type not supported".to_string());
+        }
+    }
 
     Ok(())
 }

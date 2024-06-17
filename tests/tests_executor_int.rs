@@ -7,7 +7,7 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 mod tests {
     use std::collections::BTreeMap;
     use parser::parser::Size;
-    use zorya::concolic::{executor_int::{handle_int_add, handle_int_and, handle_int_carry, handle_int_equal, handle_int_less, handle_int_sborrow, handle_int_scarry, handle_int_sless, handle_int_sub, handle_int_zext}, ConcolicVar, Logger};
+    use zorya::concolic::{executor_int::{handle_int_add, handle_int_and, handle_int_carry, handle_int_equal, handle_int_less, handle_int_notequal, handle_int_sborrow, handle_int_scarry, handle_int_sless, handle_int_sub, handle_int_zext}, ConcolicEnum, ConcolicVar, Logger};
 
     use super::*;
     
@@ -346,6 +346,40 @@ mod tests {
 
         // The expected result should be 0x00000000000000AB when zero-extended from Byte to Quad
         assert_eq!(zero_extended_var.concrete.to_u64(), 0xAB, "Zero extension did not work as expected");
+    }
+
+    #[test]
+    fn test_handle_int_notequal() {
+        let mut executor = setup_executor();
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(5, "input0", executor.context, 32);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(10, "input1", executor.context, 32);
+        executor.unique_variables.insert("input0".to_string(), input0);
+        executor.unique_variables.insert("input1".to_string(), input1);
+
+        let notequal_inst = Inst {
+            opcode: Opcode::IntNotEqual,
+            output: Some(Varnode {
+                var: Var::Unique(0x3000),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x1000),
+                    size: Size::Word,
+                },
+                Varnode {
+                    var: Var::Unique(0x2000),
+                    size: Size::Word,
+                },
+            ],
+        };
+
+        let result = handle_int_notequal(&mut executor, notequal_inst);
+        assert!(result.is_ok(), "handle_int_notequal returned an error: {:?}", result);
+
+        let unique_name = "Unique(0x3000)".to_string();
+        let result_var = executor.unique_variables.get(&unique_name).expect("Result variable not found");
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(1), "INT_NOTEQUAL did not produce the expected result");
     }
 
 }
