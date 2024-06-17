@@ -20,7 +20,7 @@ mod tests {
             context: ctx,
             solver: Solver::new(ctx),
             state,
-            current_address: None,
+            current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),        }
     }

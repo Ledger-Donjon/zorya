@@ -249,23 +249,41 @@ impl<'ctx> ConcolicVar<'ctx> {
         })
     }
 
-    // Truncate both concrete and symbolic values
     pub fn truncate(&self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let new_symbolic = match &self.symbolic {
-            SymbolicVar::Int(bv) => SymbolicVar::Int(bv.extract((offset + new_size as usize - 1) as u32, offset as u32)),
-            _ => return Err("Unsupported operation for this symbolic type"),
+        // Validate new_size and offset to prevent out of range shifts
+        if new_size > 64 { // Assuming ConcreteVar is a u64 based on usage
+            return Err("new_size exceeds the number of bits in ConcreteVar");
+        }
+        if offset >= 64 { // Prevent shifting beyond the bit width
+            return Err("offset exceeds the number of bits in ConcreteVar");
+        }
+        if offset + new_size as usize > 64 {
+            return Err("Combined offset and new_size exceed bit width of ConcreteVar");
+        }
+    
+        // Adjust the symbolic extraction
+        let high = (offset + new_size as usize - 1) as u32;
+        let low = offset as u32;
+        let new_symbolic = match self.symbolic.extract(high, low) {
+            Ok(sym) => sym,
+            Err(_) => return Err("Failed to extract symbolic part")
         };
-        
-        let mask = (1u64 << new_size) - 1;
-        let new_concrete = self.concrete.right_shift(offset);
-        let new_concrete_final = new_concrete.bitand(&ConcreteVar::Int(mask));
-
+    
+        // Adjust the concrete value: mask the bits after shifting right
+        let mask = if new_size < 64 {
+            (1u64 << new_size) - 1
+        } else {
+            u64::MAX
+        };
+        let mask_concrete = ConcolicVar::new_concrete_and_symbolic_int(mask, "mask", ctx, 64);
+        let new_concrete = (self.concrete.clone().right_shift(offset)).bitand(&mask_concrete.concrete);
+    
         Ok(ConcolicVar {
-            concrete: new_concrete_final,
+            concrete: ConcreteVar::Int(new_concrete.to_u64()),
             symbolic: new_symbolic,
             ctx,
         })
-    }
+    }    
 
     pub fn update_concrete_int(&mut self, new_value: u64) {
         self.concrete = ConcreteVar::Int(new_value);

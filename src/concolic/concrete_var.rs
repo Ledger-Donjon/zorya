@@ -161,13 +161,22 @@ impl ConcreteVar {
         }
     }
 
-    pub fn right_shift(&self, shift: usize) -> Self {
-        match *self {
-            ConcreteVar::Int(val) => ConcreteVar::Int(val >> shift),
-            // Define behavior for other types or restrict operation to integers only
-            _ => panic!("Right shift operation not supported for this type"),
+    // Method to perform a right shift operation safely
+    pub fn right_shift(self, shift: usize) -> Self {
+        match self {
+            ConcreteVar::Int(value) => {
+                // Safely perform the right shift on an integer value.
+                // We mask the shift by 63 to prevent panics or undefined behavior from shifting more than the bits available in u64.
+                ConcreteVar::Int(value >> (shift & 63))
+            },
+            // For other types, return them unchanged or handle as needed.
+            ConcreteVar::Float(_) | ConcreteVar::Str(_) => {
+                // Logically, right shifting a float or string does not make sense,
+                // so we can return the value unchanged or handle it differently if needed.
+                self
+            },
         }
-    }
+    } 
 
     // Bitwise AND operation for ConcreteVar
     pub fn bitand(&self, other: &ConcreteVar) -> Self {

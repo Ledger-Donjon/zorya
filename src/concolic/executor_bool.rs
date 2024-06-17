@@ -13,27 +13,61 @@ macro_rules! log {
     }};
 }
 
+// Handle the BOOL_AND instruction
 pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
-    // Validate instruction format and sizes
     if instruction.opcode != Opcode::BoolAnd || instruction.inputs.len() != 2 {
         return Err("Invalid instruction format for BOOL_AND".to_string());
     }
+    
+    // Fetch concolic variables for the two boolean inputs
+    log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for BOOL_AND");
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| {
+        log!(executor.state.logger.clone(), "Error converting input0_var: {}", e);
+        e.to_string()
+    })?;
+    
+    log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for BOOL_AND");
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| {
+        log!(executor.state.logger.clone(), "Error converting input1_var: {}", e);
+        e.to_string()
+    })?;
 
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
-    if output_varnode.size != Size::Byte {
-        return Err("Output must be size 1 (Byte) for BOOL_AND".to_string());
+    // Perform the AND operation
+    let result_value = input0_var.concolic_and(executor.context, input1_var).map_err(|e| {
+        log!(executor.state.logger.clone(), "Error performing AND operation: {}", e);
+        e.to_string()
+    })?;
+    log!(executor.state.logger.clone(), "*** The result of BOOL_AND is: {:?}", result_value.clone());
+
+    // Handle the result based on the output varnode
+    match instruction.output.as_ref().map(|v| &v.var) {
+        Some(Var::Unique(id)) => {
+            let unique_name = format!("Unique(0x{:x})", id);
+            let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
+                result_value.get_concrete_value(), 
+                &unique_name.clone(),              
+                executor.context,
+                1 // Boolean size is 1
+            );
+            executor.unique_variables.insert(unique_name.clone(), concolic_var);
+            log!(executor.state.logger.clone(), "Updated unique variable with AND result: {}", unique_name);
+        },
+        Some(Var::Register(offset, _)) => {
+            let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+            let concrete_value = if result_value.get_concrete_value() != 0 { 1 } else { 0 };
+            cpu_state_guard.set_register_value_by_offset(*offset, concrete_value).map_err(|e| {
+                log!(executor.state.logger.clone(), "Failed to set register value: {}", e);
+                e.to_string()
+            })?;
+            log!(executor.state.logger.clone(), "Set register at offset 0x{:x} with value {}", offset, concrete_value);
+        },
+        _ => {
+            log!(executor.state.logger.clone(), "Output type is unsupported for BOOL_AND");
+            return Err("Output type not supported".to_string());
+        }
     }
 
-    let input0_value = executor.initialize_var_if_absent(&instruction.inputs[0])?;
-    let input1_value = executor.initialize_var_if_absent(&instruction.inputs[1])?;
-
-    // Perform boolean AND
-    let result = (input0_value & input1_value) & 1; // Ensure result is boolean (0 or 1)
-
-    // Store the result
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.create_concolic_var_int(&result_var_name, result as u64, 1);
+    log!(executor.state.logger.clone(), "{}\n", executor);
 
     Ok(())
 }

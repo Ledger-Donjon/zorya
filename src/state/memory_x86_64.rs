@@ -465,21 +465,31 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
 
     // Truncate both concrete and symbolic values
     pub fn truncate(&self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let new_symbolic = match &self.symbolic {
-            SymbolicVar::Int(bv) => SymbolicVar::Int(bv.extract((offset + new_size as usize - 1) as u32, offset as u32)),
-            _ => return Err("Unsupported operation for this symbolic type"),
-        };
-        
+        // Check if the new size and offset are valid
+        if offset + new_size as usize > self.symbolic.get_size() as usize {
+            return Err("Truncation range out of bounds");
+        }
+
+        // Adjust the symbolic extraction
+        let high = (offset + new_size as usize - 1) as u32;
+        let low = offset as u32;
+        let new_symbolic = self.symbolic.extract(high, low)
+            .map_err(|_| "Failed to extract symbolic part")?;  // Properly handle the Result from extract
+
+        // Adjust the concrete value: mask the bits after shifting right
         let mask = (1u64 << new_size) - 1;
-        let new_concrete = self.concrete.right_shift(offset);
-        let new_concrete_final = new_concrete.bitand(&ConcreteVar::Int(mask));
+        let new_concrete = match self.concrete {
+            ConcreteVar::Int(value) => (value >> offset) & mask,
+            _ => return Err("Unsupported operation for this concrete type"),
+        };
 
         Ok(MemoryConcolicValue {
-            concrete: new_concrete_final,
+            concrete: ConcreteVar::Int(new_concrete),
             symbolic: new_symbolic,
             ctx,
         })
     }
+    
 
     // Method to retrieve the concrete u64 value
     pub fn get_concrete_value(&self) -> Result<u64, String> {

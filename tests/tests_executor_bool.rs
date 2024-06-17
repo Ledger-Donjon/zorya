@@ -1,16 +1,14 @@
-use z3::{Config, Context, Solver};
-use zorya::concolic::ConcolicExecutor;
-use zorya::state::State;
-use parser::parser::{Inst, Opcode, Var, Varnode};
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use parser::parser::Size;
-    use zorya::{concolic::{executor_bool::handle_bool_negate, ConcolicEnum, ConcolicVar, Logger}, executor::ConcreteVar};
 
     use super::*;
-    
+    use zorya::concolic::executor_bool::{handle_bool_and, handle_bool_negate};
+    use zorya::concolic::{ConcolicExecutor, ConcolicVar, ConcolicEnum, Logger};
+    use zorya::state::{State};
+    use parser::parser::{Inst, Opcode, Var, Varnode, Size};
+    use z3::{Config, Context, Solver};
+
     fn setup_executor() -> ConcolicExecutor<'static> {
         let cfg = Config::new();
         let ctx = Box::leak(Box::new(Context::new(&cfg)));
@@ -20,9 +18,52 @@ mod tests {
             context: ctx,
             solver: Solver::new(ctx),
             state,
-            current_address: None,
+            current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
+        }
+    }
+    
+    #[test]
+    fn test_handle_bool_and() {
+        let mut executor = setup_executor();
+
+        // Setup: Create two boolean variables, one true and one false
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(1, "true", executor.context, 1); // true
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(0, "false", executor.context, 1); // false
+        executor.unique_variables.insert("Unique(0x100)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x101)".to_string(), input1);
+
+        // Define the instruction to perform a BOOL_AND operation
+        let and_inst = Inst {
+            opcode: Opcode::BoolAnd,
+            output: Some(Varnode {
+                var: Var::Unique(0x102),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x100),
+                    size: Size::Byte,
+                },
+                Varnode {
+                    var: Var::Unique(0x101),
+                    size: Size::Byte,
+                },
+            ],
+        };
+
+        // Execute the BOOL_AND operation
+        let result = handle_bool_and(&mut executor, and_inst);
+        assert!(result.is_ok(), "BOOL_AND operation failed");
+
+        println!("{:?}", executor.unique_variables);
+
+        // Verify the result of the BOOL_AND operation
+        if let Some(result_var) = executor.unique_variables.get("Unique(0x102)") {
+            assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(0), "BOOL_AND did not compute the correct result (true AND false should be false)");
+        } else {
+            panic!("BOOL_AND result not found or incorrect type");
         }
     }
 
