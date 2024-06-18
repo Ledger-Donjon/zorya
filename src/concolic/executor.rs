@@ -185,7 +185,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     value.parse::<u64>()
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
                 log!(self.state.logger.clone(), "parsed value: {}", parsed_value);
-                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, parsed_value);
+                let memory_var = MemoryConcolicValue::new( self.context, parsed_value);
                 log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {}", memory_var);
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
