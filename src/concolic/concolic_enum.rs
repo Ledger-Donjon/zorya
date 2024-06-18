@@ -400,25 +400,25 @@ impl<'ctx> ConcolicEnum<'ctx> {
     pub fn concolic_equal(self, other: ConcolicEnum<'ctx>, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
         let result = match (self, other) {
             // Comparing ConcolicVar with ConcolicVar
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_str() == b.concrete.to_str(),
 
             // Comparing CpuConcolicValue with CpuConcolicValue
-            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_str() == b.concrete.to_str(),
 
             // Comparing MemoryConcolicValue with MemoryConcolicValue
-            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_str() == b.concrete.to_str(),
 
             // Comparing ConcolicVar with CpuConcolicValue
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
-            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_str() == b.concrete.to_str(),
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_str() == b.concrete.to_str(),
 
             // Comparing ConcolicVar with MemoryConcolicValue
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
+            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_str() == b.concrete.to_str(),
             (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::ConcolicVar(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
 
             // Comparing CpuConcolicValue with MemoryConcolicValue
-            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
-            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_u64() == b.concrete.to_u64(),
+            (ConcolicEnum::CpuConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.concrete.to_str() == b.concrete.to_str(),
+            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::CpuConcolicValue(b)) => a.concrete.to_str() == b.concrete.to_str(),
         };
 
         let result_name = format!("{}", result);
