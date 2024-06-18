@@ -202,6 +202,9 @@ mod tests {
     #[test]
     fn test_handle_int_equal() {
         let mut executor = setup_executor();
+        let unique_name = "Unique(0xa000)".to_string();
+        let unique_var = ConcolicVar::new_concrete_and_symbolic_int(5, &unique_name, executor.context, 64);
+        executor.unique_variables.insert(unique_name.clone(), unique_var);
         let int_equal_inst = Inst {
             opcode: Opcode::IntEqual,
             output: Some(Varnode {
@@ -210,11 +213,11 @@ mod tests {
             }),
             inputs: vec![
                 Varnode {
-                    var: Var::Const("5".to_string()),
+                    var: Var::Unique(0xa000),
                     size: Size::Quad,
                 },
                 Varnode {
-                    var: Var::Const("5".to_string()),
+                    var: Var::Const("0x5".to_string()),
                     size: Size::Quad,
                 },
             ],

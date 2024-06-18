@@ -404,116 +404,137 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     // Perform the equality comparison
-    let result_value = input0_var.concolic_equal(input1_var, executor.context).map_err(|e| e.to_string())?;
-    log!(executor.state.logger.clone(), "*** The result of INT_EQUAL is: {:?}\n", result_value.clone());
+    //let result_value = input0_var.concolic_equal(input1_var, executor.context, executor).map_err(|e| e.to_string())?;
+    log!(executor.state.logger.clone(), "Comparing input0: {:?} with input1: {:?}", input0_var.get_concrete(), input1_var.get_concrete());
+    let result_bool = input0_var.get_concrete_value() == input1_var.get_concrete_value();
+    log!(executor.state.logger.clone(), "*** The result of INT_EQUAL is: {:?}\n", result_bool.clone());
 
     // Handle the result based on the output varnode
-    match instruction.output.as_ref().map(|v| &v.var) {
-        Some(Var::Unique(id)) => {
-            // Handle unique variable
-            match &result_value {
-                ConcolicEnum::ConcolicVar(concolic_var) => {
-                    let unique_name = format!("Unique(0x{:x})", id);
-                    executor.unique_variables.insert(unique_name, concolic_var.clone());
-                    log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x})", id);
-                },
-                ConcolicEnum::CpuConcolicValue(cpu_var) => {
-                    let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
-                        cpu_var.get_concrete_value().unwrap_or(0),
-                        &cpu_var.symbolic.to_str(),
-                        executor.context,
-                        cpu_var.get_size()
-                    );
-                    let unique_name = format!("Unique(0x{:x})", id);
-                    executor.unique_variables.insert(unique_name, concolic_var);
-                    log!(executor.state.logger.clone(), "Converted CpuConcolicValue to ConcolicVar and updated unique variable: Unique(0x{:x})", id);
-                },
-                ConcolicEnum::MemoryConcolicValue(mem_var) => {
-                    let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
-                        mem_var.get_concrete_value().unwrap_or(0),
-                        &mem_var.symbolic.to_str(),
-                        executor.context,
-                        mem_var.get_size()
-                    );
-                    let unique_name = format!("Unique(0x{:x})", id);
-                    executor.unique_variables.insert(unique_name, concolic_var);
-                    log!(executor.state.logger.clone(), "Converted MemoryConcolicValue to ConcolicVar and updated unique variable: Unique(0x{:x})", id);
-                },
-            }
+    match instruction.output.as_ref().unwrap().var {
+        Var::Unique(id) => {
+            let unique_name = format!("Unique(0x{:x})", id);
+            let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(result_bool.into(), &unique_name, executor.context, 1);
+            executor.unique_variables.insert(unique_name, concolic_var);
+            log!(executor.state.logger.clone(), "Updated unique variable with result: Unique(0x{:x})", id);
         },
-        Some(Var::Register(offset, _)) => {
-            log!(executor.state.logger.clone(), "Output is a Register type");
+        Var::Register(offset, size) if size == Size::Byte => {
             let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-            match &result_value {
-                ConcolicEnum::ConcolicVar(var) => {
-                    let concrete_value = var.concrete.to_u64();
-                    let equal_bool = concrete_value != 0;
-                    log!(executor.state.logger.clone(), "Setting register value at offset 0x{:x} to {}", offset, equal_bool as u64);
-                    let set_result = cpu_state_guard.set_register_value_by_offset(*offset, equal_bool as u64);
-                    match set_result {
-                        Ok(_) => {
-                            // Verify if the register value is set correctly
-                            let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
-                            if updated_value == equal_bool as u64 {
-                                log!(executor.state.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
-                            } else {
-                                log!(executor.state.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);
-                                return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
-                            }
-                        },
-                        Err(e) => {
-                            log!(executor.state.logger.clone(), "Failed to set register value: {}", e);
-                            return Err(format!("Failed to set register value at offset 0x{:x}", offset));
-                        }
-                    }
-                },
-                ConcolicEnum::CpuConcolicValue(cpu_var) => {
-                    let concrete_value = cpu_var.get_concrete_value().unwrap_or(0);
-                    let equal_bool = concrete_value != 0;
-                    log!(executor.state.logger.clone(), "Setting register value at offset 0x{:x} to {}", offset, equal_bool as u64);
-                    let set_result = cpu_state_guard.set_register_value_by_offset(*offset, equal_bool as u64);
-                    match set_result {
-                        Ok(_) => {
-                            // Verify if the register value is set correctly
-                            let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
-                            if updated_value == equal_bool as u64 {
-                                log!(executor.state.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
-                            } else {
-                                log!(executor.state.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);
-                                return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
-                            }
-                        },
-                        Err(e) => {
-                            log!(executor.state.logger.clone(), "Failed to set register value: {}", e);
-                            return Err(format!("Failed to set register value at offset 0x{:x}", offset));
-                        }
-                    }
-                },
-                _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
-            }
+            let concrete_value = result_bool as u64;
+            cpu_state_guard.set_register_value_by_offset(offset, concrete_value).map_err(|e| e.to_string())?;
+            log!(executor.state.logger.clone(), "Set register at offset 0x{:x} with value {}", offset, concrete_value);
         },
         _ => {
-            log!(executor.state.logger.clone(), "Output type is unsupported");
+            log!(executor.state.logger.clone(), "Unsupported output type for INT_EQUAL");
             return Err("Output type not supported".to_string());
         }
     }
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
+    // match instruction.output.as_ref().map(|v| &v.var) {
+    //     Some(Var::Unique(id)) => {
+    //         // Handle unique variable
+    //         match &result_value {
+    //             ConcolicEnum::ConcolicVar(concolic_var) => {
+    //                 let unique_name = format!("Unique(0x{:x})", id);
+    //                 executor.unique_variables.insert(unique_name, concolic_var.clone());
+    //                 log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x})", id);
+    //             },
+    //             ConcolicEnum::CpuConcolicValue(cpu_var) => {
+    //                 let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
+    //                     cpu_var.get_concrete_value().unwrap_or(0),
+    //                     &cpu_var.symbolic.to_str(),
+    //                     executor.context,
+    //                     cpu_var.get_size()
+    //                 );
+    //                 let unique_name = format!("Unique(0x{:x})", id);
+    //                 executor.unique_variables.insert(unique_name, concolic_var);
+    //                 log!(executor.state.logger.clone(), "Converted CpuConcolicValue to ConcolicVar and updated unique variable: Unique(0x{:x})", id);
+    //             },
+    //             ConcolicEnum::MemoryConcolicValue(mem_var) => {
+    //                 let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
+    //                     mem_var.get_concrete_value().unwrap_or(0),
+    //                     &mem_var.symbolic.to_str(),
+    //                     executor.context,
+    //                     mem_var.get_size()
+    //                 );
+    //                 let unique_name = format!("Unique(0x{:x})", id);
+    //                 executor.unique_variables.insert(unique_name, concolic_var);
+    //                 log!(executor.state.logger.clone(), "Converted MemoryConcolicValue to ConcolicVar and updated unique variable: Unique(0x{:x})", id);
+    //             },
+    //         }
+    //     },
+    //     Some(Var::Register(offset, _)) => {
+    //         log!(executor.state.logger.clone(), "Output is a Register type");
+    //         let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+    //         match &result_value {
+    //             ConcolicEnum::ConcolicVar(var) => {
+    //                 let concrete_value = var.concrete.to_u64();
+    //                 let equal_bool = concrete_value != 0;
+    //                 log!(executor.state.logger.clone(), "Setting register value at offset 0x{:x} to {}", offset, equal_bool as u64);
+    //                 let set_result = cpu_state_guard.set_register_value_by_offset(*offset, equal_bool as u64);
+    //                 match set_result {
+    //                     Ok(_) => {
+    //                         // Verify if the register value is set correctly
+    //                         let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
+    //                         if updated_value == equal_bool as u64 {
+    //                             log!(executor.state.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
+    //                         } else {
+    //                             log!(executor.state.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);
+    //                             return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
+    //                         }
+    //                     },
+    //                     Err(e) => {
+    //                         log!(executor.state.logger.clone(), "Failed to set register value: {}", e);
+    //                         return Err(format!("Failed to set register value at offset 0x{:x}", offset));
+    //                     }
+    //                 }
+    //             },
+    //             ConcolicEnum::CpuConcolicValue(cpu_var) => {
+    //                 let concrete_value = cpu_var.get_concrete_value().unwrap_or(0);
+    //                 let equal_bool = concrete_value != 0;
+    //                 log!(executor.state.logger.clone(), "Setting register value at offset 0x{:x} to {}", offset, equal_bool as u64);
+    //                 let set_result = cpu_state_guard.set_register_value_by_offset(*offset, equal_bool as u64);
+    //                 match set_result {
+    //                     Ok(_) => {
+    //                         // Verify if the register value is set correctly
+    //                         let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
+    //                         if updated_value == equal_bool as u64 {
+    //                             log!(executor.state.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
+    //                         } else {
+    //                             log!(executor.state.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);
+    //                             return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
+    //                         }
+    //                     },
+    //                     Err(e) => {
+    //                         log!(executor.state.logger.clone(), "Failed to set register value: {}", e);
+    //                         return Err(format!("Failed to set register value at offset 0x{:x}", offset));
+    //                     }
+    //                 }
+    //             },
+    //             _ => return Err("Result of INT_EQUAL is not a ConcolicVar or CpuConcolicValue".to_string()),
+    //         }
+    //     },
+    //     _ => {
+    //         log!(executor.state.logger.clone(), "Output type is unsupported");
+    //         return Err("Output type not supported".to_string());
+    //     }
+    // }
 
-    // Create a concolic variable for the result
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}-{:02}-intequal", current_addr_hex, executor.instruction_counter);
-    match result_value {
-        ConcolicEnum::ConcolicVar(var) => {
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
-        },
-        ConcolicEnum::CpuConcolicValue(cpu_var) => {
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
-        },
-        ConcolicEnum::MemoryConcolicValue(mem_var) => {
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
-        },
-    }
+    // log!(executor.state.logger.clone(), "{}\n", executor);
+
+    // // Create a concolic variable for the result
+    // let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+    // let result_var_name = format!("{}-{:02}-intequal", current_addr_hex, executor.instruction_counter);
+    // match result_value {
+    //     ConcolicEnum::ConcolicVar(var) => {
+    //         executor.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
+    //     },
+    //     ConcolicEnum::CpuConcolicValue(cpu_var) => {
+    //         executor.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
+    //     },
+    //     ConcolicEnum::MemoryConcolicValue(mem_var) => {
+    //         executor.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
+    //     },
+    // }
 
     //log!(executor.state.logger.clone(), "{}\n", executor.state);
 
