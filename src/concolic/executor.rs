@@ -493,16 +493,35 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value);
                 value
             } else {
-                // If not found in registers, attempt to dereference from memory and assemble the 64-bit value from 8 bytes
+                // If not found in registers, dereference from memory and assemble the 64-bit value from 8 bytes
                 let memory_guard = self.state.memory.memory.read().unwrap();
                 let mut full_value = 0u64;
+
+                log!(self.state.logger.clone(), "Starting assembly of 64-bit value from memory starting at 0x{:x}", pointer_offset_concrete);
+
                 for i in 0..8 {
+                    // Calculate the address of each byte by adding the offset to the base address
                     let byte_address = pointer_offset_concrete + i as u64;
-                    let byte_value = memory_guard.get(&byte_address).map_or(0, |v| v.concrete.to_u64() as u64);
+                    log!(self.state.logger.clone(), "Calculating byte address: 0x{:x} + {} = 0x{:x}", pointer_offset_concrete, i, byte_address);
+
+                    // Retrieve the byte value from the memory, or use 0 if the byte is not found
+                    let byte_value = memory_guard.get(&byte_address).map_or(0, |v| {
+                        let concrete_value = v.concrete.to_u64() as u64;
+                        log!(self.state.logger.clone(), "Retrieved byte value from address 0x{:x}: 0x{:x}", byte_address, concrete_value);
+                        concrete_value
+                    });
+
+                    // Assemble the 64-bit value by shifting each byte value to the appropriate position
+                    log!(self.state.logger.clone(), "Shifting byte value 0x{:x} left by {} bits", byte_value, 8 * i);
                     full_value |= byte_value << (8 * i);
+                    log!(self.state.logger.clone(), "Intermediate 64-bit value: 0x{:x}", full_value);
                 }
+
+                // Log the assembled 64-bit value from memory
                 log!(self.state.logger.clone(), "Assembled 64-bit value from memory starting at 0x{:x}: 0x{:x}", pointer_offset_concrete, full_value);
+
                 full_value
+
             }
         };    
         
