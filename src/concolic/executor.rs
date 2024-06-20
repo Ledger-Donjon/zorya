@@ -568,7 +568,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         Ok(())
     }
-    
+
     // Handle STORE operation
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
@@ -581,16 +581,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
 
-        // Fetch the data to be stored (treated as assembly address directly)
+        // Fetch the data to be stored
         log!(self.state.logger.clone(), "* Fetching data to store from instruction.input[2]");
         let data_to_store_varnode = &instruction.inputs[2];
         let data_to_store_concrete = match &data_to_store_varnode.var {
             Var::Const(value) => {
-                // Convert value to u64
                 let value_u64 = u64::from_str_radix(&value.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
                 log!(self.state.logger.clone(), "Data to store is a constant with value: 0x{:x}", value_u64);
                 value_u64
-            }
+            },
             _ => {
                 let data_to_store_concolic = self.varnode_to_concolic(data_to_store_varnode).map_err(|e| e.to_string())?;
                 data_to_store_concolic.get_concrete_value()
@@ -599,11 +598,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
-        // Store the data in the memory at the calculated offset
+        // Store the data in the memory at the calculated offset, byte by byte
         {
             let mut memory_guard = self.state.memory.memory.write().unwrap();
-            memory_guard.insert(pointer_offset_concrete, MemoryConcolicValue::new(self.context, data_to_store_concrete));
-            log!(self.state.logger.clone(), "Stored data at byte offset 0x{:x}: 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
+            for i in 0..8 {
+                let byte_address = pointer_offset_concrete + i;
+                let byte_value = (data_to_store_concrete >> (8 * i)) & 0xFF; // Isolate each byte to store
+                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value));
+                log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
+            }
         }
 
         // If the address falls within the range of the CPU registers, update the register as well
@@ -615,6 +618,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         }
 
+        // Optionally update CPU registers if applicable (this would typically not be the case for multi-byte data)
         log!(self.state.logger.clone(), "{}\n", self);
 
         // Create or update a concolic variable for the result of the store operation
@@ -622,10 +626,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete, 64)));
 
-        //log!(self.state.logger.clone(), "{}", self.state);
-
         Ok(())
     }
+
 
         
     // Helper function

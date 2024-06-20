@@ -68,7 +68,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut executed_addresses = HashSet::new();
     let mut current_rip = start_address;
 
-    let address: u64 = 0xc000030760;
+    let address: u64 = 0xc00002e760;
     let range = 0x10; 
     
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address); 
