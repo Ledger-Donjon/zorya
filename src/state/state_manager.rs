@@ -45,14 +45,14 @@ impl<'a> State<'a> {
         let memory = MemoryX86_64::new(&ctx, memory_size)?;
         let _ = memory.load_all_dumps();
 	
-	// Virtual file system initialization
+	    // Virtual file system initialization
         log!(logger.clone(), "Initializing virtual file system...\n");
-	let vfs = VirtualFileSystem::new();
+	    let vfs = VirtualFileSystem::new();
 
-	// Print memory content at address 0xc0000061b0 and nearby
-        let address = 0xc0000061b0;
-        let range = 0x20; // Define the range to read before and after the address
-        log!(logger.clone(), "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+	    // Print memory content at address 0xc0000061b0 and nearby
+        // let address = 0xc0000061b0;
+        // let range = 0x20; // Define the range to read before and after the address
+        // log!(logger.clone(), "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
 	
         let state = State {
             concolic_vars: BTreeMap::new(),
@@ -65,7 +65,7 @@ impl<'a> State<'a> {
             vfs: VirtualFileSystem::new(),
             logger,
         };
-        state.print_memory_content(address, range);
+        //state.print_memory_content(address, range);
 
         Ok(state)
     }

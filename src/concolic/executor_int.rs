@@ -1010,9 +1010,9 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     }
 
     // Fetch concolic variables
-    log!(executor.state.logger.clone(), "Fetching instruction.input[0] for INT_AND");
+    log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_AND");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-    log!(executor.state.logger.clone(), "Fetching instruction.input[1] for INT_AND");
+    log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_AND");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     // Perform the logical-and operation using concolic_and

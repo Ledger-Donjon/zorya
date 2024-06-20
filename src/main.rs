@@ -68,6 +68,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut executed_addresses = HashSet::new();
     let mut current_rip = start_address;
 
+    let address: u64 = 0xc000030760;
+    let range = 0x10; 
+    
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address); 
     
     while let Some(instructions) = instructions_map.get(&current_rip) {
@@ -92,11 +95,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
         }
 
+        log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+        executor.state.print_memory_content(address, range);
+
         // Fetch the current RIP value after executing instructions
         let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
         log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
 
-	// Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
+	    // Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
         if rip_value != current_rip {
             log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value);
             current_rip = rip_value;
