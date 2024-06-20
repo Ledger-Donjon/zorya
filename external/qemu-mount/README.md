@@ -22,13 +22,13 @@ sudo gdb [bin]
 	(gdb) break *0x[main.main addr]
 	(gdb) run
         (gdb) set logging file cpu_mapping.txt
-	(gdb) set logging on
+	(gdb) set logging enabled on
 	(gdb) info all-registers
-	(gdb) set logging off
+	(gdb) set logging enabled off
 	(gdb) set logging file memory_mapping.txt
-	(gdb) set logging on
+	(gdb) set logging enabled on
 	(gdb) info proc mappings
-	(gdb) set logging off
+	(gdb) set logging enabled off
 ```
 3. **Terminal on local computer**
 This command is supposed to create a dump_commands.txt file with commands to dump memory sections.
