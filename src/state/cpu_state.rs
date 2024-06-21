@@ -457,13 +457,6 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ConcreteVar::Bool(_) => 1,
         }
     }
-
-    // Helper method to convert CpuConcolicValue or MemoryConcolicValue to ConcolicVar
-    pub fn as_var(&self) -> Result<ConcolicVar<'ctx>, &'static str> {
-        match self {
-            CpuConcolicValue { concrete: mem_var, symbolic, ctx } => Ok(ConcolicVar::new_concrete_and_symbolic_int(mem_var.to_u64(), symbolic.to_bv(), *ctx, 64)),
-        }
-    }
 }
 
 

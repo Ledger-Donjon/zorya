@@ -510,7 +510,7 @@ mod tests {
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(10i64 as u64, "input1", executor.context, 64);
 
         let inst = Inst {
-            opcode: Opcode::IntSlessEqual,
+            opcode: Opcode::IntSLessEqual,
             output: Some(Varnode {
                 var: Var::Unique(0x100),
                 size: Size::Byte,

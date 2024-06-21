@@ -45,11 +45,11 @@ impl<'ctx> ConcolicEnum<'ctx> {
     }
 
     // Retrieve the symbolic value of the concolic variable
-    pub fn get_symbolic_value_bv(&self) -> BV<'ctx> {
+    pub fn get_symbolic_value_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
         match self {
-            ConcolicEnum::ConcolicVar(var) => var.symbolic.to_bv(),
-            ConcolicEnum::CpuConcolicValue(cpu) => cpu.symbolic.to_bv(),
-            ConcolicEnum::MemoryConcolicValue(mem) => mem.symbolic.to_bv(),
+            ConcolicEnum::ConcolicVar(var) => var.symbolic.to_bv(ctx),
+            ConcolicEnum::CpuConcolicValue(cpu) => cpu.symbolic.to_bv(ctx),
+            ConcolicEnum::MemoryConcolicValue(mem) => mem.symbolic.to_bv(ctx),
         }
     }
 

@@ -146,11 +146,16 @@ impl<'ctx> SymbolicVar<'ctx> {
     }
 
     // Convert the symbolic variable to a bit vector
-    pub fn to_bv(&self) -> BV<'ctx> {
+    pub fn to_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
         match self {
             SymbolicVar::Int(bv) => bv.clone(),
             SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a bit vector"),
-            SymbolicVar::Bool(_) => panic!("Cannot convert a boolean symbolic variable to a bit vector"),
+            SymbolicVar::Bool(b) => {
+                let one = BV::from_u64(ctx, 1, 1); 
+                let zero = BV::from_u64(ctx, 0, 1); 
+                b.ite(&one, &zero) // If `b` is true, return `one`, otherwise return `zero`
+            }
+            
         }
     }
 
@@ -201,8 +206,8 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn get_size(&self) -> u32 {
         match self {
             SymbolicVar::Int(bv) => bv.get_size(),
-            SymbolicVar::Float(_) => 32, // simplicity
-            SymbolicVar::Bool(_) => 1,
+            SymbolicVar::Float(_) => 64, 
+            SymbolicVar::Bool(_) => 64,
         }
     }
 

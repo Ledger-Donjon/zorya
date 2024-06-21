@@ -514,13 +514,6 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     pub fn get_context_id(&self) -> String {
         format!("{:p}", self.ctx)
     }
-
-    // Helper method to convert CpuConcolicValue or MemoryConcolicValue to ConcolicVar
-    pub fn as_var(&self) -> Result<ConcolicVar<'ctx>, &'static str> {
-        match self {
-            MemoryConcolicValue { concrete: mem_var, symbolic, ctx } => Ok(ConcolicVar::new_concrete_and_symbolic_int(mem_var.to_u64(), symbolic.to_bv(), *ctx, 64)),
-        }
-    }
 }
 
 impl<'ctx> fmt::Display for MemoryConcolicValue<'ctx> {

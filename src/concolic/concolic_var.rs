@@ -73,7 +73,7 @@ impl<'ctx> ConcolicVar<'ctx> {
         } else {
             u64::MAX
         };
-        let mask_concrete = ConcolicVar::new_concrete_and_symbolic_int(mask, new_symbolic.to_bv(), ctx, 64);
+        let mask_concrete = ConcolicVar::new_concrete_and_symbolic_int(mask, new_symbolic.to_bv(ctx), ctx, 64);
         let new_concrete = (self.concrete.clone().right_shift(offset)).bitand(&mask_concrete.concrete);
     
         Ok(ConcolicVar {

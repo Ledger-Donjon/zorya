@@ -171,7 +171,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
                         log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {:x} and size {:?}", unique_name, *id as u64, varnode.size);
-                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(), self.context, varnode.size as u32)
+                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, varnode.size as u32)
                     })
                     .clone();
                 log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
@@ -536,7 +536,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         dereferenced_concrete_value,
-                        unique_symbolic.to_bv(),
+                        unique_symbolic.to_bv(&self.context),
                         self.context,
                         output_varnode.size.to_bitvector_size(),
                     );
@@ -675,7 +675,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     // Convert source to ConcolicVar if needed and update or insert into unique variables
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         source_concrete_value,
-                        unique_symbolic.to_bv(),
+                        unique_symbolic.to_bv(&self.context),
                         self.context,
                         source_symbolic_value.get_size()  
                     );
@@ -846,7 +846,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         result_value.get_concrete_value(),
-                        unique_symbolic.to_bv(),
+                        unique_symbolic.to_bv(&self.context),
                         self.context,
                         new_size as u32, // new_size needs to be cast to u32 ?
                     );

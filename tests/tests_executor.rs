@@ -265,7 +265,7 @@ mod tests {
 
         // Setup: Initialize source and target unique variables
         let symbolic = SymbolicVar::Int(BV::new_const(executor.context, format!("Unique(0x{:x})", 0xDEADBEEFDEADBEEFu64 as i32), 64));
-        let source_var = ConcolicVar::new_concrete_and_symbolic_int(0xDEADBEEFDEADBEEF, symbolic.to_bv(), executor.context, 64);
+        let source_var = ConcolicVar::new_concrete_and_symbolic_int(0xDEADBEEFDEADBEEF, symbolic.to_bv(&executor.context), executor.context, 64);
         executor.unique_variables.insert("Unique(0xa0580)".to_string(), source_var);
 
         // Define the instruction for SUBPIECE

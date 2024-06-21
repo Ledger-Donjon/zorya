@@ -32,8 +32,8 @@ mod tests {
         // Setup: Create two boolean variables, one true and one false
         let symbolic0 = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
         let symbolic1 = SymbolicVar::Int(BV::new_const(executor.context, format!("false"), 64));
-        let input0 = ConcolicVar::new_concrete_and_symbolic_int(1, symbolic0.to_bv(), executor.context, 1); // true
-        let input1 = ConcolicVar::new_concrete_and_symbolic_int(0, symbolic1.to_bv(), executor.context, 1); // false
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(1, symbolic0.to_bv(&executor.context), executor.context, 1); // true
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(0, symbolic1.to_bv(&executor.context), executor.context, 1); // false
         executor.unique_variables.insert("Unique(0x100)".to_string(), input0);
         executor.unique_variables.insert("Unique(0x101)".to_string(), input1);
 
@@ -76,7 +76,7 @@ mod tests {
 
         // Setup: Create and insert a test variable assumed to represent a boolean value 'true' (1)
         let symbolic = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
-        let test_bool = ConcolicVar::new_concrete_and_symbolic_int(1, symbolic.to_bv(),executor.context, 1);
+        let test_bool = ConcolicVar::new_concrete_and_symbolic_int(1, symbolic.to_bv(&executor.context),executor.context, 1);
         executor.unique_variables.insert("Unique(0x200)".to_string(), test_bool);
 
         let negate_inst = Inst {
