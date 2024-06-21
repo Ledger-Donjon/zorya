@@ -5,6 +5,7 @@ pub enum ConcreteVar {
     Int(u64),
     Float(f64),
     Str(String),
+    Bool(bool),
 }
 
 impl ConcreteVar {
@@ -98,6 +99,8 @@ impl ConcreteVar {
             // A float cannot sensibly be converted to a byte for memory operations
             ConcreteVar::Float(_) => Err(VarError::ConversionError),
             ConcreteVar::Str(_) => Err(VarError::ConversionError),
+            ConcreteVar::Bool(value) => Ok(value as u8),
+           
         }
     }
 
@@ -116,6 +119,7 @@ impl ConcreteVar {
                 s.parse::<u64>()
                  .map_err(|_| VarError::ConversionError)
             },
+            ConcreteVar::Bool(value) => Ok(value as u64),
         }
     }
 
@@ -141,6 +145,7 @@ impl ConcreteVar {
             ConcreteVar::Str(ref s) => {
                 s.parse::<u64>().unwrap_or(0) // Default value for unparseable strings
             },
+            ConcreteVar::Bool(value) => value as u64,
         }
     }
 
@@ -150,14 +155,16 @@ impl ConcreteVar {
             ConcreteVar::Int(value) => value.to_string(),
             ConcreteVar::Float(value) => value.to_string(),
             ConcreteVar::Str(ref s) => s.clone(),
+            ConcreteVar::Bool(value) => value.to_string(),
         }
     }
 
     pub fn get_size(&self) -> u32 {
         match self {
-            ConcreteVar::Int(_) => 64,  // Assuming all integers are u64
-            ConcreteVar::Float(_) => 64, // Assuming double precision floats
-            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // Example, size in bits
+            ConcreteVar::Int(_) => 64,  // all integers are u64
+            ConcreteVar::Float(_) => 64, // double precision floats
+            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // ?
+            ConcreteVar::Bool(_) => 1,
         }
     }
 
@@ -173,6 +180,9 @@ impl ConcreteVar {
             ConcreteVar::Float(_) | ConcreteVar::Str(_) => {
                 // Logically, right shifting a float or string does not make sense,
                 // so we can return the value unchanged or handle it differently if needed.
+                self
+            },
+            ConcreteVar::Bool(_) => {
                 self
             },
         }
@@ -208,6 +218,7 @@ impl<'ctx> LowerHex for ConcreteVar {
             ConcreteVar::Int(value) => LowerHex::fmt(value, f),
             ConcreteVar::Float(value) => LowerHex::fmt(&value.to_bits(), f),
             ConcreteVar::Str(_s) => Err(fmt::Error::default()),
+            ConcreteVar::Bool(value) => LowerHex::fmt(&(*value as u8), f),
         };
         Ok(())
     }

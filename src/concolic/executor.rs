@@ -167,10 +167,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Unique(id) => {
                 log!(self.state.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
                 let unique_name = format!("Unique(0x{:x})", id);
+                let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
                         log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {:x} and size {:?}", unique_name, *id as u64, varnode.size);
-                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, &unique_name, self.context, varnode.size as u32)
+                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(), self.context, varnode.size as u32)
                     })
                     .clone();
                 log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
@@ -532,9 +533,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             match &output_varnode.var {
                 Var::Unique(id) => {
                     log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
+                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         dereferenced_concrete_value,
-                        &format!("Unique(0x{:x})", id),
+                        unique_symbolic.to_bv(),
                         self.context,
                         output_varnode.size.to_bitvector_size(),
                     );
@@ -628,9 +630,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         Ok(())
     }
-
-
-        
+   
     // Helper function
     pub fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {
         let var_name = format!("{:?}", varnode.var);
@@ -639,10 +639,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Ok(ConcreteVar::Int(val)) => Ok(val), // Directly return u64 value
             Ok(ConcreteVar::Float(_)) => Err("Expected an integer value, found a float".to_string()),
             Ok(ConcreteVar::Str(_)) => Err("Expected an integer value, found a str".to_string()),
+            Ok(ConcreteVar::Bool(_)) => Err("Expected an integer value, found a bool".to_string()), 
             Err(_) => {
                 // If the variable is not found, initialize it as an integer with a default value
                 let initial_value = 0u64; // Use u64 for initialization to match ConcreteVar::Int
-                self.state.create_concolic_var_int(&var_name, initial_value, varnode.size.to_bitvector_size());
+                //self.state.create_concolic_var_int(&var_name, initial_value, varnode.size.to_bitvector_size());
                 Ok(initial_value)
             }
         }
@@ -669,11 +670,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             match &output_varnode.var {
                 Var::Unique(id) => {
                     log!(self.state.logger.clone(), "Output is a Unique type");
+                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
                     let unique_name = format!("Unique(0x{:x})", id);
                     // Convert source to ConcolicVar if needed and update or insert into unique variables
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         source_concrete_value,
-                        &unique_name,
+                        unique_symbolic.to_bv(),
                         self.context,
                         source_symbolic_value.get_size()  
                     );
@@ -726,21 +728,21 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "Concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = concolic_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, &symbolic_value.to_string(), self.context, concolic_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, concolic_var.concrete.get_size())
             },
             ConcolicEnum::CpuConcolicValue(cpu_var) => {
                 let concrete_value = cpu_var.get_concrete_value().unwrap_or(0);
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "CPU concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = cpu_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, &symbolic_value.to_string(), self.context, cpu_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, cpu_var.concrete.get_size())
             },
             ConcolicEnum::MemoryConcolicValue(mem_var) => {
                 let concrete_value = mem_var.get_concrete_value().unwrap_or(0);
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "Memory concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = mem_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, &symbolic_value.to_string(), self.context, mem_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, mem_var.concrete.get_size())
             },
         };
     
@@ -807,7 +809,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
             let bitvector_size = output_varnode.size.to_bitvector_size();
     
-            self.state.create_concolic_var_int(&result_var_name, lzcount, bitvector_size);
+            //self.state.create_concolic_var_int(&result_var_name, lzcount, bitvector_size);
         }
     
         Ok(())
@@ -841,9 +843,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
                 Var::Unique(id) => {
+                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         result_value.get_concrete_value(),
-                        &format!("Unique(0x{:x})", id),
+                        unique_symbolic.to_bv(),
                         self.context,
                         new_size as u32, // new_size needs to be cast to u32 ?
                     );

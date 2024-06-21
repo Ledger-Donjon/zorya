@@ -145,30 +145,6 @@ impl<'a> State<'a> {
         self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
     }
 
-    // Method to create a concolic variable with int
-    pub fn create_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) -> &ConcolicVar<'a> {
-        // According to IEEE 754 standards and assumes all floating-point variables are single precision
-        let new_var = ConcolicVar::new_concrete_and_symbolic_int(concrete_value, var_name, self.ctx, bitvector_size);
-        // ensures that a new concolic variable is only created if one with the same name does not already exist
-        self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
-    }
-
-    // used in handle_load - to be uniformized later
-    pub fn create_or_update_concolic_var_int(&mut self, var_name: &str, concrete_value: u64, bitvector_size: u32) {
-        // According to IEEE 754 standards and assumes all floating-point variables are single precision
-        let new_var = ConcolicVar::new_concrete_and_symbolic_int(concrete_value, var_name, self.ctx, bitvector_size);
-        // Update an existing variable or insert a new one if it doesn't exist
-        self.concolic_vars.insert(var_name.to_string(), new_var);
-    }
-
-    // Method to create a concolic variable with float
-    pub fn create_concolic_var_float(&mut self, var_name: &str, concrete_value: f64) -> &ConcolicVar<'a> {
-        // According to IEEE 754 standards and assumes all floating-point variables are single precision
-        let new_var = ConcolicVar::new_concrete_and_symbolic_float(concrete_value, var_name, self.ctx);
-        // ensures that a new concolic variable is only created if one with the same name does not already exist
-        self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
-    }
-
     // Method to get an existing concolic variable
     pub fn get_concolic_var(&self, var_name: &str) -> Option<&ConcolicVar<'a>> {
         self.concolic_vars.get(var_name)

@@ -39,6 +39,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ConcreteVar::Float(value) => Ok(value as u64),  // Simplistic conversion
             ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
                 .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
+            ConcreteVar::Bool(value) => Ok(value as u64),
         }
     }
 
@@ -238,7 +239,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         // Create a new ConcolicVar with the result
         let new_concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
             concrete_value,
-            &format!("and_{}_{}", symbolic_self.to_string(), symbolic_other.to_string()),
+            symbolic_value, 
             self.ctx,
             64
         );
@@ -292,7 +293,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         // Create a new ConcolicVar with the result
         let new_concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
             concrete_value,
-            &format!("and_{}_{}", symbolic_self.to_string(), symbolic_other.to_string()),
+            symbolic_value,
             self.ctx,
             64
         );
@@ -346,7 +347,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         // Create a new ConcolicVar with the result
         let new_concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
             concrete_value,
-            &format!("and_{}_{}", symbolic_self.to_string(), symbolic_other.to_string()),
+            symbolic_value,
             self.ctx,
             64
         );
@@ -450,16 +451,17 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
     pub fn get_size(&self) -> u32 {
         match &self.concrete {
-            ConcreteVar::Int(_) => 64,  // Assuming all integers are u64
-            ConcreteVar::Float(_) => 64, // Assuming double precision floats
-            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // Example, size in bits
+            ConcreteVar::Int(_) => 64,  // all integers are u64
+            ConcreteVar::Float(_) => 64, // double precision floats
+            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // ?
+            ConcreteVar::Bool(_) => 1,
         }
     }
 
     // Helper method to convert CpuConcolicValue or MemoryConcolicValue to ConcolicVar
     pub fn as_var(&self) -> Result<ConcolicVar<'ctx>, &'static str> {
         match self {
-            CpuConcolicValue { concrete: mem_var, symbolic, ctx } => Ok(ConcolicVar::new_concrete_and_symbolic_int(mem_var.to_u64(), &symbolic.to_str(), *ctx, 64)),
+            CpuConcolicValue { concrete: mem_var, symbolic, ctx } => Ok(ConcolicVar::new_concrete_and_symbolic_int(mem_var.to_u64(), symbolic.to_bv(), *ctx, 64)),
         }
     }
 }

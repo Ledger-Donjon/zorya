@@ -7,6 +7,7 @@ use z3_sys::Z3_ast;
 pub enum SymbolicVar<'ctx> {
     Int(BV<'ctx>),
     Float(Float<'ctx>),
+    Bool(Bool<'ctx>),
 }
 
 impl<'ctx> SymbolicVar<'ctx> {
@@ -89,6 +90,7 @@ impl<'ctx> SymbolicVar<'ctx> {
                 count
             },
             SymbolicVar::Float(_) => panic!("Popcount is not defined for floating-point values"),
+            SymbolicVar::Bool(_) => panic!("Popcount is not defined for boolean values"),
         }
     }
 
@@ -104,11 +106,12 @@ impl<'ctx> SymbolicVar<'ctx> {
     }
 
     // Additional method to negate a boolean bit vector
-    pub fn bool_not(&self, ctx: &'ctx Context) -> Result<SymbolicVar<'ctx>, &'static str> {
+    pub fn bool_not(&self) -> Result<SymbolicVar<'ctx>, &'static str> {
         match self {
             SymbolicVar::Int(bv) => { // Ensure it's treated as a boolean
                 Ok(SymbolicVar::Int(bv.bvnot())) // Negate the bit vector
             },
+            SymbolicVar::Bool(b) => Ok(SymbolicVar::Bool(b.not())),
             _ => Err("bool_not is applicable only to 1-bit wide integer bit vectors"),
         }
     }
@@ -121,6 +124,16 @@ impl<'ctx> SymbolicVar<'ctx> {
                 Ok(SymbolicVar::Int(extracted_bv))
             },
             SymbolicVar::Float(_) => Err("Extract operation not supported on floating-point symbolic variables"),
+            SymbolicVar::Bool(_) => Err("Extract operation not supported on boolean symbolic variables"),
+        }
+    }
+
+    // Method to check if two symbolic variables are equal
+    pub fn equal(&self, other: &SymbolicVar<'ctx>) -> bool {
+        match (self, other) {
+            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => a.eq(&b),
+            (SymbolicVar::Float(a), SymbolicVar::Float(b)) => a.eq(&b),
+            _ => false,
         }
     }
 
@@ -128,6 +141,25 @@ impl<'ctx> SymbolicVar<'ctx> {
         match self {
             SymbolicVar::Int(value) => value.to_string(),
             SymbolicVar::Float(value) => value.to_string(),
+            SymbolicVar::Bool(value) => value.to_string(),
+        }
+    }
+
+    // Convert the symbolic variable to a bit vector
+    pub fn to_bv(&self) -> BV<'ctx> {
+        match self {
+            SymbolicVar::Int(bv) => bv.clone(),
+            SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a bit vector"),
+            SymbolicVar::Bool(_) => panic!("Cannot convert a boolean symbolic variable to a bit vector"),
+        }
+    }
+
+    // Convert the symbolic variable to a boolean
+    pub fn to_bool(&self) -> Bool<'ctx> {
+        match self {
+            SymbolicVar::Bool(b) => b.clone(),
+            SymbolicVar::Int(_) => panic!("Cannot convert a int symbolic variable to a boolean"),
+            SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a boolean"),
         }
     }
 
@@ -141,6 +173,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         match self {
             SymbolicVar::Int(bv) => bv.get_z3_ast(),
             SymbolicVar::Float(fv) => fv.get_z3_ast(),
+            SymbolicVar::Bool(b) => b.get_z3_ast(),
         }
     }
 
@@ -154,6 +187,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         match self {
             SymbolicVar::Int(bv) => bv.get_ctx(),
             SymbolicVar::Float(fv) => fv.get_ctx(),
+            SymbolicVar::Bool(b) => b.get_ctx(),
         }
     }
 
@@ -161,6 +195,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         match self {
             SymbolicVar::Int(bv) => bv.get_size(),
             SymbolicVar::Float(_) => 32, // simplicity
+            SymbolicVar::Bool(_) => 1,
         }
     }
 
@@ -168,6 +203,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         match self {
             SymbolicVar::Int(bv) => !bv.get_z3_ast().is_null(),
             SymbolicVar::Float(fv) => !fv.get_z3_ast().is_null(),
+            SymbolicVar::Bool(b) => !b.get_z3_ast().is_null(),
         }
     }
 }

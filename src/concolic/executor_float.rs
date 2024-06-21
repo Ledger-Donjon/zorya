@@ -4,7 +4,7 @@
 use crate::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode, Size};
 
-use super::{ConcolicVar, ConcreteVar};
+use super::ConcreteVar;
 
 pub fn handle_float_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Validate the instruction format and ensure there are exactly two inputs
@@ -38,7 +38,7 @@ pub fn handle_float_equal(executor: &mut ConcolicExecutor, instruction: Inst) ->
 
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.state.ctx));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.state.ctx));
 
     Ok(())
 }
@@ -71,7 +71,7 @@ pub fn handle_float_notequal(executor: &mut ConcolicExecutor, instruction: Inst)
 
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.state.ctx));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.state.ctx));
 
     Ok(())
 }
@@ -103,7 +103,7 @@ pub fn handle_float_less(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     // Store the result as a floating-point concolic variable
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -139,7 +139,7 @@ pub fn handle_float_lessequal(executor: &mut ConcolicExecutor, instruction: Inst
     // Create and store the result as a floating-point concolic variable.
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -172,7 +172,7 @@ pub fn handle_float_add(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Create and store the result as a floating-point concolic variable
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -205,7 +205,7 @@ pub fn handle_float_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Create and store the result as a floating-point concolic variable.
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -236,7 +236,7 @@ pub fn handle_float_floor(executor: &mut ConcolicExecutor, instruction: Inst) ->
     // Create and store the result as a floating-point concolic variable.
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -270,7 +270,7 @@ pub fn handle_float_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     // Store the result as a floating-point concolic variable
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -303,7 +303,7 @@ pub fn handle_float_div(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Store the result as a floating-point concolic variable
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -335,7 +335,7 @@ pub fn handle_float_neg(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Store the result as a floating-point concolic variable.
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -356,7 +356,7 @@ pub fn handle_float_abs(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -377,7 +377,7 @@ pub fn handle_float_sqrt(executor: &mut ConcolicExecutor, instruction: Inst) -> 
 
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 } 
@@ -398,7 +398,7 @@ pub fn handle_float_nan(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }
@@ -419,7 +419,7 @@ pub fn handle_float2float(executor: &mut ConcolicExecutor, instruction: Inst) ->
 
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
 
     Ok(())
 }

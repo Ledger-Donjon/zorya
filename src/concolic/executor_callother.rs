@@ -110,7 +110,7 @@ fn handle_sys_open(executor: &mut ConcolicExecutor) -> Result<(), String> {
     // Create or update concolic variables.
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}_{:02}_sys-open", current_addr_hex, executor.instruction_counter);
-    executor.state.create_or_update_concolic_var_int(&result_var_name, fd_id as u64, 64);
+    //executor.state.create_or_update_concolic_var_int(&result_var_name, fd_id as u64, 64);
 
     Ok(())
 }
@@ -204,7 +204,7 @@ fn handle_swi(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), 
             };
             
             let swi_result_var_name = format!("swi_int3_{:?}", rip_value);
-            executor.state.create_or_update_concolic_var_int(&swi_result_var_name, 0x3, 8);
+            //executor.state.create_or_update_concolic_var_int(&swi_result_var_name, 0x3, 8);
             Err("Execution aborted due to INT3 (debug breakpoint).".to_string())
         },
         // Add handling for other interrupts as needed

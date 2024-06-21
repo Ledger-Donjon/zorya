@@ -2,10 +2,11 @@
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::*;
+    use z3::ast::BV;
     use zorya::concolic::executor_bool::{handle_bool_and, handle_bool_negate};
-    use zorya::concolic::{ConcolicExecutor, ConcolicVar, ConcolicEnum, Logger};
-    use zorya::state::{State};
+    use zorya::concolic::{ConcolicExecutor, ConcolicVar, Logger};
+    use zorya::executor::SymbolicVar;
+    use zorya::state::State;
     use parser::parser::{Inst, Opcode, Var, Varnode, Size};
     use z3::{Config, Context, Solver};
 
@@ -29,8 +30,10 @@ mod tests {
         let mut executor = setup_executor();
 
         // Setup: Create two boolean variables, one true and one false
-        let input0 = ConcolicVar::new_concrete_and_symbolic_int(1, "true", executor.context, 1); // true
-        let input1 = ConcolicVar::new_concrete_and_symbolic_int(0, "false", executor.context, 1); // false
+        let symbolic0 = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
+        let symbolic1 = SymbolicVar::Int(BV::new_const(executor.context, format!("false"), 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(1, symbolic0.to_bv(), executor.context, 1); // true
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(0, symbolic1.to_bv(), executor.context, 1); // false
         executor.unique_variables.insert("Unique(0x100)".to_string(), input0);
         executor.unique_variables.insert("Unique(0x101)".to_string(), input1);
 
@@ -72,7 +75,8 @@ mod tests {
         let mut executor = setup_executor();
 
         // Setup: Create and insert a test variable assumed to represent a boolean value 'true' (1)
-        let test_bool = ConcolicVar::new_concrete_and_symbolic_int(1, "test_bool", executor.context, 1);
+        let symbolic = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
+        let test_bool = ConcolicVar::new_concrete_and_symbolic_int(1, symbolic.to_bv(),executor.context, 1);
         executor.unique_variables.insert("Unique(0x200)".to_string(), test_bool);
 
         let negate_inst = Inst {
@@ -92,7 +96,6 @@ mod tests {
         // Verify: Check if the boolean value was negated correctly
         if let Some(negated_var) = executor.unique_variables.get("Unique(0x200)").map(|enum_var| match enum_var {
             var => var.clone(),
-            _ => panic!("Unexpected enum variant"),
         }) {
             assert_eq!(negated_var.concrete.to_u64(), 0, "Boolean negation did not produce the expected result");
         } else {
