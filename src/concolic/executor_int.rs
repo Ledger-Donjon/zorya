@@ -414,17 +414,22 @@ pub fn handle_int_zext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         return Err("Output size must be larger than input size for zero-extension".to_string());
     }
 
-    // Perform the zero-extension
     let input_size = instruction.inputs[0].size.to_bitvector_size() as usize;
     let output_size = output_varnode.size.to_bitvector_size() as usize;
-    let result_concrete = input_var.get_concrete_value();
-    let zero_extended_value = result_concrete & ((1u64 << input_size) - 1);  // Mask to input size and zero-extend
+
+    // Safe mask application to avoid shift overflow
+    let mask = if input_size >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << input_size) - 1
+    };
+    let zero_extended_value = input_var.get_concrete_value() & mask;
     let result_symbolic = input_var.get_symbolic_value_bv().zero_ext((output_size - input_size).try_into().unwrap());
 
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
-        zero_extended_value, 
-        result_symbolic, 
-        executor.context, 
+        zero_extended_value,
+        result_symbolic,
+        executor.context,
         output_varnode.size.to_bitvector_size()
     );
 
