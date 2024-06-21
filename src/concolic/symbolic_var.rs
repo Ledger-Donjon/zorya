@@ -158,7 +158,14 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn to_bool(&self) -> Bool<'ctx> {
         match self {
             SymbolicVar::Bool(b) => b.clone(),
-            SymbolicVar::Int(_) => panic!("Cannot convert a int symbolic variable to a boolean"),
+            SymbolicVar::Int(bv) => {
+                // if the bit vector is equal to 0, return false, otherwise true
+                if bv == &(BV::from_u64(bv.get_ctx(), 0, bv.get_size())) {
+                    Bool::from_bool(bv.get_ctx(), false)
+                } else {
+                    Bool::from_bool(bv.get_ctx(), true)
+                }
+            }
             SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a boolean"),
         }
     }
