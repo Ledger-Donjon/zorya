@@ -171,7 +171,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
                         log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {:x} and size {:?}", unique_name, *id as u64, varnode.size);
-                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, varnode.size as u32)
+                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, 64)
                     })
                     .clone();
                 log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
@@ -538,7 +538,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         dereferenced_concrete_value,
                         unique_symbolic.to_bv(&self.context),
                         self.context,
-                        output_varnode.size.to_bitvector_size(),
+                        64,
                     );
                     let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
@@ -677,7 +677,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         source_concrete_value,
                         unique_symbolic.to_bv(&self.context),
                         self.context,
-                        source_symbolic_value.get_size()  
+                        64
                     );
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
                     log!(self.state.logger.clone(), "Content of output {:?} after copying: {:?}", unique_name, concolic_var);
@@ -728,21 +728,21 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "Concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = concolic_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, concolic_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, 64)
             },
             ConcolicEnum::CpuConcolicValue(cpu_var) => {
                 let concrete_value = cpu_var.get_concrete_value().unwrap_or(0);
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "CPU concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = cpu_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, cpu_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, 64)
             },
             ConcolicEnum::MemoryConcolicValue(mem_var) => {
                 let concrete_value = mem_var.get_concrete_value().unwrap_or(0);
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "Memory concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = mem_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, mem_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, 64)
             },
         };
     
@@ -848,7 +848,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         result_value.get_concrete_value(),
                         unique_symbolic.to_bv(&self.context),
                         self.context,
-                        new_size as u32, // new_size needs to be cast to u32 ?
+                        64
                     );
                     let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name.clone(), concolic_var);
