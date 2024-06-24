@@ -160,7 +160,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x}", offset);
                 // Using the offset directly to get or initialize the register
                 let register = cpu_state_guard.get_or_init_register_by_offset(*offset);
-                log!(self.state.logger.clone(), "Retrieved register: {}", register);
+                log!(self.state.logger.clone(), "Retrieved register: {} with symbolic size: {:?}", register, register.symbolic.get_size());
                 Ok(ConcolicEnum::CpuConcolicValue(register.clone()))
             },
             // Keep track of the unique variables defined inside one address execution
@@ -202,7 +202,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
                 let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, *addr);
-                log!(self.state.logger.clone(), "Retrieved memory address: {}", memory_var);
+                log!(self.state.logger.clone(), "Retrieved memory address: {} with symbolic size: {:?}", memory_var, memory_var.symbolic.get_size());
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
         }

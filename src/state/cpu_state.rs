@@ -511,65 +511,65 @@ impl<'ctx> CpuState<'ctx> {
 
         // From ia.sinc
         let register_definitions = [
-            // General Purpose Registers (64-bit mode)
-            ("RAX", "0x0", "8"), ("RCX", "0x8", "8"), ("RDX", "0x10", "8"), ("RBX", "0x18", "8"),
-            ("RSP", "0x20", "8"), ("RBP", "0x28", "8"), ("RSI", "0x30", "8"), ("RDI", "0x38", "8"),
-            ("R8", "0x80", "8"), ("R9", "0x88", "8"), ("R10", "0x90", "8"), ("R11", "0x98", "8"),
-            ("R12", "0xa0", "8"), ("R13", "0xa8", "8"), ("R14", "0xb0", "8"), ("R15", "0xb8", "8"),
+        // General Purpose Registers (64-bit mode)
+        ("RAX", "0x0", "64"), ("RCX", "0x8", "64"), ("RDX", "0x10", "64"), ("RBX", "0x18", "64"),
+        ("RSP", "0x20", "64"), ("RBP", "0x28", "64"), ("RSI", "0x30", "64"), ("RDI", "0x38", "64"),
+        ("R8", "0x80", "64"), ("R9", "0x88", "64"), ("R10", "0x90", "64"), ("R11", "0x98", "64"),
+        ("R12", "0xa0", "64"), ("R13", "0xa8", "64"), ("R14", "0xb0", "64"), ("R15", "0xb8", "64"),
 
-            // Segment Registers
-            ("ES", "0x100", "2"), ("CS", "0x102", "2"), ("SS", "0x104", "2"), ("DS", "0x106", "2"),
-            ("FS", "0x108", "2"), ("GS", "0x10a", "2"), ("FS_OFFSET", "0x110", "8"), ("GS_OFFSET", "0x118", "8"),
+        // Segment Registers
+        ("ES", "0x100", "16"), ("CS", "0x102", "16"), ("SS", "0x104", "16"), ("DS", "0x106", "16"),
+        ("FS", "0x108", "16"), ("GS", "0x10a", "16"), ("FS_OFFSET", "0x110", "64"), ("GS_OFFSET", "0x118", "64"),
 
-            // Individual Flags within the Flag Register
-            ("CF", "0x200", "1"),   // Carry Flag
-            ("F1", "0x201", "1"),   // Reserved (always 1)
-            ("PF", "0x202", "1"),   // Parity Flag
-            ("F3", "0x203", "1"),   // Reserved
-            ("AF", "0x204", "1"),   // Auxiliary Carry Flag
-            ("F5", "0x205", "1"),   // Reserved
-            ("ZF", "0x206", "1"),   // Zero Flag
-            ("SF", "0x207", "1"),   // Sign Flag
-            ("TF", "0x208", "1"),   // Trap Flag (Single Step)
-            ("IF", "0x209", "1"),   // Interrupt Enable Flag
-            ("DF", "0x20a", "1"),   // Direction Flag
-            ("OF", "0x20b", "1"),   // Overflow Flag
-            ("IOPL", "0x20c", "2"), // I/O Privilege Level (2 bits)
-            ("NT", "0x20d", "1"),   // Nested Task Flag
-            ("F15", "0x20e", "1"),  // Reserved
-            ("RF", "0x20f", "1"),   // Resume Flag
-            ("VM", "0x210", "1"),   // Virtual 8086 Mode
-            ("AC", "0x211", "1"),   // Alignment Check (Alignment Mask)
-            ("VIF", "0x212", "1"),  // Virtual Interrupt Flag
-            ("VIP", "0x213", "1"),  // Virtual Interrupt Pending
-            ("ID", "0x214", "1"),   // ID Flag 
-            
-            // RIP
-            ("RIP", "0x288", "8"),
+        // Individual Flags within the Flag Register
+        ("CF", "0x200", "8"),   // Carry Flag
+        ("F1", "0x201", "8"),   // Reserved (always 1)
+        ("PF", "0x202", "8"),   // Parity Flag
+        ("F3", "0x203", "8"),   // Reserved
+        ("AF", "0x204", "8"),   // Auxiliary Carry Flag
+        ("F5", "0x205", "8"),   // Reserved
+        ("ZF", "0x206", "8"),   // Zero Flag
+        ("SF", "0x207", "8"),   // Sign Flag
+        ("TF", "0x208", "8"),   // Trap Flag (Single Step)
+        ("IF", "0x209", "8"),   // Interrupt Enable Flag
+        ("DF", "0x20a", "8"),   // Direction Flag
+        ("OF", "0x20b", "8"),   // Overflow Flag
+        ("IOPL", "0x20c", "16"), // I/O Privilege Level (2 bits)
+        ("NT", "0x20d", "8"),   // Nested Task Flag
+        ("F15", "0x20e", "8"),  // Reserved
+        ("RF", "0x20f", "8"),   // Resume Flag
+        ("VM", "0x210", "8"),   // Virtual 8086 Mode
+        ("AC", "0x211", "8"),   // Alignment Check (Alignment Mask)
+        ("VIF", "0x212", "8"),  // Virtual Interrupt Flag
+        ("VIP", "0x213", "8"),  // Virtual Interrupt Pending
+        ("ID", "0x214", "8"),   // ID Flag 
 
-            // Debug and Control Registers
-            ("DR0", "0x300", "8"), ("DR1", "0x308", "8"), ("DR2", "0x310", "8"), ("DR3", "0x318", "8"),
-            ("DR4", "0x320", "8"), ("DR5", "0x328", "8"), ("DR6", "0x330", "8"), ("DR7", "0x338", "8"),
-            ("CR0", "0x380", "8"), ("CR2", "0x390", "8"), ("CR3", "0x398", "8"), ("CR4", "0x3a0", "8"),
-            ("CR8", "0x3c0", "8"),
+        // RIP
+        ("RIP", "0x288", "64"),
 
-            // Processor State Register and MPX Registers
-            ("XCR0", "0x600", "8"), ("BNDCFGS", "0x700", "8"), ("BNDCFGU", "0x708", "8"),
-            ("BNDSTATUS", "0x710", "8"), ("BND0", "0x740", "16"), ("BND1", "0x750", "16"),
-            ("BND2", "0x760", "16"), ("BND3", "0x770", "16"),
+        // Debug and Control Registers
+        ("DR0", "0x300", "64"), ("DR1", "0x308", "64"), ("DR2", "0x310", "64"), ("DR3", "0x318", "64"),
+        ("DR4", "0x320", "64"), ("DR5", "0x328", "64"), ("DR6", "0x330", "64"), ("DR7", "0x338", "64"),
+        ("CR0", "0x380", "64"), ("CR2", "0x390", "64"), ("CR3", "0x398", "64"), ("CR4", "0x3a0", "64"),
+        ("CR8", "0x3c0", "64"),
 
-            // ST registers
-            ("MXCSR", "0x1094", "4"),
+        // Processor State Register and MPX Registers
+        ("XCR0", "0x600", "64"), ("BNDCFGS", "0x700", "64"), ("BNDCFGU", "0x708", "64"),
+        ("BNDSTATUS", "0x710", "64"), ("BND0", "0x740", "128"), ("BND1", "0x750", "128"),
+        ("BND2", "0x760", "128"), ("BND3", "0x770", "128"),
 
-            // Extended SIMD Registers
-            ("YMM0", "0x1200", "32"), ("YMM1", "0x1220", "32"), ("YMM2", "0x1240", "32"), ("YMM3", "0x1260", "32"),
-            ("YMM4", "0x1280", "32"), ("YMM5", "0x12a0", "32"), ("YMM6", "0x12c0", "32"), ("YMM7", "0x12e0", "32"),
-            ("YMM8", "0x1300", "32"), ("YMM9", "0x1320", "32"), ("YMM10", "0x1340", "32"), ("YMM11", "0x1360", "32"),
-            ("YMM12", "0x1380", "32"), ("YMM13", "0x13a0", "32"), ("YMM14", "0x13c0", "32"), ("YMM15", "0x13e0", "32"),
+        // ST registers
+        ("MXCSR", "0x1094", "32"),
 
-            // Temporary SIMD Registers (for intermediate calculations etc.)
-            ("xmmTmp1", "0x1400", "16"), ("xmmTmp2", "0x1410", "16"),
-        ];
+        // Extended SIMD Registers
+        ("YMM0", "0x1200", "256"), ("YMM1", "0x1220", "256"), ("YMM2", "0x1240", "256"), ("YMM3", "0x1260", "256"),
+        ("YMM4", "0x1280", "256"), ("YMM5", "0x12a0", "256"), ("YMM6", "0x12c0", "256"), ("YMM7", "0x12e0", "256"),
+        ("YMM8", "0x1300", "256"), ("YMM9", "0x1320", "256"), ("YMM10", "0x1340", "256"), ("YMM11", "0x1360", "256"),
+        ("YMM12", "0x1380", "256"), ("YMM13", "0x13a0", "256"), ("YMM14", "0x13c0", "256"), ("YMM15", "0x13e0", "256"),
+
+        // Temporary SIMD Registers (for intermediate calculations etc.)
+        ("xmmTmp1", "0x1400", "128"), ("xmmTmp2", "0x1410", "128"),
+    ];
 
         for &(name, offset_hex, _size_str) in register_definitions.iter() {
             let offset = u64::from_str_radix(offset_hex.trim_start_matches("0x"), 16)
