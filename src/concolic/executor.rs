@@ -154,7 +154,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         log!(self.state.logger.clone(), "Converting Varnode to concolic type: {:?}", varnode.var);
 
-        let bit_size = varnode.size.to_bitvector_size() as u32 * 8; // size in bits
+        let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
         match &varnode.var {
             // It is a CPU register address
             Var::Register(offset, _) => {
@@ -186,7 +186,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 } else {
                     value.parse::<u64>()
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
-                log!(self.state.logger.clone(), "parsed value: {}", parsed_value);
+                log!(self.state.logger.clone(), "Parsed value: {}", parsed_value);
                 let memory_var = MemoryConcolicValue::new( self.context, parsed_value, bit_size);
                 log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {} with symbolic size {:?}", memory_var, memory_var.symbolic.get_size());
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
