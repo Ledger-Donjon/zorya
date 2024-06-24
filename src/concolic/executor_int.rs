@@ -4,7 +4,7 @@
 use crate::concolic::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::{Bool, Float, BV};
-use std::{io::Write, num::Wrapping};
+use std::io::Write;
 
 use super::ConcolicVar;
 
@@ -122,7 +122,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Perform the addition
     // Wrapping is used to handle overflow in Rust
-    let result_concrete = (Wrapping(input0_var.get_concrete_value()) + Wrapping(input1_var.get_concrete_value())).0;
+    let result_concrete = input0_var.get_concrete_value().wrapping_add(input1_var.get_concrete_value());
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvadd(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
@@ -155,7 +155,7 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     // Perform the subtraction
-    let result_concrete = (Wrapping(input0_var.get_concrete_value()) - Wrapping(input1_var.get_concrete_value())).0;
+    let result_concrete = input0_var.get_concrete_value().wrapping_sub(input1_var.get_concrete_value());
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvsub(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
@@ -818,7 +818,7 @@ pub fn handle_int_div(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     }
 
     // Perform the division
-    let result_concrete = input0_var.get_concrete_value() / input1_var.get_concrete_value();
+    let result_concrete = input0_var.get_concrete_value().wrapping_div(input1_var.get_concrete_value());
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvudiv(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
