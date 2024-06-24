@@ -124,7 +124,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Wrapping is used to handle overflow in Rust
     let result_concrete = (Wrapping(input0_var.get_concrete_value()) + Wrapping(input1_var.get_concrete_value())).0;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvadd(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_ADD is: {:?}\n", result_concrete.clone());
 
@@ -157,7 +157,7 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Perform the subtraction
     let result_concrete = (Wrapping(input0_var.get_concrete_value()) - Wrapping(input1_var.get_concrete_value())).0;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvsub(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_SUB is: {:?}\n", result_concrete.clone());
 
@@ -194,7 +194,7 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Perform the XOR operation
     let result_concrete = input0_var.get_concrete_value() ^ input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvxor(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_XOR is: {:?}\n", result_concrete);
 
@@ -430,7 +430,7 @@ pub fn handle_int_zext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         zero_extended_value,
         result_symbolic,
         executor.context,
-        64
+        output_varnode.size.to_bitvector_size()
     );
 
     log!(executor.state.logger.clone(), "*** The result of INT_ZEXT is: 0x{:x}\n", zero_extended_value);
@@ -482,7 +482,7 @@ pub fn handle_int_sext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         result_concrete, 
         result_symbolic, 
         executor.context, 
-        64
+        output_varnode.size.to_bitvector_size()
     );
 
     log!(executor.state.logger.clone(), "*** The result of INT_SEXT is: 0x{:x}\n", result_concrete);
@@ -551,7 +551,7 @@ pub fn handle_int_2comp(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Perform the twos complement negation
     let result_concrete = input_var.get_concrete_value().wrapping_neg();
     let result_symbolic = input_var.get_symbolic_value_bv(executor.context).bvneg();
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_2COMP is: {:?}\n", result_concrete);
 
@@ -588,7 +588,7 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Perform the AND operation
     let result_concrete = input0_var.get_concrete_value() & input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvand(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_AND is: {:?}\n", result_concrete);
 
@@ -625,7 +625,7 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     // Perform the OR operation
     let result_concrete = input0_var.get_concrete_value() | input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvor(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_OR is: {:?}\n", result_concrete);
 
@@ -658,7 +658,7 @@ pub fn handle_int_left(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     let result_concrete = input0_var.get_concrete_value() << shift_amount;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvshl(&BV::from_u64(executor.context, shift_amount as u64, input0_var.get_size()));
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_LEFT is: {:?}\n", result_concrete);
 
@@ -691,7 +691,7 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let result_concrete = input0_var.get_concrete_value() >> shift_amount;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvlshr(&BV::from_u64(executor.context, shift_amount as u64, input0_var.get_size()));
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_RIGHT is: {:?}\n", result_concrete);
 
@@ -724,7 +724,7 @@ pub fn handle_int_sright(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     let result_concrete = ((input0_var.get_concrete_value() as i64) >> shift_amount) as u64;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvashr(&BV::from_u64(executor.context, shift_amount as u64, input0_var.get_size()));
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_SRIGHT is: {:?}\n", result_concrete);
 
@@ -755,7 +755,7 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Perform the multiplication
     let result_concrete = input0_var.get_concrete_value().wrapping_mul(input1_var.get_concrete_value());
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvmul(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_MULT is: {:?}\n", result_concrete);
 
@@ -784,7 +784,7 @@ pub fn handle_int_negate(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     // Perform the bitwise negation
     let result_concrete = !input0_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvnot();
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_NEGATE is: {:?}\n", result_concrete);
 
@@ -820,7 +820,7 @@ pub fn handle_int_div(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Perform the division
     let result_concrete = input0_var.get_concrete_value() / input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvudiv(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_DIV is: {:?}\n", result_concrete);
 
@@ -856,7 +856,7 @@ pub fn handle_int_rem(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Perform the remainder operation
     let result_concrete = input0_var.get_concrete_value() % input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvurem(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_REM is: {:?}\n", result_concrete);
 
@@ -892,7 +892,7 @@ pub fn handle_int_sdiv(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Perform the signed division
     let result_concrete = (input0_var.get_concrete_value() as i64 / input1_var.get_concrete_value() as i64) as u64;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvsdiv(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_SDIV is: {:?}\n", result_concrete);
 
@@ -928,7 +928,7 @@ pub fn handle_int_srem(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Perform the signed remainder operation
     let result_concrete = ((input0_var.get_concrete_value() as i64) % (input1_var.get_concrete_value() as i64)) as u64;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvsrem(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, 64);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, input0_var.get_size());
 
     log!(executor.state.logger.clone(), "*** The result of INT_SREM is: {:?}\n", result_concrete);
 

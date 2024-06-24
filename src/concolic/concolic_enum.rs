@@ -1,6 +1,6 @@
 use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
 use z3::{ast::{Bool, BV}, Context};
-use super::ConcolicVar;
+use super::{ConcolicVar, SymbolicVar};
 
 
 #[derive(Clone, Debug)]
@@ -53,7 +53,6 @@ impl<'ctx> ConcolicEnum<'ctx> {
         }
     }
 
-    // Retrieve the symbolic value of the concolic variable as a boolean
     pub fn get_symbolic_value_bool(&self) -> Bool<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.symbolic.to_bool(),
@@ -61,6 +60,24 @@ impl<'ctx> ConcolicEnum<'ctx> {
             ConcolicEnum::MemoryConcolicValue(mem) => mem.symbolic.to_bool(),
         }
     }
+
+    // pub fn get_symbolic_value_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
+    //     match self {
+    //         ConcolicEnum::ConcolicVar(var) => {
+    //             match var.symbolic {
+    //                 SymbolicVar::Int(bv) => bv,
+    //                 SymbolicVar::Float(f) => f, // pb expect a BV
+    //                 SymbolicVar::Bool(b) => {
+    //                     let true_bv = BV::from_u64(ctx, 1, 64);  
+    //                     let false_bv = BV::from_u64(ctx, 0, 64);  
+    //                     b.ite(&true_bv, &false_bv)
+    //                 }
+    //             }
+    //         },
+    //         ConcolicEnum::CpuConcolicValue(cpu) => cpu.symbolic.to_bv(ctx),
+    //         ConcolicEnum::MemoryConcolicValue(mem) => mem.symbolic.to_bv(ctx),
+    //     }
+    // }
 
     // Retrieve the size of the concolic variable
     pub fn get_size(&self) -> u32 {
