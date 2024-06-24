@@ -64,19 +64,19 @@ pub struct MemoryConcolicValue<'ctx> {
 }
 
 impl<'ctx> MemoryConcolicValue<'ctx> {
-    pub fn new(ctx: &'ctx Context, concrete_value: u64) -> Self {
+    pub fn new(ctx: &'ctx Context, concrete_value: u64, size: u32) -> Self {
         MemoryConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
-            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, 64)),
+            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, size)),
             ctx,
         }
     }
 
     // Creates a default memory value zero-initialized.
-    pub fn default(ctx: &'ctx Context) -> Self {
+    pub fn default(ctx: &'ctx Context, size: u32) -> Self {
         MemoryConcolicValue {
             concrete: ConcreteVar::Int(0),
-            symbolic: SymbolicVar::Int(BV::from_u64(ctx, 0, 64)), // 64-bit
+            symbolic: SymbolicVar::Int(BV::from_u64(ctx, 0, size)),
             ctx,
         }
     }
@@ -539,7 +539,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         })
     }
 
-    pub fn get_or_create_memory_concolic_var(&self, ctx: &'ctx Context, value: u64) -> MemoryConcolicValue<'ctx> {
+    pub fn get_or_create_memory_concolic_var(&self, ctx: &'ctx Context, value: u64, size: u32) -> MemoryConcolicValue<'ctx> {
         println!("Inside get_or_create_memory_concolic_var function");
 
         // Try to read the value with read lock first
@@ -558,18 +558,10 @@ impl<'ctx> MemoryX86_64<'ctx> {
             memory_value.clone()
         } else {
             // If the memory address doesn't exist, create a new concolic value and insert it into memory
-            let concolic_value = MemoryConcolicValue::new(ctx, value);
+            let concolic_value = MemoryConcolicValue::new(ctx, value, size);
             // Do not insert the value into the Memory model because it is just a temporary working value
             // memory_write.insert(value, concolic_value.clone());
             concolic_value
-        }
-    }
-
-    pub fn ensure_address_initialized(&self, address: u64, size: usize) {
-        let mut memory = self.memory.write().unwrap();
-        for offset in 0..size {
-            let current_address = address + offset as u64;
-            memory.entry(current_address).or_insert_with(|| MemoryConcolicValue::default(self.ctx));
         }
     }
 
@@ -600,7 +592,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
             if current_address >= end_address {
                 return Err(MemoryError::WriteOutOfBounds);
             }
-            memory.insert(current_address, MemoryConcolicValue::new(self.ctx, byte.into()));
+            memory.insert(current_address, MemoryConcolicValue::new(self.ctx, byte.into(), 8));
         }
 
         Ok(())
@@ -639,7 +631,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let mut memory = self.memory.write().unwrap();  // Lock memory for writing
         for (offset, &byte) in contents.iter().enumerate() {
             let address = start_addr + offset as u64;
-            memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into()));
+            memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into(), 8));
         }
 
         Ok(())

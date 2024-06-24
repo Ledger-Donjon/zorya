@@ -154,6 +154,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         log!(self.state.logger.clone(), "Converting Varnode to concolic type: {:?}", varnode.var);
 
+        let bit_size = varnode.size.to_bitvector_size() as u32 * 8; // size in bits
         match &varnode.var {
             // It is a CPU register address
             Var::Register(offset, _) => {
@@ -167,7 +168,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Unique(id) => {
                 log!(self.state.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
                 let unique_name = format!("Unique(0x{:x})", id);
-                let bit_size = varnode.size.to_bitvector_size() as u32;
                 let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, unique_name.clone(), bit_size));
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
@@ -187,21 +187,21 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     value.parse::<u64>()
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
                 log!(self.state.logger.clone(), "parsed value: {}", parsed_value);
-                let memory_var = MemoryConcolicValue::new( self.context, parsed_value);
-                log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {}", memory_var);
+                let memory_var = MemoryConcolicValue::new( self.context, parsed_value, bit_size);
+                log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {} with symbolic size {:?}", memory_var, memory_var.symbolic.get_size());
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
             // Handle MemoryRam case
             Var::MemoryRam => {
                 log!(self.state.logger.clone(), "Varnode is MemoryRam");
-                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, 0); // Assume 0 is the base address for RAM
+                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, 0, bit_size); // Assume 0 is the base address for RAM
                 log!(self.state.logger.clone(), "MemoryRam treated as general memory space, created or retrieved: {}", memory_var);
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
             // Handle specific memory addresses
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, *addr);
+                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, *addr, bit_size);
                 log!(self.state.logger.clone(), "Retrieved memory address: {} with symbolic size: {:?}", memory_var, memory_var.symbolic.get_size());
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
@@ -607,7 +607,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             for i in 0..8 {
                 let byte_address = pointer_offset_concrete + i;
                 let byte_value = (data_to_store_concrete >> (8 * i)) & 0xFF; // Isolate each byte to store
-                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value));
+                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value, 8));
                 log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
             }
         }
