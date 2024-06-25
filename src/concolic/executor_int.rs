@@ -14,29 +14,37 @@ macro_rules! log {
     }};
 }
 
-fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
-    match output_varnode.map(|v| &v.var) {
-        Some(Var::Unique(id)) => {
-            let unique_name = format!("Unique(0x{:x})", id);
-            executor.unique_variables.insert(unique_name, result_value.clone());
-            log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with symbolic size {:?}", id, result_value.symbolic.get_size());
-            Ok(())
-        },
-        Some(Var::Register(offset, _)) => {
-            log!(executor.state.logger.clone(), "Output is a Register type");
-            let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-            let concrete_value = result_value.clone().concrete.to_u64();
-            cpu_state_guard.set_register_value_by_offset(*offset, concrete_value)
-                .map_err(|e| e.to_string())
-                .and_then(|_| {
-                    log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value {} and with symbolic size {:?}", offset, concrete_value, result_value.symbolic.get_size());
-                    Ok(())
-                })
-        },
-        _ => {
-            log!(executor.state.logger.clone(), "Output type is unsupported");
-            Err("Output type not supported".to_string())
+fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+    if let Some(varnode) = output_varnode {
+        // Resize the result_value according to the output size specification
+        let size = varnode.size.to_bitvector_size() as u32;
+        result_value.resize(size); // Ensure the result_value is resized appropriately
+
+        match &varnode.var {
+            Var::Unique(id) => {
+                let unique_name = format!("Unique(0x{:x})", id);
+                executor.unique_variables.insert(unique_name, result_value.clone());
+                log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {:?} symbolic size {:?}", id, result_value.concrete.get_size(), result_value.symbolic.get_size());
+                Ok(())
+            },
+            Var::Register(offset, _) => {
+                log!(executor.state.logger.clone(), "Output is a Register type");
+                let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+                let concrete_value = result_value.concrete.to_u64();
+                cpu_state_guard.set_register_value_by_offset(*offset, concrete_value)
+                    .map_err(|e| e.to_string())
+                    .and_then(|_| {
+                        log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value {}, with concrete size {:?} and with symbolic size {:?}", offset, concrete_value, result_value.concrete.get_size(), result_value.symbolic.get_size());
+                        Ok(())
+                    })
+            },
+            _ => {
+                log!(executor.state.logger.clone(), "Output type is unsupported");
+                Err("Output type not supported".to_string())
+            }
         }
+    } else {
+        Err("No output varnode specified".to_string())
     }
 }
 
@@ -293,7 +301,6 @@ pub fn handle_int_notequal(executor: &mut ConcolicExecutor, instruction: Inst) -
 
     Ok(())
 }
-
 
 pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntLess || instruction.inputs.len() != 2 {

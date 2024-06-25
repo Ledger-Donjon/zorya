@@ -13,16 +13,12 @@ pub struct ConcolicVar<'ctx> {
 impl<'ctx> ConcolicVar<'ctx> {
     // Function to create a new ConcolicVar with a symbolic integer
     pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic: BV<'ctx>, ctx: &'ctx Context, size: u32) -> Self {
-        let mut var = ConcolicVar { 
+        let mut var = ConcolicVar {
             concrete: ConcreteVar::Int(concrete),
             symbolic: SymbolicVar::Int(symbolic),
             ctx,
         };
-
-        if var.concrete.get_size() != size {
-            var.resize_int(size);
-        }
-        // need to resize if an operation is done on 64 bits but if the size is 8 bits for instance
+        var.resize(size);
         var
     }
 

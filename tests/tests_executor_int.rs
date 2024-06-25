@@ -212,4 +212,96 @@ mod tests {
         let result_var = executor.unique_variables.get("Unique(0x11f)").unwrap();
         assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Bool(true), "The result of 10 != 20 should be 1.");
     }
+
+    #[test]
+    fn test_handle_int_less() {
+        let mut executor = setup_executor();
+        
+        // Test case 1: 10 < 20
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(10, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(20, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x120)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x121)".to_string(), input1);
+        let instruction = Inst {
+            opcode: Opcode::IntLess,
+            output: Some(Varnode {
+                var: Var::Unique(0x122),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x120),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x121),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_less(&mut executor, instruction);
+        assert!(result.is_ok(), "The less than check should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x122)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Bool(true), "The result of 10 < 20 should be true.");
+
+        // Test case 2: 30 < 10
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 30, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(30, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(10, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x123)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x124)".to_string(), input1);
+        let instruction = Inst {
+            opcode: Opcode::IntLess,
+            output: Some(Varnode {
+                var: Var::Unique(0x125),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x123),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x124),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_less(&mut executor, instruction);
+        assert!(result.is_ok(), "The less than check should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x125)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Bool(false), "The result of 30 < 10 should be false.");
+
+        // Test case 3: 5 < 3
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 5, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 3, 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(5, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(3, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x126)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x127)".to_string(), input1);
+        let instruction = Inst {
+            opcode: Opcode::IntLess,
+            output: Some(Varnode {
+                var: Var::Unique(0x128),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x126),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x127),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_less(&mut executor, instruction);
+        assert!(result.is_ok(), "The less than check should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x128)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Bool(false), "The result of 5 < 3 should be false.");
+    }
 }
