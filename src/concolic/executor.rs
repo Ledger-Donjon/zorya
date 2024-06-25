@@ -665,20 +665,23 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
         };
         log!(self.state.logger.clone(), "Value to be copied into output: {:?}", source_var);
+
+        let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+        log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
         
         // Check the output destination and copy the source to it
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
                 Var::Unique(id) => {
                     log!(self.state.logger.clone(), "Output is a Unique type");
-                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
+                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), output_size_bits));
                     let unique_name = format!("Unique(0x{:x})", id);
                     // Convert source to ConcolicVar if needed and update or insert into unique variables
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         source_concrete_value,
                         unique_symbolic.to_bv(&self.context),
                         self.context,
-                        source_symbolic_value.get_size()  
+                        output_size_bits 
                     );
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
                     log!(self.state.logger.clone(), "Content of output {:?} after copying: {:?}", unique_name, concolic_var);
@@ -835,6 +838,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             _ => return Err("Second input for SUBPIECE must be a constant".to_string()),
         };
 
+        let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+        log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+
         // Calculate the new size after truncation
         let new_size = input_size.checked_sub(truncate_offset.try_into().unwrap()).ok_or("Truncation offset is larger than the input size")?;
 
@@ -847,12 +853,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
                 Var::Unique(id) => {
-                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), 64));
+                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), output_size_bits));
                     let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
                         result_value.get_concrete_value(),
                         unique_symbolic.to_bv(&self.context),
                         self.context,
-                        new_size as u32, // new_size needs to be cast to u32 ?
+                        output_size_bits
                     );
                     let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name.clone(), concolic_var);
