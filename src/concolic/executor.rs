@@ -160,7 +160,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x}", offset);
                 // Using the offset directly to get or initialize the register
-                let register = cpu_state_guard.get_or_init_register_by_offset(*offset);
+                let register = cpu_state_guard.get_register_by_offset(*offset);
                 log!(self.state.logger.clone(), "Retrieved register: {} with symbolic size: {:?}", register, register.symbolic.get_size());
                 Ok(ConcolicEnum::CpuConcolicValue(register.clone()))
             },

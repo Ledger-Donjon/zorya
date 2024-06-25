@@ -24,10 +24,10 @@ pub struct CpuConcolicValue<'ctx> {
 }
 
 impl<'ctx> CpuConcolicValue<'ctx> {
-    pub fn new(ctx: &'ctx Context, concrete_value: u64) -> Self {
+    pub fn new(ctx: &'ctx Context, concrete_value: u64, size: u32) -> Self {
         CpuConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
-            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, 64)),
+            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, size)),  // Use the provided size
             ctx,
         }
     }
@@ -484,29 +484,6 @@ impl<'ctx> CpuState<'ctx> {
         cpu_state
     }
 
-    /// Tried to initialized registers from x86-64.sla file but several same offsets found!
-    /// 
-    // fn initialize_registers(&mut self) -> Result<(), Error> {
-    //     let path = Path::new("src/concolic/specfiles/x86-64.sla");
-    //     let sla_file_content = fs::read_to_string(path)?;
-    
-    //     for line in sla_file_content.lines() {
-    //         if line.contains("space=\"register\"") {
-    //             let name = self.extract_value(line, "name=\"", "\"").to_uppercase();
-    //             let offset = u64::from_str_radix(self.extract_value(line, "offset=\"0x", "\""), 16)?;
-    
-    //             let concolic_value = CpuConcolicValue::new(self.ctx, 0);  
-    //             self.registers.insert(offset, concolic_value);
-    //             self.register_map.insert(offset, name.clone());
-    //             println!("Register {} at offset 0x{:x} initialized.", name, offset);
-    //         }
-    //     }
-    //     Ok(())
-    // }    
-    // fn extract_value<'a>(&self, from: &'a str, start_delim: &str, end_delim: &str) -> &'a str {
-    //     from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
-    // }
-
     fn initialize_registers(&mut self) -> Result<(), Error> {
 
         // From ia.sinc
@@ -571,9 +548,11 @@ impl<'ctx> CpuState<'ctx> {
         ("xmmTmp1", "0x1400", "128"), ("xmmTmp2", "0x1410", "128"),
     ];
 
-        for &(name, offset_hex, _size_str) in register_definitions.iter() {
+        for &(name, offset_hex, size_str) in register_definitions.iter() {
             let offset = u64::from_str_radix(offset_hex.trim_start_matches("0x"), 16)
                 .map_err(|e| anyhow!("Error parsing offset for {}: {}", name, e))?;
+            let size = size_str.parse::<u32>()
+            .map_err(|e| anyhow!("Error parsing size for {}: {}", name, e))?;
 
             if !self.is_valid_register_offset(name, offset) {
                 return Err(anyhow!("Invalid register offset 0x{:X} for {}", offset, name));
@@ -582,7 +561,7 @@ impl<'ctx> CpuState<'ctx> {
             let initial_value = 0;  // Default initialization value for all registers.
 
             // Create a new concolic value for the register.
-            let concolic_value = CpuConcolicValue::new(self.ctx, initial_value);
+            let concolic_value = CpuConcolicValue::new(self.ctx, initial_value, size);
             // Insert the new register into the map using its offset as the key.
             self.registers.insert(offset, concolic_value);
             // Map the offset to the register name for easy lookup
@@ -648,18 +627,7 @@ impl<'ctx> CpuState<'ctx> {
     }
 
     /// Ensures that a register exists at the given offset, initializes it if not.
-    pub fn get_or_init_register_by_offset(&mut self, offset: u64) -> &CpuConcolicValue<'ctx> {
-        if !self.registers.contains_key(&offset) {
-            // We create a new name for the register if it's not found in the register_map
-            let reg_name = self.register_map.entry(offset).or_insert_with(|| {
-                format!("Unknown_0x{:x}", offset)
-            }).clone(); // Clone the String to use in the println!
-
-            // Insert a new CpuConcolicValue at the given offset if it does not already exist
-            self.registers.insert(offset, CpuConcolicValue::new(self.ctx, 0));
-            println!("Initializing register {}: 0x0", reg_name);
-        }
-
+    pub fn get_register_by_offset(&mut self, offset: u64) -> &CpuConcolicValue<'ctx> {
         // return the reference as the entry exists for sure
         self.registers.get(&offset).unwrap()
     }
