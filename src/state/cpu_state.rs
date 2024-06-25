@@ -27,7 +27,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
     pub fn new(ctx: &'ctx Context, concrete_value: u64, size: u32) -> Self {
         CpuConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
-            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, size)),  // Use the provided size
+            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, size)),  
             ctx,
         }
     }
@@ -606,12 +606,25 @@ impl<'ctx> CpuState<'ctx> {
 
     /// Sets the value of a register identified by its offset.
     pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64) -> Result<(), String> {
+        // First determine the size from the register map before entering the mutable borrow
+        let size = self.register_map.get(&offset)
+            .and_then(|_name| self.registers.get(&offset) 
+                .map(|r| r.symbolic.get_size() as u32))
+            .unwrap_or(64);  // Default to 64 bits if not explicitly specified
+
         if let Some(reg) = self.registers.get_mut(&offset) {
-            reg.concrete = ConcreteVar::Int(value);
-            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, value, 64));  // Assuming the size of the register is known to be 64 bits
-            if let Some(name) = self.register_map.get(&offset) {
-                println!("Register {} set to {:x}", name, value);
-            }
+            // Resize the value according to the register size
+            let mask = if size >= 64 {
+                u64::MAX
+            } else {
+                (1 << size) - 1
+            };
+            let resized_value = value & mask;
+
+            reg.concrete = ConcreteVar::Int(resized_value);
+            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, resized_value, size));
+
+            println!("Register at offset 0x{:x} set to {:x}", offset, resized_value);
             Ok(())
         } else {
             Err(format!("No register found at offset 0x{:x}", offset))
