@@ -19,8 +19,10 @@ impl<'ctx> ConcolicVar<'ctx> {
             ctx,
         };
 
+        if var.concrete.get_size() != size {
+            var.resize_int(size);
+        }
         // need to resize if an operation is done on 64 bits but if the size is 8 bits for instance
-        var.resize_int(size);
         var
     }
 
@@ -47,12 +49,26 @@ impl<'ctx> ConcolicVar<'ctx> {
     }
     // Function to resize an integer concolic variable
     fn resize_int(&mut self, size: u32) {
+        if size == 0 || size > 64 {
+            panic!("Invalid size for integer resizing: size must be between 1 and 64");
+        }
+
         if let ConcreteVar::Int(ref mut concrete) = self.concrete {
-            let mask = (1u64 << size) - 1;
+            let mask = if size == 64 {
+                u64::MAX // If size is 64, use the maximum u64 value directly.
+            } else {
+                (1u64 << size) - 1
+            };
             *concrete &= mask;
         }
+
         if let SymbolicVar::Int(ref mut symbolic) = self.symbolic {
-            *symbolic = BV::zero_ext(symbolic, size - symbolic.get_size() as u32);
+            let current_size = symbolic.get_size() as u32;
+            if size > current_size {
+                *symbolic = symbolic.zero_ext(size - current_size);
+            } else if size < current_size {
+                *symbolic = symbolic.extract(size - 1, 0);
+            }
         }
     }
 

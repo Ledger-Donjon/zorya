@@ -19,7 +19,7 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
         Some(Var::Unique(id)) => {
             let unique_name = format!("Unique(0x{:x})", id);
             executor.unique_variables.insert(unique_name, result_value.clone());
-            log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x})", id);
+            log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with symbolic size {:?}", id, result_value.symbolic.get_size());
             Ok(())
         },
         Some(Var::Register(offset, _)) => {
@@ -29,7 +29,7 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
             cpu_state_guard.set_register_value_by_offset(*offset, concrete_value)
                 .map_err(|e| e.to_string())
                 .and_then(|_| {
-                    log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value {}", offset, concrete_value);
+                    log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value {} and with symbolic size {:?}", offset, concrete_value, result_value.symbolic.get_size());
                     Ok(())
                 })
         },

@@ -64,7 +64,7 @@ mod tests {
 
         // Verify the results
         assert!(result.is_ok(), "The addition should succeed.");
-        let result_var = executor.unique_variables.get("Unique(0x01)").unwrap();
+        let result_var = executor.unique_variables.get("Unique(0x113)").unwrap();
         assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(30), "The result of 10 + 20 should be 30.");
 
     }
