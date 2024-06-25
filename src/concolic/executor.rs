@@ -722,6 +722,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             log!(self.state.logger.clone(), "Error converting varnode to concolic: {}", e);
             e.to_string()
         })?;
+
+        let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+        log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
     
         let popcount_result = match input_var {
             ConcolicEnum::ConcolicVar(concolic_var) => {
@@ -729,21 +732,21 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "Concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = concolic_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, concolic_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, output_size_bits)
             },
             ConcolicEnum::CpuConcolicValue(cpu_var) => {
                 let concrete_value = cpu_var.get_concrete_value().unwrap_or(0);
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "CPU concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = cpu_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, cpu_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, output_size_bits)
             },
             ConcolicEnum::MemoryConcolicValue(mem_var) => {
                 let concrete_value = mem_var.get_concrete_value().unwrap_or(0);
                 let popcount = concrete_value.count_ones() as u64;
                 log!(self.state.logger.clone(), "Memory concrete value: {}, Popcount: {}", concrete_value, popcount);
                 let symbolic_value = mem_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, mem_var.concrete.get_size())
+                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, output_size_bits)
             },
         };
     
