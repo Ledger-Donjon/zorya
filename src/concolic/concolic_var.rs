@@ -12,36 +12,64 @@ pub struct ConcolicVar<'ctx> {
 
 impl<'ctx> ConcolicVar<'ctx> {
     // Function to create a new ConcolicVar with a symbolic integer
-    pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic: BV<'ctx>, ctx: &'ctx Context, _sz: u32) -> Self {        
-            
-        let new_var = ConcolicVar { 
+    pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic: BV<'ctx>, ctx: &'ctx Context, size: u32) -> Self {
+        let mut var = ConcolicVar { 
             concrete: ConcreteVar::Int(concrete),
             symbolic: SymbolicVar::Int(symbolic),
             ctx,
         };
-        new_var
+
+        // need to resize if an operation is done on 64 bits but if the size is 8 bits for instance
+        var.resize_int(size);
+        var
     }
 
     // Function to create a new ConcolicVar with a symbolic double-precision float
-    pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic: Float<'ctx>, ctx: &'ctx Context) -> Self {        
-        
-        let new_var = ConcolicVar {
+    pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic: Float<'ctx>, ctx: &'ctx Context, size: u32) -> Self {
+        let var = ConcolicVar {
             concrete: ConcreteVar::Float(concrete),
             symbolic: SymbolicVar::Float(symbolic),
             ctx,
         };
-        new_var
+        //var.resize_float(size);
+        var
     }
 
     // Function to create a new ConcolicVar with a symbolic boolean
-    pub fn new_concrete_and_symbolic_bool(concrete: bool, symbolic: Bool<'ctx>, ctx: &'ctx Context) -> Self {
-        let new_var = ConcolicVar {
+    pub fn new_concrete_and_symbolic_bool(concrete: bool, symbolic: Bool<'ctx>, ctx: &'ctx Context, size: u32) -> Self {
+        let mut var = ConcolicVar {
             concrete: ConcreteVar::Bool(concrete),
             symbolic: SymbolicVar::Bool(symbolic),
             ctx,
         };
-        new_var
+        var.resize_int(size);
+        var
     }
+    // Function to resize an integer concolic variable
+    fn resize_int(&mut self, size: u32) {
+        if let ConcreteVar::Int(ref mut concrete) = self.concrete {
+            let mask = (1u64 << size) - 1;
+            *concrete &= mask;
+        }
+        if let SymbolicVar::Int(ref mut symbolic) = self.symbolic {
+            *symbolic = BV::zero_ext(symbolic, size - symbolic.get_size() as u32);
+        }
+    }
+
+    // Placeholder functions for resizing float and bool
+    fn resize_float(&mut self, size: u32) {
+        log::error!("Float resizing is not supported");
+    }
+
+    // General resize function
+    pub fn resize(&mut self, size: u32) {
+        match self.symbolic {
+            SymbolicVar::Int(_) => self.resize_int(size),
+            SymbolicVar::Float(_) => self.resize_float(size),
+            SymbolicVar::Bool(_) => self.resize_int(size),
+        }
+    }
+
 
     pub fn popcount(&self) -> BV<'ctx> {
         self.symbolic.popcount()
@@ -81,7 +109,7 @@ impl<'ctx> ConcolicVar<'ctx> {
             symbolic: new_symbolic,
             ctx,
         })
-    }    
+    }        
 
     pub fn update_concrete_int(&mut self, new_value: u64) {
         self.concrete = ConcreteVar::Int(new_value);

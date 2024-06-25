@@ -756,7 +756,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Some(Var::Unique(id)) => {
                 let unique_name = format!("Unique(0x{:x})", id);
                 self.unique_variables.insert(unique_name.clone(), popcount_result.clone());
-                log!(self.state.logger.clone(), "Updated unique variable: {}", unique_name);
+                log!(self.state.logger.clone(), "Updated unique variable: {} with concrete size {:?} ans symbolic size {:?}", unique_name, popcount_result.concrete.get_size(), popcount_result.symbolic.get_size());
             },
             Some(Var::Register(offset, _)) => {
                 log!(self.state.logger.clone(), "Output is a Register type");

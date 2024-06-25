@@ -52,6 +52,9 @@ pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for BOOL_AND");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
+    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+
     // Perform the logical AND operation
     let result_concrete = input0_var.get_concrete_value() != 0 && input1_var.get_concrete_value() != 0;
     let context = &executor.context;
@@ -60,7 +63,7 @@ pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         &[&input0_var.get_symbolic_value_bool(), &input1_var.get_symbolic_value_bool()]
     );
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, output_size_bits);
 
     log!(executor.state.logger.clone(), "*** The result of BOOL_AND is: {:?}\n", result_concrete);
 
@@ -82,11 +85,14 @@ pub fn handle_bool_negate(executor: &mut ConcolicExecutor, instruction: Inst) ->
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for BOOL_NEGATE");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
 
+    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+
     // Perform the logical negation
     let result_concrete = !(input0_var.get_concrete_value() != 0);
     let result_symbolic = input0_var.get_symbolic_value_bool().not();
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, output_size_bits);
 
     log!(executor.state.logger.clone(), "*** The result of BOOL_NEGATE is: {:?}\n", result_concrete);
 
@@ -111,11 +117,14 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for BOOL_OR");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
+    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+
     // Perform the logical OR operation
     let result_concrete = input0_var.get_concrete_value() != 0 || input1_var.get_concrete_value() != 0;
     let result_symbolic = Bool::or(&executor.context, &[&input0_var.get_symbolic_value_bool(), &input1_var.get_symbolic_value_bool()]);
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, output_size_bits);
 
     log!(executor.state.logger.clone(), "*** The result of BOOL_OR is: {:?}\n", result_concrete);
 
