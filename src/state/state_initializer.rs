@@ -227,8 +227,8 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
             let value_hex = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
-            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
-                cpu_state_guard.set_register_value_by_offset(offset, value_hex, *size);
+            if let Some((offset, size)) = cpu_state_guard.clone().clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
+                let _ = cpu_state_guard.set_register_value_by_offset(offset, value_hex, *size);
                 println!("Updated register {} with value {}", register_name, value_hex);
             }
         }
@@ -237,31 +237,30 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
     // Special handling for flags within eflags output
     if let Some(caps) = re_flags.captures(gdb_output) {
         let flags_line = caps.get(1).unwrap().as_str();
+        println!("Parsed flags line: {}", flags_line);  // Debug statement
+
         let flag_list = ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"];
 
         for &flag in flag_list.iter() {
-            if flags_line.contains(flag) {
-                if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
-                    cpu_state_guard.set_register_value_by_offset(offset, 1, *size);
-                    println!("Set flag {} to 1", flag);
-
-                    // Verify update
-                    let updated_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
-                    println!("Verification: {} is now set to {:?}", flag, updated_value);
-                } else {
-                    println!("Flag {} not found in register_map", flag);
-                }
+            let flag_value = if flags_line.contains(flag) { 1 } else { 0 };
+            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
+                println!("Setting flag {} to {}", flag, flag_value);  // Debug statement
+                let _ = cpu_state_guard.set_register_value_by_offset(offset, flag_value, *size);
+                
+                // Verify update
+                let updated_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
+                println!("Verification: {} is now set to {:?}", flag, updated_value);
             } else {
-                // Explicitly set the flag to 0 if it is not in the flags line
-                if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
-                    cpu_state_guard.set_register_value_by_offset(offset, 0, *size);
-                    println!("Set flag {} to 0", flag);
-
-                    // Verify update
-                    let updated_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
-                    println!("Verification: {} is now set to {:?}", flag, updated_value);
-                }
+                println!("Flag {} not found in register_map", flag);
             }
+        }
+    }
+
+    // Verify final state of specific flags
+    for &flag in ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"].iter() {
+        if let Some((offset, size)) = cpu_state_guard.register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
+            let flag_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64()).unwrap_or(0);
+            println!("{} flag value: {}", flag, flag_value);  // Debug statement
         }
     }
 
