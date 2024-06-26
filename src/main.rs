@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 
@@ -65,19 +65,16 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 }
 
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
-    let mut executed_addresses = HashSet::new();
     let mut current_rip = start_address;
 
-    let address: u64 = 0xc00002e760;
-    let range = 0x10; 
+    // For debugging
+    // let address: u64 = 0xc00002e760;
+    // let range = 0x10; 
     
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address); 
     
     while let Some(instructions) = instructions_map.get(&current_rip) {
-        if !executed_addresses.insert(current_rip) {
-            log!(executor.state.logger, "Detected a loop or previously executed address. Stopping execution.");
-            break;
-        }
+        
         log!(executor.state.logger, "*******************************************");
         log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
         log!(executor.state.logger, "*******************************************\n");
@@ -95,8 +92,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
         }
 
-        log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
-        executor.state.print_memory_content(address, range);
+        // For debugging
+        // log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+        // executor.state.print_memory_content(address, range);
 
         // Fetch the current RIP value after executing instructions
         let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
