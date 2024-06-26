@@ -160,9 +160,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x}", offset);
                 // Using the offset directly to get or initialize the register
-                let register = cpu_state_guard.get_register_by_offset(*offset);
-                log!(self.state.logger.clone(), "Retrieved register: {} with symbolic size: {:?}", register, register.symbolic.get_size());
-                Ok(ConcolicEnum::CpuConcolicValue(register.clone()))
+                let mut register = cpu_state_guard.get_register_by_offset(*offset).clone();
+                // Resize the register's concolic value according to the varnode size if working with a sub register (e.g. ESI is 32 bits, RSI is 64 bits)
+                register.resize(bit_size, &self.context);
+                log!(self.state.logger.clone(), "Retrieved register: {} with resized symbolic size: {:?}", register, register.symbolic.get_size());
+                Ok(ConcolicEnum::CpuConcolicValue(register))
             },
             // Keep track of the unique variables defined inside one address execution
             Var::Unique(id) => {

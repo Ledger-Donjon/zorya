@@ -17,24 +17,30 @@ macro_rules! log {
 fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
     if let Some(varnode) = output_varnode {
         // Resize the result_value according to the output size specification
-        let size = varnode.size.to_bitvector_size() as u32;
-        result_value.resize(size); // Ensure the result_value is resized appropriately
+        let size_bits = varnode.size.to_bitvector_size() as u32;
+        result_value.resize(size_bits); 
 
         match &varnode.var {
             Var::Unique(id) => {
                 let unique_name = format!("Unique(0x{:x})", id);
                 executor.unique_variables.insert(unique_name, result_value.clone());
-                log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {:?} symbolic size {:?}", id, result_value.concrete.get_size(), result_value.symbolic.get_size());
+                log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
                 Ok(())
             },
             Var::Register(offset, _) => {
                 log!(executor.state.logger.clone(), "Output is a Register type");
                 let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                let concrete_value = result_value.concrete.to_u64();
+                // Extract value to fit within the specified size of the register
+                let concrete_value = if size_bits < 64 {
+                    result_value.concrete.to_u64() & ((1 << size_bits) - 1)
+                } else {
+                    result_value.concrete.to_u64()
+                };
+                
                 cpu_state_guard.set_register_value_by_offset(*offset, concrete_value)
                     .map_err(|e| e.to_string())
                     .and_then(|_| {
-                        log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value {}, with concrete size {:?} and with symbolic size {:?}", offset, concrete_value, result_value.concrete.get_size(), result_value.symbolic.get_size());
+                        log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, with concrete size {} bits and with symbolic size {} bits", offset, concrete_value, size_bits, result_value.symbolic.get_size());
                         Ok(())
                     })
             },
