@@ -26,6 +26,27 @@ mod tests {
             unique_variables: BTreeMap::new(),
         }
     }
+
+    #[test]
+    fn test_resize_function() {
+        let executor = setup_executor();
+        
+        // Create a concolic variable simulating a 64-bit register value
+        let initial_value = 0xFFFF_FFFF_FFFF_FFFFu64;
+        let symbolic_var = SymbolicVar::Int(BV::from_u64(executor.context, initial_value, 64));
+        let mut concolic_var = ConcolicVar::new_concrete_and_symbolic_int(initial_value, symbolic_var.to_bv(executor.context), executor.context, 64);
+
+        // Apply resize to simulate truncation to a 32-bit register (like EAX)
+        concolic_var.resize(32);
+
+        // Check the concrete value is truncated correctly
+        assert_eq!(concolic_var.concrete, ConcreteVar::Int(0xFFFF_FFFF), "The concrete value should be truncated to 32 bits.");
+
+        // Check the symbolic size matches the new size
+        assert_eq!(concolic_var.symbolic.to_bv(executor.context).get_size() as u32, 32, "The symbolic value should be resized to 32 bits.");
+
+        println!("Test completed successfully. Concrete value: {:?}, Symbolic size: {:?}", concolic_var.concrete, concolic_var.symbolic.to_bv(executor.context).get_size());
+    }
     
     #[test]
     fn test_handle_cbranch() {

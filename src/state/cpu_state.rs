@@ -45,9 +45,28 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
     // Resize the value of a register if working with sub registers (e. g. ESI is 32 bits, while RSI is 64 bits)
     pub fn resize(&mut self, new_size: u32, ctx: &'ctx Context) {
-        let mask = (1 << new_size) - 1;
+        if new_size == 0 {
+            panic!("Resize to zero bits is not allowed");
+        }
+    
+        // To avoid the "shift left with overflow" error, handle the maximum bit size safely
+        let mask = if new_size >= 64 {
+            u64::MAX // Use all bits if size is 64 or more
+        } else {
+            (1u64 << new_size) - 1
+        };
+    
+        // Update the concrete part
         self.concrete = ConcreteVar::Int(self.concrete.to_u64() & mask);
-        self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(ctx).extract(new_size - 1, 0));
+    
+        // Update the symbolic part
+        let current_size = self.symbolic.to_bv(ctx).get_size() as u32;
+        if new_size < current_size {
+            self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(ctx).extract(new_size - 1, 0));
+        } else if new_size > current_size {
+            self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(ctx).zero_ext(new_size - current_size));
+        }
+        // If the sizes are equal, no need to resize the symbolic value.
     }
 
     pub fn popcount(&self) -> BV<'ctx> {

@@ -6,7 +6,6 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use goblin::elf::Sym;
     use parser::parser::Size;
     use z3::ast::BV;
     use zorya::{concolic::{executor_int::{handle_int_add, handle_int_and, handle_int_carry, handle_int_equal, handle_int_less, handle_int_notequal, handle_int_sborrow, handle_int_scarry, handle_int_sless, handle_int_sub, handle_int_xor, handle_int_zext}, symbolic_var, ConcolicEnum, ConcolicVar, Logger}, executor::SymbolicVar};
