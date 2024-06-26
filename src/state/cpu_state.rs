@@ -269,36 +269,24 @@ impl<'ctx> CpuState<'ctx> {
         from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
 
-    /// Sets the value of a register identified by its offset, considering sub-register modifications.
-    pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64, access_size: u32) -> Result<(), String> {
-        let base_offset = offset & !(0x7); // Align to nearest lower multiple of 8 bytes
-        if let Some(reg) = self.registers.get_mut(&base_offset) {
-            let bit_offset = (offset - base_offset) * 8;
-
-            // Safety checks before any operation
-            if bit_offset + access_size as u64 > reg.symbolic.get_size() as u64 {
-                return Err(format!("Shift operation exceeds register boundary at offset 0x{:x}", offset));
-            }
-
-            // Calculate mask and position value within register boundaries
-            let mask = if access_size >= 64 {
-                u64::MAX << bit_offset
+    /// Sets the value of a register identified by its offset.
+    pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64, size: u32) -> Result<(), String> {
+        if let Some(reg) = self.registers.get_mut(&offset) {
+            // Resize the value according to the register size
+            let mask = if size >= 64 {
+                u64::MAX
             } else {
-                ((1u64 << access_size) - 1) << bit_offset  // Position mask correctly
+                (1 << size) - 1
             };
+            let resized_value = value & mask;
 
-            let value_positioned = (value & ((1u64 << access_size) - 1)) << bit_offset;  // New value shifted into position
+            reg.concrete = ConcreteVar::Int(resized_value);
+            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, resized_value, size));
 
-            // Apply the value to the register
-            reg.concrete = ConcreteVar::Int((reg.concrete.to_u64() & !mask) | value_positioned);
-            reg.symbolic = SymbolicVar::Int(
-                BV::from_u64(self.ctx, reg.concrete.to_u64(), reg.symbolic.get_size() as u32)
-            );
-
-            println!("Updated register at offset 0x{:x} within base 0x{:x} to value 0x{:x}", offset, base_offset, reg.concrete.to_u64());
+            println!("Register at offset 0x{:x} set to {:x}", offset, resized_value);
             Ok(())
         } else {
-            Err(format!("No register found at base offset 0x{:x}", base_offset))
+            Err(format!("No register found at offset 0x{:x}", offset))
         }
     }
 
