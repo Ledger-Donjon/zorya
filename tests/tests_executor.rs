@@ -27,25 +27,28 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_resize_function() {
-        let executor = setup_executor();
-        
-        // Create a concolic variable simulating a 64-bit register value
-        let initial_value = 0xFFFF_FFFF_FFFF_FFFFu64;
-        let symbolic_var = SymbolicVar::Int(BV::from_u64(executor.context, initial_value, 64));
-        let mut concolic_var = ConcolicVar::new_concrete_and_symbolic_int(initial_value, symbolic_var.to_bv(executor.context), executor.context, 64);
+    #[cfg(test)]
+    mod tests {
+        use z3::{Config, Context};
+        use zorya::state::cpu_state::CpuConcolicValue;
 
-        // Apply resize to simulate truncation to a 32-bit register (like EAX)
-        concolic_var.resize(32);
+        #[test]
+        fn test_resize_register() {
+            let cfg = Config::new();
+            let context = Context::new(&cfg);
+            let mut concolic_value = CpuConcolicValue::new(&context, 0xFFFF_FFFF_FFFF_FFFF, 64);
 
-        // Check the concrete value is truncated correctly
-        assert_eq!(concolic_var.concrete, ConcreteVar::Int(0xFFFF_FFFF), "The concrete value should be truncated to 32 bits.");
+            // Simulate truncation to a 32-bit register (like EAX)
+            concolic_value.resize(32, &context);
+            assert_eq!(concolic_value.concrete.to_u64(), 0xFFFF_FFFF);
+            assert_eq!(concolic_value.symbolic.to_bv(&context).get_size(), 32);
 
-        // Check the symbolic size matches the new size
-        assert_eq!(concolic_var.symbolic.to_bv(executor.context).get_size() as u32, 32, "The symbolic value should be resized to 32 bits.");
+            // Simulate extension to a 128-bit register (like YMM registers)
+            concolic_value.resize(128, &context);
+            assert_eq!(concolic_value.symbolic.to_bv(&context).get_size(), 128);
 
-        println!("Test completed successfully. Concrete value: {:?}, Symbolic size: {:?}", concolic_var.concrete, concolic_var.symbolic.to_bv(executor.context).get_size());
+            println!("Resize test passed successfully.");
+        }
     }
     
     #[test]

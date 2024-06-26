@@ -3,16 +3,13 @@
 use std::{collections::BTreeMap, sync::Mutex};
 use std::{fmt, fs};
 use anyhow::{Error, Result};
-use z3::ast::{Ast, Bool};
 use std::sync::Arc;
 use anyhow::anyhow;
 use std::path::Path;
 
 use z3::{ast::BV, Context};
 
-use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
-
-use super::memory_x86_64::MemoryConcolicValue;
+use crate::concolic::{ConcreteVar, SymbolicVar};
 
 pub type SharedCpuState<'a> = Arc<Mutex<CpuState<'a>>>;
 
@@ -45,30 +42,24 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
     // Resize the value of a register if working with sub registers (e. g. ESI is 32 bits, while RSI is 64 bits)
     pub fn resize(&mut self, new_size: u32, ctx: &'ctx Context) {
-        if new_size == 0 {
-            panic!("Resize to zero bits is not allowed");
+        if new_size == 0 || new_size > 256 {
+            panic!("Resize to invalid bit size: size must be between 1 and 256");
         }
-    
-        // To avoid the "shift left with overflow" error, handle the maximum bit size safely
-        let mask = if new_size >= 64 {
-            u64::MAX // Use all bits if size is 64 or more
-        } else {
-            (1u64 << new_size) - 1
-        };
-    
-        // Update the concrete part
-        self.concrete = ConcreteVar::Int(self.concrete.to_u64() & mask);
-    
-        // Update the symbolic part
+
         let current_size = self.symbolic.to_bv(ctx).get_size() as u32;
+
         if new_size < current_size {
+            // If reducing size, mask the concrete value and extract the needed bits from symbolic.
+            let mask = (1u64.wrapping_shl(new_size as u32).wrapping_sub(1)) as u64;
+            self.concrete = ConcreteVar::Int(self.concrete.to_u64() & mask);
             self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(ctx).extract(new_size - 1, 0));
         } else if new_size > current_size {
+            // If increasing size, zero extend the symbolic value. No change needed for concrete value if it's smaller.
             self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(ctx).zero_ext(new_size - current_size));
         }
-        // If the sizes are equal, no need to resize the symbolic value.
+        // If sizes are equal, no resize operation is needed.
     }
-
+    
     pub fn popcount(&self) -> BV<'ctx> {
         self.symbolic.popcount()
     }

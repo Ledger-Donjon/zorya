@@ -45,31 +45,31 @@ impl<'ctx> ConcolicVar<'ctx> {
     }
     // Function to resize an integer concolic variable
     fn resize_int(&mut self, size: u32) {
-        if size == 0 || size > 64 {
-            panic!("Invalid size for integer resizing: size must be between 1 and 64");
+        if size == 0 || size > 256 {
+            panic!("Invalid size for resizing: size must be between 1 and 256");
         }
 
+        // Handle concrete resizing
+        let mask = if size >= 64 {
+            u64::MAX // Use all bits if size is 64 or more
+        } else {
+            (1u64 << size) - 1 // Safe for sizes up to 63
+        };
         if let ConcreteVar::Int(ref mut concrete) = self.concrete {
-            let mask = if size == 64 {
-                u64::MAX // If size is 64, use the maximum u64 value directly.
-            } else {
-                (1u64 << size) - 1
-            };
             *concrete &= mask;
         }
 
-        if let SymbolicVar::Int(ref mut symbolic) = self.symbolic {
-            let current_size = symbolic.get_size() as u32;
-            if size > current_size {
-                *symbolic = symbolic.zero_ext(size - current_size);
-            } else if size < current_size {
-                *symbolic = symbolic.extract(size - 1, 0);
-            }
+        // Handle symbolic resizing
+        let current_size = self.symbolic.to_bv(self.ctx).get_size() as u32;
+        if size < current_size {
+            self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(self.ctx).extract(size - 1, 0));
+        } else if size > current_size {
+            self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(self.ctx).zero_ext(size - current_size));
         }
     }
 
     // Placeholder functions for resizing float and bool
-    fn resize_float(&mut self, size: u32) {
+    fn resize_float(&mut self, _size: u32) {
         log::error!("Float resizing is not supported");
     }
 
