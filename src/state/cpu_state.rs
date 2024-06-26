@@ -283,7 +283,17 @@ impl<'ctx> CpuState<'ctx> {
                 return Err(format!("Attempt to shift outside of 64-bit bounds at offset 0x{:x}", offset));
             }
 
-            let mask = ((1u64 << access_size) - 1) << bit_offset;  // Mask for the new value positioned correctly
+            // Before shifting, ensure the shift does not exceed the bounds of u64
+            if bit_offset + access_size as u64 > 64 {
+                return Err(format!("Shift operation out of bounds at offset 0x{:x}", offset));
+            }
+
+            let mask = if access_size == 64 {
+                u64::MAX << bit_offset
+            } else {
+                ((1u64 << access_size) - 1) << bit_offset  // Mask for the new value positioned correctly
+            };
+
             let value_positioned = (value & ((1u64 << access_size) - 1)) << bit_offset;  // New value shifted into position
 
             // Apply the value to the register
