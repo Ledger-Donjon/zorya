@@ -283,7 +283,7 @@ impl<'ctx> CpuState<'ctx> {
             reg.concrete = ConcreteVar::Int(resized_value);
             reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, resized_value, size));
 
-            println!("Register at offset 0x{:x} set to {:x}", offset, resized_value);
+            println!("Register at offset 0x{:x} set to {:x} with size {:?}", offset, resized_value, size);
             Ok(())
         } else {
             Err(format!("No register found at offset 0x{:x}", offset))

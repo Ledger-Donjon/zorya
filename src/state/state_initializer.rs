@@ -210,14 +210,14 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
 
 // Function to parse GDB output and update CPU state
 fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_output: &str) -> Result<()> {
-    let re = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
+    let re_general = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
+    let re_flags = Regex::new(r"^\s*(\w+)\s+\[\s*(.*?)\s*\]").unwrap();
     let mut cpu_state_guard = cpu_state.lock().unwrap();
 
-    // Preparing to update register values based on their offsets found via names
     for line in gdb_output.lines() {
-        if let Some(caps) = re.captures(line) {
-            let register_name = caps[1].to_uppercase();  // Convert register name to uppercase
-            let value_hex = u64::from_str_radix(&caps[2], 16)
+        if let Some(caps) = re_general.captures(line) {
+            let register_name = caps.get(1).unwrap().as_str().to_uppercase();
+            let value_hex = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
             let offset = cpu_state_guard.register_map.iter().find_map(|(key, val)| {
@@ -233,24 +233,19 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
             .and_then(|_name| cpu_state_guard.registers.get(&offset.unwrap()) 
                 .map(|r| r.symbolic.get_size() as u32));
 
-            // Check for the offset in the register_map
-            let offset_option = cpu_state_guard.register_map.iter().find_map(|(key, val)| {
-                if val.0 == register_name {
-                    Some(*key)  // Directly use the offset
-                } else {
-                    None
-                }
-            });
+            if let Some((offset, _)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == register_name) {
+                let _ = cpu_state_guard.set_register_value_by_offset(*offset, value_hex, size.unwrap()); 
+                println!("Updated register {} with value {}", register_name, value_hex);
+            }
+        } else if let Some(caps) = re_flags.captures(line) {
+            let flags = caps.get(2).unwrap().as_str().split_whitespace();
 
-            // Update the CPU register value using the offset
-            if let Some(offset) = offset_option {
-                if let Err(e) = cpu_state_guard.set_register_value_by_offset(offset, value_hex, size.unwrap()) {
-                    println!("Failed to update CPU register {} (offset 0x{:x}): {}", register_name, offset, e);
-                } else {
-                    println!("Updated CPU register {} (offset 0x{:x}): {}", register_name, offset, value_hex);
+            for flag in flags {
+                if let Some((offset, _size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == flag) {
+                    // Set the flag bit to 1
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, 1, 8);
+                    println!("Set flag {} to 1", flag);
                 }
-            } else {
-                println!("Register not found: {}", register_name);
             }
         }
     }
