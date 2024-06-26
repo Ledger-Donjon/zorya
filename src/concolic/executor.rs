@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::Write;
 
+use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::memory_x86_64::MemoryConcolicValue;
 use crate::state::state_manager::Logger;
 use crate::state::MemoryX86_64;
@@ -159,12 +160,42 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // It is a CPU register address
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x}", offset);
-                // Using the offset directly to get or initialize the register
-                let mut register = cpu_state_guard.get_register_by_offset(*offset, bit_size).clone().unwrap();
-                // Resize the register's concolic value according to the varnode size if working with a sub register (e.g. ESI is 32 bits, RSI is 64 bits)
-                register.resize(bit_size, &self.context);
-                log!(self.state.logger.clone(), "Retrieved register: {} with resized symbolic size: {:?}", register, register.symbolic.get_size());
-                Ok(ConcolicEnum::CpuConcolicValue(register))
+    
+                let register = cpu_state_guard.get_register_by_offset(*offset, bit_size).or_else(|| {
+                    // Find the closest smaller offset for cases when the varnode is a sub-register
+                    let closest_smaller_offset = cpu_state_guard.registers.keys()
+                        .filter(|&&key| key <= *offset)
+                        .max();
+                    
+                    if let Some(&closest_offset) = closest_smaller_offset {
+                        let diff = *offset - closest_offset;
+                        let register_size = cpu_state_guard.register_map.get(&closest_offset).map(|(_, size)| *size).unwrap_or(0);
+                        if diff * 8 + bit_size as u64 <= register_size as u64 {
+                            let original_register = cpu_state_guard.get_register_by_offset(closest_offset, register_size).unwrap();
+                            let extracted_concrete = (original_register.concrete.to_u64() >> (diff * 8)) & ((1 << bit_size) - 1);
+                            let extracted_symbolic = original_register.symbolic.extract((diff * 8 + bit_size as u64 - 1) as u32, (diff * 8) as u32);
+                            
+                            Some(CpuConcolicValue {
+                                concrete: ConcreteVar::Int(extracted_concrete),
+                                symbolic: SymbolicVar::Int(extracted_symbolic.unwrap().to_bv(&self.context)),
+                                ctx: self.context,
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
+    
+                if let Some(mut register) = register {
+                    // Resize the register's concolic value according to the varnode size if working with a sub-register (e.g. ESI is 32 bits, RSI is 64 bits)
+                    register.resize(bit_size, &self.context);
+                    log!(self.state.logger.clone(), "Retrieved register: {} with resized symbolic size: {:?}", register, register.symbolic.get_size());
+                    Ok(ConcolicEnum::CpuConcolicValue(register))
+                } else {
+                    Err(format!("No register found at offset 0x{:x}", offset))
+                }
             },
             // Keep track of the unique variables defined inside one address execution
             Var::Unique(id) => {
