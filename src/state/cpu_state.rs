@@ -277,6 +277,12 @@ impl<'ctx> CpuState<'ctx> {
         if let Some(reg) = self.registers.get_mut(&base_offset) {
             // Calculate the bit offset within the register
             let bit_offset = (offset - base_offset) * 8;
+            let effective_shift = bit_offset + access_size as u64;
+
+            if effective_shift > 64 {
+                return Err(format!("Attempt to shift outside of 64-bit bounds at offset 0x{:x}", offset));
+            }
+
             let mask = ((1u64 << access_size) - 1) << bit_offset;  // Mask for the new value positioned correctly
             let value_positioned = (value & ((1u64 << access_size) - 1)) << bit_offset;  // New value shifted into position
 
