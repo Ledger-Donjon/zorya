@@ -160,7 +160,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x}", offset);
                 // Using the offset directly to get or initialize the register
-                let mut register = cpu_state_guard.get_register_by_offset(*offset).clone();
+                let mut register = cpu_state_guard.get_register_by_offset(*offset, bit_size).clone().unwrap();
                 // Resize the register's concolic value according to the varnode size if working with a sub register (e.g. ESI is 32 bits, RSI is 64 bits)
                 register.resize(bit_size, &self.context);
                 log!(self.state.logger.clone(), "Retrieved register: {} with resized symbolic size: {:?}", register, register.symbolic.get_size());
@@ -239,7 +239,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
         }
     
         // Update the instruction counter
@@ -280,7 +280,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
         }
     
         // Update the instruction counter
@@ -341,7 +341,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             log!(self.state.logger.clone(), "Branch condition is true, branching to address {:x}", branch_target_concrete);
             // Update the RIP register to the branch target address
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
         } else {
             log!(self.state.logger.clone(), "Branch condition is false, continuing to next instruction");
         }
@@ -387,7 +387,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, data_to_call_concrete).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, data_to_call_concrete, 64).map_err(|e| e.to_string())?;
         }
         // Update the instruction counter
         self.instruction_counter += 1;
@@ -459,7 +459,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
         }
         // Update the instruction counter
         self.instruction_counter += 1;
@@ -492,10 +492,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Dereference the address from the CPU registers or memory
         let dereferenced_concrete_value = {
             let cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            // Get the size of the input in bits
+            let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
+            log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
             // Use the offset directly to retrieve register value
-            if let Some(value) = cpu_state_guard.get_register_value_by_offset(pointer_offset_concrete) {
-                log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value);
-                value
+            if let Some(value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
+                let value_u64 = value.get_concrete_value()?;
+                log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value_u64);
+                value_u64
             } else {
                 // If not found in registers, dereference from memory and assemble the 64-bit value from 8 bytes
                 let memory_guard = self.state.memory.memory.read().unwrap();
@@ -550,7 +554,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                     // Use offset directly to set the register value
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, dereferenced_concrete_value);
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, dereferenced_concrete_value, output_varnode.size.to_bitvector_size());
                     log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", offset, dereferenced_concrete_value);
                 },
                 _ => {
@@ -586,6 +590,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
 
+        // Get the size of the input in bits
+        let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
+        log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
+
         // Fetch the data to be stored
         log!(self.state.logger.clone(), "* Fetching data to store from instruction.input[2]");
         let data_to_store_varnode = &instruction.inputs[2];
@@ -617,8 +625,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // If the address falls within the range of the CPU registers, update the register as well
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            if let Some(_register_value) = cpu_state_guard.get_register_value_by_offset(pointer_offset_concrete) {
-                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concrete)?;
+            if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
+                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concrete, input_size_bits)?;
                 log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
             }
         }
@@ -691,7 +699,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concrete_value);
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concrete_value, output_size_bits);
                     log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value {}", offset, source_concrete_value);
                 },
                 _ => {
@@ -728,6 +736,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             e.to_string()
         })?;
 
+        // Get the size of the input and output in bits
+        let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
+        log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
     
@@ -768,11 +779,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                 let concrete_value = popcount_result.concrete.to_u64();
                 log!(self.state.logger.clone(), "Setting register value at offset 0x{:x} to {}", offset, concrete_value);
-                let set_result = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value);
+                let set_result = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value, output_size_bits);
                 match set_result {
                     Ok(_) => {
-                        let updated_value = cpu_state_guard.get_register_value_by_offset(*offset).unwrap_or(0);
-                        if updated_value == concrete_value {
+                        let updated_value = cpu_state_guard.get_register_by_offset(*offset, input_size_bits).unwrap();
+                        if updated_value.get_concrete_value()? == concrete_value {
                             log!(self.state.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
                         } else {
                             log!(self.state.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);

@@ -88,8 +88,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             }
 
             // Fetch the current RIP value after executing instructions
-            let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
-            log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
+            let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
+            let rip_value_u64 = rip_value.get_concrete_value().unwrap();
+            log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value_u64);
         }
 
         // For debugging
@@ -97,13 +98,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         // executor.state.print_memory_content(address, range);
 
         // Fetch the current RIP value after executing instructions
-        let rip_value = executor.state.cpu_state.lock().unwrap().get_register_value_by_offset(0x288).unwrap();
-        log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
+        let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
+        let rip_value_u64 = rip_value.get_concrete_value().unwrap();
+        log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value_u64);
 
 	    // Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
-        if rip_value != current_rip {
-            log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value);
-            current_rip = rip_value;
+        if rip_value_u64 != current_rip {
+            log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value_u64);
+            current_rip = rip_value_u64;
         } else {
             // Move to the next sequential address if no control flow change occurred
             if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
@@ -112,7 +114,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 // Update the RIP register to the branch target address
                 {
                     let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                    let _ = cpu_state_guard.set_register_value_by_offset(0x288, next_address).map_err(|e| e.to_string());
+                    let _ = cpu_state_guard.set_register_value_by_offset(0x288, next_address, 64).map_err(|e| e.to_string());
                 }
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");

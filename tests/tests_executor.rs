@@ -73,8 +73,9 @@ mod tests {
         assert!(result.is_ok());
 
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-        let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
-        assert_eq!(rip_value, 0x3000);
+        let rip_value = cpu_state_guard.get_register_by_offset(0x288, 64).expect("RIP register not found");
+        let rip_value_u64 = rip_value.get_concrete_value().expect("Failed to get concrete value");
+        assert_eq!(rip_value_u64, 0x3000);
     }
 
     #[test]
@@ -164,8 +165,9 @@ mod tests {
 
         // Check CPU state to ensure data is also stored in the register if applicable
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-        if let Some(register_value) = cpu_state_guard.get_register_value_by_offset(0x1000) {
-            assert_eq!(register_value, 0xDEADBEEF);
+        if let Some(register_value) = cpu_state_guard.get_register_by_offset(0x1000, 64) {
+            let register_value_u64 = register_value.get_concrete_value().expect("Failed to get register value");
+            assert_eq!(register_value_u64, 0xdeadbeef); 
         } else {
             println!("Register not updated, but this may be expected if the address does not map to a register.");
         }
@@ -235,8 +237,9 @@ mod tests {
         assert!(result.is_ok(), "handle_branch returned an error: {:?}", result);
 
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-        let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
-        assert_eq!(rip_value, 0x2000);
+        let rip_value = cpu_state_guard.get_register_by_offset(0x288, 64).expect("RIP register not found");
+        let rip_value_u64 = rip_value.get_concrete_value().expect("Failed to get concrete value");
+        assert_eq!(rip_value_u64, 0x2000);
     }
 
     #[test]
@@ -257,8 +260,9 @@ mod tests {
         assert!(result.is_ok(), "handle_branchind returned an error: {:?}", result);
 
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-        let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
-        assert_eq!(rip_value, 0x4000);
+        let rip_value = cpu_state_guard.get_register_by_offset(0x288, 64).expect("RIP register not found");
+        let rip_value_u64 = rip_value.get_concrete_value().expect("Failed to get concrete value");
+        assert_eq!(rip_value_u64, 0x4000);
     }
 
     #[test]
@@ -279,8 +283,9 @@ mod tests {
         assert!(result.is_ok(), "handle_branchind returned an error: {:?}", result);
 
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-        let rip_value = cpu_state_guard.get_register_value_by_offset(0x288).expect("RIP register not found");
-        assert_eq!(rip_value, 0x5000);
+        let rip_value = cpu_state_guard.get_register_by_offset(0x288, 64).expect("RIP register not found");
+        let rip_value_u64 = rip_value.get_concrete_value().expect("Failed to get concrete value");
+        assert_eq!(rip_value_u64, 0x5000);
     }
 
     #[test]

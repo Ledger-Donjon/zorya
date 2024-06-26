@@ -219,21 +219,14 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
             let value_hex = u64::from_str_radix(&caps[2], 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
-            // Check for the offset in the register_map
-            let offset_option = cpu_state_guard.register_map.iter().find_map(|(key, val)| {
-                if val == &register_name {
-                    Some(*key)  // Directly use the offset
-                } else {
-                    None
-                }
-            });
-
-            // Update the CPU register value using the offset
-            if let Some(offset) = offset_option {
-                if let Err(e) = cpu_state_guard.set_register_value_by_offset(offset, value_hex) {
+            // Check for the offset and size in the register_map
+            if let Some((offset, size)) = cpu_state_guard.register_map.iter()
+                .find_map(|(key, (name, sz))| if name == &register_name { Some((*key, *sz)) } else { None }) {
+                // Update the CPU register value using the offset
+                if let Err(e) = cpu_state_guard.set_register_value_by_offset(offset, value_hex, size) {
                     println!("Failed to update CPU register {} (offset 0x{:x}): {}", register_name, offset, e);
                 } else {
-                    println!("Updated CPU register {} (offset 0x{:x}): {}", register_name, offset, value_hex);
+                    println!("Updated CPU register {} (offset 0x{:x}) to value 0x{:x}", register_name, offset, value_hex);
                 }
             } else {
                 println!("Register not found: {}", register_name);

@@ -37,7 +37,7 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
                     result_value.concrete.to_u64()
                 };
                 
-                cpu_state_guard.set_register_value_by_offset(*offset, concrete_value)
+                cpu_state_guard.set_register_value_by_offset(*offset, concrete_value, size_bits)
                     .map_err(|e| e.to_string())
                     .and_then(|_| {
                         log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, with concrete size {} bits and with symbolic size {} bits", offset, concrete_value, size_bits, result_value.symbolic.get_size());

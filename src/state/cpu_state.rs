@@ -59,7 +59,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         }
         // If sizes are equal, no resize operation is needed.
     }
-    
+
     pub fn popcount(&self) -> BV<'ctx> {
         self.symbolic.popcount()
     }
@@ -134,7 +134,7 @@ impl<'ctx> fmt::Display for CpuConcolicValue<'ctx> {
 #[derive(Debug, Clone)]
 pub struct CpuState<'ctx> {
     pub registers: BTreeMap<u64, CpuConcolicValue<'ctx>>,
-    pub register_map: BTreeMap<u64, String>,
+    pub register_map: BTreeMap<u64, (String, u32)>, // Map of register offsets to register names and sizes
     ctx: &'ctx Context,
 }
 
@@ -230,7 +230,7 @@ impl<'ctx> CpuState<'ctx> {
             // Insert the new register into the map using its offset as the key.
             self.registers.insert(offset, concolic_value);
             // Map the offset to the register name for easy lookup
-            self.register_map.insert(offset, name.to_string());
+            self.register_map.insert(offset, (name.to_string(), size));
 
             // Print debug info to trace the initialization of registers
             // println!("Initialized register {} at offset 0x{:X} with size {}.", name, offset, size);
@@ -269,45 +269,65 @@ impl<'ctx> CpuState<'ctx> {
         from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
 
-    /// Sets the value of a register identified by its offset.
-    pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64) -> Result<(), String> {
-        // First determine the size from the register map before entering the mutable borrow
-        let size = self.register_map.get(&offset)
-            .and_then(|_name| self.registers.get(&offset) 
-                .map(|r| r.symbolic.get_size() as u32))
-            .unwrap_or(64);  // Default to 64 bits if not explicitly specified
+    /// Sets the value of a register identified by its offset, considering sub-register modifications.
+    pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64, access_size: u32) -> Result<(), String> {
+        // Locate the base offset for the register handling sub-register access
+        let base_offset = offset & !(0x7); // Align to nearest lower multiple of 8 bytes
 
-        if let Some(reg) = self.registers.get_mut(&offset) {
-            // Resize the value according to the register size
-            let mask = if size >= 64 {
-                u64::MAX
-            } else {
-                (1 << size) - 1
-            };
-            let resized_value = value & mask;
+        if let Some(reg) = self.registers.get_mut(&base_offset) {
+            // Calculate the bit offset within the register
+            let bit_offset = (offset - base_offset) * 8;
+            let mask = ((1u64 << access_size) - 1) << bit_offset;  // Mask for the new value positioned correctly
+            let value_positioned = (value & ((1u64 << access_size) - 1)) << bit_offset;  // New value shifted into position
 
-            reg.concrete = ConcreteVar::Int(resized_value);
-            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, resized_value, size));
+            // Apply the value to the register
+            reg.concrete = ConcreteVar::Int((reg.concrete.to_u64() & !mask) | value_positioned);
+            reg.symbolic = SymbolicVar::Int(
+                BV::from_u64(self.ctx, reg.concrete.to_u64(), reg.symbolic.get_size() as u32)
+            );
 
-            println!("Register at offset 0x{:x} set to {:x}", offset, resized_value);
+            println!("Updated register at offset 0x{:x} within base 0x{:x} to value 0x{:x}", offset, base_offset, reg.concrete.to_u64());
             Ok(())
         } else {
-            Err(format!("No register found at offset 0x{:x}", offset))
+            Err(format!("No register found at base offset 0x{:x}", base_offset))
         }
     }
 
-    /// Retrieves the value of a register identified by its offset.
-    pub fn get_register_value_by_offset(&self, offset: u64) -> Option<u64> {
-        self.registers.get(&offset).and_then(|reg| match reg.concrete {
-            ConcreteVar::Int(value) => Some(value),
-            _ => None,
-        })
-    }
+    // Function to get a register by its offset, accounting for sub-register accesses
+    pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
+        // Check if the exact register exists
+        if let Some(reg) = self.registers.get(&offset) {
+            return Some(reg.clone());
+        }
 
-    /// Ensures that a register exists at the given offset, initializes it if not.
-    pub fn get_register_by_offset(&mut self, offset: u64) -> &CpuConcolicValue<'ctx> {
-        // return the reference as the entry exists for sure
-        self.registers.get(&offset).unwrap()
+        // Handle sub-register access
+        for (base_offset, reg) in &self.registers {
+            let size_in_bytes = reg.symbolic.get_size() as u64 / 8;
+            if offset >= *base_offset && offset < *base_offset + size_in_bytes {
+                // Calculate byte offset within the larger register
+                let byte_offset = offset - base_offset;
+                // Calculate bit offset (e.g., accessing a word 16 bits in)
+                let bit_offset = byte_offset * 8;
+                let effective_access_size = access_size.min(reg.symbolic.get_size() as u32 - bit_offset as u32);
+
+                // Ensure proper typing for bit operations
+                let high_bit = bit_offset + u64::from(effective_access_size) - 1;
+                let low_bit = bit_offset as u32;
+
+                // Safely perform the extraction
+                let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(high_bit as u32, low_bit);
+
+                let mask = (1u64 << effective_access_size) - 1;
+                let new_concrete = (reg.concrete.to_u64() >> low_bit) & mask;
+
+                return Some(CpuConcolicValue {
+                    concrete: ConcreteVar::Int(new_concrete),
+                    symbolic: SymbolicVar::Int(new_symbolic),
+                    ctx: self.ctx,
+                });
+            }
+        }
+        None
     }
 }
 
