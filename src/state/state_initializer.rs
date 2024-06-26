@@ -209,6 +209,7 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
 }
 
 // Function to parse GDB output and update CPU state
+// Function to parse GDB output and update CPU state
 fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_output: &str) -> Result<()> {
     let re_general = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
     let re_flags = Regex::new(r"^\s*eflags\s+0x[0-9a-f]+\s+\[(.*?)\]").unwrap();
@@ -221,14 +222,8 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
             let value_hex = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
-            if let Some((offset, size)) = cpu_state_guard.register_map.iter().find_map(|(&key, (name, size))| {
-                if name == &register_name {
-                    Some((key, *size))
-                } else {
-                    None
-                }
-            }) {
-                let _ = cpu_state_guard.set_register_value_by_offset(offset, value_hex, size);
+            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == register_name) {
+                let _ = cpu_state_guard.set_register_value_by_offset(*offset, value_hex, size.1);
                 println!("Updated register {} with value {}", register_name, value_hex);
             }
         }
@@ -240,24 +235,13 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
         let flag_list = ["CF", "PF", "AF", "ZF", "SF", "TF", "IF", "DF", "OF", "RF", "VM", "AC", "VIF", "VIP", "ID", "F1", "F3", "F5", "F15", "NT", "IOPL"];
 
         for flag in flag_list.iter() {
-            let flag_value = if flags_line.contains(flag) { 1 } else { 0 };
-            if let Some((offset, size)) = cpu_state_guard.register_map.iter().find_map(|(&key, (name, size))| {
-                if name == flag {
-                    Some((key, *size))
-                } else {
-                    None
-                }
-            }) {
-                let _ = cpu_state_guard.set_register_value_by_offset(offset, flag_value, size);
+            let flag_value = if flags_line.contains(*flag) { 1 } else { 0 };
+            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == *flag) {
+                let _ = cpu_state_guard.set_register_value_by_offset(*offset, flag_value, size.1);
                 println!("Set flag {} to {}", flag, flag_value);
             }
         }
     }
-
-    print!("CF register value : {:?}", cpu_state_guard.get_register_by_offset(0x200, 8));
-    print!("PF register value : {:?}", cpu_state_guard.get_register_by_offset(0x202, 8));
-    print!("ZF register value : {:?}", cpu_state_guard.get_register_by_offset(0x206, 8));
-    print!("IF register value : {:?}", cpu_state_guard.get_register_by_offset(0x209, 8));
 
     Ok(())
 }
