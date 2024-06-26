@@ -271,27 +271,20 @@ impl<'ctx> CpuState<'ctx> {
 
     /// Sets the value of a register identified by its offset, considering sub-register modifications.
     pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64, access_size: u32) -> Result<(), String> {
-        // Locate the base offset for the register handling sub-register access
         let base_offset = offset & !(0x7); // Align to nearest lower multiple of 8 bytes
-
         if let Some(reg) = self.registers.get_mut(&base_offset) {
-            // Calculate the bit offset within the register
             let bit_offset = (offset - base_offset) * 8;
-            let effective_shift = bit_offset + access_size as u64;
 
-            if effective_shift > 64 {
-                return Err(format!("Attempt to shift outside of 64-bit bounds at offset 0x{:x}", offset));
+            // Safety checks before any operation
+            if bit_offset + access_size as u64 > reg.symbolic.get_size() as u64 {
+                return Err(format!("Shift operation exceeds register boundary at offset 0x{:x}", offset));
             }
 
-            // Before shifting, ensure the shift does not exceed the bounds of u64
-            if bit_offset + access_size as u64 > 64 {
-                return Err(format!("Shift operation out of bounds at offset 0x{:x}", offset));
-            }
-
-            let mask = if access_size == 64 {
+            // Calculate mask and position value within register boundaries
+            let mask = if access_size >= 64 {
                 u64::MAX << bit_offset
             } else {
-                ((1u64 << access_size) - 1) << bit_offset  // Mask for the new value positioned correctly
+                ((1u64 << access_size) - 1) << bit_offset  // Position mask correctly
             };
 
             let value_positioned = (value & ((1u64 << access_size) - 1)) << bit_offset;  // New value shifted into position
