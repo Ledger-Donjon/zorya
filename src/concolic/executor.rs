@@ -173,11 +173,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         if diff * 8 + bit_size as u64 <= register_size as u64 {
                             let original_register = cpu_state_guard.get_register_by_offset(closest_offset, register_size).unwrap();
                             let extracted_concrete = (original_register.concrete.to_u64() >> (diff * 8)) & ((1 << bit_size) - 1);
-                            let extracted_symbolic = original_register.symbolic.extract((diff * 8 + bit_size as u64 - 1) as u32, (diff * 8) as u32);
+                            let extracted_symbolic = original_register.symbolic.to_bv(&self.context).extract((diff * 8 + bit_size as u64 - 1) as u32, (diff * 8) as u32);
                             
                             Some(CpuConcolicValue {
                                 concrete: ConcreteVar::Int(extracted_concrete),
-                                symbolic: SymbolicVar::Int(extracted_symbolic.unwrap().to_bv(&self.context)),
+                                symbolic: SymbolicVar::Int(extracted_symbolic),
                                 ctx: self.context,
                             })
                         } else {
