@@ -214,6 +214,12 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
     let re_flags = Regex::new(r"^\s*eflags\s+0x[0-9a-f]+\s+\[(.*?)\]").unwrap();
     let mut cpu_state_guard = cpu_state.lock().unwrap();
 
+    // Display current state of flag registrations for debugging
+    println!("Flag Registrations:");
+    for (offset, (name, size)) in cpu_state_guard.register_map.iter() {
+        println!("{}: offset = 0x{:x}, size = {}", name, offset, size);
+    }
+
     for line in gdb_output.lines() {
         if let Some(caps) = re_general.captures(line) {
             let register_name = caps.get(1).unwrap().as_str().to_uppercase();
@@ -221,7 +227,7 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
             if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
-                cpu_state_guard.set_register_value_by_offset(offset, value_hex, *size);
+                let _ = cpu_state_guard.set_register_value_by_offset(offset, value_hex, *size);
                 println!("Updated register {} with value {}", register_name, value_hex);
             }
         }
@@ -234,8 +240,12 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
         for &flag in flag_list.iter() {
             if flags_line.contains(flag) {
                 if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
-                    cpu_state_guard.set_register_value_by_offset(offset, 1, *size);
+                    let _ = cpu_state_guard.set_register_value_by_offset(offset, 1, *size);
                     println!("Set flag {} to 1", flag);
+
+                    // Verify update
+                    let updated_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
+                    println!("Verification: {} is now set to {:?}", flag, updated_value);
                 }
             }
         }
@@ -243,6 +253,7 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
 
     Ok(())
 }
+
 
 fn extract_memory_mappings(gdb_output: &str) -> Result<Vec<(String, String, String, String)>, regex::Error> {
     // Regex to capture address, size, offset, and permissions, being flexible on spaces
