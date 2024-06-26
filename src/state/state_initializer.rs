@@ -211,7 +211,7 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
 // Function to parse GDB output and update CPU state
 fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_output: &str) -> Result<()> {
     let re_general = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
-    let re_flags = Regex::new(r"^\s*eflags\s+\S+\s+\[(.*?)\]").unwrap();
+    let re_flags = Regex::new(r"^\s*eflags\s+0x[0-9a-f]+\s+\[(.*?)\]").unwrap();
     let mut cpu_state_guard = cpu_state.lock().unwrap();
 
     // Parse general registers
@@ -222,7 +222,7 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
             if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == register_name) {
-                let _ = cpu_state_guard.set_register_value_by_offset(*offset, value_hex, size.1);
+                cpu_state_guard.set_register_value_by_offset(*offset, value_hex, size.1);
                 println!("Updated register {} with value {}", register_name, value_hex);
             }
         }
@@ -236,7 +236,7 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
         for flag in flag_list.iter() {
             let flag_value = if flags_line.contains(*flag) { 1 } else { 0 };
             if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == *flag) {
-                let _ = cpu_state_guard.set_register_value_by_offset(*offset, flag_value, size.1);
+                cpu_state_guard.set_register_value_by_offset(*offset, flag_value, size.1);
                 println!("Set flag {} to {}", flag, flag_value);
             }
         }
