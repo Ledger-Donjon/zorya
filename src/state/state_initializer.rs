@@ -211,41 +211,33 @@ pub fn get_mock(cpu_state: SharedCpuState) -> Result<()> {
 // Function to parse GDB output and update CPU state
 fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_output: &str) -> Result<()> {
     let re_general = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
-    let re_flags = Regex::new(r"^\s*(\w+)\s+\[\s*(.*?)\s*\]").unwrap();
+    let re_flags = Regex::new(r"^\s*eflags\s+\S+\s+\[(.*?)\]").unwrap();
     let mut cpu_state_guard = cpu_state.lock().unwrap();
 
+    // Parse general registers
     for line in gdb_output.lines() {
         if let Some(caps) = re_general.captures(line) {
             let register_name = caps.get(1).unwrap().as_str().to_uppercase();
             let value_hex = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
-            let offset = cpu_state_guard.register_map.iter().find_map(|(key, val)| {
-                if val.0 == register_name {
-                    Some(*key)
-                } else {
-                    None
-                }
-            });
-
-            // Get the register size based on the offset
-            let size = cpu_state_guard.register_map.get(&offset.unwrap())
-            .and_then(|_name| cpu_state_guard.registers.get(&offset.unwrap()) 
-                .map(|r| r.symbolic.get_size() as u32));
-
-            if let Some((offset, _)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == register_name) {
-                let _ = cpu_state_guard.set_register_value_by_offset(*offset, value_hex, size.unwrap()); 
+            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == register_name) {
+                let _ = cpu_state_guard.set_register_value_by_offset(*offset, value_hex, size.1);
                 println!("Updated register {} with value {}", register_name, value_hex);
             }
-        } else if let Some(caps) = re_flags.captures(line) {
-            let flags = caps.get(2).unwrap().as_str().split_whitespace();
+        }
+    }
 
-            for flag in flags {
-                if let Some((offset, _size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == flag) {
-                    // Set the flag bit to 1
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, 1, 8);
-                    println!("Set flag {} to 1", flag);
-                }
+    // Special handling for flags within eflags output
+    if let Some(caps) = re_flags.captures(gdb_output) {
+        let flags_line = caps.get(1).unwrap().as_str();
+        let flag_list = ["CF", "PF", "AF", "ZF", "SF", "TF", "IF", "DF", "OF", "RF", "VM", "AC", "VIF", "VIP", "ID", "F1", "F3", "F5", "F15", "NT", "IOPL"];
+
+        for flag in flag_list.iter() {
+            let flag_value = if flags_line.contains(*flag) { 1 } else { 0 };
+            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|(_, (name, _))| *name == *flag) {
+                let _ = cpu_state_guard.set_register_value_by_offset(*offset, flag_value, size.1);
+                println!("Set flag {} to {}", flag, flag_value);
             }
         }
     }
