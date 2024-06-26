@@ -228,7 +228,7 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
                     None
                 }
             }) {
-                cpu_state_guard.set_register_value_by_offset(offset, value_hex, size);
+                let _ = cpu_state_guard.set_register_value_by_offset(offset, value_hex, size);
                 println!("Updated register {} with value {}", register_name, value_hex);
             }
         }
@@ -248,11 +248,16 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
                     None
                 }
             }) {
-                cpu_state_guard.set_register_value_by_offset(offset, flag_value, size);
+                let _ = cpu_state_guard.set_register_value_by_offset(offset, flag_value, size);
                 println!("Set flag {} to {}", flag, flag_value);
             }
         }
     }
+
+    print!("CF register value : {:?}", cpu_state_guard.get_register_by_offset(0x200, 8));
+    print!("PF register value : {:?}", cpu_state_guard.get_register_by_offset(0x202, 8));
+    print!("ZF register value : {:?}", cpu_state_guard.get_register_by_offset(0x206, 8));
+    print!("IF register value : {:?}", cpu_state_guard.get_register_by_offset(0x209, 8));
 
     Ok(())
 }
