@@ -222,12 +222,14 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
 
     // Parse general registers
     for line in gdb_output.lines() {
+        println!("Processing line: {}", line); // Debug statement
+
         if let Some(caps) = re_general.captures(line) {
             let register_name = caps.get(1).unwrap().as_str().to_uppercase();
             let value_hex = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
-            if let Some((offset, size)) = cpu_state_guard.clone().clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
+            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
                 let _ = cpu_state_guard.set_register_value_by_offset(offset, value_hex, *size);
                 println!("Updated register {} with value {}", register_name, value_hex);
             }
@@ -235,23 +237,25 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
     }
 
     // Special handling for flags within eflags output
-    if let Some(caps) = re_flags.captures(gdb_output) {
-        let flags_line = caps.get(1).unwrap().as_str();
-        println!("Parsed flags line: {}", flags_line);  // Debug statement
+    for line in gdb_output.lines() {
+        if let Some(caps) = re_flags.captures(line) {
+            let flags_line = caps.get(1).unwrap().as_str();
+            println!("Parsed flags line: {}", flags_line);  // Debug statement
 
-        let flag_list = ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"];
+            let flag_list = ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"];
 
-        for &flag in flag_list.iter() {
-            let flag_value = if flags_line.contains(flag) { 1 } else { 0 };
-            if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
-                println!("Setting flag {} to {}", flag, flag_value);  // Debug statement
-                let _ = cpu_state_guard.set_register_value_by_offset(offset, flag_value, *size);
-                
-                // Verify update
-                let updated_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
-                println!("Verification: {} is now set to {:?}", flag, updated_value);
-            } else {
-                println!("Flag {} not found in register_map", flag);
+            for &flag in flag_list.iter() {
+                let flag_value = if flags_line.contains(flag) { 1 } else { 0 };
+                if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
+                    println!("Setting flag {} to {}", flag, flag_value);  // Debug statement
+                    let _ = cpu_state_guard.set_register_value_by_offset(offset, flag_value, *size);
+                    
+                    // Verify update
+                    let updated_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
+                    println!("Verification: {} is now set to {:?}", flag, updated_value);
+                } else {
+                    println!("Flag {} not found in register_map", flag);
+                }
             }
         }
     }
