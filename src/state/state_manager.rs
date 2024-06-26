@@ -34,7 +34,7 @@ impl<'a> State<'a> {
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         
         log!(logger.clone(), "Initializing mock CPU state...\n");
-        let _ = state_initializer::get_mock(cpu_state.clone());
+        let _ = state_initializer::initialize_cpu_registers(cpu_state.clone());
 
         // Print the CPU registers after initialization
         let displayable_cpu_state = DisplayableCpuState(cpu_state.clone());

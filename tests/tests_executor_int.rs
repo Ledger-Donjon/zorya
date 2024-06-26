@@ -370,4 +370,40 @@ mod tests {
         let result_var = executor.unique_variables.get("Unique(0x12e)").unwrap();
         assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(0), "The result of 10 < 5 (signed) should be false.");
     }
+
+    #[test]
+    fn test_handle_int_and() {
+        let mut executor = setup_executor();
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        // Setup test values and varnodes
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(10, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(20, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x12f)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x130)".to_string(), input1);
+        // Define an instruction using these variables
+        let instruction = Inst {
+            opcode: Opcode::IntAnd,
+            output: Some(Varnode {
+                var: Var::Unique(0x131),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x12f),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x130),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        // Execute the handle_int_and function
+        let result = handle_int_and(&mut executor, instruction);
+        // Verify the results
+        assert!(result.is_ok(), "The AND operation should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x131)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(0), "The result of 10 AND 20 should be 0.");
+    }
 }

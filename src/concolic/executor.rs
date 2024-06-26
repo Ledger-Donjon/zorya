@@ -150,7 +150,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     // Transform the varnode.var into a concolic object in zorya
     pub fn varnode_to_concolic(&mut self, varnode: &Varnode) -> Result<ConcolicEnum<'ctx>, String> {
-        let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+        let cpu_state_guard = self.state.cpu_state.lock().unwrap();
 
         log!(self.state.logger.clone(), "Converting Varnode to concolic type: {:?}", varnode.var);
 
@@ -644,7 +644,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
    
     // Helper function
     pub fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {
-        let var_name = format!("{:?}", varnode.var);
     
         match self.state.get_concrete_var(varnode) {
             Ok(ConcreteVar::Int(val)) => Ok(val), // Directly return u64 value
@@ -737,7 +736,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         })?;
 
         // Get the size of the input and output in bits
-        let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
+        let input_size_bits = instruction.inputs[0].size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);

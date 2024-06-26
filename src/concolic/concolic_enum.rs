@@ -1,6 +1,6 @@
 use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
 use z3::{ast::{Bool, BV}, Context};
-use super::{ConcolicVar, SymbolicVar};
+use super::ConcolicVar;
 
 
 #[derive(Clone, Debug)]
