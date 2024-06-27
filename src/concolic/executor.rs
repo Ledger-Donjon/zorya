@@ -157,17 +157,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
         match &varnode.var {
-            // It is a CPU register address
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x}", offset);
-    
+
                 let register = cpu_state_guard.get_register_by_offset(*offset, bit_size).or_else(|| {
-                    // Finding the closest smaller valid register offset
-                    let closest_smaller_offset = cpu_state_guard.register_map.iter()
-                        .filter(|&(key, _)| *key <= *offset)
+                    // Find the closest smaller valid register offset
+                    let closest_smaller_offset = cpu_state_guard.registers.keys()
+                        .filter(|&&key| key <= *offset)
                         .last()
-                        .map(|(key, _)| *key);
-    
+                        .copied();
+
                     if let Some(closest_offset) = closest_smaller_offset {
                         let diff = *offset - closest_offset;
                         let register_size = cpu_state_guard.register_map.get(&closest_offset).map(|(_, size)| *size).unwrap_or(0);
@@ -177,7 +176,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             let extracted_concrete = (original_register.concrete.to_u64() >> (diff * 8)) & ((1 << bit_size) - 1);
                             let safe_high_bit = (diff * 8 + bit_size as u64 - 1).min(original_register.symbolic.get_size() as u64 - 1) as u32;
                             let low_bit = (diff * 8) as u32;
-    
+
                             let extracted_symbolic = original_register.symbolic.to_bv(&self.context).extract(safe_high_bit, low_bit);
                             
                             Some(CpuConcolicValue {
@@ -192,7 +191,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None
                     }
                 });
-    
+
                 if let Some(register) = register {
                     log!(self.state.logger.clone(), "Retrieved and extracted register: {:?}", register);
                     Ok(ConcolicEnum::CpuConcolicValue(register))
