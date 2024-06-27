@@ -160,13 +160,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // It is a CPU register address
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x}", offset);
-        
+    
                 let register = cpu_state_guard.get_register_by_offset(*offset, bit_size).or_else(|| {
                     // Find the closest smaller offset for cases when the varnode is a sub-register
                     let closest_smaller_offset = cpu_state_guard.registers.keys()
                         .filter(|&&key| key <= *offset)
                         .max();
-                    
+    
                     if let Some(&closest_offset) = closest_smaller_offset {
                         let diff = *offset - closest_offset;
                         let register_size = cpu_state_guard.register_map.get(&closest_offset).map(|(_, size)| *size).unwrap_or(0);
@@ -175,13 +175,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             let extracted_concrete = (original_register.concrete.to_u64() >> (diff * 8)) & ((1 << bit_size) - 1);
                             let high_bit = (diff * 8 + bit_size as u64 - 1) as u32;
                             let low_bit = (diff * 8) as u32;
-                            
-                            let extracted_symbolic = if high_bit >= original_register.symbolic.get_size() {
-                                original_register.symbolic.to_bv(&self.context).extract(original_register.symbolic.get_size() - 1, low_bit)
+    
+                            // Ensure we don't overflow the bit extraction range
+                            let register_symbolic_size = original_register.symbolic.get_size();
+                            let safe_high_bit = high_bit.min(register_symbolic_size - 1);
+    
+                            let extracted_symbolic = if high_bit >= register_symbolic_size {
+                                original_register.symbolic.to_bv(&self.context).extract(register_symbolic_size - 1, low_bit)
                             } else {
-                                original_register.symbolic.to_bv(&self.context).extract(high_bit, low_bit)
+                                original_register.symbolic.to_bv(&self.context).extract(safe_high_bit, low_bit)
                             };
-                            
+    
                             Some(CpuConcolicValue {
                                 concrete: ConcreteVar::Int(extracted_concrete),
                                 symbolic: SymbolicVar::Int(extracted_symbolic),
@@ -194,7 +198,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None
                     }
                 });
-        
+    
                 if let Some(mut register) = register {
                     // Resize the register's concolic value according to the varnode size if working with a sub-register (e.g. ESI is 32 bits, RSI is 64 bits)
                     register.resize(bit_size, &self.context);

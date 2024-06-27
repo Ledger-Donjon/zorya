@@ -407,5 +407,136 @@ mod tests {
         assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(0), "The result of 10 AND 20 should be 0.");
     }
 
+    #[test]
+    fn test_handle_int_carry() {
+        let mut executor = setup_executor();
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        // Setup test values and varnodes
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(10, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(20, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x132)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x133)".to_string(), input1);
+        // Define an instruction using these variables
+        let instruction = Inst {
+            opcode: Opcode::IntCarry,
+            output: Some(Varnode {
+                var: Var::Unique(0x134),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x132),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x133),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        // Execute the handle_int_carry function
+        let result = handle_int_carry(&mut executor, instruction);
+        // Verify the results
+        assert!(result.is_ok(), "The carry check should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x134)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(0), "The result of carry check should be 0.");
+    }
 
+    #[test]
+    fn test_handle_int_scarry() {
+        let mut executor = setup_executor();
+        
+        // Test case 1: 10 + 20 overflows
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10000000000000000000, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 10000000000000000000, 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(10000000000000000000, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(10000000000000000000, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x135)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x136)".to_string(), input1);
+        let instruction = Inst {
+            opcode: Opcode::IntSCarry,
+            output: Some(Varnode {
+                var: Var::Unique(0x137),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x135),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x136),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_scarry(&mut executor, instruction);
+        assert!(result.is_ok(), "The signed carry check should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x137)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(1), "The result of 10000000000000000000 + 10000000000000000000 should overflow."); 
+    }
+
+    #[test]
+    fn test_handle_int_sborrow() {
+        let mut executor = setup_executor();
+        
+        // Test case 1: 10 - 20 underflows
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(10, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(20, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x138)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x139)".to_string(), input1);
+        let instruction = Inst {
+            opcode: Opcode::IntSBorrow,
+            output: Some(Varnode {
+                var: Var::Unique(0x13a),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x138),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x139),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_sborrow(&mut executor, instruction);
+        assert!(result.is_ok(), "The signed borrow check should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x13a)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(1), "The result of 10 - 20 should underflow.");
+        
+        // Test case 2: 20 - 10 does not underflow
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(20, symbolic_var0.to_bv(&executor.context), &executor.context, 64);
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(10, symbolic_var1.to_bv(&executor.context), &executor.context, 64);
+        executor.unique_variables.insert("Unique(0x13b)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x13c)".to_string(), input1);
+        let instruction = Inst {
+            opcode: Opcode::IntSBorrow,
+            output: Some(Varnode {
+                var: Var::Unique(0x13d),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x13b),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x13c),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_sborrow(&mut executor, instruction);
+        assert!(result.is_ok(), "The signed borrow check should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x13d)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(0), "The result of 20 - 10 should not underflow.");
+    }
 }
