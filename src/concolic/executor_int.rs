@@ -30,15 +30,15 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
             Var::Register(offset, _) => {
                 log!(executor.state.logger.clone(), "Output is a Register type");
                 let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                let concrete_value = result_value.concrete.to_u64(); 
+                let concrete_value = result_value.concrete.to_u64();
 
-                // Attempt to directly set the register, if fails, adjust for sub-register cases
                 match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
                     Ok(_) => {
                         log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, concrete_value, size_bits);
                         Ok(())
                     },
-                    Err(_) => {
+                    Err(e) => {
+                        log!(executor.state.logger.clone(), "Error updating register at offset 0x{:x}: {}", offset, e);
                         // Handle the case where the register offset might be a sub-register
                         let closest_offset = cpu_state_guard.registers.keys().rev().find(|&&key| key < *offset);
                         if let Some(&base_offset) = closest_offset {
@@ -48,12 +48,13 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
                             if (diff * 8) + size_bits as u64 <= full_reg_size as u64 {
                                 let original_value = cpu_state_guard.get_register_by_offset(base_offset, full_reg_size).unwrap();
                                 let mask = ((1u64 << size_bits) - 1) << (diff * 8);
-
                                 let new_value = (original_value.concrete.to_u64() & !mask) | ((concrete_value & ((1u64 << size_bits) - 1)) << (diff * 8));
 
-                                // Update only the part of the register
-                                cpu_state_guard.set_register_value_by_offset(base_offset, result_value, full_reg_size)
-                                    .map_err(|e| e.to_string())
+                                cpu_state_guard.set_register_value_by_offset(base_offset, result_value.clone(), full_reg_size)
+                                    .map_err(|e| {
+                                        log!(executor.state.logger.clone(), "Error updating sub-register at offset 0x{:x}: {}", offset, e);
+                                        e
+                                    })
                                     .and_then(|_| {
                                         log!(executor.state.logger.clone(), "Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size_bits);
                                         Ok(())
