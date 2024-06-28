@@ -6,7 +6,9 @@ use regex::Regex;
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Result;
+use z3::ast::BV;
 
+use crate::concolic::ConcolicVar;
 use crate::target_info::GLOBAL_TARGET_INFO;
 use super::cpu_state::SharedCpuState;
 
@@ -48,12 +50,14 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
     for line in gdb_output.lines() {
         if let Some(caps) = re_general.captures(line) {
             let register_name = caps.get(1).unwrap().as_str().to_uppercase();
-            let value_hex = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
+            let value_concrete = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
                 .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
 
             if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
-                let _ = cpu_state_guard.set_register_value_by_offset(offset, value_hex, *size);
-                println!("Updated register {} with value {}", register_name, value_hex);
+                let value_symbolic = BV::from_u64(&cpu_state_guard.ctx, value_concrete, *size);
+                let value_concolic = ConcolicVar::new_concrete_and_symbolic_int(value_concrete, value_symbolic, &cpu_state_guard.ctx, *size);
+                let _ = cpu_state_guard.set_register_value_by_offset(offset, value_concolic, *size);
+                println!("Updated register {} with value {}", register_name, value_concrete);
             }
         }
     }
@@ -67,10 +71,12 @@ fn parse_and_update_cpu_state_from_gdb_output(cpu_state: SharedCpuState, gdb_out
             let flag_list = ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"];
 
             for &flag in flag_list.iter() {
-                let flag_value = if flags_line.contains(flag) { 1 } else { 0 };
+                let flag_concrete = if flags_line.contains(flag) { 1 } else { 0 };
                 if let Some((offset, size)) = cpu_state_guard.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
-                    println!("Setting flag {} to {}", flag, flag_value);  // Debug statement
-                    let _ = cpu_state_guard.set_register_value_by_offset(offset, flag_value, *size);
+                    println!("Setting flag {} to {}", flag, flag_concrete);  // Debug statement
+                    let flag_symbolic = BV::from_u64(&cpu_state_guard.ctx, flag_concrete, *size);
+                    let flag_concolic = ConcolicVar::new_concrete_and_symbolic_int(flag_concrete, flag_symbolic, &cpu_state_guard.ctx, *size);
+                    let _ = cpu_state_guard.set_register_value_by_offset(offset, flag_concolic, *size);
                     
                     // Verify update
                     let updated_value = cpu_state_guard.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());

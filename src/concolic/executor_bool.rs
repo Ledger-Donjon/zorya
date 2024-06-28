@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the BOOL related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{concolic::{ConcreteVar, SymbolicVar}, executor::ConcolicExecutor};
+use crate::concolic::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode, Size, Var, Varnode};
 use z3::ast::Bool;
 use std::io::Write;
@@ -33,7 +33,7 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
                 let concrete_value = result_value.concrete.to_u64() & ((1 << size_bits) - 1); // Ensure value fits into the size
 
                 // Attempt to directly set the register, if fails, adjust for sub-register cases
-                match cpu_state_guard.set_register_value_by_offset(*offset, concrete_value, size_bits) {
+                match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
                     Ok(_) => {
                         log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, concrete_value, size_bits);
                         Ok(())
@@ -52,7 +52,7 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
                                 let new_value = (original_value.concrete.to_u64() & !mask) | ((concrete_value & ((1u64 << size_bits) - 1)) << (diff * 8));
 
                                 // Update only the part of the register
-                                cpu_state_guard.set_register_value_by_offset(base_offset, new_value, full_reg_size)
+                                cpu_state_guard.set_register_value_by_offset(base_offset, result_value, full_reg_size)
                                     .map_err(|e| e.to_string())
                                     .and_then(|_| {
                                         log!(executor.state.logger.clone(), "Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size_bits);

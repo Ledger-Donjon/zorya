@@ -9,7 +9,7 @@ use std::path::Path;
 
 use z3::{ast::BV, Context};
 
-use crate::concolic::{ConcreteVar, SymbolicVar};
+use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
 
 pub type SharedCpuState<'a> = Arc<Mutex<CpuState<'a>>>;
 
@@ -38,6 +38,11 @@ impl<'ctx> CpuConcolicValue<'ctx> {
                 .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
             ConcreteVar::Bool(value) => Ok(value as u64),
         }
+    }
+
+    // Method to retrieve the symbolic value
+    pub fn get_symbolic_value(&self) -> &SymbolicVar<'ctx> {
+        &self.symbolic
     }
 
     // Resize the value of a register if working with sub registers (e. g. ESI is 32 bits, while RSI is 64 bits)
@@ -135,7 +140,7 @@ impl<'ctx> fmt::Display for CpuConcolicValue<'ctx> {
 pub struct CpuState<'ctx> {
     pub registers: BTreeMap<u64, CpuConcolicValue<'ctx>>,
     pub register_map: BTreeMap<u64, (String, u32)>, // Map of register offsets to register names and sizes
-    ctx: &'ctx Context,
+    pub ctx: &'ctx Context,
 }
 
 impl<'ctx> CpuState<'ctx> {
@@ -270,7 +275,7 @@ impl<'ctx> CpuState<'ctx> {
     }
 
     /// Sets the value of a register identified by its offset.
-    pub fn set_register_value_by_offset(&mut self, offset: u64, value: u64, size: u32) -> Result<(), String> {
+    pub fn set_register_value_by_offset(&mut self, offset: u64, value: ConcolicVar<'ctx>, size: u32) -> Result<(), String> {
         if let Some(reg) = self.registers.get_mut(&offset) {
             // Resize the value according to the register size
             let mask = if size >= 64 {
@@ -278,40 +283,16 @@ impl<'ctx> CpuState<'ctx> {
             } else {
                 (1 << size) - 1
             };
-            let resized_value = value & mask;
+            let resized_concrete = value.concrete.to_u64() & mask;
+            let resized_symbolic = value.symbolic.to_bv(self.ctx).extract(size - 1, 0);
 
-            reg.concrete = ConcreteVar::Int(resized_value);
-            reg.symbolic = SymbolicVar::Int(BV::from_u64(self.ctx, resized_value, size));
+            reg.concrete = ConcreteVar::Int(resized_concrete);
+            reg.symbolic = SymbolicVar::Int(resized_symbolic);
 
-            println!("Register at offset 0x{:x} set to {:x} with size {:?}", offset, resized_value, size);
+            println!("Register at offset 0x{:x} set to {:x} with size {:?}", offset, resized_concrete, size);
             Ok(())
         } else {
-            // Handle sub-register updates
-            let closest_offset = self.registers.keys().rev().find(|&&key| key < offset);
-            if let Some(&base_offset) = closest_offset {
-                let diff = offset - base_offset;
-                let full_reg_size = self.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
-
-                if (diff * 8) + size as u64<= full_reg_size as u64 {
-                    if let Some(original_value) = self.get_register_by_offset(base_offset, full_reg_size) {
-                        let mask = ((1u64 << size) - 1) << (diff * 8);
-                        let new_value = (original_value.concrete.to_u64() & !mask) | ((value & ((1u64 << size) - 1)) << (diff * 8));
-
-                        self.set_register_value_by_offset(base_offset, new_value, full_reg_size)
-                            .map_err(|e| e.to_string())
-                            .and_then(|_| {
-                                println!("Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size);
-                                Ok(())
-                            })
-                    } else {
-                        Err(format!("Failed to get original value for base offset 0x{:x}", base_offset))
-                    }
-                } else {
-                    Err(format!("Cannot fit value into sub-register at offset 0x{:x}", offset))
-                }
-            } else {
-                Err(format!("No suitable register found for offset 0x{:x}", offset))
-            }
+            Err(format!("Register at offset 0x{:x} not found", offset))
         }
     }
 

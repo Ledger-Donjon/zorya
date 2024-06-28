@@ -268,11 +268,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         log!(self.state.logger.clone(), "Branch target concrete : {:x}", branch_target_concrete); 
         log!(self.state.logger.clone(), "Branching to address {:x}", branch_target_concrete);
+
+        let branch_target_symbolic = BV::from_u64(self.context, branch_target_concrete, 64);
+        let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(branch_target_concrete, branch_target_symbolic, self.context, 64);
     
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
         }
     
         // Update the instruction counter
@@ -308,12 +311,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
         };
         log!(self.state.logger.clone(), "Branch target concrete : {:x}", branch_target_concrete);
-    
         log!(self.state.logger.clone(), "Branching indirectly to address {:x}", branch_target_concrete);
+
+        let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(branch_target_concrete, branch_target_symbolic.to_bv(&self.context), self.context, 64);
+
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
         }
     
         // Update the instruction counter
@@ -368,13 +373,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
         };
         log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
+
+        let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(branch_target_concrete, branch_condition_symbolic.to_bv(&self.context), self.context, 64);
     
         // Check the branch condition
         if branch_condition_concrete != 0 {
             log!(self.state.logger.clone(), "Branch condition is true, branching to address {:x}", branch_target_concrete);
             // Update the RIP register to the branch target address
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
         } else {
             log!(self.state.logger.clone(), "Branch condition is false, continuing to next instruction");
         }
@@ -414,13 +421,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 data_to_store_concolic.get_concrete_value()
             }
         };
+        let data_to_call_symbolic = BV::from_u64(self.context, data_to_call_concrete, 64);
+        let data_to_call_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_call_concrete, data_to_call_symbolic, self.context, 64);
 
         log!(self.state.logger.clone(), "Data to call: {:x}", data_to_call_concrete); 
 
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, data_to_call_concrete, 64).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, data_to_call_concolic, 64).map_err(|e| e.to_string())?;
         }
         // Update the instruction counter
         self.instruction_counter += 1;
@@ -489,10 +498,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
         log!(self.state.logger.clone(), "Branch target concrete : 0x{:x}", branch_target_concrete);
 
+        let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(branch_target_concrete, branch_target_symbolic.to_bv(&self.context), self.context, 64); 
+
         // Update the RIP register to the branch target address
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concrete, 64).map_err(|e| e.to_string())?;
+            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
         }
         // Update the instruction counter
         self.instruction_counter += 1;
@@ -523,7 +534,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "pointer offset concrete : {:x}", pointer_offset_concrete);
     
         // Dereference the address from the CPU registers or memory
-        let dereferenced_concrete_value = {
+        let (dereferenced_concrete_value, dereferenced_symbolic_value) = {
             let cpu_state_guard = self.state.cpu_state.lock().unwrap();
             // Get the size of the input in bits
             let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
@@ -531,8 +542,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // Use the offset directly to retrieve register value
             if let Some(value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
                 let value_u64 = value.get_concrete_value()?;
+                let value_symbolic = value.get_symbolic_value().to_bv(&self.context);
                 log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value_u64);
-                value_u64
+                (value_u64, value_symbolic)
             } else {
                 // If not found in registers, dereference from memory and assemble the 64-bit value from 8 bytes
                 let memory_guard = self.state.memory.memory.read().unwrap();
@@ -561,12 +573,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Log the assembled 64-bit value from memory
                 log!(self.state.logger.clone(), "Assembled 64-bit value from memory starting at 0x{:x}: 0x{:x}", pointer_offset_concrete, full_value);
 
-                full_value
+                let symbolic_value = BV::from_u64(self.context, full_value, 64);
+                (full_value, symbolic_value)
 
             }
         };    
         
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", dereferenced_concrete_value);
+        let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(dereferenced_concrete_value, dereferenced_symbolic_value, self.context, 64);
     
         // Determine the output variable and update it with the loaded data
         if let Some(output_varnode) = instruction.output.as_ref() {
@@ -587,7 +601,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                     // Use offset directly to set the register value
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, dereferenced_concrete_value, output_varnode.size.to_bitvector_size());
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, dereferenced_concolic, output_varnode.size.to_bitvector_size());
                     log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", offset, dereferenced_concrete_value);
                 },
                 _ => {
@@ -642,6 +656,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         };
 
+        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete, input_size_bits);
+        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic, self.context, input_size_bits);
+
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
         // Store the data in the memory at the calculated offset, byte by byte
@@ -659,7 +676,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
             if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
-                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concrete, input_size_bits)?;
+                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic, input_size_bits)?;
                 log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
             }
         }
@@ -710,7 +727,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
-        
+
+        let source_concolic = ConcolicVar::new_concrete_and_symbolic_int(source_concrete_value, source_symbolic_value.to_bv(&self.context), self.context, output_size_bits);
+
         // Check the output destination and copy the source to it
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
@@ -731,7 +750,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concrete_value, output_size_bits);
+                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concolic, output_size_bits);
                     log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value {}", offset, source_concrete_value);
                 },
                 _ => {
@@ -811,7 +830,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                 let concrete_value = popcount_result.concrete.to_u64();
                 log!(self.state.logger.clone(), "Setting register value at offset 0x{:x} to {}", offset, concrete_value);
-                let set_result = cpu_state_guard.set_register_value_by_offset(*offset, concrete_value, output_size_bits);
+                let set_result = cpu_state_guard.set_register_value_by_offset(*offset, popcount_result.clone(), output_size_bits);
                 match set_result {
                     Ok(_) => {
                         let updated_value = cpu_state_guard.get_register_by_offset(*offset, input_size_bits).unwrap();
