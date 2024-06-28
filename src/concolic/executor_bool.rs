@@ -18,7 +18,7 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
     if let Some(varnode) = output_varnode {
         // Resize the result_value according to the output size specification
         let size_bits = varnode.size.to_bitvector_size() as u32;
-        result_value.resize(size_bits); 
+        result_value.resize(size_bits);
 
         match &varnode.var {
             Var::Unique(id) => {
@@ -44,12 +44,12 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
                         if let Some(&base_offset) = closest_offset {
                             let diff = *offset - base_offset;
                             let full_reg_size = cpu_state_guard.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
-                            
-                            // Check if we can fit the result into the found register
+
                             if (diff * 8) + size_bits as u64 <= full_reg_size as u64 {
                                 let original_value = cpu_state_guard.get_register_by_offset(base_offset, full_reg_size).unwrap();
-                                let mask = ((1 << size_bits) - 1) << (diff * 8);
-                                let new_value = (original_value.concrete.to_u64() & !mask) | (concrete_value << (diff * 8));
+                                let mask = ((1u64 << size_bits) - 1) << (diff * 8);
+
+                                let new_value = (original_value.concrete.to_u64() & !mask) | ((concrete_value & ((1u64 << size_bits) - 1)) << (diff * 8));
 
                                 // Update only the part of the register
                                 cpu_state_guard.set_register_value_by_offset(base_offset, new_value, full_reg_size)
