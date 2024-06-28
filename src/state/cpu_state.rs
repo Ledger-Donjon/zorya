@@ -292,7 +292,7 @@ impl<'ctx> CpuState<'ctx> {
                 let diff = offset - base_offset;
                 let full_reg_size = self.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
 
-                if (diff * 8) + size as u64 <= full_reg_size as u64 {
+                if (diff * 8) + size as u64<= full_reg_size as u64 {
                     if let Some(original_value) = self.get_register_by_offset(base_offset, full_reg_size) {
                         let mask = ((1u64 << size) - 1) << (diff * 8);
                         let new_value = (original_value.concrete.to_u64() & !mask) | ((value & ((1u64 << size) - 1)) << (diff * 8));
