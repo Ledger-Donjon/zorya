@@ -194,7 +194,6 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         return Err("Invalid instruction format for INT_SUB".to_string());
     }
 
-    // Fetch concolic variables
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_SUB");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_SUB");
@@ -203,19 +202,24 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Perform the subtraction
-    let result_concrete = input0_var.get_concrete_value().wrapping_sub(input1_var.get_concrete_value());
+    // Perform the subtraction using checked arithmetic
+    let result_concrete = match input0_var.get_concrete_value().checked_sub(input1_var.get_concrete_value()) {
+        Some(value) => value,
+        None => {
+            log!(executor.state.logger.clone(), "Overflow detected during subtraction");
+            return Err("Overflow error in INT_SUB".to_string());
+        }
+    };
+
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvsub(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_SUB is: {:?}\n", result_concrete.clone());
+    log!(executor.state.logger.clone(), "*** The result of INT_SUB is: {:?}\n", result_concrete);
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
-    // Create or update a concolic variable for the result
+    // Update concolic state
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsub", current_addr_hex, executor.instruction_counter);
     executor.state.create_or_update_concolic_variable_int(&result_var_name, result_value.concrete.to_u64(), result_value.symbolic);
