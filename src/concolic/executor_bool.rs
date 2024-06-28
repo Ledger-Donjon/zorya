@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the BOOL related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::executor::ConcolicExecutor;
+use crate::{concolic::{ConcreteVar, SymbolicVar}, executor::ConcolicExecutor};
 use parser::parser::{Inst, Opcode, Size, Var, Varnode};
 use z3::ast::Bool;
 use std::io::Write;
@@ -30,19 +30,49 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
             Var::Register(offset, _) => {
                 log!(executor.state.logger.clone(), "Output is a Register type");
                 let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                // Extract value to fit within the specified size of the register
-                let concrete_value = if size_bits < 64 {
-                    result_value.concrete.to_u64() & ((1 << size_bits) - 1)
+
+                // Find the closest smaller offset for cases when the varnode is a sub-register
+                let closest_smaller_offset = cpu_state_guard.registers.keys()
+                    .filter(|&&key| key <= *offset)
+                    .last()
+                    .copied();
+
+                if let Some(closest_offset) = closest_smaller_offset {
+                    let diff = *offset - closest_offset;
+                    let register_size = cpu_state_guard.register_map.get(&closest_offset).map(|(_, size)| *size).unwrap_or(0);
+
+                    if diff * 8 + size_bits as u64 <= register_size as u64 {
+                        log!(executor.state.logger.clone(), "Found closest smaller offset: 0x{:x}", closest_offset);
+                        let mut original_register = cpu_state_guard.get_register_by_offset(closest_offset, register_size).unwrap();
+                        
+                        // Create masks and apply the new value within the correct bit range
+                        let mask = ((1 << size_bits) - 1) << (diff * 8);
+                        let new_concrete_value = (original_register.concrete.to_u64() & !mask) | ((result_value.concrete.to_u64() << (diff * 8)) & mask);
+                        
+                        let high_bit = (diff * 8 + size_bits as u64 - 1).min(original_register.symbolic.get_size() as u64 - 1) as u32;
+                        let low_bit = (diff * 8) as u32;
+
+                        let new_symbolic_value = original_register.symbolic.to_bv(&executor.context).extract(original_register.symbolic.get_size() - 1, high_bit + 1).concat(
+                            &result_value.symbolic.to_bv(&executor.context)
+                        ).concat(
+                            &original_register.symbolic.to_bv(&executor.context).extract(low_bit - 1, 0)
+                        );
+
+                        original_register.concrete = ConcreteVar::Int(new_concrete_value);
+                        original_register.symbolic = SymbolicVar::Int(new_symbolic_value);
+
+                        cpu_state_guard.set_register_value_by_offset(closest_offset, new_concrete_value, register_size as u32)
+                            .map_err(|e| e.to_string())
+                            .and_then(|_| {
+                                log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} (closest smaller: 0x{:x}) with value 0x{:x}, with concrete size {} bits and with symbolic size {} bits", offset, closest_offset, new_concrete_value, size_bits, result_value.symbolic.get_size());
+                                Ok(())
+                            })
+                    } else {
+                        Err(format!("No register found at offset 0x{:x}", offset))
+                    }
                 } else {
-                    result_value.concrete.to_u64()
-                };
-                
-                cpu_state_guard.set_register_value_by_offset(*offset, concrete_value, size_bits)
-                    .map_err(|e| e.to_string())
-                    .and_then(|_| {
-                        log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, with concrete size {} bits and with symbolic size {} bits", offset, concrete_value, size_bits, result_value.symbolic.get_size());
-                        Ok(())
-                    })
+                    Err(format!("No valid closest smaller offset found for 0x{:x}", offset))
+                }
             },
             _ => {
                 log!(executor.state.logger.clone(), "Output type is unsupported");
