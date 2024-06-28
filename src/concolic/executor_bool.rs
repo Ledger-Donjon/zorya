@@ -46,12 +46,18 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
                             let full_reg_size = cpu_state_guard.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
                             
                             // Check if we can fit the result into the found register
-                            if diff * 8 + size_bits as u64 <= full_reg_size as u64 {
+                            if (diff * 8) + size_bits as u64 <= full_reg_size as u64 {
                                 let original_value = cpu_state_guard.get_register_by_offset(base_offset, full_reg_size).unwrap();
-                                let new_value = original_value.concrete.to_u64() & !(((1 << size_bits) - 1) << (diff * 8)) | (concrete_value << (diff * 8));
-                                
+                                let mask = ((1 << size_bits) - 1) << (diff * 8);
+                                let new_value = (original_value.concrete.to_u64() & !mask) | (concrete_value << (diff * 8));
+
                                 // Update only the part of the register
-                                cpu_state_guard.set_register_value_by_offset(base_offset, new_value, full_reg_size).map_err(|e| e.to_string())
+                                cpu_state_guard.set_register_value_by_offset(base_offset, new_value, full_reg_size)
+                                    .map_err(|e| e.to_string())
+                                    .and_then(|_| {
+                                        log!(executor.state.logger.clone(), "Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size_bits);
+                                        Ok(())
+                                    })
                             } else {
                                 Err(format!("Cannot fit value into register at offset 0x{:x}", offset))
                             }
