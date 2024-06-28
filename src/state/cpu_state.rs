@@ -286,7 +286,32 @@ impl<'ctx> CpuState<'ctx> {
             println!("Register at offset 0x{:x} set to {:x} with size {:?}", offset, resized_value, size);
             Ok(())
         } else {
-            Err(format!("No register found at offset 0x{:x}", offset))
+            // Handle sub-register updates
+            let closest_offset = self.registers.keys().rev().find(|&&key| key < offset);
+            if let Some(&base_offset) = closest_offset {
+                let diff = offset - base_offset;
+                let full_reg_size = self.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
+
+                if (diff * 8) + size as u64 <= full_reg_size as u64 {
+                    if let Some(original_value) = self.get_register_by_offset(base_offset, full_reg_size) {
+                        let mask = ((1u64 << size) - 1) << (diff * 8);
+                        let new_value = (original_value.concrete.to_u64() & !mask) | ((value & ((1u64 << size) - 1)) << (diff * 8));
+
+                        self.set_register_value_by_offset(base_offset, new_value, full_reg_size)
+                            .map_err(|e| e.to_string())
+                            .and_then(|_| {
+                                println!("Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size);
+                                Ok(())
+                            })
+                    } else {
+                        Err(format!("Failed to get original value for base offset 0x{:x}", base_offset))
+                    }
+                } else {
+                    Err(format!("Cannot fit value into sub-register at offset 0x{:x}", offset))
+                }
+            } else {
+                Err(format!("No suitable register found for offset 0x{:x}", offset))
+            }
         }
     }
 
