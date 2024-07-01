@@ -221,13 +221,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
-    fn extract_and_create_concolic_value(
-        &self,
-        cpu_state_guard: MutexGuard<'_, CpuState<'ctx>>,
-        offset: u64,
-        register_size: u32,
-        bit_size: u32
-    ) -> Result<ConcolicEnum<'ctx>, String> {
+    fn extract_and_create_concolic_value(&self, cpu_state_guard: MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
         if register_size == 0 || bit_size > register_size {
             let error_message = format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset);
             log!(self.state.logger.clone(), "{}", error_message);
@@ -236,6 +230,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
+
+        log!(self.state.logger.clone(), "The original register value is {} with size {}", original_register, register_size);
     
         // Ensuring we do not attempt to shift beyond the limits of u64
         let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
@@ -251,8 +247,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let extracted_concrete = (original_register.concrete.to_u64() >> safe_low_bit) & ((1 << (safe_high_bit + 1)) - 1);
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
     
-        // Comment to avoid large logs
-        //log!(self.state.logger.clone(), "Extracted values: concrete {} and symbolic {:?}", extracted_concrete, extracted_symbolic);
+        log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
