@@ -228,33 +228,38 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         register_size: u32,
         bit_size: u32
     ) -> Result<ConcolicEnum<'ctx>, String> {
-        // Ensure we're not attempting to extract more bits than the register size
-        if register_size == 0 || register_size < bit_size {
+        if register_size == 0 || bit_size > register_size {
             let error_message = format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset);
             log!(self.state.logger.clone(), "{}", error_message);
             return Err(error_message);
         }
     
-        // Retrieve the register contents
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
     
-        // Calculate extraction indices safely
-        let low_bit = 0;  // Starting from the lowest bit
-        let high_bit = bit_size.min(register_size) as u64 - 1;  // Ensure not to exceed the register size
+        // Ensuring we do not attempt to shift beyond the limits of u64
+        let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
+        let safe_low_bit = 0;  // Starting from the lowest bit
     
-        // Perform the extraction
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(high_bit as u32, low_bit as u32);
-        let extracted_concrete = (original_register.concrete.to_u64() >> low_bit) & ((1 << (high_bit + 1)) - 1);
+        log!(self.state.logger.clone(), "Preparing to extract from bit {} to {} from register at offset 0x{:x}", safe_low_bit, safe_high_bit, offset);
     
-        log!(self.state.logger.clone(), "Extracted values from register at 0x{:x}: concrete {} and symbolic {:?}", offset, extracted_concrete, extracted_symbolic);
+        // Check if the shift operation is safe
+        if safe_high_bit >= 64 { // u64 can only handle shifts up to 63 bits
+            return Err(format!("Bit shift operation unsafe: attempted to access bit {} which exceeds u64 limits", safe_high_bit));
+        }
+    
+        let extracted_concrete = (original_register.concrete.to_u64() >> safe_low_bit) & ((1 << (safe_high_bit + 1)) - 1);
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
+    
+        log!(self.state.logger.clone(), "Extracted values: concrete {} and symbolic {:?}", extracted_concrete, extracted_symbolic);
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }    
+    }
+        
 
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {

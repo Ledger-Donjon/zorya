@@ -539,4 +539,53 @@ mod tests {
         let result_var = executor.unique_variables.get("Unique(0x13d)").unwrap();
         assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(0), "The result of 20 - 10 should not underflow.");
     }
+
+    #[test]
+    fn test_handle_int_zext() {
+        let mut executor = setup_executor();
+        
+        // Test case 1: Zero extend 8-bit value to 16 bits
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 255, 8));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(255, symbolic_var0.to_bv(&executor.context), &executor.context, 8);
+        executor.unique_variables.insert("Unique(0x13e)".to_string(), input0);
+        let instruction = Inst {
+            opcode: Opcode::IntZExt,
+            output: Some(Varnode {
+                var: Var::Unique(0x13f),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x13e),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_zext(&mut executor, instruction);
+        assert!(result.is_ok(), "The zero extend operation should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x13f)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(255), "The result of zero extending 8-bit value 255 should be 255.");
+
+        // Test case 2: Zero extend 16-bit value to 32 bits
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 65535, 16));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(65535, symbolic_var0.to_bv(&executor.context), &executor.context, 16);
+        executor.unique_variables.insert("Unique(0x140)".to_string(), input0);
+        let instruction = Inst {
+            opcode: Opcode::IntZExt,
+            output: Some(Varnode {
+                var: Var::Unique(0x141),
+                size: Size::Half,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x140),
+                    size: Size::Quad,
+                },
+            ],
+        };
+        let result = handle_int_zext(&mut executor, instruction);
+        assert!(result.is_ok(), "The zero extend operation should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x141)").unwrap();
+        assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(65535), "The result of zero extending 16-bit value 65535 should be 65535.");
+    }
 }
