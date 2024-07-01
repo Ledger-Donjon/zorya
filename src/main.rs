@@ -69,8 +69,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut current_rip = start_address;
 
     // For debugging
-    // let address: u64 = 0xc00002e760;
-    // let range = 0x10; 
+    let address: u64 = 0xc00002e760;
+    let range = 0x3; 
     
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address); 
     
@@ -90,18 +90,17 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
             //log!(executor.state.logger.clone(), "{}\n", executor);
 
-            let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
-            log!(executor.state.logger,  "The value of register RDX at offset 0x10 is {}", register0x10);
+            // For debugging
+            log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+            executor.state.print_memory_content(address, range);
+            // let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register RDX at offset 0x10 is {}", register0x10);
 
             // Fetch the current RIP value after executing instructions
             let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
             let rip_value_u64 = rip_value.get_concrete_value().unwrap();
             log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value_u64);
         }
-
-        // For debugging
-        // log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
-        // executor.state.print_memory_content(address, range);
 
         // Fetch the current RIP value after executing instructions
         let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
