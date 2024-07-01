@@ -344,9 +344,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         // Move the mutable borrow outside of the block
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, branch_target_symbolic);
-    
-        //log!(self.state.logger.clone(), "{}", self.state);
-    
+        
         Ok(())
     }
  
@@ -405,9 +403,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
-    
-        //log!(self.state.logger.clone(), "{}", self.state);
-    
+        
         Ok(())
     } 
     
@@ -449,10 +445,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-call", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_call_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_call_concrete, 64)));
 
-        //log!(self.state.logger.clone(), "{}", self.state);
-
-        //log!(self.state.logger.clone(), "{:?}", self.state.cpu_state);
-
         Ok(())
     } 
     
@@ -480,9 +472,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-callind", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, next_instruction_offset_concrete, next_instruction_offset_symbolic);
-    
-        log!(self.state.logger.clone(), "{}", self.state);
-    
+        
         Ok(())
     }
     
@@ -519,9 +509,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let result_var_name = format!("{}-{:02}-return", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, branch_target_symbolic);
 
-        //log!(self.state.logger.clone(), "{}", self.state);
-
-        //log!(self.state.logger.clone(), "{:?}", self.state.cpu_state);
         Ok(())
     }    
 
@@ -621,9 +608,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, dereferenced_concrete_value, SymbolicVar::Int(BV::from_u64(self.context, dereferenced_concrete_value, 64)));
-    
-        //log!(self.state.logger.clone(), "{}", self.state);
-    
+        
         Ok(())
     }
 
@@ -722,7 +707,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
             ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
         };
-        log!(self.state.logger.clone(), "Value to be copied into output: {:?}", source_var);
+        //log!(self.state.logger.clone(), "Value to be copied into output: {:?}", source_var);
 
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
@@ -744,13 +729,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         output_size_bits 
                     );
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
-                    log!(self.state.logger.clone(), "Content of output {:?} after copying: {:?}", unique_name, concolic_var);
+                    //log!(self.state.logger.clone(), "Content of output {:?} after copying: {:?}", unique_name, concolic_var);
                 },
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                     let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concolic, output_size_bits);
-                    log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value {}", offset, source_concrete_value);
+                    log!(self.state.logger.clone(), "Updated register at offset 0x{:x}", offset);
                 },
                 _ => {
                     log!(self.state.logger.clone(), "Output type is unsupported for COPY");
@@ -761,15 +746,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("No output variable specified for COPY instruction".to_string());
         }
     
-        log!(self.state.logger.clone(), "{}", self);
-    
         // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, source_symbolic_value);
-    
-        //log!(self.state.logger.clone(), "{}", self.state);
-    
+        
         Ok(())
     }    
 
@@ -855,9 +836,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-popcount", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, popcount_result.concrete.to_u64(), popcount_result.symbolic); 
-    
-        //log!(self.state.logger.clone(), "{}\n", self.state);
-    
+        
         Ok(())
     }   
 
