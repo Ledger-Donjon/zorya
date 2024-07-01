@@ -188,7 +188,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, bit_size)
                     })
                     .clone();
-                log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
+                //log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
                 Ok(ConcolicEnum::ConcolicVar(var))
             },
             Var::Const(value) => {
@@ -816,7 +816,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
         };
     
-        log!(self.state.logger.clone(), "*** The result of POPCOUNT is: {:?}", popcount_result.clone());
+        //log!(self.state.logger.clone(), "*** The result of POPCOUNT is: {:?}", popcount_result.clone());
     
         match instruction.output.as_ref().map(|v| &v.var) {
             Some(Var::Unique(id)) => {
