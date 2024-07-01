@@ -251,7 +251,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let extracted_concrete = (original_register.concrete.to_u64() >> safe_low_bit) & ((1 << (safe_high_bit + 1)) - 1);
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
     
-        log!(self.state.logger.clone(), "Extracted values: concrete {} and symbolic {:?}", extracted_concrete, extracted_symbolic);
+        // Comment to avoid large logs
+        //log!(self.state.logger.clone(), "Extracted values: concrete {} and symbolic {:?}", extracted_concrete, extracted_symbolic);
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
