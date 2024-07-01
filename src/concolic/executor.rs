@@ -223,22 +223,29 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     fn extract_and_create_concolic_value(
         &self,
-        mut cpu_state_guard: MutexGuard<'_, CpuState<'ctx>>,
+        cpu_state_guard: MutexGuard<'_, CpuState<'ctx>>,
         offset: u64,
         register_size: u32,
         bit_size: u32
     ) -> Result<ConcolicEnum<'ctx>, String> {
-        // Assuming that register_size being 0 means it was not found
+        // Ensure we're not attempting to extract more bits than the register size
         if register_size == 0 || register_size < bit_size {
-            return Err(format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset));
+            let error_message = format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset);
+            log!(self.state.logger.clone(), "{}", error_message);
+            return Err(error_message);
         }
     
+        // Retrieve the register contents
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
     
-        let safe_high_bit = (bit_size as u64 - 1).min(register_size as u64 - 1) as u32;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, 0);
-        let extracted_concrete = (original_register.concrete.to_u64() >> 0) & ((1u64 << bit_size) - 1);
+        // Calculate extraction indices safely
+        let low_bit = 0;  // Starting from the lowest bit
+        let high_bit = bit_size.min(register_size) as u64 - 1;  // Ensure not to exceed the register size
+    
+        // Perform the extraction
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(high_bit as u32, low_bit as u32);
+        let extracted_concrete = (original_register.concrete.to_u64() >> low_bit) & ((1 << (high_bit + 1)) - 1);
     
         log!(self.state.logger.clone(), "Extracted values from register at 0x{:x}: concrete {} and symbolic {:?}", offset, extracted_concrete, extracted_symbolic);
     
@@ -247,7 +254,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }
+    }    
 
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
