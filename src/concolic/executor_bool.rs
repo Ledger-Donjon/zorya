@@ -108,8 +108,6 @@ pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     Ok(())
 }
 
@@ -136,8 +134,6 @@ pub fn handle_bool_negate(executor: &mut ConcolicExecutor, instruction: Inst) ->
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     Ok(())
 }
@@ -168,8 +164,6 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     Ok(())
 }

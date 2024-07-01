@@ -110,8 +110,6 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value)?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     Ok(())
 }
   
@@ -148,8 +146,6 @@ pub fn handle_int_scarry(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value)?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     Ok(())
 }
 
@@ -177,8 +173,6 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -213,8 +207,6 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -254,8 +246,6 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intxor", current_addr_hex, executor.instruction_counter);
@@ -287,8 +277,6 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -322,8 +310,6 @@ pub fn handle_int_notequal(executor: &mut ConcolicExecutor, instruction: Inst) -
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intnotequal", current_addr_hex, executor.instruction_counter);
@@ -355,8 +341,6 @@ pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -390,8 +374,6 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsless", current_addr_hex, executor.instruction_counter);
@@ -424,8 +406,6 @@ pub fn handle_int_lessequal(executor: &mut ConcolicExecutor, instruction: Inst) 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intlessequal", current_addr_hex, executor.instruction_counter);
@@ -457,8 +437,6 @@ pub fn handle_int_slessequal(executor: &mut ConcolicExecutor, instruction: Inst)
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -494,7 +472,7 @@ pub fn handle_int_zext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         (1u64 << input_size) - 1
     };
     let zero_extended_value = input_var.get_concrete_value() & mask;
-    let result_symbolic = input_var.get_symbolic_value_bv(executor.context).zero_ext((output_size - input_size).try_into().unwrap());
+    let result_symbolic = input_var.get_symbolic_value_bv(executor.context).zero_ext((output_size - input_size) as u32);
 
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         zero_extended_value,
@@ -507,8 +485,6 @@ pub fn handle_int_zext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -560,8 +536,6 @@ pub fn handle_int_sext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsext", current_addr_hex, executor.instruction_counter);
@@ -584,24 +558,21 @@ pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) ->
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Perform the signed subtraction to check for overflow
-    let (_result_concrete, overflow) = {
+    // Perform the signed subtraction to check for underflow
+    let overflow = {
         let value0 = input0_var.get_concrete_value() as i64;
         let value1 = input1_var.get_concrete_value() as i64;
-        let (result, overflow) = value0.overflowing_sub(value1);
-        (result as u64, overflow)
+        value0 < value1
     };
 
     let result_symbolic = z3::ast::Bool::from_bool(executor.context, overflow);
 
     let result_value = ConcolicVar::new_concrete_and_symbolic_bool(overflow, result_symbolic, executor.context, output_size_bits);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_SBORROW is overflow: {:?}\n", overflow);
+    log!(executor.state.logger.clone(), "*** The result of INT_SBORROW is underflow: {:?}\n", overflow);
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -610,7 +581,6 @@ pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) ->
 
     Ok(())
 }
-
 
 pub fn handle_int_2comp(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::Int2Comp || instruction.inputs.len() != 1 {
@@ -633,8 +603,6 @@ pub fn handle_int_2comp(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -674,8 +642,6 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intand", current_addr_hex, executor.instruction_counter);
@@ -714,8 +680,6 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intor", current_addr_hex, executor.instruction_counter);
@@ -749,8 +713,6 @@ pub fn handle_int_left(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -786,8 +748,6 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intright", current_addr_hex, executor.instruction_counter);
@@ -822,8 +782,6 @@ pub fn handle_int_sright(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsright", current_addr_hex, executor.instruction_counter);
@@ -856,8 +814,6 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intmult", current_addr_hex, executor.instruction_counter);
@@ -887,8 +843,6 @@ pub fn handle_int_negate(executor: &mut ConcolicExecutor, instruction: Inst) -> 
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -927,8 +881,6 @@ pub fn handle_int_div(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intdiv", current_addr_hex, executor.instruction_counter);
@@ -965,8 +917,6 @@ pub fn handle_int_rem(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -1005,8 +955,6 @@ pub fn handle_int_sdiv(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsdiv", current_addr_hex, executor.instruction_counter);
@@ -1044,8 +992,6 @@ pub fn handle_int_srem(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    log!(executor.state.logger.clone(), "{}\n", executor);
-
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsrem", current_addr_hex, executor.instruction_counter);
@@ -1076,8 +1022,6 @@ pub fn handle_int2float(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value)?;
-
-    log!(executor.state.logger.clone(), "{}\n", executor);
 
     Ok(())
 }

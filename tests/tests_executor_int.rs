@@ -552,12 +552,12 @@ mod tests {
             opcode: Opcode::IntZExt,
             output: Some(Varnode {
                 var: Var::Unique(0x13f),
-                size: Size::Byte,
+                size: Size::Half, 
             }),
             inputs: vec![
                 Varnode {
                     var: Var::Unique(0x13e),
-                    size: Size::Quad,
+                    size: Size::Byte,
                 },
             ],
         };
@@ -574,12 +574,12 @@ mod tests {
             opcode: Opcode::IntZExt,
             output: Some(Varnode {
                 var: Var::Unique(0x141),
-                size: Size::Half,
+                size: Size::Word,  
             }),
             inputs: vec![
                 Varnode {
                     var: Var::Unique(0x140),
-                    size: Size::Quad,
+                    size: Size::Half,
                 },
             ],
         };

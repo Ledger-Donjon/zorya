@@ -298,18 +298,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         // Update the instruction counter
         self.instruction_counter += 1;
-    
-        log!(self.state.logger.clone(), "{}\n", self);
-    
+        
         // Create or update a concolic variable for the result (BRANCH doesn't produce a result, but we log the branch decision)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-branch", current_addr_hex, self.instruction_counter);
     
         // Move the mutable borrow outside of the block
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concrete, SymbolicVar::Int(BV::from_u64(self.context, branch_target_concrete, 64)));
-    
-        //log!(self.state.logger.clone(), "{}", self.state);
-    
+        
         Ok(())
     }     
     
@@ -341,9 +337,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         // Update the instruction counter
         self.instruction_counter += 1;
-    
-        log!(self.state.logger.clone(), "{}\n", self);
-    
+        
         // Create or update a concolic variable for the result (BRANCHIND doesn't produce a result, but we log the branch decision)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-branchind", current_addr_hex, self.instruction_counter);
@@ -406,9 +400,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         // Update the instruction counter
         self.instruction_counter += 1;
-    
-        log!(self.state.logger.clone(), "{}\n", self);
-    
+        
         // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
@@ -452,8 +444,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Update the instruction counter
         self.instruction_counter += 1;
 
-        log!(self.state.logger.clone(), "{}\n", self);
-
         // Create or update a concolic variable for the result (BRANCHIND doesn't produce a result, but we log the branch decision)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-call", current_addr_hex, self.instruction_counter);
@@ -485,9 +475,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Perform the branch to the next instruction location
         self.current_address = Some(next_instruction_offset_concrete);
         log!(self.state.logger.clone(), "Branched to next instruction location: {:x}", next_instruction_offset_concrete);
-    
-        log!(self.state.logger.clone(), "{}\n", self);
-    
+        
         // Create or update a concolic variable for the result of the callind operation (optional, depends on the semantics)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-callind", current_addr_hex, self.instruction_counter);
@@ -525,8 +513,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
         // Update the instruction counter
         self.instruction_counter += 1;
-
-        log!(self.state.logger.clone(), "{}\n", self);
 
         // Create or update a concolic variable for the result (BRANCHIND doesn't produce a result, but we log the branch decision)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -630,9 +616,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for LOAD instruction".to_string());
         }
-    
-        log!(self.state.logger.clone(), "{}\n", self);
-    
+        
         // Create a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
@@ -698,9 +682,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
             }
         }
-
-        // Optionally update CPU registers if applicable (this would typically not be the case for multi-byte data)
-        log!(self.state.logger.clone(), "{}\n", self);
 
         // Create or update a concolic variable for the result of the store operation
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -870,9 +851,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 return Err("Output type not supported".to_string());
             }
         }
-    
-        log!(self.state.logger.clone(), "{}\n", self);
-    
+        
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-popcount", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, popcount_result.concrete.to_u64(), popcount_result.symbolic); 
@@ -954,8 +933,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for SUBPIECE instruction".to_string());
         }
-
-        log!(self.state.logger.clone(), "{}\n", self);
 
         // Create a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
