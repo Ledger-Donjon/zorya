@@ -136,7 +136,18 @@ impl<'ctx> ConcolicVar<'ctx> {
             symbolic: new_symbolic,
             ctx,
         })
-    }        
+    }  
+
+    // Method to retrieve the concrete u64 value
+    pub fn get_concrete_value(&self) -> Result<u64, String> {
+        match self.concrete {
+            ConcreteVar::Int(value) => Ok(value),
+            ConcreteVar::Float(value) => Ok(value as u64),  // Simplistic conversion
+            ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
+                .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
+            ConcreteVar::Bool(value) => Ok(value as u64),
+        }
+    }      
 
     pub fn update_concrete_int(&mut self, new_value: u64) {
         self.concrete = ConcreteVar::Int(new_value);

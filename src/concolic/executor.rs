@@ -518,40 +518,22 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let pointer_offset_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
-        log!(self.state.logger.clone(), "pointer offset concrete : {:x}", pointer_offset_concrete);
-
-        let input_varnode = &instruction.inputs[1];
-        let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
-        log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
+        log!(self.state.logger.clone(), "Pointer offset to be dereferenced : {:x}", pointer_offset_concrete);
     
-        // Dereference the address from the unique variable, CPU register or memory
-        let (dereferenced_concrete_value, dereferenced_symbolic_value) = match &input_varnode.var {
-            Var::Unique(id) => {
-                // Directly use the value as is, for unique variables
-                log!(self.state.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
-                let unique_name = format!("Unique(0x{:x})", id);
-                let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, unique_name.clone(), input_size_bits));
-                let var = self.unique_variables.entry(unique_name.clone())
-                    .or_insert_with(|| {
-                        log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {:x} and size {:?}", unique_name, *id as u64, input_size_bits);
-                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, input_size_bits)
-                    })
-                    .clone();
-                (var.concrete.to_u64(), var.symbolic.to_bv(&self.context))
-            },
-            Var::Register(..) => {
-                // Use the offset directly to retrieve register value
-                let cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                if let Some(value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
-                    let value_u64 = value.get_concrete_value()?;
-                    let value_symbolic = value.get_symbolic_value().to_bv(&self.context);
-                    log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value_u64);
-                    (value_u64, value_symbolic)
-                } else {
-                    return Err(format!("Failed to retrieve register value by offset 0x{:x}", pointer_offset_concrete));
-                }
-            },
-            Var::Memory(_) => {
+        // Dereference the address from the CPU registers or memory
+        let (dereferenced_concrete_value, dereferenced_symbolic_value) = {
+            let cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            // Get the size of the input in bits
+            let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
+            log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
+            // Use the offset directly to retrieve register value
+            if let Some(value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
+                let value_u64 = value.get_concrete_value()?;
+                let value_symbolic = value.get_symbolic_value().to_bv(&self.context);
+                log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value_u64);
+                (value_u64, value_symbolic)
+            } else {
+                // If not found in registers, dereference from memory and assemble the 64-bit value from 8 bytes
                 let memory_guard = self.state.memory.memory.read().unwrap();
                 let mut full_value = 0u64;
 
@@ -580,11 +562,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
                 let symbolic_value = BV::from_u64(self.context, full_value, 64);
                 (full_value, symbolic_value)
+
             }
-            _ => {
-                return Err("Unsupported varnode type for LOAD operation".to_string());
-            }
-        };
+        };    
         
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", dereferenced_concrete_value);
         let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(dereferenced_concrete_value, dereferenced_symbolic_value, self.context, 64);
@@ -619,12 +599,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for LOAD instruction".to_string());
         }
-        
+    
+        log!(self.state.logger.clone(), "{}\n", self);
+    
         // Create a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, dereferenced_concrete_value, SymbolicVar::Int(BV::from_u64(self.context, dereferenced_concrete_value, 64)));
-        
+    
+        //log!(self.state.logger.clone(), "{}", self.state);
+    
         Ok(())
     }
 
