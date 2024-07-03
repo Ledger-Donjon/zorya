@@ -143,7 +143,7 @@ impl ConcreteVar {
                 }
             },
             ConcreteVar::Str(ref s) => {
-                s.parse::<u64>().unwrap_or(0) // Default value for unparseable strings
+                s.parse::<u64>().unwrap_or(0) // Default value for unparsable strings
             },
             ConcreteVar::Bool(value) => value as u64,
         }

@@ -569,7 +569,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         if dereferenced_concrete_value == 0 {
                 log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-                log!(self.state.logger.clone(), "VULN: Zorya catched the dereferencing of a NULL pointer, execution stopped!");
+                log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
                 log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
                 process::exit(1);
         }
@@ -810,7 +810,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Some(Var::Unique(id)) => {
                 let unique_name = format!("Unique(0x{:x})", id);
                 self.unique_variables.insert(unique_name.clone(), popcount_result.clone());
-                log!(self.state.logger.clone(), "Updated unique variable: {} with concrete size {:?} ans symbolic size {:?}", unique_name, popcount_result.concrete.get_size(), popcount_result.symbolic.get_size());
+                log!(self.state.logger.clone(), "Updated unique variable: {} with concrete size {:?} and symbolic size {:?}", unique_name, popcount_result.concrete.get_size(), popcount_result.symbolic.get_size());
             },
             Some(Var::Register(offset, _)) => {
                 log!(self.state.logger.clone(), "Output is a Register type");
@@ -891,7 +891,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Calculate the new size after truncation
         let new_size = input_size.checked_sub(truncate_offset.try_into().unwrap()).ok_or("Truncation offset is larger than the input size")?;
 
-        // Perform truncation operation considering endianess
+        // Perform truncation operation considering endianness
         let result_value = input_var.concolic_subpiece(truncate_offset, new_size, self.context)
             .map_err(|e| e.to_string())?;
         log!(self.state.logger.clone(), "*** The result of SUBPIECE is: {:?}", result_value.clone());

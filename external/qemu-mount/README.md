@@ -1,4 +1,4 @@
-# Step 2 of the Usage of Zorya : Dump the initial memeory and CPU registers on Qemu AMD Opteron
+# Step 2 of the Usage of Zorya : Dump the initial memory and CPU registers on Qemu AMD Opteron
 
 1. **Terminal on local computer**
 ```
