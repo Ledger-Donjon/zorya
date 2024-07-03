@@ -94,7 +94,7 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
     // Perform the unsigned addition and check for carry
-    let bv_size = input0_var.get_size() as u32;
+    let bv_size = instruction.inputs[0].size.to_bitvector_size() as u32;
     let result_concrete = input0_var.get_concrete_value() as u128 + input1_var.get_concrete_value() as u128; // Use u128 to ensure no overflow in Rust
     let carry_concrete = result_concrete >> bv_size != 0; // If the result requires more bits than the size, there was a carry
 

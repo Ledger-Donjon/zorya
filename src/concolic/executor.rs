@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::Write;
 use std::sync::MutexGuard;
+use std::process;
 
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::memory_x86_64::MemoryConcolicValue;
@@ -564,8 +565,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 (full_value, symbolic_value)
 
             }
-        };    
-        
+        };
+
+        if dereferenced_concrete_value == 0 {
+                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                log!(self.state.logger.clone(), "VULN: Zorya catched the dereferencing of a NULL pointer, execution stopped!");
+                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+                process::exit(1);
+        }
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", dereferenced_concrete_value);
         let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(dereferenced_concrete_value, dereferenced_symbolic_value, self.context, 64);
     
