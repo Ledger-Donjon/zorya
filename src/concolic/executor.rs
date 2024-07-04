@@ -520,6 +520,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset to be dereferenced : {:x}", pointer_offset_concrete);
+
+        if pointer_offset_concrete == 0 {
+                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
+                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+                process::exit(1);
+        }
     
         // Dereference the address from the CPU registers or memory
         let (dereferenced_concrete_value, dereferenced_symbolic_value) = {
@@ -567,12 +574,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         };
 
-        if dereferenced_concrete_value == 0 {
-                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-                log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
-                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-                process::exit(1);
-        }
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", dereferenced_concrete_value);
         let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(dereferenced_concrete_value, dereferenced_symbolic_value, self.context, 64);
     
