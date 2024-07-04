@@ -632,6 +632,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
 
+	// Check for null pointer dereference
+        if pointer_offset_concrete == 0 {
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+            log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+            process::exit(1);
+        }
+
         // Get the size of the input in bits
         let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);

@@ -1,25 +1,12 @@
-process 1382
+process 2072
 Mapped address spaces:
 
           Start Addr           End Addr       Size     Offset  Perms  objfile
-            0x400000           0x456000    0x56000        0x0  r-xp   /mnt/host/additiongo-qemuAMD64compiled
-            0x456000           0x4b5000    0x5f000    0x56000  r--p   /mnt/host/additiongo-qemuAMD64compiled
-            0x4b5000           0x4b9000     0x4000    0xb5000  rw-p   /mnt/host/additiongo-qemuAMD64compiled
-            0x4b9000           0x4ed000    0x34000        0x0  rw-p   [heap]
-        0xc000000000       0xc000400000   0x400000        0x0  rw-p   
-        0xc000400000       0xc004000000  0x3c00000        0x0  ---p   
-      0x7fffd1368000     0x7fffd3699000  0x2331000        0x0  rw-p   
-      0x7fffd3699000     0x7fffe3819000 0x10180000        0x0  ---p   
-      0x7fffe3819000     0x7fffe381a000     0x1000        0x0  rw-p   
-      0x7fffe381a000     0x7ffff56c9000 0x11eaf000        0x0  ---p   
-      0x7ffff56c9000     0x7ffff56ca000     0x1000        0x0  rw-p   
-      0x7ffff56ca000     0x7ffff7a9f000  0x23d5000        0x0  ---p   
-      0x7ffff7a9f000     0x7ffff7aa0000     0x1000        0x0  rw-p   
-      0x7ffff7aa0000     0x7ffff7f19000   0x479000        0x0  ---p   
-      0x7ffff7f19000     0x7ffff7f1a000     0x1000        0x0  rw-p   
-      0x7ffff7f1a000     0x7ffff7f99000    0x7f000        0x0  ---p   
-      0x7ffff7f99000     0x7ffff7ff9000    0x60000        0x0  rw-p   
+            0x400000           0x401000     0x1000        0x0  r--p   /mnt/host/addition-ptrderef
+            0x401000           0x402000     0x1000     0x1000  r-xp   /mnt/host/addition-ptrderef
+            0x402000           0x403000     0x1000     0x2000  r--p   /mnt/host/addition-ptrderef
       0x7ffff7ff9000     0x7ffff7ffd000     0x4000        0x0  r--p   [vvar]
       0x7ffff7ffd000     0x7ffff7fff000     0x2000        0x0  r-xp   [vdso]
       0x7ffffffde000     0x7ffffffff000    0x21000        0x0  rw-p   [stack]
   0xffffffffff600000 0xffffffffff601000     0x1000        0x0  --xp   [vsyscall]
+process 2072
