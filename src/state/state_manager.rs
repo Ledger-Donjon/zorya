@@ -213,9 +213,9 @@ impl<'a> fmt::Display for State<'a> {
         writeln!(f, "State after instruction:")?;
 
         // Concolic Variables
-        writeln!(f, "  Concolic Variables:")?;
+        writeln!(f, "  Concrete part of Concolic Variables:")?;
         for (var_name, concolic_var) in &self.concolic_vars {
-            writeln!(f, "    {}: {}", var_name, concolic_var)?;
+            writeln!(f, "    {}:{:?}", var_name, concolic_var.concrete)?;
         }
 
         // Memory
