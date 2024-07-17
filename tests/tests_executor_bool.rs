@@ -3,7 +3,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use z3::ast::BV;
-    use zorya::concolic::executor_bool::{handle_bool_and, handle_bool_negate};
+    use zorya::concolic::executor_bool::{handle_bool_and, handle_bool_negate, handle_bool_xor};
     use zorya::concolic::{ConcolicExecutor, ConcolicVar, Logger};
     use zorya::executor::SymbolicVar;
     use zorya::state::State;
@@ -100,6 +100,51 @@ mod tests {
             assert_eq!(negated_var.concrete.to_u64(), 0, "Boolean negation did not produce the expected result");
         } else {
             panic!("Result of BOOL_NEGATE not found or incorrect type");
+        }
+    }
+
+    #[test]
+    fn test_handle_bool_xor() {
+        let mut executor = setup_executor();
+
+        // Setup: Create two boolean variables, one true and one false
+        let symbolic0 = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
+        let symbolic1 = SymbolicVar::Int(BV::new_const(executor.context, format!("false"), 64));
+        let input0 = ConcolicVar::new_concrete_and_symbolic_int(1, symbolic0.to_bv(&executor.context), executor.context, 1); // true
+        let input1 = ConcolicVar::new_concrete_and_symbolic_int(0, symbolic1.to_bv(&executor.context), executor.context, 1); // false
+        executor.unique_variables.insert("Unique(0x100)".to_string(), input0);
+        executor.unique_variables.insert("Unique(0x101)".to_string(), input1);
+
+        // Define the instruction to perform a BOOL_XOR operation
+        let xor_inst = Inst {
+            opcode: Opcode::BoolXor,
+            output: Some(Varnode {
+                var: Var::Unique(0x102),
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x100),
+                    size: Size::Byte,
+                },
+                Varnode {
+                    var: Var::Unique(0x101),
+                    size: Size::Byte,
+                },
+            ],
+        };
+
+        // Execute the BOOL_XOR operation
+        let result = handle_bool_xor(&mut executor, xor_inst);
+        assert!(result.is_ok(), "BOOL_XOR operation failed");
+
+        println!("{:?}", executor.unique_variables);
+
+        // Verify the result of the BOOL_XOR operation
+        if let Some(result_var) = executor.unique_variables.get("Unique(0x102)") {
+            assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(1), "BOOL_XOR did not compute the correct result (true XOR false should be true)");
+        } else {
+            panic!("BOOL_XOR result not found or incorrect type");
         }
     }
 }

@@ -1,7 +1,7 @@
+use nix::libc::MAP_FIXED;
 /// Memory model for x86-64 binaries
 
 use regex::Regex;
-use z3::ast::{Ast, Bool};
 use z3::{ast::BV, Context};
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -12,10 +12,11 @@ use std::{fmt, io};
 use std::path::Path;
 
 
-use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
+use crate::concolic::{ConcreteVar, SymbolicVar};
 use crate::target_info::GLOBAL_TARGET_INFO;
 
-use super::cpu_state::CpuConcolicValue;
+// // Value fixed according to current usage
+// const MAP_FIXED: i32 = 0x10;
 
 #[derive(Debug)]
 pub enum MemoryError {
@@ -81,367 +82,8 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
         }
     }
 
-    // Add operation on two memory concolic variables 
-    pub fn add(self, other: Self) -> Result<Self, &'static str> {
-        let new_concrete = self.concrete.add(&other.concrete);
-        let new_symbolic = self.symbolic.add(&other.symbolic)?;
-        Ok(Self {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Add a memory concolic value to a const var
-    pub fn add_with_var(self, var: ConcolicVar<'ctx>) -> Result<Self, &'static str> {
-        let new_concrete = self.concrete.add(&var.concrete);
-        let new_symbolic = self.symbolic.add(&var.symbolic)?;
-        Ok(MemoryConcolicValue {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Add a memory concolic value to a cpu var
-    pub fn add_with_other(self, var: CpuConcolicValue<'ctx>) -> Result<Self, &'static str> {
-        let new_concrete = self.concrete.add(&var.concrete);
-        let new_symbolic = self.symbolic.add(&var.symbolic)?;
-        Ok(MemoryConcolicValue {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Perform a carrying addition on two MemoryConcolicValues
-    pub fn carrying_add(&self, other: &MemoryConcolicValue<'ctx>, carry: bool) -> (MemoryConcolicValue<'ctx>, bool) {
-        let (result, overflow) = self.concrete.carrying_add(&other.concrete, carry);
-        let symbolic_result = self.symbolic.add(&other.symbolic);  
-        let result_var = MemoryConcolicValue {
-            concrete: result,
-            symbolic: symbolic_result.unwrap(),
-            ctx: self.ctx,
-        };
-        (result_var, overflow)
-    }
-
-    // Perform a carrying addition on a MemoryConcolicValue and a CpuConcolicValue
-    pub fn carrying_add_with_cpu(&self, other: &CpuConcolicValue<'ctx>, carry: bool) -> (MemoryConcolicValue<'ctx>, bool) {
-        let (result, overflow) = self.concrete.carrying_add(&other.concrete, carry);
-        let symbolic_result = self.symbolic.add(&other.symbolic); 
-        let result_var = MemoryConcolicValue {
-            concrete: result,
-            symbolic: symbolic_result.unwrap(),
-            ctx: self.ctx,
-        };
-        (result_var, overflow)
-    }
-
-    // Method to perform signed addition and detect overflow
-    pub fn signed_add(&self, other: &Self) -> Result<(Self, bool), &'static str> {
-        let (result, overflow) = self.concrete.to_i64()?.overflowing_add(other.concrete.to_i64()?);
-        let new_concrete = ConcreteVar::Int(result as u64);
-        let new_symbolic = self.symbolic.add(&other.symbolic)?;
-        Ok((MemoryConcolicValue {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        }, overflow))
-    }
-
-    // Method to perform signed addition with CpuConcolicValue and detect overflow
-    pub fn signed_add_with_cpu(&self, other: &CpuConcolicValue<'ctx>) -> Result<(CpuConcolicValue<'ctx>, bool), &'static str> {
-        let (result, overflow) = self.concrete.to_i64()?.overflowing_add(other.concrete.to_i64()?);
-        let new_concrete = ConcreteVar::Int(result as u64);
-        let new_symbolic = self.symbolic.add(&other.symbolic)?;
-        Ok((CpuConcolicValue {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        }, overflow))
-    }
-
-    pub fn sub(self, other: MemoryConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
-        if overflow {
-            Err("Overflow or underflow occurred during subtraction")
-        } else {
-            let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-            Ok(MemoryConcolicValue {
-                concrete: ConcreteVar::Int(new_concrete),
-                symbolic: new_symbolic,
-                ctx,
-            })
-        }
-    }
-
-    pub fn sub_with_var(self, other: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
-        if overflow {
-            Err("Overflow or underflow occurred during subtraction")
-        } else {
-            let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-            Ok(MemoryConcolicValue {
-                concrete: ConcreteVar::Int(new_concrete),
-                symbolic: new_symbolic,
-                ctx,
-            })
-        }
-    }
-
-    pub fn sub_with_cpu(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let (new_concrete, overflow) = self.concrete.to_u64().overflowing_sub(other.concrete.to_u64());
-        if overflow {
-            Err("Overflow or underflow occurred during subtraction")
-        } else {
-            let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-            Ok(MemoryConcolicValue {
-                concrete: ConcreteVar::Int(new_concrete),
-                symbolic: new_symbolic,
-                ctx,
-            })
-        }
-    }
-    
-    // Method to perform signed subtraction with overflow detection and handling for MemoryConcolicValue
-    pub fn signed_sub(self, other: Self, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let (new_concrete, overflow) = self.concrete.signed_sub_overflow(&other.concrete);
-        if overflow {
-            return Err("Signed subtraction overflow detected");
-        }
-        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-        Ok(MemoryConcolicValue {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-    
-    // Handle signed subtraction with another ConcolicVar
-    pub fn signed_sub_with_var(self, var: ConcolicVar<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let (new_concrete, overflow) = self.concrete.signed_sub_overflow(&var.concrete);
-        if overflow {
-            return Err("Signed subtraction overflow detected");
-        }
-        let new_symbolic = self.symbolic.sub(&var.symbolic, ctx)?;
-        Ok(MemoryConcolicValue {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    pub fn signed_sub_with_other(self, other: CpuConcolicValue<'ctx>, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        let (new_concrete, overflow) = self.concrete.signed_sub_overflow(&other.concrete);
-        if overflow {
-            return Err("Signed subtraction overflow detected");
-        }
-        let new_symbolic = self.symbolic.sub(&other.symbolic, ctx)?;
-        Ok(MemoryConcolicValue {
-            concrete: new_concrete,
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    pub fn handle_overflow_condition(&self, overflow: Bool) -> bool {
-        overflow.as_bool().unwrap_or(false)
-    }  
-
-    // Logical AND operation between two MemoryConcolicValues
-    pub fn and(self, other: Self) -> Result<Self, &'static str> {
-        println!("Inside and_with_var function of memory_concolic_value.rs");
-
-        // Print context addresses to debug context consistency
-        println!("Context address for symbolic_self: {:p}", self.symbolic.get_ctx());
-        println!("Context address for symbolic_other: {:p}", other.symbolic.get_ctx());
-
-        // Ensure context consistency
-        if !self.symbolic.get_ctx().eq(other.symbolic.get_ctx()) {
-            return Err("Context mismatch between the two symbolic values.");
-        }
-
-        let concrete_value = self.concrete.to_u64() & other.concrete.to_u64();
-        println!("Concrete value: {}", concrete_value);
-
-        let symbolic_self = match &self.symbolic {
-            SymbolicVar::Int(bv) => bv,
-            _ => return Err("Unsupported symbolic type in MemoryConcolicValue"),
-        };
-
-        let symbolic_other = match &other.symbolic {
-            SymbolicVar::Int(bv) => bv,
-            _ => return Err("Unsupported symbolic type in ConcolicVar"),
-        };
-
-        println!("Symbolic self: {}", symbolic_self.to_string());
-        println!("Symbolic other: {}", symbolic_other.to_string());
-
-        // Perform the AND operation
-        let symbolic_value = symbolic_self.bvand(symbolic_other);
-
-        // Check if the symbolic value is valid
-        if symbolic_value.get_z3_ast().is_null() {
-            eprintln!("Symbolic value is invalid after AND operation");
-            return Err("Symbolic value is invalid in and_with_var");
-        }
-
-        println!("Symbolic AND result: {}", symbolic_value.to_string());
-        println!("Symbolic value is valid");
-
-        // Create a new ConcolicVar with the result
-        let new_concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
-            concrete_value,
-            symbolic_value,
-            self.ctx,
-            64
-        );
-
-        Ok(MemoryConcolicValue {
-            concrete: new_concolic_var.concrete,
-            symbolic: new_concolic_var.symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Logical AND operation between MemoryConcolicValue and ConcolicVar
-    pub fn and_with_var(self, other: ConcolicVar<'ctx>) -> Result<Self, &'static str> {
-        log::debug!("Inside and_with_var function of memory_concolic_value.rs");
-
-        // Ensure context consistency
-        if !self.symbolic.get_ctx().eq(other.symbolic.get_ctx()) {
-            return Err("Context mismatch between the two symbolic values.");
-        }
-
-        let concrete_value = self.concrete.to_u64() & other.concrete.to_u64();
-        log::debug!("Concrete value: {}", concrete_value);
-
-        let symbolic_self = match &self.symbolic {
-            SymbolicVar::Int(bv) => bv,
-            _ => return Err("Unsupported symbolic type in MemoryConcolicValue"),
-        };
-
-        let symbolic_other = match &other.symbolic {
-            SymbolicVar::Int(bv) => bv,
-            _ => return Err("Unsupported symbolic type in ConcolicVar"),
-        };
-
-        log::debug!("Symbolic self: {}", symbolic_self.to_string());
-        log::debug!("Symbolic other: {}", symbolic_other.to_string());
-
-        // Perform the AND operation
-        let symbolic_value = symbolic_self.bvand(symbolic_other);
-
-        // Check if the symbolic value is valid
-        if symbolic_value.get_z3_ast().is_null() {
-            log::error!("Symbolic value is invalid after AND operation");
-            return Err("Symbolic value is invalid in and_with_var");
-        }
-
-        log::debug!("Symbolic AND result: {}", symbolic_value.to_string());
-
-        Ok(MemoryConcolicValue {
-            concrete: ConcreteVar::Int(concrete_value),
-            symbolic: SymbolicVar::Int(symbolic_value),
-            ctx: self.ctx,
-        })
-    }
-
-    // Logical AND operation with CpuConcolicValue
-    pub fn and_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<Self, &'static str> {
-        println!("Inside and_with_var function of memory_concolic_value.rs");
-
-        // Print context addresses to debug context consistency
-        println!("Context address for symbolic_self: {:p}", self.symbolic.get_ctx());
-        println!("Context address for symbolic_other: {:p}", other.symbolic.get_ctx());
-
-        // Ensure context consistency
-        if !self.symbolic.get_ctx().eq(other.symbolic.get_ctx()) {
-            return Err("Context mismatch between the two symbolic values.");
-        }
-
-        let concrete_value = self.concrete.to_u64() & other.concrete.to_u64();
-        println!("Concrete value: {}", concrete_value);
-
-        let symbolic_self = match &self.symbolic {
-            SymbolicVar::Int(bv) => bv,
-            _ => return Err("Unsupported symbolic type in MemoryConcolicValue"),
-        };
-
-        let symbolic_other = match &other.symbolic {
-            SymbolicVar::Int(bv) => bv,
-            _ => return Err("Unsupported symbolic type in ConcolicVar"),
-        };
-
-        println!("Symbolic self: {}", symbolic_self.to_string());
-        println!("Symbolic other: {}", symbolic_other.to_string());
-
-        // Perform the AND operation
-        let symbolic_value = symbolic_self.bvand(symbolic_other);
-
-        // Check if the symbolic value is valid
-        if symbolic_value.get_z3_ast().is_null() {
-            eprintln!("Symbolic value is invalid after AND operation");
-            return Err("Symbolic value is invalid in and_with_var");
-        }
-
-        println!("Symbolic AND result: {}", symbolic_value.to_string());
-        println!("Symbolic value is valid");
-
-        // Create a new ConcolicVar with the result
-        let new_concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
-            concrete_value,
-            symbolic_value,
-            self.ctx,
-            64
-        );
-
-        Ok(MemoryConcolicValue {
-            concrete: new_concolic_var.concrete,
-            symbolic: new_concolic_var.symbolic,
-            ctx: self.ctx,
-        })
-    }
-
     pub fn popcount(&self) -> BV<'ctx> {
         self.symbolic.popcount()
-    }
-
-    // Logical OR operation between MemoryConcolicValue and ConcolicVar
-    pub fn or_with_var(self, var: ConcolicVar<'ctx>) -> Result<Self, &'static str> {
-        let concrete_value = self.concrete.to_u64() | var.concrete.to_u64();
-        let new_symbolic = self.symbolic.or(&var.symbolic, self.ctx)
-            .map_err(|_| "Failed to combine symbolic values")?;
-        Ok(MemoryConcolicValue {
-            concrete: ConcreteVar::Int(concrete_value),
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Logical OR operation between two MemoryConcolicValues
-    pub fn or(self, other: Self) -> Result<Self, &'static str> {
-        let concrete_value = self.concrete.to_u64() | other.concrete.to_u64();
-        let new_symbolic = self.symbolic.or(&other.symbolic, self.ctx)
-            .map_err(|_| "Failed to combine symbolic values")?;
-        Ok(MemoryConcolicValue {
-            concrete: ConcreteVar::Int(concrete_value),
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Logical OR operation with CpuConcolicValue
-    pub fn or_with_cpu(self, other: CpuConcolicValue<'ctx>) -> Result<Self, &'static str> {
-        let concrete_value = self.concrete.to_u64() | other.concrete.to_u64();
-        let new_symbolic = self.symbolic.or(&other.symbolic, self.ctx)
-            .map_err(|_| "Failed to combine symbolic values")?;
-        Ok(MemoryConcolicValue {
-            concrete: ConcreteVar::Int(concrete_value),
-            symbolic: new_symbolic,
-            ctx: self.ctx,
-        })
     }
 
     pub fn concolic_zero_extend(&self, new_size: u32) -> Result<Self, &'static str> {
@@ -526,8 +168,8 @@ impl<'ctx> fmt::Display for MemoryConcolicValue<'ctx> {
 #[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
     pub memory: Arc<RwLock<BTreeMap<u64, MemoryConcolicValue<'ctx>>>>,
-    ctx: &'ctx Context,
-    memory_size: u64,
+    pub ctx: &'ctx Context,
+    pub memory_size: u64,
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
@@ -691,6 +333,15 @@ impl<'ctx> MemoryX86_64<'ctx> {
         })
     }
 
+    pub fn read_bytes(&mut self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
+        let mut bytes = Vec::new();
+        for i in 0..size {
+            let byte = self.read_byte(address + i as u64)?;
+            bytes.push(byte);
+        }
+        Ok(bytes)
+    }
+
     /// Reads a null-terminated string starting from the specified memory address.
     ///
     /// This method dynamically determines the length of the string by reading each byte until
@@ -736,8 +387,66 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     // Write an 8-bit (byte) value to memory
-    pub fn write_byte(&mut self, offset: u64, value: u8) -> Result<(), MemoryError> {
-        self.write_memory(offset, &[value]) // Directly write the single byte
+    pub fn write_bytes(&self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
+        let mut memory = self.memory.write().unwrap();
+        for (i, &byte) in bytes.iter().enumerate() {
+            memory.insert(address + i as u64, MemoryConcolicValue::new(self.ctx, byte.into(), 8));
+        }
+        Ok(())
+    } 
+
+    /// Simulates the mmap syscall with conflict checking for MAP_FIXED.
+    pub fn mmap(&mut self, addr: u64, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> Result<u64, MemoryError> {
+        let page_size = 4096;
+        let length_aligned = (length + page_size - 1) & !(page_size - 1);
+        let start_addr = if (addr == 0 || flags & MAP_FIXED == 0) && flags & MAP_FIXED == 0 {
+            self.find_free_region(length_aligned as u64)
+        } else {
+            Ok(addr)
+        };
+
+        let start_addr = start_addr?;
+
+        // Clear existing mapping if MAP_FIXED is used
+        if flags & MAP_FIXED != 0 {
+            for i in (start_addr..start_addr + length_aligned as u64).step_by(page_size) {
+                if self.memory.read().unwrap().contains_key(&i) {
+                    // Conflict: Address already occupied
+                    return Err(MemoryError::OutOfBounds(i, length));
+                }
+            }
+
+            for i in (start_addr..start_addr + length_aligned as u64).step_by(page_size) {
+                self.memory.write().unwrap().remove(&i);
+            }
+        }
+
+        // Insert new mapping
+        for i in (start_addr..start_addr + length_aligned as u64).step_by(page_size) {
+            let memory_value = MemoryConcolicValue::default(self.ctx, 64);
+            self.memory.write().unwrap().insert(i, memory_value);
+        }
+
+        Ok(start_addr)
+    }
+
+    /// Finds a free region in the virtual memory to map pages.
+    fn find_free_region(&self, length: u64) -> Result<u64, MemoryError> {
+        let mut base_address = 0x10000000; // Start from a base address (e.g., 256MB)
+        while base_address < 0x7fffffffffff { // Below the typical user-space limit for 64-bit
+            let mut occupied = false;
+            for i in (base_address..base_address + length).step_by(4096) {
+                if self.memory.read().unwrap().contains_key(&i) {
+                    occupied = true;
+                    break;
+                }
+            }
+            if !occupied {
+                return Ok(base_address);
+            }
+            base_address += length; // Increment by the length to find the next potential base address
+        }
+        Err(MemoryError::OutOfBounds(base_address, length as usize)) // No free region found
     }
 
     // Display trait to visualize memory state (not for cloning)

@@ -1,10 +1,10 @@
 use std::{collections::BTreeMap, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
 use goblin::elf::Elf;
-use parser::parser::{Inst, Varnode};
+use parser::parser::Varnode;
 use z3::Context;
 use std::fmt;
-use super::{cpu_state::SharedCpuState, memory_x86_64::MemoryX86_64, state_initializer, virtual_file_system::FileDescriptor, CpuState, VirtualFileSystem};
+use super::{cpu_state::SharedCpuState, memory_x86_64::MemoryX86_64, state_initializer, CpuState, VirtualFileSystem};
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -20,7 +20,6 @@ pub struct State<'a> {
     pub memory: MemoryX86_64<'a>,
     pub cpu_state: SharedCpuState<'a>,
     pub vfs: VirtualFileSystem,
-    pub file_descriptors: BTreeMap<u64, FileDescriptor>, // Maps syscall file descriptors to FileDescriptor objects.
     pub fd_paths: BTreeMap<u64, PathBuf>, // Maps syscall file descriptors to file paths.
     pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
     pub logger: Logger,
@@ -40,26 +39,19 @@ impl<'a> State<'a> {
         let displayable_cpu_state = DisplayableCpuState(cpu_state.clone());
         log!(logger.clone(), "Current CPU State: {}", displayable_cpu_state);
 
-        let memory_size: u64 = 0x10000000; // 10GB memory size because dumps are 730 MB
+        let memory_size: u64 = 1024 * 1024 * 1024; // 1 GiB memory size because dumps are 730 MB
         log!(logger.clone(), "Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, memory_size)?;
         let _ = memory.load_all_dumps();
 	
 	    // Virtual file system initialization
         log!(logger.clone(), "Initializing virtual file system...\n");
-	    let vfs = VirtualFileSystem::new();
-
-	    // Print memory content at address 0xc0000061b0 and nearby
-        // let address = 0xc0000061b0;
-        // let range = 0x20; // Define the range to read before and after the address
-        // log!(logger.clone(), "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
 	
         let state = State {
             concolic_vars: BTreeMap::new(),
             ctx,
             memory,
             cpu_state,
-            file_descriptors: BTreeMap::new(),
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
             vfs: VirtualFileSystem::new(),
@@ -93,7 +85,6 @@ impl<'a> State<'a> {
             memory,
             cpu_state,
             vfs: VirtualFileSystem::new(),
-            file_descriptors: BTreeMap::new(),
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
             logger,
@@ -161,51 +152,26 @@ impl<'a> State<'a> {
         self.concolic_vars.get(&var_name)
             .map(|concolic_var| concolic_var.concrete.clone())
             .ok_or_else(|| format!("Variable '{}' not found in concolic_vars. Available keys: {:?}", var_name, self.concolic_vars.keys()))
-    }
-
-   
+    } 
 
     // Sets a boolean variable in the state, updating or creating a new concolic variable
     pub fn set_var(&mut self, var_name: &str, concolic_var: ConcolicVar<'a>) {
         self.concolic_vars.insert(var_name.to_string(), concolic_var);
     }
 
-    /// Retrieves a reference to a FileDescriptor by its ID.
-    pub fn get_file_descriptor(&self, fd_id: u64) -> Result<&FileDescriptor, String> {
-        self.file_descriptors.get(&fd_id)
-            .ok_or_else(|| "File descriptor not found".to_string())
-    }
+    // /// Retrieves a reference to a FileDescriptor by its ID.
+    // pub fn get_file_descriptor(&self, fd_id: u64) -> Result<&FileDescriptor, String> {
+    //     self.file_descriptors.get(&fd_id)
+    //         .ok_or_else(|| "File descriptor not found".to_string())
+    // }
 
-    /// Retrieves a mutable reference to a FileDescriptor by its ID.
-    /// This is necessary for operations that modify the FileDescriptor, like write.
-    pub fn get_file_descriptor_mut(&mut self, fd_id: u64) -> Result<&mut FileDescriptor, String> {
-        self.file_descriptors.get_mut(&fd_id)
-            .ok_or_else(|| "File descriptor not found".to_string())
-    }
+    // /// Retrieves a mutable reference to a FileDescriptor by its ID.
+    // /// This is necessary for operations that modify the FileDescriptor, like write.
+    // pub fn get_file_descriptor_mut(&mut self, fd_id: u64) -> Result<&mut FileDescriptor, String> {
+    //     self.file_descriptors.get_mut(&fd_id)
+    //         .ok_or_else(|| "File descriptor not found".to_string())
+    // }
 
-    pub fn check_nil_deref(&mut self, address: u64, current_address: u64, instruction: &Inst) -> Result<(), String> {
-    	// Special case for entry point where accessing 0x0 might be expected
-    	//if current_address == Self::ENTRY_POINT_ADDRESS && address == 0x0 {
-        //	log!(self.logger.clone(), "Special case at entry point, accessing 0x0 is not considered a nil dereference.");
-        //	return Ok(());
-    	//}
-
-    	// If RAX is 0x0 -> potential nil dereference
-    	// if let Some(rax_value) = self.cpu_state.gpr.get("RAX") {
-        //     if *rax_value == 0x0 {
-        //         return Err(format!("Nil dereference detected: RAX is 0x0 at address 0x{:x} with instruction {:?}", current_address, instruction));
-        //     }
-        // } else {
-        //     return Err("RAX register value not found".to_string());
-        // }
-
-        // Ensure the accessed address is not 0x0 ?
-    	 if address == 0x0 {
-        	return Err(format!("Nil dereference detected: Attempted to access address 0x0 at address 0x{:x} with instruction {:?}", current_address, instruction));
-    	}
-
-    	Ok(())
-     }
 }
 
 impl<'a> fmt::Display for State<'a> {

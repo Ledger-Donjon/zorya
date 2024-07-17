@@ -105,20 +105,20 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::CallOther => executor_callother::handle_callother(self, instruction),
             
             // Check executor_float.rs for functions' implementations
-            Opcode::Float2Float => executor_float::handle_float2float(self, instruction),
-            Opcode::FloatAbs => executor_float::handle_float_abs(self, instruction),
-            Opcode::FloatAdd => executor_float::handle_float_add(self, instruction),
-            Opcode::FloatDiv => executor_float::handle_float_div(self, instruction),
-            Opcode::FloatEqual => executor_float::handle_float_equal(self, instruction),
-            Opcode::FloatLess => executor_float::handle_float_less(self, instruction),
-            Opcode::FloatLessEqual => executor_float::handle_float_lessequal(self, instruction),
-            Opcode::FloatMult => executor_float::handle_float_mult(self, instruction),
-            Opcode::FloatNaN => executor_float::handle_float_nan(self, instruction),
-            Opcode::FloatNeg => executor_float::handle_float_neg(self, instruction),
-            Opcode::FloatNotEqual => executor_float::handle_float_notequal(self, instruction),
-            Opcode::FloatSqrt => executor_float::handle_float_sqrt(self, instruction),
-            Opcode::FloatSub => executor_float::handle_float_sub(self, instruction),
-            Opcode::FloatFloor => executor_float::handle_float_floor(self, instruction),
+            Opcode::Float2Float => panic!("Opcode is not implemented yet"), //executor_float::handle_float2float(self, instruction),
+            Opcode::FloatAbs => panic!("Opcode is not implemented yet"), //executor_float::handle_float_abs(self, instruction),
+            Opcode::FloatAdd => panic!("Opcode is not implemented yet"), //executor_float::handle_float_add(self, instruction),
+            Opcode::FloatDiv => panic!("Opcode is not implemented yet"), //executor_float::handle_float_div(self, instruction),
+            Opcode::FloatEqual => panic!("Opcode is not implemented yet"), //executor_float::handle_float_equal(self, instruction),
+            Opcode::FloatLess => panic!("Opcode is not implemented yet"), //executor_float::handle_float_less(self, instruction),
+            Opcode::FloatLessEqual => panic!("Opcode is not implemented yet"), //executor_float::handle_float_lessequal(self, instruction),
+            Opcode::FloatMult => panic!("Opcode is not implemented yet"), //executor_float::handle_float_mult(self, instruction),
+            Opcode::FloatNaN => panic!("Opcode is not implemented yet"), //executor_float::handle_float_nan(self, instruction),
+            Opcode::FloatNeg => panic!("Opcode is not implemented yet"), //executor_float::handle_float_neg(self, instruction),
+            Opcode::FloatNotEqual => panic!("Opcode is not implemented yet"), //executor_float::handle_float_notequal(self, instruction),
+            Opcode::FloatSqrt => panic!("Opcode is not implemented yet"), //executor_float::handle_float_sqrt(self, instruction),
+            Opcode::FloatSub => panic!("Opcode is not implemented yet"), //executor_float::handle_float_sub(self, instruction),
+            Opcode::FloatFloor => panic!("Opcode is not implemented yet"), //executor_float::handle_float_floor(self, instruction),
 
             // Check executor_int.rs for functions' implementations
             Opcode::Int2Comp => executor_int::handle_int_2comp(self, instruction),
@@ -632,7 +632,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
 
-	// Check for null pointer dereference
+	    // Check for null pointer dereference
         if pointer_offset_concrete == 0 {
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
             log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
@@ -687,7 +687,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Create or update a concolic variable for the result of the store operation
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete, 64)));
+        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete, input_size_bits)));
 
         Ok(())
     }

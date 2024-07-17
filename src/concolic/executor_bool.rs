@@ -2,7 +2,7 @@
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
 use crate::concolic::executor::ConcolicExecutor;
-use parser::parser::{Inst, Opcode, Size, Var, Varnode};
+use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::Bool;
 use std::io::Write;
 
@@ -168,28 +168,36 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     Ok(())
 }
 
-
+// Handle the BOOL_XOR instruction
 pub fn handle_bool_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
-    // Validate instruction format and sizes
     if instruction.opcode != Opcode::BoolXor || instruction.inputs.len() != 2 {
         return Err("Invalid instruction format for BOOL_XOR".to_string());
     }
 
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required")?;
-    if output_varnode.size != Size::Byte {
-        return Err("Output must be size 1 (Byte) for BOOL_XOR".to_string());
-    }
+    // Fetch the concolic variables for the inputs
+    log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for BOOL_XOR");
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for BOOL_XOR");
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
-    let input0_value = executor.initialize_var_if_absent(&instruction.inputs[0])?;
-    let input1_value = executor.initialize_var_if_absent(&instruction.inputs[1])?;
+    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Perform boolean XOR
-    let _result = (input0_value ^ input1_value) & 1; // Ensure result is boolean (0 or 1)
+    // Perform the logical XOR operation
+    let result_concrete = (input0_var.get_concrete_value() != 0) ^ (input1_var.get_concrete_value() != 0);
+    
+    // Correct use of the Bool::xor function for symbolic values
+    let result_symbolic = Bool::xor(
+        &input0_var.get_symbolic_value_bool(),
+        &input1_var.get_symbolic_value_bool()
+    );
 
-    // Store the result
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let _result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    //executor.state.create_concolic_var_int(&result_var_name, result as u64, 1);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, output_size_bits);
+
+    log!(executor.state.logger.clone(), "*** The result of BOOL_XOR is: {:?}\n", result_concrete);
+
+    // Handle the result based on the output varnode
+    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
     Ok(())
 }
