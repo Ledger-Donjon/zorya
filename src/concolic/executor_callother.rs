@@ -9,11 +9,11 @@ use std::{io::Write, process, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use super::{ConcolicEnum, ConcolicVar, SymbolicVar};
 
-// constants for futex operations
+// constants for sys_futex operations
 const FUTEX_WAIT: u64 = 0;
 const FUTEX_WAKE: u64 = 1;
 const FUTEX_REQUEUE: u64 = 2;
-const FUTEX_WAKE_PRIVATE: u64 = 129;
+const FUTEX_PRIVATE_FLAG: u64 = 128;
 // constants for sys_sigaltstack
 const SS_DISABLE: u32 = 1;
 const MINSIGSTKSZ: usize = 2048;
@@ -964,7 +964,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         },
         202 => {  // sys_futex
             log!(executor.state.logger.clone(), "Syscall type: sys_futex");
-
+        
             // Read arguments from registers
             let uaddr = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
             let op = cpu_state_guard.get_register_by_offset(0x30, 32).unwrap().get_concrete_value()?;
@@ -972,24 +972,27 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let timeout_ptr = cpu_state_guard.get_register_by_offset(0x20, 64).unwrap().get_concrete_value()?;
             let uaddr2 = cpu_state_guard.get_register_by_offset(0x18, 64).unwrap().get_concrete_value()?;
             let val3 = cpu_state_guard.get_register_by_offset(0x10, 32).unwrap().get_concrete_value()?;
-
+        
             let timeout = if timeout_ptr != 0 {
                 // TODO : Read the timeout value from the memory location
                 Some(Duration::from_secs(5)) // for now, use a 5-second timeout 
             } else {
                 None
             };
-
-            match op {
+        
+            let is_private = (op & FUTEX_PRIVATE_FLAG) != 0;
+            let operation = op & !FUTEX_PRIVATE_FLAG;
+        
+            match operation {
                 FUTEX_WAIT => {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_WAIT");
                     // This should block the thread if *uaddr == val, until *uaddr changes or optionally timeout expires
                     let futex_uaddr = uaddr as u64;
                     let futex_val = val as i32;
                     executor.state.futex_manager.futex_wait(futex_uaddr, futex_val, timeout)?;
-
+        
                     drop(cpu_state_guard);
-            
+                
                     // Create the concolic variables for the results
                     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
                     let result_var_name = format!("{}-{:02}-callother-sys-futex_wait", current_addr_hex, executor.instruction_counter);
@@ -1000,10 +1003,14 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     // This should wake up to 'val' number of threads waiting on 'uaddr'
                     let futex_uaddr = uaddr as u64;
                     let futex_val = val as usize;
-                    executor.state.futex_manager.futex_wake(futex_uaddr, futex_val)?;
-
+                    if is_private {
+                        executor.state.futex_manager.futex_wake_private(futex_uaddr, futex_val)?;
+                    } else {
+                        executor.state.futex_manager.futex_wake(futex_uaddr, futex_val)?;
+                    }
+        
                     drop(cpu_state_guard);
-            
+                
                     // Create the concolic variables for the results
                     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
                     let result_var_name = format!("{}-{:02}-callother-sys-futex_wake", current_addr_hex, executor.instruction_counter);
@@ -1011,41 +1018,28 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 },
                 FUTEX_REQUEUE => {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_REQUEUE");
-                    // this should requeue up to 'val' number of threads from 'uaddr' to 'uaddr2'
+                    // This should requeue up to 'val' number of threads from 'uaddr' to 'uaddr2'
                     let futex_uaddr = uaddr as u64;
                     let futex_val = val as usize;
                     let futex_uaddr2 = uaddr2 as u64;
                     let futex_val3 = val3 as usize;
                     executor.state.futex_manager.futex_requeue(futex_uaddr, futex_val, futex_uaddr2, futex_val3)?;
-
-                    drop(cpu_state_guard);
-            
-                    // Create the concolic variables for the results
-                    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-                    let result_var_name = format!("{}-{:02}-callother-sys-futex_warequeue", current_addr_hex, executor.instruction_counter);
-                    executor.state.create_or_update_concolic_variable_int(&result_var_name, futex_uaddr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr.try_into().unwrap(), 64)));
-                },
-                FUTEX_WAKE_PRIVATE => {
-                    log!(executor.state.logger.clone(), "Futex type: FUTEX_WAKE_PRIVATE");
-                    // This should wake up to 'val' number of threads waiting on 'uaddr' for private futexes
-                    let futex_uaddr = uaddr as u64;
-                    let futex_val = val as usize;
-                    executor.state.futex_manager.futex_wake_private(futex_uaddr, futex_val)?;
         
                     drop(cpu_state_guard);
-            
+                
                     // Create the concolic variables for the results
                     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-                    let result_var_name = format!("{}-{:02}-callother-sys-futex_wake_private", current_addr_hex, executor.instruction_counter);
+                    let result_var_name = format!("{}-{:02}-callother-sys-futex_requeue", current_addr_hex, executor.instruction_counter);
                     executor.state.create_or_update_concolic_variable_int(&result_var_name, futex_uaddr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr.try_into().unwrap(), 64)));
                 },
                 _ => {
                     // if the callother number is not handled, stop the execution
-                    log!(executor.state.logger.clone(), "Unhandled FUTEX type: {}", op);
+                    log!(executor.state.logger.clone(), "Unhandled FUTEX type: op={}", op);
+                    log!(executor.state.logger.clone(), "For information, the value of operation (op & !FUTEX_PRIVATE_FLAG) is : {}", operation);
                     process::exit(1);            
                 } 
             }
-        }
+        }        
         204 => { // sys_sched_getaffinity : gets the CPU affinity mask of a process
             log!(executor.state.logger.clone(), "Syscall type: sys_sched_getaffinity");
             let pid = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as u32;
