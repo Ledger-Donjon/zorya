@@ -23,6 +23,7 @@ pub struct State<'a> {
     pub fd_paths: BTreeMap<u64, PathBuf>, // Maps syscall file descriptors to file paths.
     pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
     pub logger: Logger,
+    pub signal_mask: u32,  // store the signal mask
 }
 
 impl<'a> State<'a> {
@@ -56,6 +57,7 @@ impl<'a> State<'a> {
             fd_counter: 0,
             vfs: VirtualFileSystem::new(),
             logger,
+            signal_mask: 0,  // Initialize with no signals blocked
         };
         //state.print_memory_content(address, range);
 
@@ -88,6 +90,7 @@ impl<'a> State<'a> {
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
             logger,
+            signal_mask: 0,  // Initialize with no signals blocked
         })
     }
 

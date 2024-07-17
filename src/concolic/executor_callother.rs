@@ -2,6 +2,7 @@
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
 use crate::executor::ConcolicExecutor;
+use nix::libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::BV;
 use std::{io::Write, time::{SystemTime, UNIX_EPOCH}};
@@ -64,23 +65,27 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     }
 }
 
-pub fn handle_lock(_executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_lock(executor: &mut ConcolicExecutor) -> Result<(), String> {
     // the locking mechanism acts as a barrier to prevent other threads from accessing the same resource,
     // and mainly for CPU registers. However, in this context, we can ignore it because the locking and 
     // unlocking are already handled by the CPU state lock mechanism.
     // We considere that this operation has no impact on the symbolic execution
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is a LOCK operation.");
     Ok(())
 }
 
-pub fn handle_unlock(_executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_unlock(executor: &mut ConcolicExecutor) -> Result<(), String> {
     // the locking mechanism acts as a barrier to prevent other threads from accessing the same resource,
     // and mainly for CPU registers. However, in this context, we can ignore it because the locking and 
     // unlocking are already handled by the CPU state lock mechanism.
     // We considere that this operation has no impact on the symbolic execution
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is an UNLOCK operation.");
     Ok(())
 }
 
 pub fn handle_cpuid(executor: &mut ConcolicExecutor) -> Result<(), String> {
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is an CPUID operation.");
+
     // Register offsets for EAX, EBX, ECX, and EDX
     let eax_offset = 0x0;
     let ebx_offset = 0x18; 
@@ -93,6 +98,8 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor) -> Result<(), String> {
     let eax_input = cpu_state_guard.get_register_by_offset(eax_offset, 32)
         .ok_or("Failed to retrieve EAX register value.")?
         .get_concrete_value()?;
+
+    log!(executor.state.logger.clone(), "CPUID function requested: 0x{:x}", eax_input);
 
     #[allow(unused_assignments)] 
     let (mut eax, mut ebx, mut ecx, mut edx) = (0u32, 0u32, 0u32, 0u32);
@@ -236,6 +243,8 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
 // Handle the AES encryption instruction
 pub fn handle_aesenc(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is an AESENC operation.");
+
     if instruction.opcode != Opcode::CallOther || instruction.inputs.len() != 2 {
         return Err("Invalid instruction format for AESENC".to_string());
     }
@@ -439,6 +448,8 @@ pub fn handle_cpuid_brand_part3_info(executor: &mut ConcolicExecutor) -> Result<
 
 // Handle the Read Time-Stamp Counter and Processor ID (RDTSCP) instruction
 pub fn handle_rdtscp(executor: &mut ConcolicExecutor) -> Result<(), String> {
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is an RDTSCP operation.");
+
     // Simulate reading the time-stamp counter
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?;
     let tsc = now.as_secs() * 1_000_000_000 + u64::from(now.subsec_nanos());
@@ -473,6 +484,8 @@ pub fn handle_rdtscp(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
 // Handle the Read Time-Stamp Counter (RDTSC) instruction
 pub fn handle_rdtsc(executor: &mut ConcolicExecutor) -> Result<(), String> {
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is an RDTSC operation.");
+
     // Simulate reading the time-stamp counter
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?;
     let tsc = now.as_secs() * 1_000_000_000 + u64::from(now.subsec_nanos());
@@ -500,6 +513,8 @@ pub fn handle_rdtsc(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
 // Handle the Software Interrupt (SWI) instruction
 fn handle_swi(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is a SWI operation.");
+
     // Assume that the instruction parsing guarantees an immediate constant that is the interrupt number
     let interrupt_number = if let Some(Varnode { var: Var::Const(interrupt_number_str), .. }) = instruction.inputs.get(0) {
         u64::from_str_radix(interrupt_number_str.trim_start_matches("0x"), 16)
@@ -570,13 +585,18 @@ pub fn handle_vpbroadcastb_avx2(_executor: &mut ConcolicExecutor, _instruction: 
 }
 
 pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
+    log!(executor.state.logger.clone(), "This CALLOTHER operation is a SYSCALL operation.");
+
     // Lock the CPU state and retrieve the value in the RAX register to determine the syscall
     let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
     let rax_offset = 0x0; // RAX register offset
     let rax = cpu_state_guard.get_register_by_offset(rax_offset, 64).unwrap().get_concrete_value()?;
 
+    log!(executor.state.logger.clone(), "Syscall number: {}", rax);
+
     match rax {
         0 => { // sys_read
+            log!(executor.state.logger.clone(), "Syscall type: sys_read");
             let fd_offset = 0x38; // RDI register offset for 'fd'
             let fd = cpu_state_guard.get_register_by_offset(fd_offset, 64).unwrap().get_concrete_value()? as u32;
 
@@ -602,6 +622,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
         },
         1 => { // sys_write
+            log!(executor.state.logger.clone(), "Syscall type: sys_write");
             let fd_offset = 0x38;
             let fd = cpu_state_guard.get_register_by_offset(fd_offset, 64).unwrap().get_concrete_value()? as u32;
 
@@ -624,6 +645,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, bytes_written.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, bytes_written.try_into().unwrap(), 64)));
         },
         2 => { // sys_open
+            log!(executor.state.logger.clone(), "Syscall type: sys_open");
             let filename_ptr_offset = 0x38;
             let filename_ptr = cpu_state_guard.get_register_by_offset(filename_ptr_offset, 64).unwrap().get_concrete_value()?;
 
@@ -641,6 +663,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, fd.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, fd.try_into().unwrap(), 64)));
         },
         3 => { // sys_close
+            log!(executor.state.logger.clone(), "Syscall type: sys_close");
             let fd_offset = 0x38;
             let fd = cpu_state_guard.get_register_by_offset(fd_offset, 64).unwrap().get_concrete_value()? as u32;
 
@@ -656,6 +679,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, fd.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, fd.try_into().unwrap(), 64)));
         },
         9 => { // sys_mmap
+            log!(executor.state.logger.clone(), "Syscall type: sys_mmap");
             let addr = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
             let length = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()? as usize;
             let prot = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()? as i32;
@@ -678,7 +702,50 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-mmap", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, addr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)));
         }
+        14 => { // sys_sigprocmask
+            log!(executor.state.logger.clone(), "Syscall type: sys_sigprocmask");
+            // Read the 'how' argument from the RDI register, which specifies the action on the signal mask.
+            let how = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as i32;
+
+            // Read the pointer to the new signal set from the RSI register.
+            let set_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
+
+            // Read the pointer to the old signal set from the RDX register.
+            let oldset_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
+
+            // If oldset_ptr is not NULL, store the current signal mask at that memory location.
+            if oldset_ptr != 0 {
+                let old_mask = executor.state.signal_mask;
+                let _ = executor.state.memory.write_quad(oldset_ptr, old_mask as u64);
+            }
+
+            // If set_ptr is not NULL, apply the new mask to the current signal mask based on the 'how' directive.
+            if set_ptr != 0 {
+                let new_mask = executor.state.memory.read_quad(set_ptr).unwrap() as u32;
+                
+                match how {
+                    // Add the signals from set to the current mask.
+                    SIG_BLOCK => {
+                        executor.state.signal_mask |= new_mask;
+                    },
+                    // Remove the signals from set from the current mask.
+                    SIG_UNBLOCK => {
+                        executor.state.signal_mask &= !new_mask;
+                    },
+                    // Set the current mask to the signals from set.
+                    SIG_SETMASK => {
+                        executor.state.signal_mask = new_mask;
+                    },
+                    // Handle invalid 'how' arguments.
+                    _ => return Err("Invalid 'how' argument for sys_sigprocmask".to_string()),
+                }
+            }
+
+            // Update the RAX register to indicate successful operation.
+            cpu_state_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+        },
         59 => { // sys_execve
+            log!(executor.state.logger.clone(), "Syscall type: sys_execve");
             let path_ptr = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
             let argv_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
             let envp_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
@@ -728,11 +795,18 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             executor.state.create_or_update_concolic_variable_int(&result_var_name, path_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, path_ptr.try_into().unwrap(), 64)));
         }
         60 => { // sys_exit
+            log!(executor.state.logger.clone(), "Syscall type: sys_exit");
             let status = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
             log!(executor.state.logger.clone(), "Exiting with status code: {}", status);
             drop(cpu_state_guard);
+
+            // Create the concolic variables for the results
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-exit", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, status.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, status.try_into().unwrap(), 64)));
         },
         158 => { // sys_arch_prctl : set architecture-specific thread state
+            log!(executor.state.logger.clone(), "Syscall type: sys_arch_prctl");
             let code = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
             let addr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
             
@@ -742,10 +816,11 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             
             // Create the concolic variables for the results
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-sysread", current_addr_hex, executor.instruction_counter);
+            let result_var_name = format!("{}-{:02}-callother-sys-arch_prctl", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, code.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, code.try_into().unwrap(), 64)));
         },
         204 => { // sys_sched_getaffinity : gets the CPU affinity mask of a process
+            log!(executor.state.logger.clone(), "Syscall type: sys_sched_getaffinity");
             let pid = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as u32;
             let cpusetsize = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()? as usize;
             let mask_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
@@ -760,10 +835,11 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             
             // Create the concolic variables for the results
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-sysread", current_addr_hex, executor.instruction_counter);
+            let result_var_name = format!("{}-{:02}-callother-sys-sched_getaffinity", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, simulated_mask.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, simulated_mask.try_into().unwrap(), 64)));
         },
         257 => { // sys_openat : open file relative to a directory file descriptor
+            log!(executor.state.logger.clone(), "Syscall type: sys_openat");
             let pathname_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
             let flags = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()? as i32;
             let mode = cpu_state_guard.get_register_by_offset(0x20, 64).unwrap().get_concrete_value()? as u32;
@@ -778,8 +854,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             
             // Create the concolic variables for the results
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-sysread", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, fd.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, fd.try_into().unwrap(), 64)));
+            let result_var_name = format!("{}-{:02}-callother-sys-openat", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, pathname_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, pathname_ptr.try_into().unwrap(), 64)));
         },
         _ => return Err(format!("Unsupported syscall ID : {}", rax))
     }

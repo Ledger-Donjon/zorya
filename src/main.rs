@@ -96,8 +96,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
             // log!(executor.state.logger,  "The value of register RDX at offset 0x10 is {}", register0x10);
 
-	    log!(executor.state.logger.clone(), "{}\n", executor);
-	    log!(executor.state.logger.clone(), "{}", executor.state);
+	        //log!(executor.state.logger.clone(), "{}\n", executor);
+	        log!(executor.state.logger.clone(), "{}", executor.state);
 
             // Fetch the current RIP value after executing instructions
             let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
