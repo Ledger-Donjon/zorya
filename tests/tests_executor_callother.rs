@@ -83,7 +83,7 @@ mod tests {
         ConcolicExecutor {
             context: ctx,
             solver: Solver::new(ctx),
-            state: State::new(ctx, Logger::new("test_log.txt").unwrap()).unwrap(),
+            state: State::new(ctx, Logger::new("execution_log.txt").unwrap()).unwrap(),
             current_address: Some(0x1000),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
