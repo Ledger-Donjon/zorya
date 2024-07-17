@@ -17,6 +17,24 @@ const FUTEX_PRIVATE_FLAG: u64 = 128;
 // constants for sys_sigaltstack
 const SS_DISABLE: u32 = 1;
 const MINSIGSTKSZ: usize = 2048;
+// constants for sys_madvise
+const MADV_NORMAL: u64 = 0;
+const MADV_RANDOM: u64 = 1;
+const MADV_SEQUENTIAL: u64 = 2;
+const MADV_WILLNEED: u64 = 3;
+const MADV_DONTNEED: u64 = 4;
+const MADV_REMOVE: u64 = 9;
+const MADV_DONTFORK: u64 = 10;
+const MADV_DOFORK: u64 = 11;
+const MADV_HWPOISON: u64 = 100;
+const MADV_SOFT_OFFLINE: u64 = 101;
+const MADV_MERGEABLE: u64 = 12;
+const MADV_UNMERGEABLE: u64 = 13;
+const MADV_HUGEPAGE: u64 = 14;
+const MADV_NOHUGEPAGE: u64 = 15;
+const MADV_DONTDUMP: u64 = 16;
+const MADV_DODUMP: u64 = 17;
+
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -762,6 +780,98 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-rt_sigprocmask", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, how.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, how.try_into().unwrap(), 64)));
         },
+        28 => {  // sys_madvise
+            log!(executor.state.logger.clone(), "Syscall type: sys_madvise");
+        
+            // Read arguments from registers
+            let addr = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
+            let length = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
+            let advice = cpu_state_guard.get_register_by_offset(0x28, 32).unwrap().get_concrete_value()?;
+        
+            log!(executor.state.logger.clone(), "madvise addr: 0x{:x}, length: {}, advice: {}", addr, length, advice);
+        
+            // Simulate the behavior of madvise based on the advice provided
+            // this operation has no real impact on the concolic execution
+            match advice {
+                MADV_NORMAL => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_NORMAL");
+                    // No special treatment
+                }
+                MADV_RANDOM => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_RANDOM");
+                    // Expect page references in random order
+                }
+                MADV_SEQUENTIAL => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_SEQUENTIAL");
+                    // Expect page references in sequential order
+                }
+                MADV_WILLNEED => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_WILLNEED");
+                    // Expect access in the near future
+                }
+                MADV_DONTNEED => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_DONTNEED");
+                    // Do not expect access in the near future
+                }
+                MADV_REMOVE => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_REMOVE");
+                    // Free up a given range of pages
+                }
+                MADV_DONTFORK => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_DONTFORK");
+                    // Do not make the pages in this range available to the child after a fork
+                }
+                MADV_DOFORK => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_DOFORK");
+                    // Undo the effect of MADV_DONTFORK
+                }
+                MADV_HWPOISON => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_HWPOISON");
+                    // Poison a page and handle it like a hardware memory corruption
+                }
+                MADV_SOFT_OFFLINE => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_SOFT_OFFLINE");
+                    // Soft offline the pages in the range specified
+                }
+                MADV_MERGEABLE => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_MERGEABLE");
+                    // Enable Kernel Samepage Merging (KSM)
+                }
+                MADV_UNMERGEABLE => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_UNMERGEABLE");
+                    // Undo the effect of an earlier MADV_MERGEABLE operation
+                }
+                MADV_HUGEPAGE => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_HUGEPAGE");
+                    // Enable Transparent Huge Pages (THP)
+                }
+                MADV_NOHUGEPAGE => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_NOHUGEPAGE");
+                    // Ensure that memory in the address range will not be collapsed into huge pages
+                }
+                MADV_DONTDUMP => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_DONTDUMP");
+                    // Exclude from a core dump those pages in the range specified
+                }
+                MADV_DODUMP => {
+                    log!(executor.state.logger.clone(), "Advice: MADV_DODUMP");
+                    // Undo the effect of an earlier MADV_DONTDUMP
+                }
+                _ => {
+                    log!(executor.state.logger.clone(), "Unknown advice: {}", advice);
+                    return Err("EINVAL: Invalid advice".to_string());
+                }
+            }
+        
+            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+            drop(cpu_state_guard);
+        
+            // Create the concolic variables for the results
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-madvise", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, addr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)));
+        },
+        
         59 => { // sys_execve
             log!(executor.state.logger.clone(), "Syscall type: sys_execve");
             let path_ptr = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
@@ -989,7 +1099,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     // This should block the thread if *uaddr == val, until *uaddr changes or optionally timeout expires
                     let futex_uaddr = uaddr as u64;
                     let futex_val = val as i32;
-                    executor.state.futex_manager.futex_wait(futex_uaddr, futex_val, timeout)?;
+                    // ignore this operation for now
+                    // executor.state.futex_manager.futex_wait(futex_uaddr, futex_val, timeout)?;
         
                     drop(cpu_state_guard);
                 
