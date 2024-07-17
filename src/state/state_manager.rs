@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
 use goblin::elf::Elf;
+use nix::libc::SS_DISABLE;
 use parser::parser::Varnode;
 use z3::Context;
 use std::fmt;
@@ -25,6 +26,7 @@ pub struct State<'a> {
     pub logger: Logger,
     pub signal_mask: u32,  // store the signal mask
     pub futex_manager: FutexManager,
+    pub altstack: StackT,
 }
 
 impl<'a> State<'a> {
@@ -60,6 +62,7 @@ impl<'a> State<'a> {
             logger,
             signal_mask: 0,  // Initialize with no signals blocked
             futex_manager: FutexManager::new(),
+            altstack: StackT::default(),
             
         };
         //state.print_memory_content(address, range);
@@ -95,6 +98,7 @@ impl<'a> State<'a> {
             logger,
             signal_mask: 0,  // Initialize with no signals blocked
             futex_manager: FutexManager::new(),
+            altstack: StackT::default(),
         })
     }
 
@@ -198,6 +202,43 @@ impl<'a> fmt::Display for State<'a> {
         //}
 
         Ok(())
+    }
+}
+
+// structure used by the sigaltstack system call to define an alternate signal stack
+pub struct StackT {
+    pub ss_sp: u64,    // Base address of stack
+    pub ss_flags: u64, // Flags
+    pub ss_size: u64,  // Number of bytes in stack
+}
+
+impl Default for StackT {
+    fn default() -> Self {
+        StackT {
+            ss_sp: 0,
+            ss_flags: SS_DISABLE as u64,
+            ss_size: 0,
+        }
+    }
+}
+
+impl Clone for StackT {
+    fn clone(&self) -> Self {
+        StackT {
+            ss_sp: self.ss_sp,
+            ss_flags: self.ss_flags,
+            ss_size: self.ss_size,
+        }
+    }
+}
+
+impl fmt::Debug for StackT {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("stack_t")
+            .field("ss_sp", &self.ss_sp)
+            .field("ss_flags", &self.ss_flags)
+            .field("ss_size", &self.ss_size)
+            .finish()
     }
 }
 

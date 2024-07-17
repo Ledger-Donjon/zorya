@@ -184,4 +184,61 @@ mod tests {
         let result = handle_syscall(&mut executor);
         assert!(result.is_ok(), "The futex_requeue syscall should succeed.");
     }
+
+    #[test]
+    fn test_sigaltstack() {
+        let mut executor = setup_executor();
+        
+        // Allocate memory for the new signal stack
+        let new_stack_addr = 0x800000; // Example address for new signal stack
+        let stack_t_addr = 0x810000;   // Example address for stack_t structure
+        let new_stack_size = 0x10000;  // Example size (64 KB)
+        
+        // Write the new stack information into memory
+        executor.state.memory.write_quad(stack_t_addr, new_stack_addr).unwrap(); // Base address of the new stack
+        executor.state.memory.write_word(stack_t_addr + 8, 0).unwrap();         // ss_flags = 0
+        executor.state.memory.write_quad(stack_t_addr + 16, new_stack_size as u64).unwrap();   // ss_size
+
+        // Debug: Check if the memory was written correctly
+        println!("Debug: Written ss_sp: 0x{:x}", executor.state.memory.read_quad(stack_t_addr).unwrap());
+        println!("Debug: Written ss_flags: 0x{:x}", executor.state.memory.read_word(stack_t_addr + 8).unwrap());
+        println!("Debug: Written ss_size: 0x{:x}", executor.state.memory.read_quad(stack_t_addr + 16).unwrap());
+
+        // Set up the CPU state for sigaltstack syscall
+        {
+            let mut cpu_guard = executor.state.cpu_state.lock().unwrap();
+            cpu_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(131, SymbolicVar::new_int(131, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // syscall number in RAX
+            cpu_guard.set_register_value_by_offset(0x38, ConcolicVar::new_concrete_and_symbolic_int(stack_t_addr as u64, SymbolicVar::new_int(stack_t_addr as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // ss in RDI
+            cpu_guard.set_register_value_by_offset(0x30, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // oss in RSI
+        }
+
+        // Execute the syscall
+        let result = handle_syscall(&mut executor);
+        assert!(result.is_ok(), "The sigaltstack syscall should succeed.");
+
+        // Verify the results
+        assert_eq!(executor.state.altstack.ss_sp, new_stack_addr, "The base address of the signal stack should be set correctly.");
+        assert_eq!(executor.state.altstack.ss_flags, 0, "The signal stack flags should be set correctly.");
+        assert_eq!(executor.state.altstack.ss_size, new_stack_size as u64, "The size of the signal stack should be set correctly.");
+
+        // Test retrieval of the current signal stack
+        {
+            let mut cpu_guard = executor.state.cpu_state.lock().unwrap();
+            cpu_guard.set_register_value_by_offset(0x38, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // ss in RDI
+            cpu_guard.set_register_value_by_offset(0x30, ConcolicVar::new_concrete_and_symbolic_int(stack_t_addr as u64, SymbolicVar::new_int(stack_t_addr as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // oss in RSI
+        }
+
+        // Execute the syscall to get the current stack
+        let result = handle_syscall(&mut executor);
+        assert!(result.is_ok(), "The sigaltstack syscall should succeed.");
+
+        // Read the stack information from memory
+        let current_ss_sp = executor.state.memory.read_quad(stack_t_addr).unwrap();
+        let current_ss_flags = executor.state.memory.read_word(stack_t_addr + 8).unwrap();
+        let current_ss_size = executor.state.memory.read_quad(stack_t_addr + 16).unwrap();
+
+        assert_eq!(current_ss_sp, new_stack_addr, "The base address of the signal stack should be retrieved correctly.");
+        assert_eq!(current_ss_flags, 0, "The signal stack flags should be retrieved correctly.");
+        assert_eq!(current_ss_size, new_stack_size as u64, "The size of the signal stack should be retrieved correctly.");
+    }
 }

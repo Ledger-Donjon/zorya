@@ -69,6 +69,23 @@ impl FutexManager {
         }
     }
 
+    pub fn futex_wake_private(&self, uaddr: u64, val: usize) -> Result<usize, String> {
+        // For private futexes, we handle them similarly to shared futexes,
+        // but the futex is specific to this process only.
+        let futexes = self.futexes.lock().unwrap();
+        if let Some(futex) = futexes.get(&uaddr) {
+            let mut futex_guard = futex.lock().unwrap();
+            let to_wake = std::cmp::min(val, futex_guard.waiters);
+            for _ in 0..to_wake {
+                futex_guard.condvar.notify_one();
+            }
+            futex_guard.waiters -= to_wake;
+            Ok(to_wake)
+        } else {
+            Ok(0)
+        }
+    }
+
     pub fn futex_requeue(&self, uaddr: u64, nwake: usize, requeue_uaddr: u64, nrequeue: usize) -> Result<usize, String> {
         let mut futexes = self.futexes.lock().unwrap();
         let futex = futexes.get(&uaddr).cloned();

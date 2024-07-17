@@ -9,10 +9,14 @@ use std::{io::Write, process, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use super::{ConcolicEnum, ConcolicVar, SymbolicVar};
 
-// Define constants for futex operations
+// constants for futex operations
 const FUTEX_WAIT: u64 = 0;
 const FUTEX_WAKE: u64 = 1;
 const FUTEX_REQUEUE: u64 = 2;
+const FUTEX_WAKE_PRIVATE: u64 = 129;
+// constants for sys_sigaltstack
+const SS_DISABLE: u32 = 1;
+const MINSIGSTKSZ: usize = 2048;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -819,6 +823,131 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-exit", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, status.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, status.try_into().unwrap(), 64)));
         },
+        131 => { // sys_sigaltstack
+            log!(executor.state.logger.clone(), "Syscall type: sys_sigaltstack");
+        
+            // Retrieve the pointer to the new signal stack structure (ss) from the RDI register
+            let ss_offset = 0x38; // RDI register offset for 'ss'
+            let ss_ptr = match cpu_state_guard.get_register_by_offset(ss_offset, 64) {
+                // If the register is found, get its concrete value
+                Some(register) => match register.get_concrete_value() {
+                    Ok(value) => value,
+                    Err(e) => {
+                        // Log an error if the concrete value cannot be obtained
+                        log!(executor.state.logger.clone(), "Error getting concrete value for ss_ptr: {:?}", e);
+                        return Err("Failed to get concrete value for ss_ptr".to_string());
+                    },
+                },
+                // Log an error if the register is not found
+                None => {
+                    log!(executor.state.logger.clone(), "Error: Register at offset 0x38 not found");
+                    return Err("Failed to get register by offset for ss_ptr".to_string());
+                },
+            };
+            log!(executor.state.logger.clone(), "ss_ptr: 0x{:x}", ss_ptr);
+        
+            // Retrieve the pointer to the old signal stack structure (oss) from the RSI register
+            let oss_offset = 0x30; // RSI register offset for 'oss'
+            let oss_ptr = match cpu_state_guard.get_register_by_offset(oss_offset, 64) {
+                // If the register is found, get its concrete value
+                Some(register) => match register.get_concrete_value() {
+                    Ok(value) => value,
+                    Err(e) => {
+                        // Log an error if the concrete value cannot be obtained
+                        log!(executor.state.logger.clone(), "Error getting concrete value for oss_ptr: {:?}", e);
+                        return Err("Failed to get concrete value for oss_ptr".to_string());
+                    },
+                },
+                // Log an error if the register is not found
+                None => {
+                    log!(executor.state.logger.clone(), "Error: Register at offset 0x30 not found");
+                    return Err("Failed to get register by offset for oss_ptr".to_string());
+                },
+            };
+            log!(executor.state.logger.clone(), "oss_ptr: 0x{:x}", oss_ptr);
+        
+            if ss_ptr != 0 {
+                // If ss_ptr is not null, read the new signal stack structure from memory
+                let ss_sp = match executor.state.memory.read_quad(ss_ptr) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        // Log an error if the stack pointer cannot be read from memory
+                        log!(executor.state.logger.clone(), "Error reading ss_sp from memory: {:?}", e);
+                        return Err("Failed to read ss_sp from memory".to_string());
+                    },
+                };
+                log!(executor.state.logger.clone(), "Read ss_sp: 0x{:x}", ss_sp);
+        
+                let ss_flags = match executor.state.memory.read_word(ss_ptr + 8) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        // Log an error if the stack flags cannot be read from memory
+                        log!(executor.state.logger.clone(), "Error reading ss_flags from memory: {:?}", e);
+                        return Err("Failed to read ss_flags from memory".to_string());
+                    },
+                };
+                log!(executor.state.logger.clone(), "Read ss_flags: 0x{:x}", ss_flags);
+        
+                let ss_size = match executor.state.memory.read_quad(ss_ptr + 16) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        // Log an error if the stack size cannot be read from memory
+                        log!(executor.state.logger.clone(), "Error reading ss_size from memory: {:?}", e);
+                        return Err("Failed to read ss_size from memory".to_string());
+                    },
+                };
+                log!(executor.state.logger.clone(), "Read ss_size: 0x{:x}", ss_size);
+        
+                // Validate the stack flags
+                if ss_flags != 0 && ss_flags != SS_DISABLE.into() {
+                    log!(executor.state.logger.clone(), "Invalid ss_flags: 0x{:x}", ss_flags);
+                    return Err("EINVAL: Invalid ss_flags".to_string());
+                }
+        
+                // Validate the stack size
+                if ss_flags == 0 && ss_size < MINSIGSTKSZ as u64 {
+                    log!(executor.state.logger.clone(), "Stack size too small: 0x{:x}", ss_size);
+                    return Err("ENOMEM: Stack size too small".to_string());
+                }
+        
+                // Update the alternate signal stack with the new values
+                executor.state.altstack.ss_sp = ss_sp;
+                executor.state.altstack.ss_flags = ss_flags as u64;
+                executor.state.altstack.ss_size = ss_size;
+                log!(executor.state.logger.clone(), "Updated altstack: ss_sp=0x{:x}, ss_flags=0x{:x}, ss_size=0x{:x}", ss_sp, ss_flags, ss_size);
+            }
+        
+            if oss_ptr != 0 {
+                // If oss_ptr is not null, return the current alternate signal stack
+                let current_ss_sp = executor.state.altstack.ss_sp;
+                let current_ss_flags = executor.state.altstack.ss_flags;
+                let current_ss_size = executor.state.altstack.ss_size;
+                log!(executor.state.logger.clone(), "Returning current altstack: ss_sp=0x{:x}, ss_flags=0x{:x}, ss_size=0x{:x}", current_ss_sp, current_ss_flags, current_ss_size);
+        
+                // Write the current alternate signal stack information to memory
+                if let Err(e) = executor.state.memory.write_quad(oss_ptr, current_ss_sp) {
+                    log!(executor.state.logger.clone(), "Error writing current_ss_sp to memory: {:?}", e);
+                    return Err("Failed to write current_ss_sp to memory".to_string());
+                }
+                if let Err(e) = executor.state.memory.write_word(oss_ptr + 8, current_ss_flags.try_into().unwrap()) {
+                    log!(executor.state.logger.clone(), "Error writing current_ss_flags to memory: {:?}", e);
+                    return Err("Failed to write current_ss_flags to memory".to_string());
+                }
+                if let Err(e) = executor.state.memory.write_quad(oss_ptr + 16, current_ss_size) {
+                    log!(executor.state.logger.clone(), "Error writing current_ss_size to memory: {:?}", e);
+                    return Err("Failed to write current_ss_size to memory".to_string());
+                }
+            }
+        
+            // Set the result of the syscall (0 for success) in the RAX register
+            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+            drop(cpu_state_guard);
+        
+            // Create the concolic variables for the results
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-sigaltstack", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, oss_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, oss_ptr.try_into().unwrap(), 64)));
+        },        
         158 => { // sys_arch_prctl : set architecture-specific thread state
             log!(executor.state.logger.clone(), "Syscall type: sys_arch_prctl");
             let code = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
@@ -858,6 +987,13 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     let futex_uaddr = uaddr as u64;
                     let futex_val = val as i32;
                     executor.state.futex_manager.futex_wait(futex_uaddr, futex_val, timeout)?;
+
+                    drop(cpu_state_guard);
+            
+                    // Create the concolic variables for the results
+                    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+                    let result_var_name = format!("{}-{:02}-callother-sys-futex_wait", current_addr_hex, executor.instruction_counter);
+                    executor.state.create_or_update_concolic_variable_int(&result_var_name, futex_uaddr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr.try_into().unwrap(), 64)));
                 },
                 FUTEX_WAKE => {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_WAKE");
@@ -865,6 +1001,13 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     let futex_uaddr = uaddr as u64;
                     let futex_val = val as usize;
                     executor.state.futex_manager.futex_wake(futex_uaddr, futex_val)?;
+
+                    drop(cpu_state_guard);
+            
+                    // Create the concolic variables for the results
+                    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+                    let result_var_name = format!("{}-{:02}-callother-sys-futex_wake", current_addr_hex, executor.instruction_counter);
+                    executor.state.create_or_update_concolic_variable_int(&result_var_name, futex_uaddr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr.try_into().unwrap(), 64)));
                 },
                 FUTEX_REQUEUE => {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_REQUEUE");
@@ -874,8 +1017,33 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     let futex_uaddr2 = uaddr2 as u64;
                     let futex_val3 = val3 as usize;
                     executor.state.futex_manager.futex_requeue(futex_uaddr, futex_val, futex_uaddr2, futex_val3)?;
+
+                    drop(cpu_state_guard);
+            
+                    // Create the concolic variables for the results
+                    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+                    let result_var_name = format!("{}-{:02}-callother-sys-futex_warequeue", current_addr_hex, executor.instruction_counter);
+                    executor.state.create_or_update_concolic_variable_int(&result_var_name, futex_uaddr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr.try_into().unwrap(), 64)));
                 },
-                _ => return Err("Unsupported futex operation".to_string()),
+                FUTEX_WAKE_PRIVATE => {
+                    log!(executor.state.logger.clone(), "Futex type: FUTEX_WAKE_PRIVATE");
+                    // This should wake up to 'val' number of threads waiting on 'uaddr' for private futexes
+                    let futex_uaddr = uaddr as u64;
+                    let futex_val = val as usize;
+                    executor.state.futex_manager.futex_wake_private(futex_uaddr, futex_val)?;
+        
+                    drop(cpu_state_guard);
+            
+                    // Create the concolic variables for the results
+                    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+                    let result_var_name = format!("{}-{:02}-callother-sys-futex_wake_private", current_addr_hex, executor.instruction_counter);
+                    executor.state.create_or_update_concolic_variable_int(&result_var_name, futex_uaddr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr.try_into().unwrap(), 64)));
+                },
+                _ => {
+                    // if the callother number is not handled, stop the execution
+                    log!(executor.state.logger.clone(), "Unhandled FUTEX type: {}", op);
+                    process::exit(1);            
+                } 
             }
         }
         204 => { // sys_sched_getaffinity : gets the CPU affinity mask of a process

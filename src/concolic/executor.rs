@@ -607,16 +607,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for LOAD instruction".to_string());
         }
-    
-        log!(self.state.logger.clone(), "{}\n", self);
-    
+        
         // Create a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, dereferenced_concrete_value, SymbolicVar::Int(BV::from_u64(self.context, dereferenced_concrete_value, 64)));
-    
-        //log!(self.state.logger.clone(), "{}", self.state);
-    
+        
         Ok(())
     }
 
