@@ -2,14 +2,16 @@
 mod tests {
     use std::sync::{Arc, Mutex, RwLock};
     use std::collections::BTreeMap;
-    use nix::libc::{MAP_FIXED, SIG_SETMASK};
+    use std::thread;
+    use std::time::Duration;
+    use nix::libc::MAP_FIXED;
     use parser::parser::{Inst, Opcode, Size, Var, Varnode};
     use z3::{Config, Context, Solver};
     use zorya::concolic::executor_callother::{handle_callother, handle_syscall};
     use zorya::concolic::{ConcolicVar, Logger};
     use zorya::executor::{ConcolicExecutor, SymbolicVar};
     use zorya::state::memory_x86_64::{MemoryConcolicValue, MemoryError};
-    use zorya::state::{CpuState, MemoryX86_64, State, VirtualFileSystem};
+    use zorya::state::{CpuState, MemoryX86_64, State};
 
     // Setup a basic memory structure for tests
     fn setup_memory(ctx: &'static Context) -> MemoryX86_64<'static> {
@@ -111,5 +113,75 @@ mod tests {
         // Execute the handle_callother function to process the syscall
         let result = handle_callother(&mut executor, instruction);
         assert!(result.is_ok(), "The syscall processing should succeed.");
+    }
+
+    // Define constants for futex operations
+    // const FUTEX_WAIT: u64 = 0;
+    const FUTEX_WAKE: u64 = 1;
+    const FUTEX_REQUEUE: u64 = 2;
+
+    // TODO : simulate another thread that wakes up the waiting thread, otherwise the test will hang
+    // #[test]
+    // fn test_futex_wait() {
+    //     let mut executor = setup_executor();
+
+    //     // Set up the CPU state for FUTEX_WAIT syscall
+    //     {
+    //         let mut cpu_guard = executor.state.cpu_state.lock().unwrap();
+    //         cpu_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(202, SymbolicVar::new_int(202, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // syscall number in RAX
+    //         cpu_guard.set_register_value_by_offset(0x38, ConcolicVar::new_concrete_and_symbolic_int(0x1000, SymbolicVar::new_int(0x1000, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // uaddr in RDI
+    //         cpu_guard.set_register_value_by_offset(0x30, ConcolicVar::new_concrete_and_symbolic_int((FUTEX_WAIT as i64).try_into().unwrap(), SymbolicVar::new_int((FUTEX_WAIT as i64).try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32).unwrap(); // op in RSI
+    //         cpu_guard.set_register_value_by_offset(0x28, ConcolicVar::new_concrete_and_symbolic_int(1, SymbolicVar::new_int(1, executor.context, 32).to_bv(executor.context), executor.context, 32), 32).unwrap(); // val in RDX
+    //         cpu_guard.set_register_value_by_offset(0x20, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // timeout in RCX
+    //     }
+
+    //     // Simulate a separate thread to wake up the waiting thread
+    //     let futex_manager = executor.state.futex_manager.clone();
+    //     thread::spawn(move || {
+    //         thread::sleep(Duration::from_secs(1));
+    //         let _ = futex_manager.futex_wake(0x1000, 1);
+    //     });
+
+    //     // Execute the syscall
+    //     let result = handle_syscall(&mut executor);
+    //     assert!(result.is_ok(), "The futex_wait syscall should succeed.");
+    // }
+
+    #[test]
+    fn test_futex_wake() {
+        let mut executor = setup_executor();
+
+        // Set up the CPU state for FUTEX_WAKE syscall
+        {
+            let mut cpu_guard = executor.state.cpu_state.lock().unwrap();
+            cpu_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(202, SymbolicVar::new_int(202, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // syscall number in RAX
+            cpu_guard.set_register_value_by_offset(0x38, ConcolicVar::new_concrete_and_symbolic_int(0x1000, SymbolicVar::new_int(0x1000, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // uaddr in RDI
+            cpu_guard.set_register_value_by_offset(0x30, ConcolicVar::new_concrete_and_symbolic_int((FUTEX_WAKE as i64).try_into().unwrap(), SymbolicVar::new_int((FUTEX_WAKE as i64).try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32).unwrap(); // op in RSI
+            cpu_guard.set_register_value_by_offset(0x28, ConcolicVar::new_concrete_and_symbolic_int(1, SymbolicVar::new_int(1, executor.context, 32).to_bv(executor.context), executor.context, 32), 32).unwrap(); // val in RDX
+        }
+
+        // Execute the syscall
+        let result = handle_syscall(&mut executor);
+        assert!(result.is_ok(), "The futex_wake syscall should succeed.");
+    }
+
+    #[test]
+    fn test_futex_requeue() {
+        let mut executor = setup_executor();
+
+        // Set up the CPU state for FUTEX_REQUEUE syscall
+        {
+            let mut cpu_guard = executor.state.cpu_state.lock().unwrap();
+            cpu_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(202, SymbolicVar::new_int(202, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // syscall number in RAX
+            cpu_guard.set_register_value_by_offset(0x38, ConcolicVar::new_concrete_and_symbolic_int(0x1000, SymbolicVar::new_int(0x1000, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // uaddr in RDI
+            cpu_guard.set_register_value_by_offset(0x30, ConcolicVar::new_concrete_and_symbolic_int((FUTEX_REQUEUE as i64).try_into().unwrap(), SymbolicVar::new_int((FUTEX_REQUEUE as i64).try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32).unwrap(); // op in RSI
+            cpu_guard.set_register_value_by_offset(0x28, ConcolicVar::new_concrete_and_symbolic_int(1, SymbolicVar::new_int(1, executor.context, 32).to_bv(executor.context), executor.context, 32), 32).unwrap(); // val in RDX
+            cpu_guard.set_register_value_by_offset(0x18, ConcolicVar::new_concrete_and_symbolic_int(0x2000, SymbolicVar::new_int(0x2000, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // uaddr2 in R8
+            cpu_guard.set_register_value_by_offset(0x10, ConcolicVar::new_concrete_and_symbolic_int(1, SymbolicVar::new_int(1, executor.context, 32).to_bv(executor.context), executor.context, 32), 32).unwrap(); // val3 in R9
+        }
+
+        // Execute the syscall
+        let result = handle_syscall(&mut executor);
+        assert!(result.is_ok(), "The futex_requeue syscall should succeed.");
     }
 }

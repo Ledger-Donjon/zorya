@@ -4,7 +4,7 @@ use goblin::elf::Elf;
 use parser::parser::Varnode;
 use z3::Context;
 use std::fmt;
-use super::{cpu_state::SharedCpuState, memory_x86_64::MemoryX86_64, state_initializer, CpuState, VirtualFileSystem};
+use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::MemoryX86_64, state_initializer, CpuState, VirtualFileSystem};
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -24,6 +24,7 @@ pub struct State<'a> {
     pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
     pub logger: Logger,
     pub signal_mask: u32,  // store the signal mask
+    pub futex_manager: FutexManager,
 }
 
 impl<'a> State<'a> {
@@ -58,6 +59,8 @@ impl<'a> State<'a> {
             vfs: VirtualFileSystem::new(),
             logger,
             signal_mask: 0,  // Initialize with no signals blocked
+            futex_manager: FutexManager::new(),
+            
         };
         //state.print_memory_content(address, range);
 
@@ -91,6 +94,7 @@ impl<'a> State<'a> {
             fd_counter: 0,
             logger,
             signal_mask: 0,  // Initialize with no signals blocked
+            futex_manager: FutexManager::new(),
         })
     }
 

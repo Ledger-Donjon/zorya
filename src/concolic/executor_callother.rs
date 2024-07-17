@@ -5,9 +5,14 @@ use crate::executor::ConcolicExecutor;
 use nix::libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::BV;
-use std::{io::Write, process, time::{SystemTime, UNIX_EPOCH}};
+use std::{io::Write, process, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use super::{ConcolicEnum, ConcolicVar, SymbolicVar};
+
+// Define constants for futex operations
+const FUTEX_WAIT: u64 = 0;
+const FUTEX_WAKE: u64 = 1;
+const FUTEX_REQUEUE: u64 = 2;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -828,6 +833,51 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-arch_prctl", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, code.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, code.try_into().unwrap(), 64)));
         },
+        202 => {  // sys_futex
+            log!(executor.state.logger.clone(), "Syscall type: sys_futex");
+
+            // Read arguments from registers
+            let uaddr = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
+            let op = cpu_state_guard.get_register_by_offset(0x30, 32).unwrap().get_concrete_value()?;
+            let val = cpu_state_guard.get_register_by_offset(0x28, 32).unwrap().get_concrete_value()?;
+            let timeout_ptr = cpu_state_guard.get_register_by_offset(0x20, 64).unwrap().get_concrete_value()?;
+            let uaddr2 = cpu_state_guard.get_register_by_offset(0x18, 64).unwrap().get_concrete_value()?;
+            let val3 = cpu_state_guard.get_register_by_offset(0x10, 32).unwrap().get_concrete_value()?;
+
+            let timeout = if timeout_ptr != 0 {
+                // TODO : Read the timeout value from the memory location
+                Some(Duration::from_secs(5)) // for now, use a 5-second timeout 
+            } else {
+                None
+            };
+
+            match op {
+                FUTEX_WAIT => {
+                    log!(executor.state.logger.clone(), "Futex type: FUTEX_WAIT");
+                    // This should block the thread if *uaddr == val, until *uaddr changes or optionally timeout expires
+                    let futex_uaddr = uaddr as u64;
+                    let futex_val = val as i32;
+                    executor.state.futex_manager.futex_wait(futex_uaddr, futex_val, timeout)?;
+                },
+                FUTEX_WAKE => {
+                    log!(executor.state.logger.clone(), "Futex type: FUTEX_WAKE");
+                    // This should wake up to 'val' number of threads waiting on 'uaddr'
+                    let futex_uaddr = uaddr as u64;
+                    let futex_val = val as usize;
+                    executor.state.futex_manager.futex_wake(futex_uaddr, futex_val)?;
+                },
+                FUTEX_REQUEUE => {
+                    log!(executor.state.logger.clone(), "Futex type: FUTEX_REQUEUE");
+                    // this should requeue up to 'val' number of threads from 'uaddr' to 'uaddr2'
+                    let futex_uaddr = uaddr as u64;
+                    let futex_val = val as usize;
+                    let futex_uaddr2 = uaddr2 as u64;
+                    let futex_val3 = val3 as usize;
+                    executor.state.futex_manager.futex_requeue(futex_uaddr, futex_val, futex_uaddr2, futex_val3)?;
+                },
+                _ => return Err("Unsupported futex operation".to_string()),
+            }
+        }
         204 => { // sys_sched_getaffinity : gets the CPU affinity mask of a process
             log!(executor.state.logger.clone(), "Syscall type: sys_sched_getaffinity");
             let pid = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as u32;
