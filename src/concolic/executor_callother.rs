@@ -5,7 +5,7 @@ use crate::executor::ConcolicExecutor;
 use nix::libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::BV;
-use std::{io::Write, time::{SystemTime, UNIX_EPOCH}};
+use std::{io::Write, process, time::{SystemTime, UNIX_EPOCH}};
 
 use super::{ConcolicEnum, ConcolicVar, SymbolicVar};
 
@@ -27,7 +27,6 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     match operation_index {
         // Operations probably used in Go runtime
-
         0x5 => handle_syscall(executor),
         0xb => handle_rdtscp(executor),
         0x10 => handle_swi(executor, instruction),
@@ -61,7 +60,11 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         0x203 => handle_vpand_avx2(executor, instruction),
         0x209 => handle_vpcmpeqb_avx2(executor, instruction),
         0x25d => handle_vpbroadcastb_avx2(executor, instruction),
-        _ => return Err(format!("Unsupported CALLOTHER operation index: {:x}", operation_index)),
+        _ => {
+            // if the callother number is not handled, stop the execution
+            log!(executor.state.logger.clone(), "Unhandled CALLOTHER number: {}", operation_index);
+            process::exit(1);            
+        }
     }
 }
 
@@ -702,8 +705,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-mmap", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, addr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)));
         }
-        14 => { // sys_sigprocmask
-            log!(executor.state.logger.clone(), "Syscall type: sys_sigprocmask");
+        14 => { // sys_rt_sigprocmask
+            log!(executor.state.logger.clone(), "Syscall type: sys_rt_sigprocmask");
             // Read the 'how' argument from the RDI register, which specifies the action on the signal mask.
             let how = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as i32;
 
@@ -743,6 +746,12 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
             // Update the RAX register to indicate successful operation.
             cpu_state_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+            drop(cpu_state_guard);
+
+            // Create the concolic variables for the results
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-rt_sigprocmask", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, how.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, how.try_into().unwrap(), 64)));
         },
         59 => { // sys_execve
             log!(executor.state.logger.clone(), "Syscall type: sys_execve");
@@ -857,8 +866,11 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-openat", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, pathname_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, pathname_ptr.try_into().unwrap(), 64)));
         },
-        _ => return Err(format!("Unsupported syscall ID : {}", rax))
+        _ => {
+            // if the syscall is not handled, stop the execution
+            log!(executor.state.logger.clone(), "Unhandled syscall number: {}", rax);
+            process::exit(1);            
+        }
     }
-
     Ok(())
 }
