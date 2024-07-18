@@ -2,7 +2,7 @@
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
 use crate::executor::ConcolicExecutor;
-use nix::libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
+use nix::libc::{gettid, SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::BV;
 use std::{io::Write, process, time::{Duration, SystemTime, UNIX_EPOCH}};
@@ -1071,6 +1071,22 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-arch_prctl", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, code.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, code.try_into().unwrap(), 64)));
+        },
+        186 => { // sys_gettid
+            log!(executor.state.logger.clone(), "Syscall type: sys_gettid");
+
+            // Get the actual TID using nix crate
+            let tid = unsafe { gettid() } as u64;
+
+            // Set the TID in RAX
+            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(tid, SymbolicVar::new_int(tid as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+
+            drop(cpu_state_guard);
+
+            // Create the concolic variables for the results
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-gettid", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, tid.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, tid.try_into().unwrap(), 64)));
         },
         202 => {  // sys_futex
             log!(executor.state.logger.clone(), "Syscall type: sys_futex");

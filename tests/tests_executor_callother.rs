@@ -4,7 +4,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::thread;
     use std::time::Duration;
-    use nix::libc::MAP_FIXED;
+    use nix::libc::{gettid, MAP_FIXED};
     use parser::parser::{Inst, Opcode, Size, Var, Varnode};
     use z3::{Config, Context, Solver};
     use zorya::concolic::executor_callother::{handle_callother, handle_syscall};
@@ -240,5 +240,36 @@ mod tests {
         assert_eq!(current_ss_sp, new_stack_addr, "The base address of the signal stack should be retrieved correctly.");
         assert_eq!(current_ss_flags, 0, "The signal stack flags should be retrieved correctly.");
         assert_eq!(current_ss_size, new_stack_size as u64, "The size of the signal stack should be retrieved correctly.");
+    }
+
+    #[test]
+    fn test_sys_gettid() {
+        let mut executor = setup_executor();
+        let instruction = Inst {
+            opcode: Opcode::CallOther,  // Opcode to invoke generic operations
+            inputs: vec![
+                Varnode {
+                    var: Var::Const(String::from("0x5")), // Placeholder value for the syscall opcode
+                    size: Size::Word,
+                },
+            ],
+            output: None,
+        };
+
+        // Prepare the CPU state for gettid syscall
+        {
+            let mut cpu_guard = executor.state.cpu_state.lock().unwrap();
+            cpu_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(186, SymbolicVar::new_int(186, executor.context, 64).to_bv(executor.context), executor.context, 64), 64).unwrap(); // syscall number in RAX
+        }
+
+        // Execute the handle_callother function to process the syscall
+        let result = handle_callother(&mut executor, instruction);
+        assert!(result.is_ok(), "The syscall processing should succeed.");
+
+        // Verify the TID returned is as expected
+        let cpu_guard = executor.state.cpu_state.lock().unwrap();
+        let tid = cpu_guard.get_register_by_offset(0x0, 64).unwrap().get_concrete_value().unwrap();
+        let expected_tid = unsafe { gettid() } as u64; // Get the actual TID
+        assert_eq!(tid, expected_tid, "The TID returned should match the actual TID.");
     }
 }
