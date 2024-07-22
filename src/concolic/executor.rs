@@ -36,7 +36,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub current_address: Option<u64>,
     pub instruction_counter: usize,
     pub unique_variables: BTreeMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
-    pub current_lines_number: u64, // known line number of the current instruction in the pcode file, usefull for branch instructions
+    pub current_lines_number: usize, // known line number of the current instruction in the pcode file, usefull for branch instructions
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -290,7 +290,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Convert value to u64
                 let value_u64 = u64::from_str_radix(&value.to_string(), 16).unwrap();
                 log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                self.current_lines_number = value_u64;
+                self.current_lines_number = value_u64 as usize;
                 value_u64
             },
             _ => {
@@ -351,7 +351,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Convert value to u64
                 let value_u64 = u64::from_str_radix(&value.to_string(), 16).unwrap();
                 log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                self.current_lines_number = value_u64;
+                self.current_lines_number = value_u64 as usize;
                 value_u64
             },
             _ => {
@@ -411,7 +411,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Convert value to u64
                 let value_u64 = u64::from_str_radix(&value.to_string(), 16).unwrap();
                 log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                self.current_lines_number = value_u64;
+                self.current_lines_number = value_u64 as usize;
                 value_u64
             },
             _ => {

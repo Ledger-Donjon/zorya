@@ -67,7 +67,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
     let mut current_rip = start_address;
-    let mut local_line_number = 0; // Current execution line within the current RIP block
+    let mut local_line_number = 0; // Track the current line number within the current instruction set
 
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address);
 
@@ -76,42 +76,41 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
         log!(executor.state.logger, "*******************************************\n");
 
-        // Check if we need to skip instructions at the beginning of the loop (ie if there sub instructions of current instructions)
-        if executor.current_lines_number > 0 && (local_line_number + executor.current_lines_number) < instructions.len().try_into().unwrap() {
-            local_line_number += executor.current_lines_number;
-            executor.current_lines_number = 0; // Reset the skip counter after skipping.
-            log!(executor.state.logger, "Skipping to line number {}", local_line_number);
-        }
-
-        // Execute instructions starting from the current local line number
-        for inst in instructions.iter().skip(local_line_number.try_into().unwrap()) {
-            log!(executor.state.logger, "-------> Processing instruction : {:?}\n", inst);
-
-            if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
-                log!(executor.state.logger, "Failed to execute instruction: {}", e);
-                continue;
+        while local_line_number < instructions.len() {
+            if executor.current_lines_number > 0 {
+                let skip_to_line = local_line_number + executor.current_lines_number;
+                local_line_number = skip_to_line.min(instructions.len()); // Cap the skip to the number of instructions available
+                executor.current_lines_number = 0; // Reset after handling the skip
+                log!(executor.state.logger, "Skipping to line number {}", local_line_number);
             }
 
-            // Increment local line number after each instruction
-            local_line_number += 1;
+            if local_line_number < instructions.len() {
+                let inst = &instructions[local_line_number];
+                log!(executor.state.logger, "-------> Processing instruction : {:?}\n", inst);
 
-            let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap();
-            log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
+                if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
+                    log!(executor.state.logger, "Failed to execute instruction: {}", e);
+                }
 
-            if rip_value != current_rip {
-                // Control flow change detected, handle it in the outer loop
-                current_rip = rip_value;
-                local_line_number = 0; // Reset local line counter for new address
-                break; // Exit the inner loop to handle new RIP value in the outer loop
+                // Update local line number for the next instruction
+                local_line_number += 1;
+
+                let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap();
+                if rip_value != current_rip {
+                    log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value);
+                    current_rip = rip_value;
+                    local_line_number = 0; // Reset line number for new address
+                    break; // Break to handle new address set by control change
+                }
             }
         }
 
-        // Reset local_line_number if all instructions at this address are processed
-        if local_line_number >= instructions.len().try_into().unwrap() {
+        if local_line_number >= instructions.len() {
+            // Check for the next sequential address if there are no more instructions to execute at the current RIP
             if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
                 current_rip = next_address;
                 local_line_number = 0; // Reset local line number at new address
-                log!(executor.state.logger, "Moving to next address: 0x{:x}", next_address);
+                log!(executor.state.logger, "Automatically moving to next address: 0x{:x}", next_address);
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
                 break;
@@ -119,5 +118,3 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         }
     }
 }
-
-            
