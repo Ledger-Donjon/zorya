@@ -17,13 +17,16 @@ mod tests {
         let ctx = Box::leak(Box::new(Context::new(&cfg)));
         let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
         let state = State::default_for_tests(ctx, logger).expect("Failed to create state.");
+        let current_lines_number = 0;
         ConcolicExecutor {
             context: ctx,
             solver: Solver::new(ctx),
             state,
             current_address: Some(0x123),
             instruction_counter: 0,
-            unique_variables: BTreeMap::new(),        }
+            unique_variables: BTreeMap::new(),
+            current_lines_number        
+        }
     }
 
     #[test]
@@ -58,7 +61,10 @@ mod tests {
             ],
         };
 
-        
+        // Execute the handle_int_sub function
+        let result = handle_int_add(&mut executor, instruction);
+        // Verify the results
+        assert!(result.is_ok(), "The addition should succeed.");
         let result_var = executor.unique_variables.get("Unique(0x113)").unwrap();
         assert_eq!(result_var.concrete, zorya::concolic::ConcreteVar::Int(30), "The result of 10 + 20 should be 30.");
 

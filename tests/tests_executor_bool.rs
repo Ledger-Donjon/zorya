@@ -15,6 +15,7 @@ mod tests {
         let ctx = Box::leak(Box::new(Context::new(&cfg)));
         let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
         let state = State::default_for_tests(ctx, logger).expect("Failed to create state.");
+        let current_lines_number = 0;
         ConcolicExecutor {
             context: ctx,
             solver: Solver::new(ctx),
@@ -22,6 +23,7 @@ mod tests {
             current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
+            current_lines_number
         }
     }
     

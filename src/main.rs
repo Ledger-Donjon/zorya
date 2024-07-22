@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 
-use parser::parser::Inst;
+use parser::parser::{Inst, Opcode};
 use z3::ast::BV;
 use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
@@ -67,20 +67,24 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
     let mut current_rip = start_address;
+    let mut local_line_number = 0; // Current execution line within the current RIP block
 
-    // For debugging
-    //let address: u64 = 0x4c3dd7;
-    //let range = 0x8; 
-    
-    log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address); 
-    
+    log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address);
+
     while let Some(instructions) = instructions_map.get(&current_rip) {
-        
         log!(executor.state.logger, "*******************************************");
         log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
         log!(executor.state.logger, "*******************************************\n");
 
-        for inst in instructions {
+        // Check if we need to skip instructions at the beginning of the loop (ie if there sub instructions of current instructions)
+        if executor.current_lines_number > 0 && (local_line_number + executor.current_lines_number) < instructions.len().try_into().unwrap() {
+            local_line_number += executor.current_lines_number;
+            executor.current_lines_number = 0; // Reset the skip counter after skipping.
+            log!(executor.state.logger, "Skipping to line number {}", local_line_number);
+        }
+
+        // Execute instructions starting from the current local line number
+        for inst in instructions.iter().skip(local_line_number.try_into().unwrap()) {
             log!(executor.state.logger, "-------> Processing instruction : {:?}\n", inst);
 
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
@@ -88,51 +92,26 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 continue;
             }
 
-            //log!(executor.state.logger.clone(), "{}\n", executor);
+            // Increment local line number after each instruction
+            local_line_number += 1;
 
-            // For debugging
-            //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
-            //executor.state.print_memory_content(address, range);
-            let register0x206 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x206 is {:?}", register0x206.concrete);
-            let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x10 is {:?}", register0x10.concrete);
-            let register0x8 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x8 is {:?}", register0x8.concrete);
-            let register0xb0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0xb0 is {:?}", register0xb0.concrete);
+            let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap();
+            log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value);
 
-
-	        //log!(executor.state.logger.clone(), "{}\n", executor);
-	        //log!(executor.state.logger.clone(), "{}", executor.state);
-
-            // Fetch the current RIP value after executing instructions
-            let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
-            let rip_value_u64 = rip_value.get_concrete_value().unwrap();
-            log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value_u64);
+            if rip_value != current_rip {
+                // Control flow change detected, handle it in the outer loop
+                current_rip = rip_value;
+                local_line_number = 0; // Reset local line counter for new address
+                break; // Exit the inner loop to handle new RIP value in the outer loop
+            }
         }
 
-        // Fetch the current RIP value after executing instructions
-        let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
-        let rip_value_u64 = rip_value.get_concrete_value().unwrap();
-        log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value_u64);
-
-	    // Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
-        if rip_value_u64 != current_rip {
-            log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value_u64);
-            current_rip = rip_value_u64;
-        } else {
-            // Move to the next sequential address if no control flow change occurred
+        // Reset local_line_number if all instructions at this address are processed
+        if local_line_number >= instructions.len().try_into().unwrap() {
             if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
-                log!(executor.state.logger, "Next address should be : {:#x}", next_address);
                 current_rip = next_address;
-                let next_address_symbolic = BV::from_u64(executor.context, next_address, 64);
-                let next_address_concolic = ConcolicVar::new_concrete_and_symbolic_int(next_address, next_address_symbolic, executor.context, 64);
-                // Update the RIP register to the branch target address
-                {
-                    let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                    let _ = cpu_state_guard.set_register_value_by_offset(0x288, next_address_concolic, 64).map_err(|e| e.to_string());
-                }
+                local_line_number = 0; // Reset local line number at new address
+                log!(executor.state.logger, "Moving to next address: 0x{:x}", next_address);
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
                 break;

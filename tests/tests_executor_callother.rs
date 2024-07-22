@@ -1,17 +1,16 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::{Arc, RwLock};
     use std::collections::BTreeMap;
-    use std::thread;
-    use std::time::Duration;
     use nix::libc::{gettid, MAP_FIXED};
     use parser::parser::{Inst, Opcode, Size, Var, Varnode};
     use z3::{Config, Context, Solver};
-    use zorya::concolic::executor_callother::{handle_callother, handle_syscall};
+    use zorya::concolic::executor_callother::handle_callother;
+    use zorya::concolic::executor_callother_syscalls::handle_syscall;
     use zorya::concolic::{ConcolicVar, Logger};
     use zorya::executor::{ConcolicExecutor, SymbolicVar};
     use zorya::state::memory_x86_64::{MemoryConcolicValue, MemoryError};
-    use zorya::state::{CpuState, MemoryX86_64, State};
+    use zorya::state::{MemoryX86_64, State};
 
     // Setup a basic memory structure for tests
     fn setup_memory(ctx: &'static Context) -> MemoryX86_64<'static> {
@@ -77,9 +76,7 @@ mod tests {
     fn setup_executor() -> ConcolicExecutor<'static> {
         let cfg = Config::new();
         let ctx = Box::leak(Box::new(Context::new(&cfg)));
-        let memory = MemoryX86_64::new(ctx, 1024 * 1024 * 1024).unwrap(); // 1 GiB
-        let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
-
+        let current_lines_number = 0;
         ConcolicExecutor {
             context: ctx,
             solver: Solver::new(ctx),
@@ -87,6 +84,7 @@ mod tests {
             current_address: Some(0x1000),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
+            current_lines_number,
         }
     }
 

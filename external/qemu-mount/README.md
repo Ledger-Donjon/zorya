@@ -2,7 +2,7 @@
 
 1. **Terminal on local computer**
 ```
-cd /external/qemu-cloudimg
+cd external/qemu-cloudimg
 wget https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
 qemu-img resize jammy-server-cloudimg-amd64.img +10G
 
