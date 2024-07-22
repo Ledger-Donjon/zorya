@@ -69,8 +69,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut current_rip = start_address;
 
     // For debugging
-    let address: u64 = 0x4c3dd7;
-    let range = 0x8; 
+    //let address: u64 = 0x4c3dd7;
+    //let range = 0x8; 
     
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address); 
     
@@ -91,10 +91,17 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             //log!(executor.state.logger.clone(), "{}\n", executor);
 
             // For debugging
-            log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
-            executor.state.print_memory_content(address, range);
-            let register0x0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register RAX at offset 0x0 is {:?}", register0x0.concrete);
+            //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+            //executor.state.print_memory_content(address, range);
+            let register0x206 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x206 is {:?}", register0x206.concrete);
+            let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x10 is {:?}", register0x10.concrete);
+            let register0x8 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x8 is {:?}", register0x8.concrete);
+            let register0xb0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0xb0 is {:?}", register0xb0.concrete);
+
 
 	        //log!(executor.state.logger.clone(), "{}\n", executor);
 	        //log!(executor.state.logger.clone(), "{}", executor.state);
