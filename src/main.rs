@@ -67,12 +67,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
     let mut current_rip = start_address;
-    let mut local_line_number = 0; // Current index within the current instruction set.
-
-    // For debugging
-    //let address: u64 = 0x4c3dd7;
-    //let range = 0x8; 
-
+    let mut local_line_number = 0;
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
         log!(executor.state.logger, "*******************************************");
@@ -88,37 +83,39 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 log!(executor.state.logger, "Failed to execute instruction: {}", e);
             }
 
-            // For debugging
-            let register0x0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x0 is {:x}", register0x0.concrete);
-
-            // Handle branching or line skipping
-            if inst.opcode == Opcode::Branch || inst.opcode == Opcode::BranchInd || inst.opcode == Opcode::CBranch {
-                let skip_amount = executor.current_lines_number;  // Assuming the value is directly the amount to skip
-                local_line_number += skip_amount; // Adjust the line number by the skip amount
-                log!(executor.state.logger, "Skipping {} lines due to branch instruction, new line number: {}", skip_amount, local_line_number);
-            } else {
-                // No skip or branch affecting other addresses, simply move to the next line
-                local_line_number += 1;
+            // Handling branching logic
+            match inst.opcode {
+                Opcode::Branch | Opcode::CBranch | Opcode::BranchInd => {
+                    // Simulate a jump within the same block of instructions (local jump, not changing RIP)
+                    let jump = executor.current_lines_number;  
+                    local_line_number += jump;
+                    log!(executor.state.logger, "Local jump within the same address, jumping {} lines to line {}", jump, local_line_number);
+                },
+                _ => local_line_number += 1,
             }
 
-            // Check if the RIP should be updated (new address loaded into the program counter)
-            let new_rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64)
-                .unwrap().get_concrete_value().unwrap();
+            // Check for RIP updates or address jumps
+            let new_rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap();
             if new_rip != current_rip {
                 log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", new_rip);
                 current_rip = new_rip;
-                local_line_number = 0;  // Reset line number at new address
-                break; // Break to handle new address
+                local_line_number = 0;  // Start at the beginning of the new instruction set
+                break;  // Move to the new address block
+            }
+
+            // Ensure we do not overrun the instruction set
+            if local_line_number >= instructions.len() {
+                log!(executor.state.logger, "Completed all instructions at current address.");
+                break;
             }
         }
 
-        // Reset line number and check for sequential execution if finished all instructions at this address
+        // Check if there are more instructions to execute in sequence
         if local_line_number >= instructions.len() {
-            local_line_number = 0; // Reset for next cycle
             if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
-                log!(executor.state.logger, "Automatically moving to next address: 0x{:x}", next_address);
                 current_rip = next_address;
+                local_line_number = 0;  // Reset line index for the new address
+                log!(executor.state.logger, "Moving to next sequential address: 0x{:x}", next_address);
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
                 break;
