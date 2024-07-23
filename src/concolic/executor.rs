@@ -425,16 +425,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
                 log!(self.state.logger.clone(), "Branch target concrete : {:x}", addr); 
-                log!(self.state.logger.clone(), "Branching to address {:x}", addr);
-
-                let branch_target_symbolic = BV::from_u64(self.context, *addr, 64);
-                let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_target_symbolic, self.context, 64);
-            
-                // Update the RIP register to the branch target address
-                {
-                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
-                }
 
                 // Fetch the branch condition (input1)
                 log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
