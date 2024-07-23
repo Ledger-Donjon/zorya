@@ -70,21 +70,31 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
 
+    log!(executor.state.logger, "Beginning execution from address: 0x{:x}\n", start_address);
+
     while let Some(instructions) = instructions_map.get(&current_rip) {
+        log!(executor.state.logger, "*******************************************");
+        log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
+        log!(executor.state.logger, "*******************************************");
+
         while local_line_number < instructions.len() {
             let inst = &instructions[local_line_number];
+            log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}", local_line_number, inst);
+
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
                 log!(executor.state.logger, "Failed to execute instruction: {}", e);
                 local_line_number += 1;  // Move to the next instruction on error
                 continue;
             }
 
-            // Check if a line jump needs to be performed
+            // Check if a line jump needs to be performed based on the branching logic
             if executor.current_lines_number > 0 {
                 let next_line_number = local_line_number + executor.current_lines_number;
+                log!(executor.state.logger, "Control flow requires jumping from line {} to line {}", local_line_number, next_line_number);
                 local_line_number = next_line_number.min(instructions.len());  // Ensure we do not exceed available instructions
                 executor.current_lines_number = 0;  // Reset jump length after the jump
                 if local_line_number >= instructions.len() {
+                    log!(executor.state.logger, "Jump exceeds current block range, moving to next block or terminating.");
                     break;  // Exit if the jump moves us past the current block
                 }
                 continue;  // Skip further processing in this iteration
@@ -94,9 +104,11 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             local_line_number += 1;
         }
 
+        // Reset and prepare to move to the next block if necessary
         if local_line_number >= instructions.len() {
             // Attempt to move to the next address block if present
             if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
+                log!(executor.state.logger, "All instructions at address 0x{:x} completed. Moving to next address: 0x{:x}", current_rip, next_address);
                 current_rip = next_address;
                 local_line_number = 0;  // Reset line counter at the new address
             } else {
