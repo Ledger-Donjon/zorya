@@ -501,7 +501,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     log!(self.state.logger.clone(), "Branch condition is true, and because it is a sub-instruction, the execution jumps of {:x} lines.", value_u64);
                     self.current_lines_number = value_u64 as usize;  // setting the number of lines to skip
                 } else {
-                    log!(self.state.logger.clone(), "Branch condition is false, continuing to next instruction");
+                    log!(self.state.logger.clone(), "Even if Branch condition is false, jumping of {:x} lines.", value_u64);
+                    self.current_lines_number = value_u64 as usize;  // setting the number of lines to skip
                 }
 
                 // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
