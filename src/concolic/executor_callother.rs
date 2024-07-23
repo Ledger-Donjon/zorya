@@ -31,23 +31,23 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         0x10 => handle_swi(executor, instruction),
         0x11 => handle_lock(executor),
         0x12 => handle_unlock(executor),
-        0x2c => handle_cpuid(executor),
-        0x2d => handle_cpuid_basic_info(executor),
-        0x2e => handle_cpuid_version_info(executor),
-        0x2f => handle_cpuid_cache_tlb_info(executor),
-        0x30 => handle_cpuid_serial_info(executor),
-        0x31 => handle_cpuid_deterministic_cache_parameters_info(executor),
-        0x32 => handle_cpuid_monitor_mwait_features_info(executor),
-        0x33 => handle_cpuid_thermal_power_management_info(executor),
-        0x34 => handle_cpuid_extended_feature_enumeration_info(executor),
-        0x35 => handle_cpuid_direct_cache_access_info(executor),
-        0x36 => handle_cpuid_architectural_performance_monitoring_info(executor),
-        0x37 => handle_cpuid_extended_topology_info(executor),
-        0x38 => handle_cpuid_processor_extended_states_info(executor),
-        0x39 => handle_cpuid_quality_of_service_info(executor),
-        0x3a => handle_cpuid_brand_part1_info(executor),
-        0x3b => handle_cpuid_brand_part2_info(executor),
-        0x3c => handle_cpuid_brand_part3_info(executor),
+        0x2c => handle_cpuid(executor, instruction),
+        0x2d => handle_cpuid_basic_info(executor, instruction),
+        0x2e => handle_cpuid_version_info(executor, instruction),
+        0x2f => handle_cpuid_cache_tlb_info(executor, instruction),
+        0x30 => handle_cpuid_serial_info(executor, instruction),
+        0x31 => handle_cpuid_deterministic_cache_parameters_info(executor, instruction),
+        0x32 => handle_cpuid_monitor_mwait_features_info(executor, instruction),
+        0x33 => handle_cpuid_thermal_power_management_info(executor, instruction),
+        0x34 => handle_cpuid_extended_feature_enumeration_info(executor, instruction),
+        0x35 => handle_cpuid_direct_cache_access_info(executor, instruction),
+        0x36 => handle_cpuid_architectural_performance_monitoring_info(executor, instruction),
+        0x37 => handle_cpuid_extended_topology_info(executor, instruction),
+        0x38 => handle_cpuid_processor_extended_states_info(executor, instruction),
+        0x39 => handle_cpuid_quality_of_service_info(executor, instruction),
+        0x3a => handle_cpuid_brand_part1_info(executor, instruction),
+        0x3b => handle_cpuid_brand_part2_info(executor, instruction),
+        0x3c => handle_cpuid_brand_part3_info(executor, instruction),
         0x4a => handle_rdtsc(executor), 
         0x97 => handle_pshufb(executor, instruction),
         0x98 => handle_pshufhw(executor, instruction),
@@ -85,17 +85,17 @@ pub fn handle_unlock(executor: &mut ConcolicExecutor) -> Result<(), String> {
     Ok(())
 }
 
-pub fn handle_cpuid(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     log!(executor.state.logger.clone(), "This CALLOTHER operation is an CPUID operation.");
+
+    // Memory starting address for EAX, EBX, ECX, EDX
+    let base_address = 0x300000;
 
     // Register offsets for EAX, EBX, ECX, and EDX
     let eax_offset = 0x0;
-    let ebx_offset = 0x18; 
-    let ecx_offset = 0x8; 
-    let edx_offset = 0x10; 
 
     // Lock the CPU state to read/write registers
-    let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+    let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
     // Retrieve the current value of the EAX register to determine the CPUID function requested
     let eax_input = cpu_state_guard.get_register_by_offset(eax_offset, 32)
         .ok_or("Failed to retrieve EAX register value.")?
@@ -234,14 +234,17 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor) -> Result<(), String> {
         },
     }
 
-    // Update the CPU state with the results of the CPUID function
-    cpu_state_guard.set_register_value_by_offset(eax_offset, ConcolicVar::new_concrete_and_symbolic_int(eax.into(), SymbolicVar::new_int(eax.try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32)?;
-    cpu_state_guard.set_register_value_by_offset(ebx_offset, ConcolicVar::new_concrete_and_symbolic_int(ebx.into(), SymbolicVar::new_int(ebx.try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32)?;
-    cpu_state_guard.set_register_value_by_offset(ecx_offset, ConcolicVar::new_concrete_and_symbolic_int(ecx.into(), SymbolicVar::new_int(ecx.try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32)?;
-    cpu_state_guard.set_register_value_by_offset(edx_offset, ConcolicVar::new_concrete_and_symbolic_int(edx.into(), SymbolicVar::new_int(edx.try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32)?;
-    log!(executor.state.logger.clone(), "CPUID function completed with EAX: 0x{:x}, EBX: 0x{:x}, ECX: 0x{:x}, EDX: 0x{:x}", eax, ebx, ecx, edx);
+    // Write the results to memory instead of CPU registers
+    let _ = executor.state.memory.write_word(base_address, eax);
+    let _ = executor.state.memory.write_word(base_address + 4, ebx);
+    let _ = executor.state.memory.write_word(base_address + 8, ecx);
+    let _ = executor.state.memory.write_word(base_address + 12, edx);
+    log!(executor.state.logger.clone(), "Temporarly writing into memory the values of EAX: 0x{:x}, EBX: 0x{:x}, ECX: 0x{:x}, EDX: 0x{:x}", eax, ebx, ecx, edx);
     
     drop(cpu_state_guard);
+
+    // Set the result in the CPU state
+    handle_output(executor, instruction.output.as_ref(), ConcolicVar::new_concrete_and_symbolic_int(base_address, SymbolicVar::new_int(base_address.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64))?;
 
     // Create the concolic variables for the results
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -376,84 +379,84 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
     }
 }
 
-pub fn handle_cpuid_basic_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_basic_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Example basic information handler
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_version_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_version_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Example version information handler, might include specific processor version details
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_cache_tlb_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_cache_tlb_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Cache and TLB configuration details
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_serial_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_serial_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Processor serial number information (if applicable)
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_deterministic_cache_parameters_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_deterministic_cache_parameters_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Detailed cache parameters
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_monitor_mwait_features_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_monitor_mwait_features_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // MONITOR/MWAIT features
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_thermal_power_management_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_thermal_power_management_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Thermal and power management capabilities
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_extended_feature_enumeration_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_extended_feature_enumeration_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Extended processor feature flags
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_direct_cache_access_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_direct_cache_access_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Direct Cache Access information
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_architectural_performance_monitoring_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_architectural_performance_monitoring_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Performance monitoring features
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_extended_topology_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_extended_topology_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Extended topology enumeration
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_processor_extended_states_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_processor_extended_states_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Extended states like XSAVE/XRESTORE capabilities
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_quality_of_service_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_quality_of_service_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // QoS feature information
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_brand_part1_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_brand_part1_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Brand string part 1
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_brand_part2_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_brand_part2_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Brand string part 2
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
-pub fn handle_cpuid_brand_part3_info(executor: &mut ConcolicExecutor) -> Result<(), String> {
+pub fn handle_cpuid_brand_part3_info(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Brand string part 3
-    handle_cpuid(executor)
+    handle_cpuid(executor, instruction)
 }
 
 // Handle the Read Time-Stamp Counter and Processor ID (RDTSCP) instruction

@@ -289,6 +289,22 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(start_addr)
     }
 
+    // Memory regions for storing temporary values of subregisters used by CPUID instruction (see executor_callother.rs)
+    pub fn initialize_cpuid_memory_variables(&mut self) -> Result<(), MemoryError> {
+        // Initial values for EAX, EBX, ECX, EDX (you can set these values as per your requirements)
+        let values = [0x0000000, 0x0000000, 0x0000000, 0x0000000];
+    
+        // Start address for the variables
+        let start_address = 0x300000;
+    
+        for (i, &value) in values.iter().enumerate() {
+            let address = start_address + (i as u64) * 4; // Calculate address for each variable
+            self.write_word(address, value)?;
+        }
+    
+        Ok(())
+    }
+
     // Read a 64-bit (quad) value from memory
     pub fn read_quad(&mut self, offset: u64) -> Result<u64, MemoryError> {
         self.read_memory(offset, 8).and_then(|bytes| {

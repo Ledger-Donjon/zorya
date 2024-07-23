@@ -45,8 +45,9 @@ impl<'a> State<'a> {
 
         let memory_size: u64 = 1024 * 1024 * 1024; // 1 GiB memory size because dumps are 730 MB
         log!(logger.clone(), "Initializing memory...\n");
-        let memory = MemoryX86_64::new(&ctx, memory_size)?;
+        let mut memory = MemoryX86_64::new(&ctx, memory_size)?;
         let _ = memory.load_all_dumps();
+        let _ = memory.initialize_cpuid_memory_variables();
 	
 	    // Virtual file system initialization
         log!(logger.clone(), "Initializing virtual file system...\n");
