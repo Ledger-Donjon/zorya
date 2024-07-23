@@ -131,13 +131,13 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor) -> Result<(), String> {
             ecx = 0;
             edx = 0;
         },
-        // 5 => {
-        //     // MONITOR/MWAIT leaf
-        //     eax = 64; // smallest monitor-line size in bytes
-        //     ebx = 64; // Largest monitor-line size in bytes
-        //     ecx = 0x1; // Supports treating interrupts as break-event for MWAIT
-        //     edx = 0; // Number of C0 sub C-states supported using MWAIT
-        // },
+        5 => {
+            // MONITOR/MWAIT leaf
+            eax = 64; // smallest monitor-line size in bytes
+            ebx = 64; // Largest monitor-line size in bytes
+            ecx = 0x1; // Supports treating interrupts as break-event for MWAIT
+            edx = 0; // Number of C0 sub C-states supported using MWAIT
+        },
         0x20000000 => {
             eax = 0x00000000;
             ebx = 0x00000000;
@@ -239,7 +239,8 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor) -> Result<(), String> {
     cpu_state_guard.set_register_value_by_offset(ebx_offset, ConcolicVar::new_concrete_and_symbolic_int(ebx.into(), SymbolicVar::new_int(ebx.try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32)?;
     cpu_state_guard.set_register_value_by_offset(ecx_offset, ConcolicVar::new_concrete_and_symbolic_int(ecx.into(), SymbolicVar::new_int(ecx.try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32)?;
     cpu_state_guard.set_register_value_by_offset(edx_offset, ConcolicVar::new_concrete_and_symbolic_int(edx.into(), SymbolicVar::new_int(edx.try_into().unwrap(), executor.context, 32).to_bv(executor.context), executor.context, 32), 32)?;
-
+    log!(executor.state.logger.clone(), "CPUID function completed with EAX: 0x{:x}, EBX: 0x{:x}, ECX: 0x{:x}, EDX: 0x{:x}", eax, ebx, ecx, edx);
+    
     drop(cpu_state_guard);
 
     // Create the concolic variables for the results
