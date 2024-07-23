@@ -68,69 +68,41 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
     let mut current_rip = start_address;
-    let mut local_line_number = 0;
-
-    log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
+    let mut local_line_number = 0;  // Index of the current instruction within the block
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
-        log!(executor.state.logger, "*******************************************");
-        log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
-        log!(executor.state.logger, "*******************************************");
-
         while local_line_number < instructions.len() {
             let inst = &instructions[local_line_number];
-            log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}\n", local_line_number, inst);
-
-            // Execute instruction
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
                 log!(executor.state.logger, "Failed to execute instruction: {}", e);
-                local_line_number += 1;
+                local_line_number += 1;  // Move to the next instruction on error
                 continue;
             }
 
-            // Special handling for branch instructions
-            if matches!(inst.opcode, Opcode::Branch | Opcode::CBranch | Opcode::BranchInd) {
-                let new_rip = handle_branch_instruction(inst, executor);
-                if new_rip != current_rip {
-                    current_rip = new_rip;
-                    local_line_number = 0; // Reset index at new RIP
-                    log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
-                    break; // Move execution to the new RIP
+            // Check if a line jump needs to be performed
+            if executor.current_lines_number > 0 {
+                let next_line_number = local_line_number + executor.current_lines_number;
+                local_line_number = next_line_number.min(instructions.len());  // Ensure we do not exceed available instructions
+                executor.current_lines_number = 0;  // Reset jump length after the jump
+                if local_line_number >= instructions.len() {
+                    break;  // Exit if the jump moves us past the current block
                 }
+                continue;  // Skip further processing in this iteration
             }
 
+            // Normal execution flow continues
             local_line_number += 1;
         }
 
-        // Move to the next block of instructions if the end of this block is reached
         if local_line_number >= instructions.len() {
-            if let Some((&next_rip, _)) = instructions_map.range((current_rip + 1)..).next() {
-                current_rip = next_rip;
-                local_line_number = 0; // Reset for new block
-                let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                let _ = cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(next_rip, SymbolicVar::new_int(next_rip.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64), 64).map_err(|e| e.to_string());
-                log!(executor.state.logger, "Moving to next sequential address: 0x{:x}", next_rip);
+            // Attempt to move to the next address block if present
+            if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
+                current_rip = next_address;
+                local_line_number = 0;  // Reset line counter at the new address
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
                 break;
             }
         }
-    }
-}
-
-/// Function to handle branch instructions and determine the new RIP
-fn handle_branch_instruction(inst: &Inst, executor: &mut ConcolicExecutor) -> u64 {
-    match &inst.inputs[0].var {
-        Var::Const(_value) => {
-            // If the branch target is a constant, this value would typically indicate an offset or a line number to skip
-            // This is a simple example; real-world usage may differ
-            executor.current_lines_number = executor.current_lines_number;
-            executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap()
-        },
-        Var::Memory(address) => {
-            // If the branch is to a memory address, update RIP directly to that address
-            *address
-        },
-        _ => executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap(), // Default case
     }
 }
