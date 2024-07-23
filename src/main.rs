@@ -80,40 +80,54 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let inst = &instructions[local_line_number];
             log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}\n", local_line_number, inst);
 
+            // Execute instruction
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
                 log!(executor.state.logger, "Failed to execute instruction: {}", e);
-                continue; // Skip to the next iteration on failure.
+                local_line_number += 1;
+                continue;
             }
 
-            // Branch handling based on constant values used to skip lines within the same block
-            if matches!(inst.opcode, Opcode::Branch | Opcode::CBranch | Opcode::BranchInd) && matches!(inst.inputs[0].var, Var::Const(_)) {
-                let skip_lines = executor.current_lines_number;
-                local_line_number += skip_lines; // Perform the skip.
-                log!(executor.state.logger, "Skipping {} lines to line {}", skip_lines, local_line_number);
-            } else {
-                local_line_number += 1; // Normal increment for the next instruction.
+            // Special handling for branch instructions
+            if matches!(inst.opcode, Opcode::Branch | Opcode::CBranch | Opcode::BranchInd) {
+                let new_rip = handle_branch_instruction(inst, executor);
+                if new_rip != current_rip {
+                    current_rip = new_rip;
+                    local_line_number = 0; // Reset index at new RIP
+                    log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
+                    break; // Move execution to the new RIP
+                }
             }
 
-            // Check for changes in the program counter.
-            let new_rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap();
-            if new_rip != current_rip {
-                log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", new_rip);
-                current_rip = new_rip;
-                local_line_number = 0; // Reset the line index at the new execution point.
-                break; // Exit the current while loop to handle the new address block.
-            }
+            local_line_number += 1;
         }
 
-        // If finished all instructions in the block, check if there's a next address block.
+        // Move to the next block of instructions if the end of this block is reached
         if local_line_number >= instructions.len() {
-            local_line_number = 0; // Reset for the new loop.
-            if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
-                current_rip = next_address;
-                log!(executor.state.logger, "Moving to next sequential address: 0x{:x}", next_address);
+            if let Some((&next_rip, _)) = instructions_map.range((current_rip + 1)..).next() {
+                current_rip = next_rip;
+                local_line_number = 0; // Reset for new block
+                log!(executor.state.logger, "Moving to next sequential address: 0x{:x}", next_rip);
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
                 break;
             }
         }
+    }
+}
+
+/// Function to handle branch instructions and determine the new RIP
+fn handle_branch_instruction(inst: &Inst, executor: &mut ConcolicExecutor) -> u64 {
+    match &inst.inputs[0].var {
+        Var::Const(_value) => {
+            // If the branch target is a constant, this value would typically indicate an offset or a line number to skip
+            // This is a simple example; real-world usage may differ
+            executor.current_lines_number = executor.current_lines_number;
+            executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap()
+        },
+        Var::Memory(address) => {
+            // If the branch is to a memory address, update RIP directly to that address
+            *address
+        },
+        _ => executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap().get_concrete_value().unwrap(), // Default case
     }
 }
