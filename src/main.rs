@@ -111,14 +111,31 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
         // Reset and prepare to move to the next block if necessary
         if local_line_number >= instructions.len() {
-            // Attempt to move to the next address block if present
-            if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
-                log!(executor.state.logger, "All instructions at address 0x{:x} completed. Moving to next address: 0x{:x}", current_rip, next_address);
-                current_rip = next_address;
-                local_line_number = 0;  // Reset line counter at the new address
+            // Fetch the current RIP value after executing instructions
+            let rip_value = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
+            let rip_value_u64 = rip_value.get_concrete_value().unwrap();
+            log!(executor.state.logger, "Current RIP value: 0x{:x}", rip_value_u64);
+
+            // Check if the RIP value has changed by Branch-ish, Call-ish or Return instructions
+            if rip_value_u64 != current_rip {
+                log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", rip_value_u64);
+                current_rip = rip_value_u64;
             } else {
-                log!(executor.state.logger, "No further instructions. Execution completed.");
-                break;
+                // Move to the next sequential address if no control flow change occurred
+                if let Some((&next_address, _)) = instructions_map.range((current_rip + 1)..).next() {
+                    log!(executor.state.logger, "Next address should be : {:#x}", next_address);
+                    current_rip = next_address;
+                    let next_address_symbolic = BV::from_u64(executor.context, next_address, 64);
+                    let next_address_concolic = ConcolicVar::new_concrete_and_symbolic_int(next_address, next_address_symbolic, executor.context, 64);
+                    // Update the RIP register to the branch target address
+                    {
+                        let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+                        let _ = cpu_state_guard.set_register_value_by_offset(0x288, next_address_concolic, 64).map_err(|e| e.to_string());
+                    }
+                } else {
+                    log!(executor.state.logger, "No further instructions. Execution completed.");
+                    break;
+                }
             }
         }
     }
