@@ -6,7 +6,8 @@ use parser::parser::{Inst, Opcode, Var};
 use z3::ast::BV;
 use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
-use zorya::executor::ConcolicExecutor;
+use zorya::executor::{ConcolicExecutor, SymbolicVar};
+use zorya::state::cpu_state;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
@@ -106,6 +107,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             if let Some((&next_rip, _)) = instructions_map.range((current_rip + 1)..).next() {
                 current_rip = next_rip;
                 local_line_number = 0; // Reset for new block
+                let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+                let _ = cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(next_rip, SymbolicVar::new_int(next_rip.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64), 64).map_err(|e| e.to_string());
                 log!(executor.state.logger, "Moving to next sequential address: 0x{:x}", next_rip);
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
