@@ -421,7 +421,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let branch_target_varnode = &instruction.inputs[0];
     
         // Check if the branch target is a memory address
-        let branch_target_concrete = match &branch_target_varnode.var {
+        match &branch_target_varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
                 log!(self.state.logger.clone(), "Branch target concrete : {:x}", addr); 
@@ -435,7 +435,34 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                     cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
                 }
-                *addr
+
+                // Fetch the branch condition (input1)
+                log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
+                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+                let branch_condition_concrete = branch_condition_concolic.get_concrete_value();
+                let branch_condition_symbolic = match branch_condition_concolic {
+                    ConcolicEnum::ConcolicVar(var) => var.symbolic,
+                    ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+                    ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+                };
+                log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
+
+                let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_condition_symbolic.to_bv(&self.context), self.context, 64);
+            
+                // Check the branch condition
+                if branch_condition_concrete != 0 {
+                    log!(self.state.logger.clone(), "Branch condition is true, branching to address {:x}", *addr);
+                    // Update the RIP register to the branch target address
+                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                    cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
+                } else {
+                    log!(self.state.logger.clone(), "Branch condition is false, continuing to next instruction");
+                }
+
+                // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
+                let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+                let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
+                self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
             }
             Var::Const(value) => {
                 // Log the value to be parsed
@@ -446,10 +473,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let value_str = value_string.trim_start_matches("0x"); // Now, this is safe
                 
                 // Attempt to parse the string as a hexadecimal number
-                match u64::from_str_radix(value_str, 16) {
+                let value_u64 = match u64::from_str_radix(value_str, 16) {
                     Ok(value_u64) => {
                         log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                        self.current_lines_number = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
                         value_u64
                     },
                     Err(e) => {
@@ -457,46 +483,40 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         log!(self.state.logger.clone(), "Failed to parse constant as u64: {:?}", e);
                         return Err(format!("Failed to parse constant as u64: {:?}", e));
                     }
+                }; 
+
+                // Fetch the branch condition (input1)
+                log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
+                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+                let branch_condition_concrete = branch_condition_concolic.get_concrete_value();
+                let branch_condition_symbolic = match branch_condition_concolic {
+                    ConcolicEnum::ConcolicVar(var) => var.symbolic,
+                    ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
+                    ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+                };
+                log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
+            
+                // Check the branch condition
+                if branch_condition_concrete != 0 {
+                    log!(self.state.logger.clone(), "Branch condition is true, and because it is a sub-instruction, the execution jumps of {:x} lines.", value_u64);
+                    self.current_lines_number = value_u64 as usize;  // setting the number of lines to skip
+                } else {
+                    log!(self.state.logger.clone(), "Branch condition is false, continuing to next instruction");
                 }
+
+                // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
+                let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+                let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
+                self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
             }                
             _ => {
                 // Fetch the concolic variable if it's not a memory address
-                let branch_target_concolic = self.varnode_to_concolic(branch_target_varnode).map_err(|e| e.to_string())?;
                 log!(self.state.logger.clone(), "Branch instruction doesn't handle this type of Var: {:?}", branch_target_varnode.var);
-                branch_target_concolic.get_concrete_value()
             }
         };
-        
-        // Fetch the branch condition (input1)
-        log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
-        let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-        let branch_condition_concrete = branch_condition_concolic.get_concrete_value();
-        let branch_condition_symbolic = match branch_condition_concolic {
-            ConcolicEnum::ConcolicVar(var) => var.symbolic,
-            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
-            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
-        };
-        log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
-
-        let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(branch_target_concrete, branch_condition_symbolic.to_bv(&self.context), self.context, 64);
-    
-        // Check the branch condition
-        if branch_condition_concrete != 0 {
-            log!(self.state.logger.clone(), "Branch condition is true, branching to address {:x}", branch_target_concrete);
-            // Update the RIP register to the branch target address
-            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
-        } else {
-            log!(self.state.logger.clone(), "Branch condition is false, continuing to next instruction");
-        }
     
         // Update the instruction counter
         self.instruction_counter += 1;
-        
-        // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
-        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-        let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
         
         Ok(())
     } 
