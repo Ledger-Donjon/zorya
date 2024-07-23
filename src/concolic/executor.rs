@@ -287,19 +287,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 *addr
             }
             Var::Const(value) => {
+                // Log the value to be parsed
                 log!(self.state.logger.clone(), "Attempting to parse branch target constant: {:?}", value);
-                match u64::from_str_radix(&value.to_string(), 16) {
+                
+                // Convert value to a string and remove the '0x' prefix
+                let value_string = value.to_string(); // Extend lifetime by storing in a variable
+                let value_str = value_string.trim_start_matches("0x"); // Now, this is safe
+                
+                // Attempt to parse the string as a hexadecimal number
+                match u64::from_str_radix(value_str, 16) {
                     Ok(value_u64) => {
                         log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                        self.current_lines_number = value_u64 as usize;
+                        self.current_lines_number = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
                         value_u64
                     },
                     Err(e) => {
+                        // Log the error and return an error message
                         log!(self.state.logger.clone(), "Failed to parse constant as u64: {:?}", e);
                         return Err(format!("Failed to parse constant as u64: {:?}", e));
                     }
                 }
-            }            
+            }                      
             _ => {
                 // Fetch the concolic variable if it's not a memory address
                 let branch_target_concolic = self.varnode_to_concolic(branch_target_varnode).map_err(|e| e.to_string())?;
@@ -355,19 +363,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 *addr
             }
             Var::Const(value) => {
+                // Log the value to be parsed
                 log!(self.state.logger.clone(), "Attempting to parse branch target constant: {:?}", value);
-                match u64::from_str_radix(&value.to_string(), 16) {
+                
+                // Convert value to a string and remove the '0x' prefix
+                let value_string = value.to_string(); // Extend lifetime by storing in a variable
+                let value_str = value_string.trim_start_matches("0x"); // Now, this is safe
+                
+                // Attempt to parse the string as a hexadecimal number
+                match u64::from_str_radix(value_str, 16) {
                     Ok(value_u64) => {
                         log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                        self.current_lines_number = value_u64 as usize;
+                        self.current_lines_number = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
                         value_u64
                     },
                     Err(e) => {
+                        // Log the error and return an error message
                         log!(self.state.logger.clone(), "Failed to parse constant as u64: {:?}", e);
                         return Err(format!("Failed to parse constant as u64: {:?}", e));
                     }
                 }
-            }            
+            }                       
             _ => {
                 // Fetch the concolic variable if it's not a memory address
                 let branch_target_concolic = self.varnode_to_concolic(branch_target_varnode).map_err(|e| e.to_string())?;
@@ -422,19 +438,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 *addr
             }
             Var::Const(value) => {
+                // Log the value to be parsed
                 log!(self.state.logger.clone(), "Attempting to parse branch target constant: {:?}", value);
-                match u64::from_str_radix(&value.to_string(), 16) {
+                
+                // Convert value to a string and remove the '0x' prefix
+                let value_string = value.to_string(); // Extend lifetime by storing in a variable
+                let value_str = value_string.trim_start_matches("0x"); // Now, this is safe
+                
+                // Attempt to parse the string as a hexadecimal number
+                match u64::from_str_radix(value_str, 16) {
                     Ok(value_u64) => {
                         log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                        self.current_lines_number = value_u64 as usize;
+                        self.current_lines_number = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
                         value_u64
                     },
                     Err(e) => {
+                        // Log the error and return an error message
                         log!(self.state.logger.clone(), "Failed to parse constant as u64: {:?}", e);
                         return Err(format!("Failed to parse constant as u64: {:?}", e));
                     }
                 }
-            }            
+            }                
             _ => {
                 // Fetch the concolic variable if it's not a memory address
                 let branch_target_concolic = self.varnode_to_concolic(branch_target_varnode).map_err(|e| e.to_string())?;
