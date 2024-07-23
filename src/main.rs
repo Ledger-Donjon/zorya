@@ -70,6 +70,10 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
 
+    // For debugging
+    //let address: u64 = 0x4c3dd7;
+    //let range = 0x8; 
+
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
@@ -92,6 +96,12 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 local_line_number += 1;  // Continue to next instruction on error
                 continue;
             }
+
+            // For debugging
+            //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+            //executor.state.print_memory_content(address, range);
+            let register0x206 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x206 is {:x}", register0x206.concrete);
 
             // Check if there's a requested jump within the current block
             if executor.current_lines_number > 0 {
