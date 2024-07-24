@@ -159,6 +159,8 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1]");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+    log!(executor.state.logger.clone(), "Input 0: {:?}", input0_var);
+    log!(executor.state.logger.clone(), "Input 1: {:?}", input1_var);
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {:x}", output_size_bits);
