@@ -34,6 +34,13 @@ const MADV_NOHUGEPAGE: u64 = 15;
 const MADV_DONTDUMP: u64 = 16;
 const MADV_DODUMP: u64 = 17;
 
+// constants for sys_arch_prctl
+mod arch {
+    pub const ARCH_SET_GS: u64 = 0x1001;
+    pub const ARCH_SET_FS: u64 = 0x1002; 
+    pub const ARCH_GET_FS: u64 = 0x1003;
+    pub const ARCH_GET_GS: u64 = 0x1004;
+}
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -485,20 +492,62 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-sigaltstack", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, oss_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, oss_ptr.try_into().unwrap(), 64)));
         },        
-        158 => { // sys_arch_prctl : set architecture-specific thread state
-            log!(executor.state.logger.clone(), "Syscall type: sys_arch_prctl");
-            let code = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
-            let addr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
-            
-            log!(executor.state.logger.clone(), "Setting architecture-specific setting code {} to address {}", code, addr);
+        158 => { // sys_arch_prctl: set architecture-specific thread state
+            log!(executor.state.logger.clone(), "Syscall invoked: sys_arch_prctl");
+                
+            let code = cpu_state_guard.get_register_by_offset(0x38, 64)
+                .ok_or("Failed to retrieve code from register")?
+                .get_concrete_value().map_err(|e| e.to_string())?;
+        
+            let addr = cpu_state_guard.get_register_by_offset(0x30, 64)
+                .ok_or("Failed to retrieve address from register")?
+                .get_concrete_value().map_err(|e| e.to_string())?;
+        
+            let addr_concolic = cpu_state_guard.get_concolic_register_by_offset(0x30, 64)
+                .ok_or("Failed to retrieve address from register")?;
+
+            log!(executor.state.logger.clone(), "Arch-prctl code: {:#x}, Address: {:#x}", code, addr);
+        
+            let result = match code {
+                // Constants assumed to be defined. Replace placeholders with actual values.
+                arch::ARCH_SET_FS => {
+                    log!(executor.state.logger, "Setting FS base to {:#x}", addr);
+                    // Perform the operation to set FS base
+                    cpu_state_guard.set_register_value_by_offset(0x110, addr_concolic, 64)?;
+                    addr
+                },
+                arch::ARCH_GET_FS => {
+                    log!(executor.state.logger, "Getting FS base");
+                    // Store the FS base at the address provided in `addr`
+                    cpu_state_guard.get_register_by_offset(0x110, 64).unwrap().get_concrete_value()?
+                },
+                arch::ARCH_SET_GS => {
+                    log!(executor.state.logger, "Setting GS base to {:#x}", addr);
+                    // Perform the operation to set GS base
+                    cpu_state_guard.get_register_by_offset(0x118, 64).unwrap().get_concrete_value()?
+                },
+                arch::ARCH_GET_GS => {
+                    log!(executor.state.logger, "Getting GS base");
+                    // Store the GS base at the address provided in `addr`
+                    cpu_state_guard.set_register_value_by_offset(0x118, addr_concolic, 64)?;
+                    addr
+                },
+                _ => {
+                    log!(executor.state.logger, "Unsupported arch-prctl code: {:#x}", code);
+                    return Err(format!("Unsupported arch-prctl code: {:#x}", code));
+                }
+            };
 
             drop(cpu_state_guard);
-            
-            // Create the concolic variables for the results
+        
+            // Reflect changes or checks
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-sys-arch_prctl", current_addr_hex, executor.instruction_counter);
+            let result_var_name = format!("{}-{:02}-syscall-arch_prctl", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, code.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, code.try_into().unwrap(), 64)));
-        },
+        
+            log!(executor.state.logger.clone(), "sys_arch_prctl operation completed successfully");
+        
+        }        
         186 => { // sys_gettid
             log!(executor.state.logger.clone(), "Syscall type: sys_gettid");
 

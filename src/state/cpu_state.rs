@@ -332,6 +332,17 @@ impl<'ctx> CpuState<'ctx> {
         }
         None
     }
+
+    /// Gets the concolic value of a register identified by its offset.
+    pub fn get_concolic_register_by_offset(&self, offset: u64, size: u32) -> Option<ConcolicVar<'ctx>> {
+        if let Some(reg) = self.registers.get(&offset) {
+            let concrete = reg.concrete.to_u64();
+            let symbolic = reg.symbolic.to_bv(self.ctx);
+            Some(ConcolicVar::new_concrete_and_symbolic_int(concrete, symbolic, self.ctx, size))
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for CpuState<'_> {

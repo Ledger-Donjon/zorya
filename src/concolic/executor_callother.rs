@@ -124,6 +124,13 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Resul
             ecx = 0x80000001; // SSE3 supported
             edx = 0x078bfbfd; // The features supported like MMX, SSE, SSE2 etc
         },
+        2 => {
+            // Cache descriptor information, hard-coded as per Intel manuals or synthesized
+            eax = 0x665B5001;
+            ebx = 0x00000000;
+            ecx = 0x00000000;
+            edx = 0x007A7000;
+        },
         3..=4 => {
             // reserved or used for system-specific functions
             eax = 0;
@@ -132,11 +139,11 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Resul
             edx = 0;
         },
         5 => {
-            // MONITOR/MWAIT leaf
-            eax = 64; // smallest monitor-line size in bytes
-            ebx = 64; // Largest monitor-line size in bytes
-            ecx = 0x1; // Supports treating interrupts as break-event for MWAIT
-            edx = 0; // Number of C0 sub C-states supported using MWAIT
+            // MONITOR/MWAIT
+            eax = 0x00000040; // Smallest monitor-line size in bytes
+            ebx = 0x00000040; // Largest monitor-line size in bytes
+            ecx = 0x00000003; // Enumeration of Monitor-MWAIT extensions
+            edx = 0x00000000; // Number of C-states using MWAIT
         },
         0x20000000 => {
             eax = 0x00000000;
@@ -168,37 +175,22 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Resul
             ecx = 0;
             edx = 0;
         },
-        0x80000002 => {
-            eax = 0x20444d41; // " AMD"
-            ebx = 0x6574704f; // "Opte"
-            ecx = 0x206e6f72; // "ron "
-            edx = 0x20303432; // " G1"
-        },
-        0x80000003 => {
-            eax = 0x6e654728; // Part of the brand string
-            ebx = 0x43203120; // More brand string
-            ecx = 0x7373616c; 
-            edx = 0x74704f20; 
-        },
-        0x80000004 => {
-            eax = 0x6e6f7265; // Ending part of the brand string
-            ebx = 0x00000029; // Padding
-            ecx = 0x00000000; 
-            edx = 0x00000000; 
-        },
-        0x80000005 => {
-            // L1 cache identifiers
-            eax = 0x01ff01ff; 
-            ebx = 0x01ff01ff; 
-            ecx = 0x40020140; 
-            edx = 0x40020140; 
+        0x80000002..=0x80000004 => {
+            // Processor Brand String
+            let brand_string = "AMD Opteron Processor        ";
+            let brand_bytes = brand_string.as_bytes();
+            let chunk = (eax_input - 0x80000002) as usize * 16;
+            eax = u32::from_ne_bytes(brand_bytes[chunk..chunk+4].try_into().unwrap());
+            ebx = u32::from_ne_bytes(brand_bytes[chunk+4..chunk+8].try_into().unwrap());
+            ecx = u32::from_ne_bytes(brand_bytes[chunk+8..chunk+12].try_into().unwrap());
+            edx = u32::from_ne_bytes(brand_bytes[chunk+12..chunk+16].try_into().unwrap());
         },
         0x80000006 => {
-            // L2 cache identifiers
-            eax = 0x00000000; 
-            ebx = 0x42004200; 
-            ecx = 0x02008140; 
-            edx = 0x00808140; 
+            // Cache information
+            eax = 0x42004200;
+            ebx = 0x02008140;
+            ecx = 0x40020140; // L2 cache details
+            edx = 0x00000000; // L3 cache details
         },
         0x80000007 => {
             // provides information about advanced power management features
