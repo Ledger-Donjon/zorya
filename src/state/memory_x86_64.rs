@@ -65,10 +65,10 @@ pub struct MemoryConcolicValue<'ctx> {
 }
 
 impl<'ctx> MemoryConcolicValue<'ctx> {
-    pub fn new(ctx: &'ctx Context, concrete_value: u64, size: u32) -> Self {
+    pub fn new(ctx: &'ctx Context, concrete_value: u64, symbolic_value: BV<'ctx>, size: u32) -> Self {
         MemoryConcolicValue {
             concrete: ConcreteVar::Int(concrete_value),
-            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, size)),
+            symbolic: SymbolicVar::Int(symbolic_value),
             ctx,
         }
     }
@@ -181,30 +181,15 @@ impl<'ctx> MemoryX86_64<'ctx> {
         })
     }
 
-    pub fn get_or_create_memory_concolic_var(&self, ctx: &'ctx Context, value: u64, size: u32) -> MemoryConcolicValue<'ctx> {
+    pub fn get_memory_concolic_var(&self, ctx: &'ctx Context, value: u64, size: u32) -> MemoryConcolicValue<'ctx> {
         println!("Inside get_or_create_memory_concolic_var function");
 
-        // Try to read the value with read lock first
-        {
-            let memory_read = self.memory.read().unwrap();
-            if let Some(memory_value) = memory_read.get(&value) {
-                // If the memory address already exists, return the existing concolic value
-                return memory_value.clone();
-            }
-        }
+        let memory_read = self.memory.read().unwrap();
+        let memory_value = memory_read.get(&value) // Check if the value exists in memory
+            .unwrap(); 
 
-        // Only acquire write lock if the value does not exist
-        let memory_write = self.memory.write().unwrap();
-        // Check again in case another thread has created it before we acquired the write lock
-        if let Some(memory_value) = memory_write.get(&value) {
-            memory_value.clone()
-        } else {
-            // If the memory address doesn't exist, create a new concolic value and insert it into memory
-            let concolic_value = MemoryConcolicValue::new(ctx, value, size);
-            // Do not insert the value into the Memory model because it is just a temporary working value
-            // memory_write.insert(value, concolic_value.clone());
-            concolic_value
-        }
+        let memory_concolic_value = MemoryConcolicValue::new(ctx, memory_value.concrete.to_u64(), memory_value.symbolic.to_bv(ctx), size);
+        memory_concolic_value
     }
 
     pub fn read_memory(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
@@ -234,7 +219,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
             if current_address >= end_address {
                 return Err(MemoryError::WriteOutOfBounds);
             }
-            memory.insert(current_address, MemoryConcolicValue::new(self.ctx, byte.into(), 8));
+            let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+            memory.insert(current_address, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
         }
 
         Ok(())
@@ -273,7 +259,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let mut memory = self.memory.write().unwrap();  // Lock memory for writing
         for (offset, &byte) in contents.iter().enumerate() {
             let address = start_addr + offset as u64;
-            memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into(), 8));
+            let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+            memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
         }
 
         Ok(())
@@ -406,7 +393,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn write_bytes(&self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
         let mut memory = self.memory.write().unwrap();
         for (i, &byte) in bytes.iter().enumerate() {
-            memory.insert(address + i as u64, MemoryConcolicValue::new(self.ctx, byte.into(), 8));
+            let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+            memory.insert(address + i as u64, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
         }
         Ok(())
     } 

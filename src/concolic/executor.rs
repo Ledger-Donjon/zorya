@@ -202,24 +202,47 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     value.parse::<u64>()
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
                 log!(self.state.logger.clone(), "Parsed value: {}", parsed_value);
-                let memory_var = MemoryConcolicValue::new( self.context, parsed_value, bit_size);
+                let parsed_value_symbolic = BV::from_u64(self.context, parsed_value, bit_size);
+                let memory_var = MemoryConcolicValue::new( self.context, parsed_value, parsed_value_symbolic, bit_size);
                 log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {} with symbolic size {:?}", memory_var, memory_var.symbolic.get_size());
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
             // Handle MemoryRam case
             Var::MemoryRam => {
                 log!(self.state.logger.clone(), "Varnode is MemoryRam");
-                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, 0, bit_size); // Assume 0 is the base address for RAM
+                let memory_var = MemoryX86_64::get_memory_concolic_var(&self.state.memory, self.context, 0, bit_size); // Assume 0 is the base address for RAM
                 log!(self.state.logger.clone(), "MemoryRam treated as general memory space, created or retrieved: {}", memory_var);
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },
             // Handle specific memory addresses
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-                let memory_var = MemoryX86_64::get_or_create_memory_concolic_var(&self.state.memory, self.context, *addr, bit_size);
-                log!(self.state.logger.clone(), "Retrieved memory address: {} with symbolic size: {:?}", memory_var, memory_var.symbolic.get_size());
+            
+                let byte_count = bit_size / 8; // Convert bits to bytes
+                let data = self.state.memory.read_bytes(*addr, byte_count.try_into().unwrap())
+                    .map_err(|e| e.to_string())?;
+       
+                let mut composite_symbolic_value = BV::from_u64(self.context, 0, bit_size);
+                let mut composite_concrete_value = 0u64;
+            
+                for (i, byte) in data.iter().enumerate() {
+                    let byte_symbolic = BV::from_u64(self.context, *byte as u64, 8);
+                    let shift_amount = i * 8;
+                    let shift_amount_bv = BV::from_u64(self.context, shift_amount as u64, 32); 
+                    let shifted_symbolic = byte_symbolic.bvshl(&shift_amount_bv);
+                    composite_symbolic_value = composite_symbolic_value.bvadd(&shifted_symbolic);
+                    composite_concrete_value |= (*byte as u64) << shift_amount;
+                }
+            
+                let memory_var = MemoryConcolicValue::new(
+                    self.context,
+                    composite_concrete_value,
+                    composite_symbolic_value, 
+                    bit_size
+                );
+            
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
-            },
+            }            
         }
     }
 
@@ -775,7 +798,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             for i in 0..8 {
                 let byte_address = pointer_offset_concrete + i;
                 let byte_value = (data_to_store_concrete >> (8 * i)) & 0xFF; // Isolate each byte to store
-                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value, 8));
+                let byte_value_symbolic = BV::from_u64(self.context, byte_value, 8);
+                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value, byte_value_symbolic, 8));
                 log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
             }
         }
