@@ -508,7 +508,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
             log!(executor.state.logger.clone(), "Arch-prctl code: {:#x}, Address: {:#x}", code, addr);
         
-            let result = match code {
+            match code {
                 // Constants assumed to be defined. Replace placeholders with actual values.
                 arch::ARCH_SET_FS => {
                     log!(executor.state.logger, "Setting FS base to {:#x}", addr);
