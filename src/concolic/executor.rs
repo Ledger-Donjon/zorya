@@ -746,7 +746,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Calculate the actual memory address considering possible negative offset
         let base_address = 0x0; // This should be the base address of your segment, e.g., FS or GS base
-        let actual_address = ConcolicExecutor::<'ctx>::calculate_memory_address(base_address, pointer_offset_concrete as i64)
+        let actual_address = Self::calculate_memory_address(base_address, pointer_offset_concrete as i64)
             .map_err(|e| format!("Failed to calculate memory address: {}", e))?;
         log!(self.state.logger.clone(), "Calculated actual address: {:x}", actual_address);
 
@@ -822,17 +822,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     // Function usefull to handle negative offset for segment registers, among other things
     fn calculate_memory_address(base_address: u64, offset: i64) -> Result<u64, String> {
-        let final_address = if offset < 0 {
-            base_address.checked_sub(offset.abs() as u64)
+        if offset < 0 {
+            base_address.checked_sub(offset.abs() as u64).ok_or("Address underflow".to_string())
         } else {
-            base_address.checked_add(offset as u64)
-        };
-    
-        match final_address {
-            Some(addr) => Ok(addr),
-            None => Err("Address calculation overflow".to_string()),
+            base_address.checked_add(offset as u64).ok_or("Address overflow".to_string())
         }
-    }
+    }    
     
     // Helper function
     pub fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {

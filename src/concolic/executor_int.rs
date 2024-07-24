@@ -161,7 +161,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+    log!(executor.state.logger.clone(), "Output size in bits: {:x}", output_size_bits);
 
     // Perform the addition
     // Wrapping is used to handle overflow in Rust
@@ -169,7 +169,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvadd(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_ADD is: {:?}\n", result_concrete.clone());
+    log!(executor.state.logger.clone(), "*** The result of INT_ADD is: {:x}\n", result_concrete.clone());
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
@@ -196,7 +196,7 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+    log!(executor.state.logger.clone(), "Output size in bits: {:x}", output_size_bits);
 
     // Perform the subtraction
     let result_concrete = input0_var.get_concrete_value().wrapping_sub(input1_var.get_concrete_value());
