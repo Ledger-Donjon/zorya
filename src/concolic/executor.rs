@@ -736,7 +736,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
 
-	    // Check for null pointer dereference
+        // Check for null pointer dereference
         if pointer_offset_concrete == 0 {
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
             log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
@@ -744,9 +744,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             process::exit(1);
         }
 
-        // Get the size of the input in bits
-        let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
-        log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
+        // Calculate the actual memory address considering possible negative offset
+        let base_address = 0x0; // This should be the base address of your segment, e.g., FS or GS base
+        let actual_address = ConcolicExecutor::<'ctx>::calculate_memory_address(base_address, pointer_offset_concrete as i64)
+            .map_err(|e| format!("Failed to calculate memory address: {}", e))?;
+        log!(self.state.logger.clone(), "Calculated actual address: {:x}", actual_address);
 
         // Fetch the data to be stored
         log!(self.state.logger.clone(), "* Fetching data to store from instruction.input[2]");
@@ -763,27 +765,49 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         };
 
-        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete, input_size_bits);
-        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic, self.context, input_size_bits);
+        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete, 64);
+        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic, self.context, 64);
 
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
-        // Store the data in the memory at the calculated offset, byte by byte
+        // Store the data in the memory at the calculated address, byte by byte
         {
             let mut memory_guard = self.state.memory.memory.write().unwrap();
             for i in 0..8 {
-                let byte_address = pointer_offset_concrete + i;
+                let byte_address = actual_address + i;
                 let byte_value = (data_to_store_concrete >> (8 * i)) & 0xFF; // Isolate each byte to store
                 memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value, 8));
                 log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
             }
         }
 
+        // Verify the memory update
+        {
+            let memory_guard = self.state.memory.memory.read().unwrap();
+            for i in 0..8 {
+                let byte_address = actual_address + i;
+                if let Some(memory_value) = memory_guard.get(&byte_address) {
+                    let actual_byte = match memory_value.concrete {
+                        ConcreteVar::Int(val) => val,
+                        _ => 0,
+                    };
+                    let expected_byte = (data_to_store_concrete >> (8 * i)) & 0xFF;
+                    if actual_byte != expected_byte {
+                        log!(self.state.logger.clone(), "Verification failed at address 0x{:x}: expected 0x{:x}, found 0x{:x}", byte_address, expected_byte, actual_byte);
+                    } else {
+                        log!(self.state.logger.clone(), "Verification succeeded at address 0x{:x}: 0x{:x}", byte_address, actual_byte);
+                    }
+                } else {
+                    log!(self.state.logger.clone(), "Verification failed: no value found at address 0x{:x}", byte_address);
+                }
+            }
+        }
+
         // If the address falls within the range of the CPU registers, update the register as well
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
-                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic, input_size_bits)?;
+            if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, 64) {
+                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic, 64)?;
                 log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
             }
         }
@@ -791,11 +815,25 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Create or update a concolic variable for the result of the store operation
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete, input_size_bits)));
+        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete, 64)));
 
         Ok(())
     }
-   
+
+    // Function usefull to handle negative offset for segment registers, among other things
+    fn calculate_memory_address(base_address: u64, offset: i64) -> Result<u64, String> {
+        let final_address = if offset < 0 {
+            base_address.checked_sub(offset.abs() as u64)
+        } else {
+            base_address.checked_add(offset as u64)
+        };
+    
+        match final_address {
+            Some(addr) => Ok(addr),
+            None => Err("Address calculation overflow".to_string()),
+        }
+    }
+    
     // Helper function
     pub fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {
     
