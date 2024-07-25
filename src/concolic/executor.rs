@@ -173,11 +173,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Ok(ConcolicEnum::CpuConcolicValue(cpu_concolic_value))
                     } else {
                         log!(self.state.logger.clone(), "Register at offset 0x{:x} exists but with size {} bits, needs {} bits, extraction needed", offset, reg_size, bit_size);
-                        self.extract_and_create_concolic_value(&cpu_state_guard, *offset, reg_size, bit_size)
+                        self.extract_and_create_concolic_value(cpu_state_guard, *offset, reg_size, bit_size)
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
-                    self.extract_and_create_concolic_value(&cpu_state_guard, *offset, 0, bit_size)
+                    self.extract_and_create_concolic_value(cpu_state_guard, *offset, 0, bit_size)
                 }
             },
             // Keep track of the unique variables defined inside one address execution
@@ -225,7 +225,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
-    fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
+    fn extract_and_create_concolic_value(&self, cpu_state_guard: MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
         if register_size == 0 || bit_size > register_size {
             let error_message = format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset);
             log!(self.state.logger.clone(), "{}", error_message);
@@ -234,44 +234,28 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
-    
+
         log!(self.state.logger.clone(), "The original register value is {:?} with size {}", original_register.get_concrete_value(), register_size);
     
-        // Ensure the bit range for extraction is valid
-        if bit_size > 64 {
-            return Err(format!("Bit size {} exceeds the maximum allowed for extraction", bit_size));
-        }
-    
-        let safe_high_bit = (bit_size - 1) as u32;
-        let safe_low_bit = 0;
+        // Ensuring we do not attempt to shift beyond the limits of u64
+        let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
+        let safe_low_bit = 0;  // Starting from the lowest bit
     
         log!(self.state.logger.clone(), "Preparing to extract from bit {} to {} from register at offset 0x{:x}", safe_low_bit, safe_high_bit, offset);
     
-        // Perform the extraction
-        let extracted_concrete = if bit_size == 64 {
-            original_register.concrete.to_u64()
-        } else {
-            (original_register.concrete.to_u64() >> safe_low_bit) & ((1u64 << bit_size) - 1)
-        };
-        log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
-    
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-    
-        // Simplify the symbolic value to ensure it is valid
-        let simplified_symbolic = extracted_symbolic.simplify();
-    
-        // Check if the simplified symbolic value is valid by attempting to convert it to a numeral
-        if simplified_symbolic.as_u64().is_some() {
-            log!(self.state.logger.clone(), "The simplified symbolic value is a valid numeral");
-        } else {
-            return Err(format!("Extracted symbolic value is invalid for range {} to {}", safe_low_bit, safe_high_bit));
+        // Check if the shift operation is safe
+        if safe_high_bit >= 64 { // u64 can only handle shifts up to 63 bits
+            return Err(format!("Bit shift operation unsafe: attempted to access bit {} which exceeds u64 limits", safe_high_bit));
         }
     
-        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", simplified_symbolic, bit_size);
+        let extracted_concrete = (original_register.concrete.to_u64() >> safe_low_bit) & ((1 << (safe_high_bit + 1)) - 1);
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
+    
+        log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
-            symbolic: SymbolicVar::Int(simplified_symbolic),
+            symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
     }   
@@ -852,12 +836,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         (cpu_concolic_value.get_concrete_value().unwrap(), cpu_concolic_value.get_symbolic_value().to_bv(&self.context))
                     } else {
                         log!(self.state.logger.clone(), "Register at offset 0x{:x} exists but with size {} bits, needs {} bits, extraction needed", offset, reg_size, bit_size);
-                        let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, reg_size, bit_size).unwrap();
+                        let result = self.extract_and_create_concolic_value(cpu_state_guard, *offset, reg_size, bit_size).unwrap();
                         (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
-                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, 0, bit_size).unwrap();
+                    let result = self.extract_and_create_concolic_value(cpu_state_guard, *offset, 0, bit_size).unwrap();
                     (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                 }
             },
@@ -908,7 +892,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let source_concolic = ConcolicVar::new_concrete_and_symbolic_int(source_concrete_value, source_symbolic_value.clone(), self.context, output_size_bits);
     
-        drop(cpu_state_guard);
         // Check the output destination and copy the source to it
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
@@ -945,7 +928,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, SymbolicVar::Int(source_symbolic_value));
+        //self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, SymbolicVar::Int(source_symbolic_value));
     
         Ok(())
     }    
