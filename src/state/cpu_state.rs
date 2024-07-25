@@ -287,17 +287,26 @@ impl<'ctx> CpuState<'ctx> {
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         if let Some(reg) = self.registers.get_mut(&offset) {
             let full_reg_size = self.register_map.get(&offset).map(|(_, size)| *size).unwrap_or(new_size);
-
-            // Safely generate masks for the new value and the full register
+    
+            // Generate masks safely
             let mask = Self::generate_mask(new_size);
             let full_mask = Self::generate_mask(full_reg_size);
-
-            // Update logic here...
-            let resized_concrete = (new_value.concrete.to_u64() & mask) | (reg.concrete.to_u64() & !mask);
-            let resized_symbolic = new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size - new_size);
     
-            // Ensure the symbolic representation covers the whole register size
-            let combined_symbolic = reg.symbolic.to_bv(self.ctx).extract(full_reg_size - 1, new_size).concat(&resized_symbolic);
+            // Update the concrete value
+            let resized_concrete = (new_value.concrete.to_u64() & mask) | (reg.concrete.to_u64() & !mask);
+    
+            // Ensure the symbolic manipulation is within valid bounds
+            let resized_symbolic = new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size - new_size);
+            if resized_symbolic.get_size() != full_reg_size {
+                return Err("Symbolic operation exceeded the valid size bounds".to_string());
+            }
+    
+            let combined_symbolic = if full_reg_size > new_size {
+                let upper_bits = reg.symbolic.to_bv(self.ctx).extract(full_reg_size - 1, new_size);
+                upper_bits.concat(&resized_symbolic)
+            } else {
+                resized_symbolic
+            };
     
             reg.concrete = ConcreteVar::Int(resized_concrete & full_mask);
             reg.symbolic = SymbolicVar::Int(combined_symbolic);
