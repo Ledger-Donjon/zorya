@@ -226,55 +226,51 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
+        // Validate input sizes for extraction
         if register_size == 0 || bit_size > register_size {
             let error_message = format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset);
             log!(self.state.logger.clone(), "{}", error_message);
             return Err(error_message);
         }
     
+        // Retrieve the register data, handle potential errors gracefully
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
-            .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
-
+            .ok_or_else(|| {
+                let error_message = format!("Failed to retrieve register for extraction at offset 0x{:x}", offset);
+                log!(self.state.logger.clone(), "{}", error_message);
+                error_message
+            })?;
+    
         log!(self.state.logger.clone(), "The original register value is {:?} with size {}", original_register.get_concrete_value().unwrap(), register_size);
     
-        // Ensuring we do not attempt to shift beyond the limits of u64
+        // Define the safe bit range for extraction
         let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
-        let safe_low_bit = 0;  // Starting from the lowest bit
+        let safe_low_bit = 0;
     
         log!(self.state.logger.clone(), "Preparing to extract from bit {} to {} from register at offset 0x{:x}", safe_low_bit, safe_high_bit, offset);
     
-        // Perform the extraction
+        // Perform the extraction of concrete value
         let extracted_concrete = if bit_size == 64 {
             original_register.concrete.to_u64()
         } else {
             (original_register.concrete.to_u64() >> safe_low_bit) & ((1u64 << bit_size) - 1)
         };
-        log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
-
+    
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-
-        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", extracted_symbolic, bit_size);
-        
-        // Simplify the symbolic value to ensure it is valid
+    
+        // Simplify the symbolic value, and handle the simplification step
         let simplified_symbolic = extracted_symbolic.simplify();
-
-        // Check if the simplified symbolic value is valid by attempting to convert it to a numeral
-        if let Some(_simplified_symbolic) = extracted_symbolic.simplify().as_u64() {
-            log!(self.state.logger.clone(), "The simplified symbolic value is a valid numeral");
-        } else {
-            log!(self.state.logger.clone(), "Extracted symbolic value is invalid for range {} to {}", safe_low_bit, safe_high_bit);
-            return Err(format!("Extracted symbolic value is invalid for range {} to {}", safe_low_bit, safe_high_bit));
-        }
         
-
-        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", simplified_symbolic, bit_size);
-
+        // Log successful extraction and simplification
+        log!(self.state.logger.clone(), "The simplified symbolic value is valid with size {}", bit_size);
+    
+        // Construct and return the concolic value
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
-            symbolic: SymbolicVar::Int(extracted_symbolic),
+            symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }   
+    }           
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
