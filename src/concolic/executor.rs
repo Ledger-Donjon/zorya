@@ -234,7 +234,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
-
+    
         log!(self.state.logger.clone(), "The original register value is {:?} with size {}", original_register.get_concrete_value(), register_size);
     
         // Ensuring we do not attempt to shift beyond the limits of u64
@@ -258,9 +258,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }
+    }    
         
-
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Branch || instruction.inputs.len() != 1 {
