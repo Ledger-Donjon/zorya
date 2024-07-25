@@ -71,8 +71,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut local_line_number = 0;  // Index of the current instruction within the block
 
     // For debugging
-    let address: u64 = 0x4c3d48;
-    let range = 0x0; 
+    //let address: u64 = 0x4c3d48;
+    //let range = 0x0; 
 
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
 
@@ -98,14 +98,13 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             }
 
             // For debugging
-            log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
-            executor.state.print_memory_content(address, range);
-            let register0x0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register RAX at offset 0x0 is {:?}", register0x0);
-            let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
-            log!(executor.state.logger,  "The value of register RDX at offset 0x10 is {:x}", register0x10.concrete);
-            let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
-            log!(executor.state.logger,  "The value of register FS_OFFSET at offset 0x10 is {:x}", register0x110.concrete);
+            //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+            //executor.state.print_memory_content(address, range);
+            let register0x20b = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20b, 64).unwrap();
+            log!(executor.state.logger,  "The value of register RAX at offset 0x0 is {:?}", register0x20b);
+            let register0x207 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x207, 64).unwrap();
+            log!(executor.state.logger,  "The value of register RDX at offset 0x10 is {:x}", register0x207.concrete);
+           
 
             // Check if there's a requested jump within the current block
             if executor.current_lines_number > 0 {
