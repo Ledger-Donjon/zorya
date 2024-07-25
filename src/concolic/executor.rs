@@ -916,6 +916,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         let source_concolic = ConcolicVar::new_concrete_and_symbolic_int(source_concrete_value, source_symbolic_value.clone(), self.context, output_size_bits);
         
+        drop(cpu_state_guard);
         // Check the output destination and copy the source to it
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
@@ -938,6 +939,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
                     let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concolic, output_size_bits);
                     log!(self.state.logger.clone(), "Updated register at offset 0x{:x}", offset);
+                    drop(cpu_state_guard);
                 },
                 _ => {
                     log!(self.state.logger.clone(), "Output type is unsupported for COPY");
@@ -947,8 +949,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for COPY instruction".to_string());
         }
-        
-        drop(cpu_state_guard);
+
         // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
