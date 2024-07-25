@@ -172,11 +172,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Ok(ConcolicEnum::CpuConcolicValue(cpu_concolic_value))
                     } else {
                         log!(self.state.logger.clone(), "Register at offset 0x{:x} exists but with size {} bits, needs {} bits, extraction needed", offset, reg_size, bit_size);
-                        self.extract_and_create_concolic_value(cpu_state_guard, *offset, reg_size, bit_size)
+                        self.extract_and_create_concolic_value(&cpu_state_guard, *offset, reg_size, bit_size)
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
-                    self.extract_and_create_concolic_value(cpu_state_guard, *offset, 0, bit_size)
+                    self.extract_and_create_concolic_value(&cpu_state_guard, *offset, 0, bit_size)
                 }
             },
             // Keep track of the unique variables defined inside one address execution
@@ -224,7 +224,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
-    fn extract_and_create_concolic_value(&self, cpu_state_guard: MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
+    fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
         if register_size == 0 || bit_size > register_size {
             let error_message = format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset);
             log!(self.state.logger.clone(), "{}", error_message);
@@ -821,7 +821,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("Invalid instruction format for COPY".to_string());
         }
 
-        let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+        let cpu_state_guard = self.state.cpu_state.lock().unwrap();
         
         let bit_size = instruction.inputs[0].size.to_bitvector_size() as u32; // size in bits
 
@@ -837,13 +837,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         (cpu_concolic_value.get_concrete_value().unwrap(), cpu_concolic_value.get_symbolic_value().to_bv(&self.context))
                     } else {
                         log!(self.state.logger.clone(), "Register at offset 0x{:x} exists but with size {} bits, needs {} bits, extraction needed", offset, reg_size, bit_size);
-                        let result = self.extract_and_create_concolic_value(cpu_state_guard, *offset, reg_size, bit_size).unwrap();
+                        let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, reg_size, bit_size).unwrap();
                         (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
 
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
-                    let result = self.extract_and_create_concolic_value(cpu_state_guard, *offset, 0, bit_size).unwrap();
+                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, 0, bit_size).unwrap();
                     (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                 }
             },
@@ -915,7 +915,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
         let source_concolic = ConcolicVar::new_concrete_and_symbolic_int(source_concrete_value, source_symbolic_value.clone(), self.context, output_size_bits);
-
+        
         // Check the output destination and copy the source to it
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
@@ -947,11 +947,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for COPY instruction".to_string());
         }
-
+        
+        drop(cpu_state_guard);
         // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
-        //self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, SymbolicVar::Int(source_symbolic_value));
+        self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, SymbolicVar::Int(source_symbolic_value));
         
         Ok(())
     }    
