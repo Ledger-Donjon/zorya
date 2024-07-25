@@ -231,22 +231,22 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             log!(self.state.logger.clone(), "{}", error_message);
             return Err(error_message);
         }
-
+    
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
-
+    
         log!(self.state.logger.clone(), "The original register value is {:?} with size {}", original_register.get_concrete_value(), register_size);
-
+    
         // Ensure the bit range for extraction is valid
         if bit_size > 64 {
             return Err(format!("Bit size {} exceeds the maximum allowed for extraction", bit_size));
         }
-
+    
         let safe_high_bit = (bit_size - 1) as u32;
         let safe_low_bit = 0;
-
+    
         log!(self.state.logger.clone(), "Preparing to extract from bit {} to {} from register at offset 0x{:x}", safe_low_bit, safe_high_bit, offset);
-
+    
         // Perform the extraction
         let extracted_concrete = if bit_size == 64 {
             original_register.concrete.to_u64()
@@ -254,24 +254,28 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             (original_register.concrete.to_u64() >> safe_low_bit) & ((1u64 << bit_size) - 1)
         };
         log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
-
+    
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-
-        // Ensure the extracted symbolic value is valid
-        if extracted_symbolic.simplify().to_string() == "(_ bv0 0)" {
+    
+        // Simplify the symbolic value to ensure it is valid
+        let simplified_symbolic = extracted_symbolic.simplify();
+    
+        // Check if the simplified symbolic value is valid by attempting to convert it to a numeral
+        if simplified_symbolic.as_u64().is_some() {
+            log!(self.state.logger.clone(), "The simplified symbolic value is a valid numeral");
+        } else {
             return Err(format!("Extracted symbolic value is invalid for range {} to {}", safe_low_bit, safe_high_bit));
         }
-
-        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", extracted_symbolic, bit_size);
-
+    
+        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", simplified_symbolic, bit_size);
+    
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
-            symbolic: SymbolicVar::Int(extracted_symbolic),
+            symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }
-
-        
+    }   
+    
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Branch || instruction.inputs.len() != 1 {
