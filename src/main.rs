@@ -100,8 +100,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // For debugging
             //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
             //executor.state.print_memory_content(address, range);
-            let register0x8 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
-            log!(executor.state.logger,  "The value of register RCX at offset 0x8 is {:?}", register0x8.concrete);
+            let register0x20 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap();
+            log!(executor.state.logger,  "The value of register RSP at offset 0x20 is {:?}", register0x20.concrete);
             
            
 
