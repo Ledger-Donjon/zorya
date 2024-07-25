@@ -235,7 +235,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
 
-        log!(self.state.logger.clone(), "The original register value is {:?} with size {}", original_register.get_concrete_value(), register_size);
+        log!(self.state.logger.clone(), "The original register value is {:?} with size {}", original_register.get_concrete_value().unwrap(), register_size);
     
         // Ensuring we do not attempt to shift beyond the limits of u64
         let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
@@ -243,16 +243,28 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         log!(self.state.logger.clone(), "Preparing to extract from bit {} to {} from register at offset 0x{:x}", safe_low_bit, safe_high_bit, offset);
     
-        // Check if the shift operation is safe
-        if safe_high_bit >= 64 { // u64 can only handle shifts up to 63 bits
-            return Err(format!("Bit shift operation unsafe: attempted to access bit {} which exceeds u64 limits", safe_high_bit));
-        }
-    
-        let extracted_concrete = (original_register.concrete.to_u64() >> safe_low_bit) & ((1 << (safe_high_bit + 1)) - 1);
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-    
+        // Perform the extraction
+        let extracted_concrete = if bit_size == 64 {
+            original_register.concrete.to_u64()
+        } else {
+            (original_register.concrete.to_u64() >> safe_low_bit) & ((1u64 << bit_size) - 1)
+        };
         log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
-    
+
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
+
+        // Simplify the symbolic value to ensure it is valid
+        let simplified_symbolic = extracted_symbolic.simplify();
+
+        // Check if the simplified symbolic value is valid by attempting to convert it to a numeral
+        if simplified_symbolic.as_u64().is_some() {
+            log!(self.state.logger.clone(), "The simplified symbolic value is a valid numeral");
+        } else {
+            return Err(format!("Extracted symbolic value is invalid for range {} to {}", safe_low_bit, safe_high_bit));
+        }
+
+        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", simplified_symbolic, bit_size);
+
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
             symbolic: SymbolicVar::Int(extracted_symbolic),
