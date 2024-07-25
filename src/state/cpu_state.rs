@@ -222,7 +222,7 @@ impl<'ctx> CpuState<'ctx> {
             let offset = u64::from_str_radix(offset_hex.trim_start_matches("0x"), 16)
                 .map_err(|e| anyhow!("Error parsing offset for {}: {}", name, e))?;
             let size = size_str.parse::<u32>()
-            .map_err(|e| anyhow!("Error parsing size for {}: {}", name, e))?;
+                .map_err(|e| anyhow!("Error parsing size for {}: {}", name, e))?;
 
             if !self.is_valid_register_offset(name, offset) {
                 return Err(anyhow!("Invalid register offset 0x{:X} for {}", offset, name));
@@ -238,7 +238,7 @@ impl<'ctx> CpuState<'ctx> {
             self.register_map.insert(offset, (name.to_string(), size));
 
             // Print debug info to trace the initialization of registers
-            // println!("Initialized register {} at offset 0x{:X} with size {}.", name, offset, size);
+            println!("Initialized register {} at offset 0x{:X} with size {}.", name, offset, size);
         }
 
         Ok(())

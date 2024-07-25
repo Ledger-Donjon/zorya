@@ -231,34 +231,41 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             log!(self.state.logger.clone(), "{}", error_message);
             return Err(error_message);
         }
-    
+
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| {
                 let error_message = format!("Failed to retrieve register for extraction at offset 0x{:x}", offset);
                 log!(self.state.logger.clone(), "{}", error_message);
                 return error_message;
             })?;
-    
+
+        if let Some((_, reg_size)) = cpu_state_guard.register_map.get(&offset) {
+            println!("Attempting to extract from register at offset 0x{:X} with registered size {} bits.", offset, reg_size);
+            if bit_size > *reg_size {
+                return Err(format!("Attempt to extract more bits ({}) than are available ({}) at offset 0x{:X}", bit_size, reg_size, offset));
+            }
+        }
+
         if bit_size > original_register.symbolic.get_size() {
             let error_message = format!("Attempt to extract more bits ({}) than are available ({}) at offset 0x{:x}", bit_size, original_register.symbolic.get_size(), offset);
             log!(self.state.logger.clone(), "{}", error_message);
             return Err(error_message);
         }
-    
+
         let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
         let safe_low_bit = 0;
-    
+
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
         let simplified_symbolic = extracted_symbolic.simplify();
-    
+
         log!(self.state.logger.clone(), "Successfully extracted and simplified symbolic value with size {}", bit_size);
-    
+
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(original_register.concrete.to_u64()),
             symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }        
+    }    
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
