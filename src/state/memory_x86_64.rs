@@ -203,13 +203,17 @@ impl<'ctx> MemoryX86_64<'ctx> {
                     _ => return Err(MemoryError::IncorrectSliceLength),
                 }
             } else {
-                println!("Uninitialized memory! Set to 0x0.");
+                println!("Uninitialized memory at address 0x{:x}! Set to 0x0.", current_address);
                 result.push(0);
             }
         }
-        Ok(result)
-    } 
-
+        if result.len() == size {
+            Ok(result)
+        } else {
+            Err(MemoryError::IncorrectSliceLength)
+        }
+    }
+    
     pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
         let mut memory = self.memory.write().unwrap(); // Acquire write lock
         let end_address = address.checked_add(bytes.len() as u64).ok_or(MemoryError::WriteOutOfBounds)?;

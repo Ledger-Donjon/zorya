@@ -885,57 +885,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // Handle specific memory addresses
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-            
-                let byte_count = bit_size / 8; // Convert bits to bytes
-                let data = self.state.memory.read_bytes(*addr, byte_count.try_into().unwrap())
-                    .map_err(|e| e.to_string())?;
-                log!(self.state.logger.clone(), "Read data from memory: {:?}", data);
-       
-                let mut composite_concrete_value = 0u64;
-            
-                // Initialize composite_symbolic_value as None
-                let mut composite_symbolic_value: Option<BV> = None;
-
-                for (i, byte) in data.iter().enumerate() {
-                    let byte_value = *byte as u64;
-                    // Ensure byte values are valid and create symbolic representations.
-                    let byte_symbolic = BV::from_u64(self.context, byte_value, 8);
-                    let shift_amount = i * 8;
-                    let shift_amount_bv = BV::from_u64(self.context, shift_amount as u64, 32);
-                
-                    // Perform the shift operation.
-                    let shifted_symbolic = byte_symbolic.bvshl(&shift_amount_bv);
-                
-                    // Aggregate the results into the composite symbolic value.
-                    if let Some(ref mut existing_symbolic_value) = composite_symbolic_value {
-                        *existing_symbolic_value = existing_symbolic_value.bvadd(&shifted_symbolic);
-                    } else {
-                        composite_symbolic_value = Some(shifted_symbolic);
-                    }
-                }
-                
-                // Ensure the composite symbolic value is valid before proceeding.
-                let _ = if let Some(ref symbolic_value) = composite_symbolic_value {
-                    let memory_var = MemoryConcolicValue::new(
-                        self.context,
-                        composite_concrete_value,
-                        symbolic_value.clone(), // Assuming BV supports cloning, otherwise manage usage to prevent moving
-                        bit_size
-                    );
-                    Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
-                } else {
-                    Err("Failed to construct a valid symbolic value".to_string())
-                };                
-                                            
-                let memory_var = MemoryConcolicValue::new(
-                    self.context,
-                    composite_concrete_value,
-                    composite_symbolic_value.expect("Expected a symbolic value but found None"), // Safely unwrap with a panic message
-                    bit_size
-                );
-                
+                let memory_bytes = self.state.memory.read_memory(*addr, (bit_size / 8) as usize)
+                    .map_err(|e| format!("Failed to read memory at address 0x{:x}: {}", addr, e))?;
+                let concrete_value = u64::from_le_bytes(memory_bytes.try_into().expect("Memory read did not return enough bytes"));
+                let memory_var = MemoryConcolicValue::new(self.context, concrete_value, BV::from_u64(self.context, concrete_value, bit_size), bit_size);
+                log!(self.state.logger.clone(), "Specific memory address treated as general memory space, created or retrieved: {}", memory_var);
                 (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
-            }            
+            },       
         };
 
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
