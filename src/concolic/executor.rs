@@ -12,6 +12,7 @@ use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
 use parser::parser::{Inst, Opcode, Var, Varnode};
+use z3::ast::Ast;
 use z3::ast::BV;
 use z3::{Context, Solver};
 use crate::concolic::ConcolicVar;
@@ -889,24 +890,47 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let data = self.state.memory.read_bytes(*addr, byte_count.try_into().unwrap())
                     .map_err(|e| e.to_string())?;
        
-                let mut composite_symbolic_value = BV::from_u64(self.context, 0, bit_size);
                 let mut composite_concrete_value = 0u64;
             
+                // Initialize composite_symbolic_value as None
+                let mut composite_symbolic_value: Option<BV> = None;
+
                 for (i, byte) in data.iter().enumerate() {
-                    let byte_symbolic = BV::from_u64(self.context, *byte as u64, 8);
+                    let byte_value = *byte as u64;
+                    let byte_symbolic = BV::from_u64(self.context, byte_value, 8);
                     let shift_amount = i * 8;
                     let shift_amount_bv = BV::from_u64(self.context, shift_amount as u64, 32); 
                     let shifted_symbolic = byte_symbolic.bvshl(&shift_amount_bv);
-                    composite_symbolic_value = composite_symbolic_value.bvadd(&shifted_symbolic);
-                    composite_concrete_value |= (*byte as u64) << shift_amount;
+
+                    // Update the composite symbolic value
+                    if let Some(ref mut existing_symbolic_value) = composite_symbolic_value {
+                        *existing_symbolic_value = existing_symbolic_value.bvadd(&shifted_symbolic);
+                    } else {
+                        composite_symbolic_value = Some(shifted_symbolic);
+                    }
+
+                    composite_concrete_value |= byte_value << shift_amount;
                 }
-            
+
+                let _ = if let Some(ref symbolic_value) = composite_symbolic_value {
+                    let memory_var = MemoryConcolicValue::new(
+                        self.context,
+                        composite_concrete_value,
+                        symbolic_value.clone(), // Assuming BV supports cloning, otherwise you must manage usage to prevent moving
+                        bit_size
+                    );
+                    Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
+                } else {
+                    Err("Failed to construct a valid symbolic value".to_string())
+                };
+                                            
                 let memory_var = MemoryConcolicValue::new(
                     self.context,
                     composite_concrete_value,
-                    composite_symbolic_value, 
+                    composite_symbolic_value.expect("Expected a symbolic value but found None"), // Safely unwrap with a panic message
                     bit_size
                 );
+                
                 (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
             }            
         };
