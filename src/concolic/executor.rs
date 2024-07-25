@@ -820,11 +820,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if instruction.opcode != Opcode::Copy || instruction.inputs.len() != 1 {
             return Err("Invalid instruction format for COPY".to_string());
         }
-
+    
         let cpu_state_guard = self.state.cpu_state.lock().unwrap();
-        
         let bit_size = instruction.inputs[0].size.to_bitvector_size() as u32; // size in bits
-
+    
         let (source_concrete_value, source_symbolic_value) = match &instruction.inputs[0].var {
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x} and requested bit size: {}", offset, bit_size);
@@ -839,7 +838,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         log!(self.state.logger.clone(), "Register at offset 0x{:x} exists but with size {} bits, needs {} bits, extraction needed", offset, reg_size, bit_size);
                         let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, reg_size, bit_size).unwrap();
                         (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
-
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
@@ -847,7 +845,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                 }
             },
-            // Keep track of the unique variables defined inside one address execution
             Var::Unique(id) => {
                 log!(self.state.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
                 let unique_name = format!("Unique(0x{:x})", id);
@@ -862,7 +859,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             Var::Const(value) => {
                 log!(self.state.logger.clone(), "Varnode is a constant with value: {}", value);
-                // Improved parsing that handles hexadecimal values prefixed with '0x'
                 let parsed_value = if value.starts_with("0x") {
                     u64::from_str_radix(&value[2..], 16)
                 } else {
@@ -870,18 +866,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
                 log!(self.state.logger.clone(), "Parsed value: {}", parsed_value);
                 let parsed_value_symbolic = BV::from_u64(self.context, parsed_value, bit_size);
-                let memory_var = MemoryConcolicValue::new( self.context, parsed_value, parsed_value_symbolic, bit_size);
+                let memory_var = MemoryConcolicValue::new(self.context, parsed_value, parsed_value_symbolic, bit_size);
                 log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {} with symbolic size {:?}", memory_var, memory_var.symbolic.get_size());
                 (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
             },
-            // Handle MemoryRam case
             Var::MemoryRam => {
                 log!(self.state.logger.clone(), "Varnode is MemoryRam");
                 let memory_var = MemoryX86_64::get_memory_concolic_var(&self.state.memory, self.context, 0, bit_size); // Assume 0 is the base address for RAM
                 log!(self.state.logger.clone(), "MemoryRam treated as general memory space, created or retrieved: {}", memory_var);
                 (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
             },
-            // Handle specific memory addresses
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
                 let memory_bytes = self.state.memory.read_memory(*addr, (bit_size / 8) as usize)
@@ -890,14 +884,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let memory_var = MemoryConcolicValue::new(self.context, concrete_value, BV::from_u64(self.context, concrete_value, bit_size), bit_size);
                 log!(self.state.logger.clone(), "Specific memory address treated as general memory space, created or retrieved: {}", memory_var);
                 (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
-            },       
+            },
         };
-
+    
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
-
+    
         let source_concolic = ConcolicVar::new_concrete_and_symbolic_int(source_concrete_value, source_symbolic_value.clone(), self.context, output_size_bits);
-        
+    
         drop(cpu_state_guard);
         // Check the output destination and copy the source to it
         if let Some(output_varnode) = instruction.output.as_ref() {
@@ -911,7 +905,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         source_concrete_value,
                         unique_symbolic.to_bv(&self.context),
                         self.context,
-                        output_size_bits 
+                        output_size_bits
                     );
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
                     //log!(self.state.logger.clone(), "Content of output {:?} after copying: {:?}", unique_name, concolic_var);
@@ -931,12 +925,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for COPY instruction".to_string());
         }
-
+    
         // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-copy", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, source_concrete_value, SymbolicVar::Int(source_symbolic_value));
-        
+    
         Ok(())
     }    
 
