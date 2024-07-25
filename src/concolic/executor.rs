@@ -226,14 +226,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
-        // Validate input sizes for extraction
         if register_size == 0 || bit_size > register_size {
             let error_message = format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset);
             log!(self.state.logger.clone(), "{}", error_message);
             return Err(error_message);
         }
     
-        // Retrieve the register data, handle potential errors gracefully
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| {
                 let error_message = format!("Failed to retrieve register for extraction at offset 0x{:x}", offset);
@@ -241,15 +239,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 error_message
             })?;
     
-        log!(self.state.logger.clone(), "The original register value is {:?} with size {}", original_register.get_concrete_value().unwrap(), register_size);
-    
-        // Define the safe bit range for extraction
         let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
         let safe_low_bit = 0;
     
-        log!(self.state.logger.clone(), "Preparing to extract from bit {} to {} from register at offset 0x{:x}", safe_low_bit, safe_high_bit, offset);
-    
-        // Perform the extraction of concrete value
         let extracted_concrete = if bit_size == 64 {
             original_register.concrete.to_u64()
         } else {
@@ -257,20 +249,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
     
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-    
-        // Simplify the symbolic value, and handle the simplification step
         let simplified_symbolic = extracted_symbolic.simplify();
-        
-        // Log successful extraction and simplification
-        log!(self.state.logger.clone(), "The simplified symbolic value is valid with size {}", bit_size);
     
-        // Construct and return the concolic value
+        log!(self.state.logger.clone(), "Successfully extracted and simplified symbolic value with size {}", bit_size);
+    
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
             symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }           
+    }                   
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
