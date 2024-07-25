@@ -253,14 +253,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             (original_register.concrete.to_u64() >> safe_low_bit) & ((1u64 << bit_size) - 1)
         };
-    
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-        if extracted_symbolic.get_size() != bit_size {
-            return Err(format!("Extracted symbolic value is null for range {} to {}", safe_low_bit, safe_high_bit));
-        }
-
         log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
     
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
+        if extracted_symbolic.get_size() != 0 {
+            return Err(format!("Extracted symbolic value is null for range {} to {}", safe_low_bit, safe_high_bit));
+        }
+        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", extracted_symbolic, bit_size);
+
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_concrete),
             symbolic: SymbolicVar::Int(extracted_symbolic),
