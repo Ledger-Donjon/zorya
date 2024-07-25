@@ -2,12 +2,10 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 
-use parser::parser::{Inst, Opcode, Var};
-use z3::ast::BV;
+use parser::parser::Inst;
 use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
-use zorya::state::cpu_state;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
@@ -81,20 +79,15 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
         log!(executor.state.logger, "*******************************************");
 
-        {
-            let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-            let _ = cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(current_rip, SymbolicVar::new_int(current_rip.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64), 64).map_err(|e| e.to_string());
-        }
+        let mut end_of_block = false;
 
-        while local_line_number < instructions.len() {
+        while local_line_number < instructions.len() && !end_of_block {
             let inst = &instructions[local_line_number];
             log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}", local_line_number, inst);
 
             // Execute the instruction and handle errors
             if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
                 log!(executor.state.logger, "Failed to execute instruction: {}", e);
-                local_line_number += 1;  // Continue to next instruction on error
-                continue;
             }
 
             // For debugging
@@ -102,8 +95,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             //executor.state.print_memory_content(address, range);
             let register0x20 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap();
             log!(executor.state.logger,  "The value of register RSP at offset 0x20 is {:?}", register0x20.concrete);
-            
-           
 
             // Check if there's a requested jump within the current block
             if executor.current_lines_number > 0 {
@@ -118,26 +109,26 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 break;  // Exit the inner loop to adjust the control flow
             }
 
-            // Update local_line_number to the next instruction
-            local_line_number += 1;
+            // Update RIP if the instruction modifies it
+            let possible_new_rip = executor.state.cpu_state.lock().unwrap()
+                .get_register_by_offset(0x288, 64)
+                .unwrap()
+                .get_concrete_value()
+                .unwrap();
 
+            if possible_new_rip != current_rip && local_line_number == instructions.len() - 1 {
+                current_rip = possible_new_rip;
+                local_line_number = 0;  // Reset instruction index for new RIP
+                end_of_block = true; // End current block execution
+                log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
+            } else {
+                // Move to the next instruction in the current block
+                local_line_number += 1;
+            }
         }
 
-        // Check for RIP changes after instruction execution
-        let new_rip = executor.state.cpu_state.lock().unwrap()
-            .get_register_by_offset(0x288, 64)
-            .unwrap()
-            .get_concrete_value()
-            .unwrap();
-        if new_rip != current_rip {
-            log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", new_rip);
-            current_rip = new_rip;
-            local_line_number = 0;  // Start at the beginning of the new block
-            break;  // Move to the new RIP
-        }
-
-        if local_line_number >= instructions.len() {
-            // End of current block, check for the next address
+        // Reset for new block or continue execution at new RIP if set within the block
+        if !end_of_block {
             if let Some((&next_rip, _)) = instructions_map.range((current_rip + 1)..).next() {
                 current_rip = next_rip;
                 local_line_number = 0;  // Reset for new block
@@ -149,4 +140,3 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         }
     }
 }
-
