@@ -236,7 +236,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .ok_or_else(|| {
                 let error_message = format!("Failed to retrieve register for extraction at offset 0x{:x}", offset);
                 log!(self.state.logger.clone(), "{}", error_message);
-                error_message
+                return error_message;
             })?;
     
         if bit_size > original_register.symbolic.get_size() {
@@ -255,10 +255,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(original_register.concrete.to_u64()),
-            symbolic: SymbolicVar::Int(simplified_symbolic),  
+            symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }    
+    }        
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
