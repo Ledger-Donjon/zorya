@@ -274,16 +274,25 @@ impl<'ctx> CpuState<'ctx> {
         from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
 
+    /// Prevents left shift overflow by checking size limits.
+    fn generate_mask(size_bits: u32) -> u64 {
+        if size_bits >= 64 {
+            u64::MAX
+        } else {
+            (1u64 << size_bits) - 1
+        }
+    }
+
     /// Sets the value of a register identified by its offset.
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         if let Some(reg) = self.registers.get_mut(&offset) {
             let full_reg_size = self.register_map.get(&offset).map(|(_, size)| *size).unwrap_or(new_size);
-    
-            // Create masks for the new value range
-            let mask = (1u64 << new_size) - 1;  // Mask for new bits
-            let full_mask = (1u64 << full_reg_size) - 1;  // Mask for full register
-    
-            // Resize and mask the new value to fit into the register
+
+            // Safely generate masks for the new value and the full register
+            let mask = Self::generate_mask(new_size);
+            let full_mask = Self::generate_mask(full_reg_size);
+
+            // Update logic here...
             let resized_concrete = (new_value.concrete.to_u64() & mask) | (reg.concrete.to_u64() & !mask);
             let resized_symbolic = new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size - new_size);
     
