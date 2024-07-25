@@ -554,27 +554,29 @@ pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) ->
         return Err("Invalid instruction format for INT_SBORROW".to_string());
     }
 
-    // Fetch concolic variables
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_SBORROW");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_SBORROW");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Perform the signed subtraction to check for underflow
-    let overflow = {
-        let value0 = input0_var.get_concrete_value() as i64;
-        let value1 = input1_var.get_concrete_value() as i64;
-        value0 < value1
+    // Convert values to i64 for correct signed arithmetic handling
+    let value0 = input0_var.get_concrete_value() as i64;
+    let value1 = input1_var.get_concrete_value() as i64;
+
+    // Check for underflow
+    let result = value0.checked_sub(value1);
+    let underflow_occurred = match result {
+        Some(_) => false,
+        None => true,
     };
 
-    let result_symbolic = z3::ast::Bool::from_bool(executor.context, overflow);
+    let result_symbolic = z3::ast::Bool::from_bool(executor.context, underflow_occurred);
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(overflow, result_symbolic, executor.context, output_size_bits);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(underflow_occurred, result_symbolic, executor.context, output_size_bits);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_SBORROW is underflow: {:?}\n", overflow);
+    log!(executor.state.logger.clone(), "*** The result of INT_SBORROW is underflow: {:?}\n", underflow_occurred);
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
