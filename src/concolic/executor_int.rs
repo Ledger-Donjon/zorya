@@ -556,9 +556,11 @@ pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) ->
 
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_SBORROW");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    log!(executor.state.logger.clone(), "The value of input0_var is: {:?}", input0_var.get_concrete_value());
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_SBORROW");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-
+    log!(executor.state.logger.clone(), "The value of input1_var is: {:?}", input1_var.get_concrete_value());
+   
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
 
     // Convert values to i64 for correct signed arithmetic handling
@@ -571,6 +573,7 @@ pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) ->
         Some(_) => false,
         None => true,
     };
+    log!(executor.state.logger.clone(), "Checked sub result is : {:?}", result);
 
     let result_symbolic = z3::ast::Bool::from_bool(executor.context, underflow_occurred);
 
