@@ -1,12 +1,12 @@
-process 2072
+process 1245
 Mapped address spaces:
 
           Start Addr           End Addr       Size     Offset  Perms  objfile
-            0x400000           0x401000     0x1000        0x0  r--p   /mnt/host/addition-ptrderef
-            0x401000           0x402000     0x1000     0x1000  r-xp   /mnt/host/addition-ptrderef
-            0x402000           0x403000     0x1000     0x2000  r--p   /mnt/host/addition-ptrderef
+            0x400000           0x459000    0x59000        0x0  r-xp   /mnt/host/additiongo
+            0x459000           0x4c0000    0x67000    0x59000  r--p   /mnt/host/additiongo
+            0x4c0000           0x4c4000     0x4000    0xc0000  rw-p   /mnt/host/additiongo
+            0x4c4000           0x4f5000    0x31000        0x0  rw-p   [heap]
       0x7ffff7ff9000     0x7ffff7ffd000     0x4000        0x0  r--p   [vvar]
       0x7ffff7ffd000     0x7ffff7fff000     0x2000        0x0  r-xp   [vdso]
       0x7ffffffde000     0x7ffffffff000    0x21000        0x0  rw-p   [stack]
   0xffffffffff600000 0xffffffffff601000     0x1000        0x0  --xp   [vsyscall]
-process 2072
