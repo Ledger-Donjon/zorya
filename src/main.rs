@@ -121,18 +121,19 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // Update local_line_number to the next instruction
             local_line_number += 1;
 
-            // Check for RIP changes after instruction execution
-            let new_rip = executor.state.cpu_state.lock().unwrap()
-                .get_register_by_offset(0x288, 64)
-                .unwrap()
-                .get_concrete_value()
-                .unwrap();
-            if new_rip != current_rip {
-                log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", new_rip);
-                current_rip = new_rip;
-                local_line_number = 0;  // Start at the beginning of the new block
-                break;  // Move to the new RIP
-            }
+        }
+
+        // Check for RIP changes after instruction execution
+        let new_rip = executor.state.cpu_state.lock().unwrap()
+            .get_register_by_offset(0x288, 64)
+            .unwrap()
+            .get_concrete_value()
+            .unwrap();
+        if new_rip != current_rip {
+            log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", new_rip);
+            current_rip = new_rip;
+            local_line_number = 0;  // Start at the beginning of the new block
+            break;  // Move to the new RIP
         }
 
         if local_line_number >= instructions.len() {
