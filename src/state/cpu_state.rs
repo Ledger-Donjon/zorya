@@ -233,12 +233,12 @@ impl<'ctx> CpuState<'ctx> {
             // Create a new concolic value for the register.
             let concolic_value = CpuConcolicValue::new(self.ctx, initial_value, size);
             // Insert the new register into the map using its offset as the key.
-            self.registers.insert(offset, concolic_value);
+            self.registers.insert(offset, concolic_value.clone());
             // Map the offset to the register name for easy lookup
             self.register_map.insert(offset, (name.to_string(), size));
 
             // Print debug info to trace the initialization of registers
-            println!("Initialized register {} at offset 0x{:X} with size {}.", name, offset, size);
+            println!("Initialized register {} at offset 0x{:X} with value {:?} and size {}.", name, offset, concolic_value, size);
         }
 
         Ok(())
