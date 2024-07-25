@@ -275,39 +275,30 @@ impl<'ctx> CpuState<'ctx> {
     }
 
     /// Sets the value of a register identified by its offset.
-    pub fn set_register_value_by_offset(&mut self, offset: u64, value: ConcolicVar<'ctx>, size: u32) -> Result<(), String> {
+    pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         if let Some(reg) = self.registers.get_mut(&offset) {
-            // Fetch the full size of the register to ensure we do not alter it unintentionally
-            let full_size = self.register_map.get(&offset).map(|(_, size)| *size).unwrap_or(64);
+            let full_reg_size = self.register_map.get(&offset).map(|(_, size)| *size).unwrap_or(new_size);
     
-            // Create masks to isolate the bits to be updated
-            let mask = if size >= 64 {
-                u64::MAX
-            } else {
-                (1 << size) - 1
-            };
+            // Create masks for the new value range
+            let mask = (1u64 << new_size) - 1;  // Mask for new bits
+            let full_mask = (1u64 << full_reg_size) - 1;  // Mask for full register
     
-            let resized_concrete = value.concrete.to_u64() & mask;
+            // Resize and mask the new value to fit into the register
+            let resized_concrete = (new_value.concrete.to_u64() & mask) | (reg.concrete.to_u64() & !mask);
+            let resized_symbolic = new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size - new_size);
     
-            // Preserve existing bits outside the targeted range
-            let existing_value = reg.concrete.to_u64();
-            let value_with_mask = (existing_value & !mask) | (resized_concrete & mask);
-            
-            let resized_symbolic = value.symbolic.to_bv(self.ctx).extract(size - 1, 0);
-            let existing_symbolic = reg.symbolic.to_bv(self.ctx);
-            
-            // Combine the new symbolic value with the existing one outside the modified range
-            let combined_symbolic = existing_symbolic.concat(&resized_symbolic);
+            // Ensure the symbolic representation covers the whole register size
+            let combined_symbolic = reg.symbolic.to_bv(self.ctx).extract(full_reg_size - 1, new_size).concat(&resized_symbolic);
     
-            reg.concrete = ConcreteVar::Int(value_with_mask);
+            reg.concrete = ConcreteVar::Int(resized_concrete & full_mask);
             reg.symbolic = SymbolicVar::Int(combined_symbolic);
     
-            println!("Register at offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", offset, value_with_mask, size, full_size);
+            println!("Register at offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", offset, resized_concrete, new_size, full_reg_size);
             Ok(())
         } else {
             Err(format!("Register at offset 0x{:x} not found", offset))
         }
-    }    
+    }        
 
     // Function to get a register by its offset, accounting for sub-register accesses
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {

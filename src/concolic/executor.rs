@@ -239,13 +239,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 return error_message;
             })?;
 
-        if let Some((_, reg_size)) = cpu_state_guard.register_map.get(&offset) {
-            println!("Attempting to extract from register at offset 0x{:X} with registered size {} bits.", offset, reg_size);
-            if bit_size > *reg_size {
-                return Err(format!("Attempt to extract more bits ({}) than are available ({}) at offset 0x{:X}", bit_size, reg_size, offset));
-            }
-        }
-
         if bit_size > original_register.symbolic.get_size() {
             let error_message = format!("Attempt to extract more bits ({}) than are available ({}) at offset 0x{:x}", bit_size, original_register.symbolic.get_size(), offset);
             log!(self.state.logger.clone(), "{}", error_message);
