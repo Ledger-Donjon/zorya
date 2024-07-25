@@ -239,14 +239,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 error_message
             })?;
     
+        if bit_size > original_register.symbolic.get_size() {
+            let error_message = format!("Attempt to extract more bits ({}) than are available ({}) at offset 0x{:x}", bit_size, original_register.symbolic.get_size(), offset);
+            log!(self.state.logger.clone(), "{}", error_message);
+            return Err(error_message);
+        }
+    
         let safe_high_bit = ((bit_size as u64 - 1).min(register_size as u64 - 1)) as u32;
         let safe_low_bit = 0;
-    
-        let extracted_concrete = if bit_size == 64 {
-            original_register.concrete.to_u64()
-        } else {
-            (original_register.concrete.to_u64() >> safe_low_bit) & ((1u64 << bit_size) - 1)
-        };
     
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
         let simplified_symbolic = extracted_symbolic.simplify();
@@ -254,11 +254,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "Successfully extracted and simplified symbolic value with size {}", bit_size);
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
-            concrete: ConcreteVar::Int(extracted_concrete),
-            symbolic: SymbolicVar::Int(simplified_symbolic),
+            concrete: ConcreteVar::Int(original_register.concrete.to_u64()),
+            symbolic: SymbolicVar::Int(simplified_symbolic),  
             ctx: cpu_state_guard.ctx,
         }))
-    }                   
+    }    
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
