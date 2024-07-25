@@ -253,15 +253,19 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
 
+        log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", extracted_symbolic, bit_size);
+        
         // Simplify the symbolic value to ensure it is valid
         let simplified_symbolic = extracted_symbolic.simplify();
 
         // Check if the simplified symbolic value is valid by attempting to convert it to a numeral
-        if simplified_symbolic.as_u64().is_some() {
+        if let Some(_simplified_symbolic) = extracted_symbolic.simplify().as_u64() {
             log!(self.state.logger.clone(), "The simplified symbolic value is a valid numeral");
         } else {
+            log!(self.state.logger.clone(), "Extracted symbolic value is invalid for range {} to {}", safe_low_bit, safe_high_bit);
             return Err(format!("Extracted symbolic value is invalid for range {} to {}", safe_low_bit, safe_high_bit));
         }
+        
 
         log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", simplified_symbolic, bit_size);
 
