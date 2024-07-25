@@ -255,7 +255,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
     
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-    
+        if extracted_symbolic.get_size() != bit_size {
+            return Err(format!("Extracted symbolic value is null for range {} to {}", safe_low_bit, safe_high_bit));
+        }
+
         log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
@@ -263,7 +266,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }    
+    }        
         
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {

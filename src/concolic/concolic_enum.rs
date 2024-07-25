@@ -61,24 +61,6 @@ impl<'ctx> ConcolicEnum<'ctx> {
         }
     }
 
-    // pub fn get_symbolic_value_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
-    //     match self {
-    //         ConcolicEnum::ConcolicVar(var) => {
-    //             match var.symbolic {
-    //                 SymbolicVar::Int(bv) => bv,
-    //                 SymbolicVar::Float(f) => f, // pb expect a BV
-    //                 SymbolicVar::Bool(b) => {
-    //                     let true_bv = BV::from_u64(ctx, 1, 64);  
-    //                     let false_bv = BV::from_u64(ctx, 0, 64);  
-    //                     b.ite(&true_bv, &false_bv)
-    //                 }
-    //             }
-    //         },
-    //         ConcolicEnum::CpuConcolicValue(cpu) => cpu.symbolic.to_bv(ctx),
-    //         ConcolicEnum::MemoryConcolicValue(mem) => mem.symbolic.to_bv(ctx),
-    //     }
-    // }
-
     // Retrieve the size of the concolic variable
     pub fn get_size(&self) -> u32 {
         match self {
