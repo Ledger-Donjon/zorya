@@ -474,6 +474,11 @@ pub fn handle_int_zext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     let zero_extended_value = input_var.get_concrete_value() & mask;
     let result_symbolic = input_var.get_symbolic_value_bv(executor.context).zero_ext((output_size - input_size) as u32);
 
+    // Ensure the result_symbolic is valid
+    if result_symbolic.get_size() == 0 {
+        return Err("Zero-extended symbolic value is null".to_string());
+    }
+
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         zero_extended_value,
         result_symbolic,

@@ -256,7 +256,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "The extracted concrete value is {} with size {}", extracted_concrete, bit_size);
     
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
-        if extracted_symbolic.get_size() != 0 {
+        if extracted_symbolic.get_size() == 0 {
             return Err(format!("Extracted symbolic value is null for range {} to {}", safe_low_bit, safe_high_bit));
         }
         log!(self.state.logger.clone(), "The extracted symbolic value is {:?} with size {}", extracted_symbolic, bit_size);
