@@ -16,66 +16,9 @@ impl<'ctx> SymbolicVar<'ctx> {
         SymbolicVar::Int(bv)
     }
 
-    pub fn add(&self, other: &SymbolicVar<'ctx>) -> Result<SymbolicVar<'ctx>, &'static str> {
-        match (self, other) {
-            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
-                Ok(SymbolicVar::Int(a.bvadd(&b)))
-            },
-            (SymbolicVar::Float(a), SymbolicVar::Float(b)) => {
-                // Use the `add_towards_zero` method for Floats
-                Ok(SymbolicVar::Float(a.add_towards_zero(&b)))
-            },
-            _ => Err("Cannot add different types"),
-        }
-    }
-    
-    pub fn sub(&self, other: &SymbolicVar<'ctx>, _ctx: &'ctx Context) -> Result<SymbolicVar<'ctx>, &'static str> {
-        match (self, other) {
-            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
-                Ok(SymbolicVar::Int(a.bvsub(&b)))
-            },
-            (SymbolicVar::Float(a), SymbolicVar::Float(b)) => {
-                Ok(SymbolicVar::Float(a.sub_towards_zero(&b)))
-            },
-            _ => Err("Cannot subtract different types"),
-        }
-    }
-
-    pub fn signed_sub_overflow(&self, other: &SymbolicVar<'ctx>, ctx: &'ctx Context) -> Result<Bool<'ctx>, &'static str> {
-        match (self, other) {
-            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
-                let sub = a.bvsub(&b);
-                let overflow = z3::ast::Bool::or(
-                    ctx,
-                    &[&a.bvsgt(&sub), &b.bvsgt(&sub)],
-                );
-                Ok(overflow)
-            },
-            _ => Err("signed_sub_overflow is only defined for integers"),
-        }
-    } 
-
-    pub fn sub_with_overflow_check(&self, other: &Self, _ctx: &'ctx Context) -> Result<(Self, bool), &'static str> {
-        match (self, other) {
-            (SymbolicVar::Int(bv1), SymbolicVar::Int(bv2)) => {
-                let result = bv1.bvsub(bv2);
-                // Z3 BV method to check for overflow on subtraction
-                let overflow = bv1.bvsub_no_overflow(bv2).as_bool().unwrap(); // Convert Bool to bool
-                Ok((SymbolicVar::Int(result), overflow))
-            },
-            _ => Err("Unsupported types for subtraction with overflow check"),
-        }
-    }
-
-    // Logical AND operation between two symbolic variables
-    pub fn and(&self, other: &SymbolicVar<'ctx>, _ctx: &'ctx Context) -> Result<Self, &'static str> {
-        match (self, other) {
-            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
-                let new_symbolic = a.bvand(b);
-                Ok(SymbolicVar::Int(new_symbolic))
-            },
-            _ => Err("AND operation is only supported for integers"),
-        }
+    pub fn new_float(value: f64, ctx: &'ctx Context) -> SymbolicVar<'ctx> {
+        let float = Float::from_f64(ctx, value);
+        SymbolicVar::Float(float)
     }
 
     pub fn popcount(&self) -> BV<'ctx> {
@@ -91,28 +34,6 @@ impl<'ctx> SymbolicVar<'ctx> {
             },
             SymbolicVar::Float(_) => panic!("Popcount is not defined for floating-point values"),
             SymbolicVar::Bool(_) => panic!("Popcount is not defined for boolean values"),
-        }
-    }
-
-    // Logical OR operation between two symbolic variables
-    pub fn or(&self, other: &SymbolicVar<'ctx>, _ctx: &'ctx Context) -> Result<Self, &'static str> {
-        match (self, other) {
-            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => {
-                let new_symbolic = a.bvor(b);
-                Ok(SymbolicVar::Int(new_symbolic))
-            },
-            _ => Err("OR operation is only supported for integers"),
-        }
-    }
-
-    // Additional method to negate a boolean bit vector
-    pub fn bool_not(&self) -> Result<SymbolicVar<'ctx>, &'static str> {
-        match self {
-            SymbolicVar::Int(bv) => { // Ensure it's treated as a boolean
-                Ok(SymbolicVar::Int(bv.bvnot())) // Negate the bit vector
-            },
-            SymbolicVar::Bool(b) => Ok(SymbolicVar::Bool(b.not())),
-            _ => Err("bool_not is applicable only to 1-bit wide integer bit vectors"),
         }
     }
 
@@ -156,6 +77,15 @@ impl<'ctx> SymbolicVar<'ctx> {
                 b.ite(&one, &zero) // If `b` is true, return `one`, otherwise return `zero`
             }
             
+        }
+    }
+
+    // Convert the symbolic variable to a float
+    pub fn to_float(&self) -> Float<'ctx> {
+        match self {
+            SymbolicVar::Float(f) => f.clone(),
+            SymbolicVar::Int(_) => panic!("Cannot convert a boolean symbolic variable to a float"), //TODO
+            SymbolicVar::Bool(_) => panic!("Cannot convert a boolean symbolic variable to a float"),
         }
     }
 

@@ -1,10 +1,82 @@
 /// Focuses on implementing the execution of the FLOAT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::executor::ConcolicExecutor;
-use parser::parser::{Inst, Opcode, Size};
-
+use crate::{concolic::ConcolicVar, executor::ConcolicExecutor};
+use parser::parser::{Inst, Opcode, Size, Var, Varnode};
+use z3::ast::{Bool, BV};
+use std::io::Write;
+use z3::ast::Ast;
 use super::ConcreteVar;
+
+macro_rules! log {
+    ($logger:expr, $($arg:tt)*) => {{
+        writeln!($logger, $($arg)*).unwrap();
+    }};
+}
+
+fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+    if let Some(varnode) = output_varnode {
+        // Resize the result_value according to the output size specification
+        let size_bits = varnode.size.to_bitvector_size() as u32;
+        result_value.resize(size_bits);
+
+        match &varnode.var {
+            Var::Unique(id) => {
+                let unique_name = format!("Unique(0x{:x})", id);
+                executor.unique_variables.insert(unique_name, result_value.clone());
+                log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
+                Ok(())
+            },
+            Var::Register(offset, _) => {
+                log!(executor.state.logger.clone(), "Output is a Register type");
+                let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+                let concrete_value = result_value.concrete.to_u64();
+
+                match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
+                    Ok(_) => {
+                        log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, concrete_value, size_bits);
+                        Ok(())
+                    },
+                    Err(e) => {
+                        log!(executor.state.logger.clone(), "Error updating register at offset 0x{:x}: {}", offset, e);
+                        // Handle the case where the register offset might be a sub-register
+                        let closest_offset = cpu_state_guard.registers.keys().rev().find(|&&key| key < *offset);
+                        if let Some(&base_offset) = closest_offset {
+                            let diff = *offset - base_offset;
+                            let full_reg_size = cpu_state_guard.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
+
+                            if (diff * 8) + size_bits as u64 <= full_reg_size as u64 {
+                                let original_value = cpu_state_guard.get_register_by_offset(base_offset, full_reg_size).unwrap();
+                                let mask = ((1u64 << size_bits) - 1) << (diff * 8);
+                                let new_value = (original_value.concrete.to_u64() & !mask) | ((concrete_value & ((1u64 << size_bits) - 1)) << (diff * 8));
+
+                                cpu_state_guard.set_register_value_by_offset(base_offset, result_value.clone(), full_reg_size)
+                                    .map_err(|e| {
+                                        log!(executor.state.logger.clone(), "Error updating sub-register at offset 0x{:x}: {}", offset, e);
+                                        e
+                                    })
+                                    .and_then(|_| {
+                                        log!(executor.state.logger.clone(), "Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size_bits);
+                                        Ok(())
+                                    })
+                            } else {
+                                Err(format!("Cannot fit value into register at offset 0x{:x}", offset))
+                            }
+                        } else {
+                            Err(format!("No suitable register found for offset 0x{:x}", offset))
+                        }
+                    }
+                }
+            },
+            _ => {
+                log!(executor.state.logger.clone(), "Output type is unsupported");
+                Err("Output type not supported".to_string())
+            }
+        }
+    } else {
+        Err("No output varnode specified".to_string())
+    }
+}
 
 pub fn handle_float_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     // Validate the instruction format and ensure there are exactly two inputs
@@ -387,18 +459,36 @@ pub fn handle_float_nan(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         return Err("Invalid instruction format for FLOAT_NAN".to_string());
     }
 
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode is required".to_string())?;
-    
-    let input0_value = executor.state.get_concrete_var(&instruction.inputs[0])?;
+    log!(executor.state.logger.clone(), "* Fetching floating-point input for FLOAT_NAN");
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
 
-    let result = match input0_value {
-        ConcreteVar::Float(f0) => if f0.is_nan() { 1.0 } else { 0.0 },
-        _ => return Err("Expected a floating-point value for FLOAT_NAN".to_string()),
-    };
+    let input_value = f64::from_bits(input0_var.get_concrete_value()); // Assumes floating-point input is stored as u64
+    let result_concrete = input_value.is_nan();
 
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}_{:02}_{}", current_addr_hex, executor.instruction_counter, format!("{:?}", output_varnode.var));
-    //executor.state.set_var(&result_var_name, ConcolicVar::new_concrete_and_symbolic_float(result, &result_var_name, executor.context));
+    // Directly create a Bool from the boolean result
+    let result_symbolic = Bool::from_bool(executor.context, result_concrete);
+
+    log!(executor.state.logger.clone(), "Result of FLOAT_NAN check: {}", result_concrete);
+
+    // The output should be a boolean value, ensure the output varnode is set properly
+    if let Some(output_varnode) = instruction.output.as_ref() {
+        let result_value = ConcolicVar::new_concrete_and_symbolic_bool(
+            result_concrete,
+            result_symbolic,
+            executor.context,
+            output_varnode.size.to_bitvector_size() as u32,
+        );
+
+        // Handle the result based on the output varnode
+        handle_output(executor, Some(output_varnode), result_value.clone())?;
+
+        // Create or update a concolic variable for the result
+        let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-floatnan", current_addr_hex, executor.instruction_counter);
+        executor.state.create_or_update_concolic_variable_bool(&result_var_name, result_value.concrete.to_bool(), result_value.symbolic);
+    } else {
+        return Err("Output varnode not specified for FLOAT_NAN instruction".to_string());
+    }
 
     Ok(())
 }

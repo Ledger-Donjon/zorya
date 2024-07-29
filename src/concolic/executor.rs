@@ -18,6 +18,7 @@ use z3::{Context, Solver};
 use crate::concolic::ConcolicVar;
 use super::executor_bool;
 use super::executor_callother;
+use super::executor_float;
 use super::executor_int;
 use super::ConcolicEnum;
 pub use super::ConcreteVar;
@@ -115,7 +116,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::FloatLess => panic!("Opcode is not implemented yet"), //executor_float::handle_float_less(self, instruction),
             Opcode::FloatLessEqual => panic!("Opcode is not implemented yet"), //executor_float::handle_float_lessequal(self, instruction),
             Opcode::FloatMult => panic!("Opcode is not implemented yet"), //executor_float::handle_float_mult(self, instruction),
-            Opcode::FloatNaN => panic!("Opcode is not implemented yet"), //executor_float::handle_float_nan(self, instruction),
+            Opcode::FloatNaN => executor_float::handle_float_nan(self, instruction),
             Opcode::FloatNeg => panic!("Opcode is not implemented yet"), //executor_float::handle_float_neg(self, instruction),
             Opcode::FloatNotEqual => panic!("Opcode is not implemented yet"), //executor_float::handle_float_notequal(self, instruction),
             Opcode::FloatSqrt => panic!("Opcode is not implemented yet"), //executor_float::handle_float_sqrt(self, instruction),

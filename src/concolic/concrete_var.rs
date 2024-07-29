@@ -159,6 +159,16 @@ impl ConcreteVar {
         }
     }
 
+    // Convert ConcreteVar to a boolean value
+    pub fn to_bool(&self) -> bool {
+        match *self {
+            ConcreteVar::Int(value) => value != 0,
+            ConcreteVar::Float(value) => value != 0.0,
+            ConcreteVar::Str(ref s) => !s.is_empty(),
+            ConcreteVar::Bool(value) => value,
+        }
+    }
+
     pub fn get_size(&self) -> u32 {
         match self {
             ConcreteVar::Int(_) => 64,  // all integers are u64
