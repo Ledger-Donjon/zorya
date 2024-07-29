@@ -725,7 +725,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     // Handle STORE operation
-    // Handle STORE operation
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
             return Err("Invalid instruction format for STORE".to_string());
@@ -769,14 +768,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
-        // Store the data in the memory at the calculated offset, byte by byte
         {
+            // Store the data in memory, byte by byte, in little-endian order
             let mut memory_guard = self.state.memory.memory.write().unwrap();
-            for i in 0..8 {
+            for i in 0..(instruction.inputs[2].size.to_bitvector_size() / 8) as u64 {
                 let byte_address = pointer_offset_concrete + i;
-                let byte_value = (data_to_store_concrete >> (8 * i)) & 0xFF; // Isolate each byte to store
-                let byte_value_symbolic = BV::from_u64(self.context, byte_value, 8);
-                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value, byte_value_symbolic, 8));
+                let byte_value = ((data_to_store_concrete >> (8 * i)) & 0xFF) as u8; // Extract each byte
+                let byte_value_symbolic = BV::from_u64(self.context, byte_value as u64, 8);
+                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value as u64, byte_value_symbolic, 8));
                 log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
             }
         }
