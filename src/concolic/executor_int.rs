@@ -198,24 +198,20 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Perform the subtraction using signed integers
+    // Perform the subtraction using signed integers and ensure correct handling of the output size
     let result_concrete = (input0_var.get_concrete_value() as i64).wrapping_sub(input1_var.get_concrete_value() as i64);
 
-    // Ensure that the result fits within the output size
-    let masked_result = if output_size_bits < 64 {
-        result_concrete & ((1u64 << output_size_bits) - 1) as i64
-    } else {
-        result_concrete
+    // Truncate the result to fit the output size
+    let truncated_result = match output_size_bits {
+        32 => result_concrete as i32 as i64, // Handle 32-bit result truncation
+        64 => result_concrete,
+        _ => result_concrete & ((1 << output_size_bits) - 1),
     };
 
-    // Perform symbolic subtraction
-    let result_symbolic = input0_var
-        .get_symbolic_value_bv(executor.context)
-        .bvsub(&input1_var.get_symbolic_value_bv(executor.context));
+    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvsub(&input1_var.get_symbolic_value_bv(executor.context));
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(truncated_result as u64, result_symbolic, executor.context, output_size_bits);
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(masked_result as u64, result_symbolic, executor.context, output_size_bits);
-
-    log!(executor.state.logger.clone(), "*** The result of INT_SUB is: {:?}\n", masked_result);
+    log!(executor.state.logger.clone(), "*** The result of INT_SUB is: {:?}\n", truncated_result);
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
