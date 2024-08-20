@@ -201,21 +201,29 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Perform the subtraction using signed integers
     let result_concrete = (input0_var.get_concrete_value() as i64).wrapping_sub(input1_var.get_concrete_value() as i64);
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvsub(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete as u64, result_symbolic, executor.context, output_size_bits);
 
     log!(executor.state.logger.clone(), "*** The result of INT_SUB is: {:?}\n", result_concrete);
 
+    // Ensure that the result is correctly sign-extended if necessary
+    let sign_extended_value = if result_concrete < 0 {
+        result_concrete | (!((1 << output_size_bits) - 1) as i64)
+    } else {
+        result_concrete
+    };
+
+    // Convert the sign-extended value back to the appropriate size
+    let final_result_value = ConcolicVar::new_concrete_and_symbolic_int(sign_extended_value as u64, result_symbolic, executor.context, output_size_bits);
+
     // Handle the result based on the output varnode
-    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
+    handle_output(executor, instruction.output.as_ref(), final_result_value.clone())?;
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsub", current_addr_hex, executor.instruction_counter);
-    executor.state.create_or_update_concolic_variable_int(&result_var_name, result_value.concrete.to_u64(), result_value.symbolic);
+    executor.state.create_or_update_concolic_variable_int(&result_var_name, final_result_value.concrete.to_u64(), final_result_value.symbolic);
 
     Ok(())
 }
-
 
 pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntXor || instruction.inputs.len() != 2 {
