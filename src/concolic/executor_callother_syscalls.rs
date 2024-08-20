@@ -582,7 +582,6 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 None
             };
         
-            let is_private = (op & FUTEX_PRIVATE_FLAG) != 0;
             let operation = op & !FUTEX_PRIVATE_FLAG;
         
             match operation {
@@ -606,12 +605,9 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     // This should wake up to 'val' number of threads waiting on 'uaddr'
                     let futex_uaddr = uaddr as u64;
                     let futex_val = val as usize;
-                    if is_private {
-                        executor.state.futex_manager.futex_wake_private(futex_uaddr, futex_val)?;
-                    } else {
-                        executor.state.futex_manager.futex_wake(futex_uaddr, futex_val)?;
-                    }
-        
+                   
+                    executor.state.futex_manager.futex_wake(futex_uaddr, futex_val)?;
+                    
                     drop(cpu_state_guard);
                 
                     // Create the concolic variables for the results

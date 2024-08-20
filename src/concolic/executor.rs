@@ -38,7 +38,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub current_address: Option<u64>,
     pub instruction_counter: usize,
     pub unique_variables: BTreeMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
-    pub current_lines_number: usize, // known line number of the current instruction in the pcode file, usefull for branch instructions
+    pub pcode_internal_lines_to_be_jumped: usize, // known line number of the current instruction in the pcode file, usefull for branch instructions
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -52,7 +52,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             current_address: None,
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
-            current_lines_number: 0,
+            pcode_internal_lines_to_be_jumped: 0, // number of lines to skip in case of branch instructions
          })
     }
 
@@ -300,7 +300,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 match u64::from_str_radix(value_str, 16) {
                     Ok(value_u64) => {
                         log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                        self.current_lines_number = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
+                        self.pcode_internal_lines_to_be_jumped = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
                         value_u64
                     },
                     Err(e) => {
@@ -376,7 +376,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 match u64::from_str_radix(value_str, 16) {
                     Ok(value_u64) => {
                         log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
-                        self.current_lines_number = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
+                        self.pcode_internal_lines_to_be_jumped = value_u64 as usize;  // Assuming this sets how many lines to skip or similar logic
                         value_u64
                     },
                     Err(e) => {
@@ -491,7 +491,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Check the branch condition
                 if branch_condition_concrete != 0 {
                     log!(self.state.logger.clone(), "Branch condition is true, and because it is a sub-instruction, the execution jumps of {:x} lines.", value_u64);
-                    self.current_lines_number = value_u64 as usize;  // setting the number of lines to skip
+                    self.pcode_internal_lines_to_be_jumped = value_u64 as usize;  // setting the number of lines to skip
                 } else {
                     log!(self.state.logger.clone(), "Branch condition is false, continuing to the next instruction.");
                 }

@@ -102,10 +102,10 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger,  "The value of register RSP at offset 0x20 is {:?}", register0x20.concrete);
 
             // Check if there's a requested jump within the current block
-            if executor.current_lines_number > 0 {
-                let jump_target = local_line_number + executor.current_lines_number;
+            if executor.pcode_internal_lines_to_be_jumped > 0 {
+                let jump_target = local_line_number + executor.pcode_internal_lines_to_be_jumped;
                 log!(executor.state.logger, "Jumping from line {} to line {}", local_line_number, jump_target);
-                executor.current_lines_number = 0;  // Reset after handling
+                executor.pcode_internal_lines_to_be_jumped = 0;  // Reset after handling
                 if jump_target < instructions.len() {
                     local_line_number = jump_target;  // Perform the jump within the block
                     continue;  // Move directly to the jump target line

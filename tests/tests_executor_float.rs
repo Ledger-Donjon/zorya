@@ -7,9 +7,9 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 mod tests {
     use std::collections::BTreeMap;
     use parser::parser::Size;
+    use z3::ast::Float;
     use zorya::concolic::{ConcolicVar, Logger};
-    use zorya::concolic::{executor_float::{handle_float_nan}};
-    use zorya::executor::SymbolicVar;
+    use zorya::concolic::executor_float::{handle_float_nan, handle_float_equal};
 
     use super::*;
     
@@ -26,49 +26,73 @@ mod tests {
             current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
-            current_lines_number        
+            pcode_internal_lines_to_be_jumped: current_lines_number        
         }
     }
 
     #[test]
     fn test_handle_float_nan() {
         let mut executor = setup_executor();
-        let nan_value = f64::NAN; // Represents a NaN value
-        let nan_value_symbolic = SymbolicVar::new_float(nan_value, executor.context);
+        let nan_value = f64::NAN.to_bits(); // Convert NaN to its bit representation
+        let nan_value_float = Float::from_f64(executor.context, f64::from_bits(nan_value));
+        let nan_concolic_var = ConcolicVar::new_concrete_and_symbolic_float(nan_value as f64, nan_value_float.clone(), executor.context, 64);
 
-        // Create a floating-point varnode that will be NaN
-        let input_var = ConcolicVar::new_concrete_and_symbolic_float(nan_value, nan_value_symbolic.to_float(), executor.context, 64);
-        executor.unique_variables.insert("Unique(0x1)".to_string(), input_var);
+        executor.unique_variables.insert("Unique(0x1)".to_string(), nan_concolic_var);
 
-        // Setup instruction with a single input (NaN)
         let instruction = Inst {
             opcode: Opcode::FloatNaN,
             output: Some(Varnode {
                 var: Var::Unique(0x2),
                 size: Size::Quad,
             }),
+            inputs: vec![Varnode {
+                var: Var::Unique(0x1),
+                size: Size::Quad,
+            }],
+        };
+
+        let result = handle_float_nan(&mut executor, instruction);
+        assert!(result.is_ok(), "Float NaN detection should succeed.");
+
+        let result_var = executor.unique_variables.get("Unique(0x2)").unwrap();
+        assert!(result_var.concrete.to_bool(), "The result of NaN check should be true.");
+    }
+
+    #[test]
+    fn test_handle_float_equal() {
+        let mut executor = setup_executor();
+
+        // Setup two floating-point numbers, neither being NaN
+        let input0 = f64::from_bits(0x4000000000000000); // 2.0
+        let input1 = f64::from_bits(0x4000000000000000); // 2.0
+
+        let input0_var = ConcolicVar::new_concrete_and_symbolic_float(input0, Float::from_f64(executor.context, input0), executor.context, 64);
+        let input1_var = ConcolicVar::new_concrete_and_symbolic_float(input1, Float::from_f64(executor.context, input1), executor.context, 64);
+
+        executor.unique_variables.insert("Unique(0x100)".to_string(), input0_var);
+        executor.unique_variables.insert("Unique(0x101)".to_string(), input1_var);
+
+        let instruction = Inst {
+            opcode: Opcode::FloatEqual,
+            output: Some(Varnode {
+                var: Var::Unique(0x102),
+                size: Size::Quad,
+            }),
             inputs: vec![
                 Varnode {
-                    var: Var::Unique(0x1),
+                    var: Var::Unique(0x100),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x101),
                     size: Size::Quad,
                 },
             ],
         };
 
-        // Execute the handle_float_nan function
-        let result = handle_float_nan(&mut executor, instruction);
-        assert!(result.is_ok(), "Float NaN detection should succeed.");
-
-        // Fetch the output varnode to verify it captured NaN correctly
-        let result_var = executor.unique_variables.get("Unique(0x2)").unwrap();
-        assert_eq!(
-            result_var.concrete.to_bool(),
-            true,
-            "The result of NaN check should be true."
-        );
-
-        // Log output for confirmation in tests
-        println!("Output of FLOAT_NAN is correct: {}", result_var.concrete.to_bool());
+        let result = handle_float_equal(&mut executor, instruction);
+        assert!(result.is_ok(), "FLOAT_EQUAL should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x102)").unwrap();
+        assert!(result_var.concrete.to_bool(), "FLOAT_EQUAL should return true for equal inputs.");
     }
-    
 }

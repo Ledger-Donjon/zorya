@@ -26,7 +26,7 @@ pub struct State<'a> {
     pub logger: Logger,
     pub signal_mask: u32,  // store the signal mask
     pub futex_manager: FutexManager,
-    pub altstack: StackT,
+    pub altstack: StackT, // structure used by the sigaltstack system call to define an alternate signal stack
 }
 
 impl<'a> State<'a> {
