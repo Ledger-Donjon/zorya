@@ -109,15 +109,18 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
             // Check if there's a requested jump within the current block
             if executor.pcode_internal_lines_to_be_jumped > 0 {
-                let jump_target = local_line_number + executor.pcode_internal_lines_to_be_jumped;
+                let proposed_jump_target = local_line_number + executor.pcode_internal_lines_to_be_jumped;
+                // Ensure the jump target does not exceed the bounds of the instruction list
+                let jump_target = if proposed_jump_target < instructions.len() {
+                    proposed_jump_target
+                } else {
+                    instructions.len() - 1  // set to the last valid index if the calculated target is too high
+                };
+
                 log!(executor.state.logger, "Jumping from line {} to line {}", local_line_number, jump_target);
                 executor.pcode_internal_lines_to_be_jumped = 0;  // Reset after handling
-                if jump_target < instructions.len() {
-                    local_line_number = jump_target;  // Perform the jump within the block
-                    continue;  // Move directly to the jump target line
-                }
-                // If jump goes beyond current block, adjust RIP if possible
-                break;  // Exit the inner loop to adjust the control flow
+                local_line_number = jump_target;  // Perform the jump within the block
+                continue;  // Move directly to the jump target line
             }
 
             // Update RIP if the instruction modifies it
@@ -127,13 +130,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 .get_concrete_value()
                 .unwrap();
 
-            if possible_new_rip != current_rip && local_line_number == instructions.len() - 1 {
+            if possible_new_rip != current_rip && local_line_number >= instructions.len() - 1 {
+                // Manage the case where the RIP update points beyond the current block
                 current_rip = possible_new_rip;
                 local_line_number = 0;  // Reset instruction index for new RIP
-                end_of_block = true; // End current block execution
+                end_of_block = true; // Indicate end of current block execution
                 log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
             } else {
-                // Move to the next instruction in the current block
+                // Regular progression to the next instruction
                 local_line_number += 1;
             }
         }
