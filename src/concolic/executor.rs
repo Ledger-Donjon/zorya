@@ -766,7 +766,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
 
         let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete, input_size_bits);
-        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic, self.context, input_size_bits);
+        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic.clone(), self.context, input_size_bits);
 
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
@@ -776,14 +776,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             let mut memory_guard = self.state.memory.memory.write().unwrap();
             for i in 0..byte_count {
                 let byte_address = pointer_offset_concrete + i as u64;
-                let shift_amount = (i * 8) % 64; // Handle large data sizes like DoubleQuad safely
-                let byte_chunk = if data_size_bits > 64 {
-                    ((data_to_store_concrete >> (shift_amount + (i / 8) * 64)) & 0xFF) as u8
-                } else {
-                    ((data_to_store_concrete >> shift_amount) & 0xFF) as u8
-                };
-                let byte_value_symbolic = BV::from_u64(self.context, byte_chunk as u64, 8);
-                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_chunk as u64, byte_value_symbolic, 8));
+                let shift_amount = (i * 8) % 64; // Correctly handle shifts greater than 64 if needed
+                let byte_chunk = (data_to_store_concrete >> shift_amount) & 0xFF;
+                let byte_chunk_mem = MemoryConcolicValue::new(&self.context, data_to_store_concrete, data_to_store_symbolic.clone(), input_size_bits);
+                memory_guard.insert(byte_address, byte_chunk_mem);
+                log!(self.state.logger.clone(), "Stored byte 0x{:x} at address 0x{:x}", byte_chunk, byte_address);
             }
         }
     
