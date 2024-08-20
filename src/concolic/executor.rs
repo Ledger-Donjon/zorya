@@ -753,7 +753,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "* Fetching data to store from instruction.input[2]");
         let data_to_store_varnode = &instruction.inputs[2];
         let data_to_store_concrete = match &data_to_store_varnode.var {
-            // special case for memory address
             Var::Const(value) => {
                 let value_u64 = u64::from_str_radix(&value.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
                 log!(self.state.logger.clone(), "Data to store is a constant with value: 0x{:x}", value_u64);
@@ -766,24 +765,22 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
 
         let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete, input_size_bits);
-        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic.clone(), self.context, input_size_bits);
+        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic, self.context, input_size_bits);
 
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
-        let data_size_bits = data_to_store_varnode.size.to_bitvector_size();
-        let byte_count = data_size_bits / 8;
         {
+            // Store the data in memory, byte by byte, in little-endian order
             let mut memory_guard = self.state.memory.memory.write().unwrap();
-            for i in 0..byte_count {
-                let byte_address = pointer_offset_concrete + i as u64;
-                let shift_amount = (i * 8) % 64; // Correctly handle shifts greater than 64 if needed
-                let byte_chunk = (data_to_store_concrete >> shift_amount) & 0xFF;
-                let byte_chunk_mem = MemoryConcolicValue::new(&self.context, data_to_store_concrete, data_to_store_symbolic.clone(), input_size_bits);
-                memory_guard.insert(byte_address, byte_chunk_mem);
-                log!(self.state.logger.clone(), "Stored byte 0x{:x} at address 0x{:x}", byte_chunk, byte_address);
+            for i in 0..(instruction.inputs[2].size.to_bitvector_size() / 8) as u64 {
+                let byte_address = pointer_offset_concrete + i;
+                let byte_value = ((data_to_store_concrete >> (8 * i)) & 0xFF) as u8; // Extract each byte
+                let byte_value_symbolic = BV::from_u64(self.context, byte_value as u64, 8);
+                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value as u64, byte_value_symbolic, 8));
+                log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
             }
         }
-    
+
         // If the address falls within the range of the CPU registers, update the register as well
         {
             let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
