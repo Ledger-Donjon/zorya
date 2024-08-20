@@ -737,7 +737,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
 
-	    // Check for null pointer dereference
+        // Check for null pointer dereference
         if pointer_offset_concrete == 0 {
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
             log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
@@ -754,25 +754,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let data_to_store_varnode = &instruction.inputs[2];
         let data_to_store_concrete = match &data_to_store_varnode.var {
             Var::Const(value) => {
-                let value_u64 = u64::from_str_radix(&value.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
-                log!(self.state.logger.clone(), "Data to store is a constant with value: 0x{:x}", value_u64);
-                value_u64
+                let value_u128 = u128::from_str_radix(&value.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
+                log!(self.state.logger.clone(), "Data to store is a constant with value: 0x{:x}", value_u128);
+                value_u128
             },
             _ => {
                 let data_to_store_concolic = self.varnode_to_concolic(data_to_store_varnode).map_err(|e| e.to_string())?;
-                data_to_store_concolic.get_concrete_value()
+                data_to_store_concolic.get_concrete_value() as u128
             }
         };
 
-        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete, input_size_bits);
-        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete, data_to_store_symbolic, self.context, input_size_bits);
+        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete as u64, input_size_bits);
+        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete as u64, data_to_store_symbolic, self.context, input_size_bits);
 
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
         {
             // Store the data in memory, byte by byte, in little-endian order
             let mut memory_guard = self.state.memory.memory.write().unwrap();
-            for i in 0..(instruction.inputs[2].size.to_bitvector_size() / 8) as u64 {
+            let total_bytes = (instruction.inputs[2].size.to_bitvector_size() / 8) as u64;
+
+            for i in 0..total_bytes {
                 let byte_address = pointer_offset_concrete + i;
                 let byte_value = ((data_to_store_concrete >> (8 * i)) & 0xFF) as u8; // Extract each byte
                 let byte_value_symbolic = BV::from_u64(self.context, byte_value as u64, 8);
@@ -793,11 +795,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Create or update a concolic variable for the result of the store operation
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete, input_size_bits)));
+        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete as u64, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete as u64, input_size_bits)));
 
         Ok(())
     }
-    
+
     // Helper function
     pub fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {
     
