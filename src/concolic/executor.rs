@@ -112,7 +112,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::FloatAbs => panic!("Opcode is not implemented yet"), //executor_float::handle_float_abs(self, instruction),
             Opcode::FloatAdd => panic!("Opcode is not implemented yet"), //executor_float::handle_float_add(self, instruction),
             Opcode::FloatDiv => panic!("Opcode is not implemented yet"), //executor_float::handle_float_div(self, instruction),
-            Opcode::FloatEqual => panic!("Opcode is not implemented yet"), //executor_float::handle_float_equal(self, instruction),
+            Opcode::FloatEqual => executor_float::handle_float_equal(self, instruction),
             Opcode::FloatLess => panic!("Opcode is not implemented yet"), //executor_float::handle_float_less(self, instruction),
             Opcode::FloatLessEqual => panic!("Opcode is not implemented yet"), //executor_float::handle_float_lessequal(self, instruction),
             Opcode::FloatMult => panic!("Opcode is not implemented yet"), //executor_float::handle_float_mult(self, instruction),
