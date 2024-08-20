@@ -196,13 +196,17 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-    log!(executor.state.logger.clone(), "Output size in bits: {:x}", output_size_bits);
+    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
     // Perform the subtraction using signed integers
     let result_concrete = (input0_var.get_concrete_value() as i64).wrapping_sub(input1_var.get_concrete_value() as i64);
 
     // Ensure that the result fits within the output size
-    let masked_result = result_concrete & ((1 << output_size_bits) - 1);
+    let masked_result = if output_size_bits < 64 {
+        result_concrete & ((1u64 << output_size_bits) - 1) as i64
+    } else {
+        result_concrete
+    };
 
     // Perform symbolic subtraction
     let result_symbolic = input0_var
