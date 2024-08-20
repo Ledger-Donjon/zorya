@@ -375,8 +375,12 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
+    // Interpret the concrete values as signed integers before comparison
+    let input0_signed = input0_var.get_concrete_value() as i64;
+    let input1_signed = input1_var.get_concrete_value() as i64;
+
     // Perform the signed less than comparison
-    let result_concrete = (input0_var.get_concrete_value() as i64) < (input1_var.get_concrete_value() as i64);
+    let result_concrete = input0_signed < input1_signed;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvslt(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, output_size_bits);
 
