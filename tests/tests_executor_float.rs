@@ -9,7 +9,7 @@ mod tests {
     use parser::parser::Size;
     use z3::ast::Float;
     use zorya::concolic::{ConcolicVar, Logger};
-    use zorya::concolic::executor_float::{handle_float_nan, handle_float_equal};
+    use zorya::concolic::executor_float::{handle_float_nan, handle_float_equal, handle_float_less};
 
     use super::*;
     
@@ -94,5 +94,42 @@ mod tests {
         assert!(result.is_ok(), "FLOAT_EQUAL should succeed.");
         let result_var = executor.unique_variables.get("Unique(0x102)").unwrap();
         assert!(result_var.concrete.to_bool(), "FLOAT_EQUAL should return true for equal inputs.");
+    }
+
+    #[test]
+    fn test_handle_float_less() {
+        let mut executor = setup_executor();
+
+        // Setup two floating-point numbers for comparison
+        let input0 = 100.0;
+        let input1 = 200.0;
+        let input0_var = ConcolicVar::new_concrete_and_symbolic_float(input0, Float::from_f64(executor.context, input0), executor.context, 64);
+        let input1_var = ConcolicVar::new_concrete_and_symbolic_float(input1, Float::from_f64(executor.context, input1), executor.context, 64);
+
+        executor.unique_variables.insert("Unique(0x100)".to_string(), input0_var);
+        executor.unique_variables.insert("Unique(0x101)".to_string(), input1_var);
+
+        let instruction = Inst {
+            opcode: Opcode::FloatLess,
+            output: Some(Varnode {
+                var: Var::Unique(0x102),
+                size: Size::Quad,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Unique(0x100),
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Unique(0x101),
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        let result = handle_float_less(&mut executor, instruction);
+        assert!(result.is_ok(), "FLOAT_LESS should succeed.");
+        let result_var = executor.unique_variables.get("Unique(0x102)").unwrap();
+        assert!(result_var.concrete.to_bool(), "FLOAT_LESS should return true for input0 < input1.");
     }
 }

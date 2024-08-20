@@ -154,3 +154,40 @@ pub fn handle_float_equal(executor: &mut ConcolicExecutor, instruction: Inst) ->
 
     Ok(())
 }
+
+pub fn handle_float_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+    if instruction.opcode != Opcode::FloatLess || instruction.inputs.len() != 2 {
+        return Err("Invalid instruction format for FLOAT_LESS".to_string());
+    }
+
+    log!(executor.state.logger.clone(), "* Fetching floating-point inputs for FLOAT_LESS");
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+
+    let input0_value = f64::from_bits(input0_var.get_concrete_value());
+    let input1_value = f64::from_bits(input1_var.get_concrete_value());
+
+    let result_concrete = input0_value < input1_value && !input0_value.is_nan() && !input1_value.is_nan();
+    let result_symbolic = Bool::from_bool(executor.context, result_concrete);
+
+    log!(executor.state.logger.clone(), "Result of FLOAT_LESS check: {}", result_concrete);
+
+    if let Some(output_varnode) = instruction.output.as_ref() {
+        let result_value = ConcolicVar::new_concrete_and_symbolic_bool(
+            result_concrete,
+            result_symbolic,
+            executor.context,
+            output_varnode.size.to_bitvector_size() as u32,
+        );
+
+        handle_output(executor, Some(output_varnode), result_value.clone())?;
+
+        let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-floatless", current_addr_hex, executor.instruction_counter);
+        executor.state.create_or_update_concolic_variable_bool(&result_var_name, result_value.concrete.to_bool(), result_value.symbolic);
+    } else {
+        return Err("Output varnode not specified for FLOAT_LESS instruction".to_string());
+    }
+
+    Ok(())
+}
