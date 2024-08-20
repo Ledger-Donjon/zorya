@@ -918,6 +918,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     log!(self.state.logger.clone(), "Updated register at offset 0x{:x}", offset);
                     drop(cpu_state_guard);
                 },
+                Var::Memory(addr) => {
+                    log!(self.state.logger.clone(), "Output is a Memory type");
+                    let mut memory_guard = self.state.memory.memory.write().unwrap();
+                    let memory_var = MemoryConcolicValue::new(self.context, source_concrete_value, source_symbolic_value.clone(), output_size_bits);
+                    memory_guard.insert(*addr, memory_var);
+                    log!(self.state.logger.clone(), "Updated memory at address 0x{:x}", addr);
+                },
                 _ => {
                     log!(self.state.logger.clone(), "Output type is unsupported for COPY");
                     return Err("Output type not supported".to_string());
