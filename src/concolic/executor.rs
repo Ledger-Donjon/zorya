@@ -769,13 +769,18 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
 
+        let data_size_bits = data_to_store_varnode.size.to_bitvector_size();
+        let byte_count = data_size_bits / 8;
         {
             // Store the data in memory, byte by byte, in little-endian order
             let mut memory_guard = self.state.memory.memory.write().unwrap();
-            for i in 0..(instruction.inputs[2].size.to_bitvector_size() / 8) as u64 {
-                let byte_address = pointer_offset_concrete + i;
-                let byte_value = ((data_to_store_concrete >> (8 * i)) & 0xFF) as u8; // Extract each byte
+            for i in 0..byte_count {
+                let byte_address = pointer_offset_concrete + i as u64;
+                let shift_amount = (i * 8) % 64; // Prevents shifting more than 63 bits
+                let byte_chunk = (data_to_store_concrete >> shift_amount) & 0xFF;
+                let byte_value = (byte_chunk & 0xFF) as u8;
                 let byte_value_symbolic = BV::from_u64(self.context, byte_value as u64, 8);
+        
                 memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value as u64, byte_value_symbolic, 8));
                 log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
             }
