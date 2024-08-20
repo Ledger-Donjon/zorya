@@ -376,8 +376,8 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
     // Interpret the concrete values as signed integers before comparison
-    let input0_signed = input0_var.get_concrete_value() as i64;
-    let input1_signed = input1_var.get_concrete_value() as i64;
+    let input0_signed = (input0_var.get_concrete_value() as i32) as i64;
+    let input1_signed = (input1_var.get_concrete_value() as i32) as i64;
 
     // Perform the signed less than comparison
     let result_concrete = input0_signed < input1_signed;
