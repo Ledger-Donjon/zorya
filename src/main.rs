@@ -70,7 +70,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
     // For debugging
     let address: u64 = 0x7fffffffe490;
-    let range = 0x0; 
+    let range = 0x8; 
 
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
 
