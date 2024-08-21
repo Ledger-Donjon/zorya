@@ -366,18 +366,20 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Fetch concolic variables
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_SLESS");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-    log!(executor.state.logger.clone(), "The concrete value of input0 is: {:?}", input0_var.get_concrete_value());
+    let input0_value = input0_var.get_concrete_value();
+    log!(executor.state.logger.clone(), "The concrete value of input0 is: {:?}", input0_value);
 
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_SLESS");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-    log!(executor.state.logger.clone(), "The concrete value of input1 is: {:?}", input1_var.get_concrete_value());
+    let input1_value = input1_var.get_concrete_value();
+    log!(executor.state.logger.clone(), "The concrete value of input1 is: {:?}", input1_value);
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Interpret the concrete values as signed integers before comparison
-    let input0_signed = input0_var.get_concrete_value() as i64;
-    let input1_signed = input1_var.get_concrete_value() as i64;
+    // Interpret the concrete values as signed integers
+    let input0_signed = input0_value as i32 as i64; // Force interpretation as 32-bit signed, then extend to 64-bit
+    let input1_signed = input1_value as i32 as i64;
 
     // Perform the signed less than comparison
     let result_concrete = input0_signed < input1_signed;
@@ -392,7 +394,7 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsless", current_addr_hex, executor.instruction_counter);
-    executor.state.create_or_update_concolic_variable_int(&result_var_name, result_value.concrete.to_u64(), result_value.symbolic);
+    executor.state.create_or_update_concolic_variable_bool(&result_var_name, result_value.concrete.to_bool(), result_value.symbolic);
 
     Ok(())
 }
