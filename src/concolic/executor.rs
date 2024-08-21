@@ -879,12 +879,18 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-                let memory_bytes = self.state.memory.read_memory(*addr, (bit_size / 8) as usize)
+                let byte_count = (bit_size / 8) as usize;
+                let memory_bytes = self.state.memory.read_memory(*addr, byte_count)
                     .map_err(|e| format!("Failed to read memory at address 0x{:x}: {}", addr, e))?;
+    
+                if memory_bytes.len() != byte_count {
+                    log!(self.state.logger.clone(), "Memory read did not return enough bytes: expected {}, got {}", byte_count, memory_bytes.len());
+                    return Err(format!("Memory read did not return enough bytes: expected {}, got {}", byte_count, memory_bytes.len()));
+                }
+    
                 let concrete_value = u64::from_le_bytes(memory_bytes.try_into().expect("Memory read did not return enough bytes"));
-                let memory_var = MemoryConcolicValue::new(self.context, concrete_value, BV::from_u64(self.context, concrete_value, bit_size), bit_size);
-                log!(self.state.logger.clone(), "Specific memory address treated as general memory space, created or retrieved: {}", memory_var);
-                (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
+                let symbolic_value = BV::from_u64(self.context, concrete_value, bit_size);
+                (concrete_value, symbolic_value)
             },
         };
     
