@@ -110,6 +110,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger,  "The value of register at offset 0x0 is {:x}", register0x0.concrete);
             let register0x20 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x20 is {:x}", register0x20.concrete);
+            let register0x38 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x38 is {:x}", register0x38.concrete);
 
             // Check if there's a requested jump within the current block
             if executor.pcode_internal_lines_to_be_jumped > 0 {
