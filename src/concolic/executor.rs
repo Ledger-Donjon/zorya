@@ -824,7 +824,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let cpu_state_guard = self.state.cpu_state.lock().unwrap();
         let bit_size = instruction.inputs[0].size.to_bitvector_size() as u32; // size in bits
-    
+        let byte_count = (bit_size / 8) as usize;
+
         let (source_concrete_value, source_symbolic_value) = match &instruction.inputs[0].var {
             Var::Register(offset, _) => {
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x} and requested bit size: {}", offset, bit_size);
@@ -879,18 +880,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-                let byte_count = (bit_size / 8) as usize;
                 let memory_bytes = self.state.memory.read_memory(*addr, byte_count)
                     .unwrap_or_else(|_| vec![0; byte_count]); // Provide default bytes if read fails
     
-                let padded_bytes = if memory_bytes.len() < byte_count {
-                    log!(self.state.logger.clone(), "Memory read returned fewer bytes than expected, padding with zeros.");
-                    memory_bytes.clone().into_iter().chain(std::iter::repeat(0).take(byte_count - memory_bytes.len())).collect::<Vec<_>>()
+                let padded_bytes = if memory_bytes.len() < 8 {
+                    log!(self.state.logger.clone(), "Padding memory read with zeros to fit u64.");
+                    memory_bytes.clone().into_iter().chain(std::iter::repeat(0).take(8 - memory_bytes.len())).collect::<Vec<_>>()
                 } else {
-                    memory_bytes
+                    memory_bytes[0..8].to_vec() // Ensure no more than 8 bytes are taken
                 };
     
-                let concrete_value = u64::from_le_bytes(padded_bytes.try_into().expect("Failed to convert bytes to u64"));
+                let concrete_value = u64::from_le_bytes(padded_bytes.try_into().unwrap()); // This should now always be valid
                 let symbolic_value = BV::from_u64(self.context, concrete_value, bit_size);
                 (concrete_value, symbolic_value)
             },
