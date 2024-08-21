@@ -644,20 +644,25 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let pid = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as u32;
             let cpusetsize = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()? as usize;
             let mask_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
-
+        
+            if cpusetsize > 64 {
+                log!(executor.state.logger.clone(), "Error: cpusetsize of {} exceeds 64 bits, which is not supported.", cpusetsize);
+                return Err(format!("cpusetsize of {} is too large to handle", cpusetsize));
+            }
+        
             // Simulate getting the CPU affinity for the given pid and cpusetsize
-            let simulated_mask = (1u64 << cpusetsize) - 1; // This sets 'cpusetsize' bits to 1
+            let simulated_mask = (1u64.checked_shl(cpusetsize as u32).unwrap_or(0) - 1) & 0xFFFFFFFFFFFFFFFF; // Safe handling of shift and mask to avoid overflow
             executor.state.memory.write_quad(mask_ptr, simulated_mask).map_err(|e| e.to_string())?;
-
+        
             log!(executor.state.logger.clone(), "Getting CPU affinity for PID {}, size {}", pid, cpusetsize);
-
+        
             drop(cpu_state_guard);
             
             // Create the concolic variables for the results
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-sched_getaffinity", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, simulated_mask.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, simulated_mask.try_into().unwrap(), 64)));
-        },
+        },        
         257 => { // sys_openat : open file relative to a directory file descriptor
             log!(executor.state.logger.clone(), "Syscall type: sys_openat");
             let pathname_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
