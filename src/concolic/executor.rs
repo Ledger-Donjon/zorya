@@ -881,14 +881,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
                 let byte_count = (bit_size / 8) as usize;
                 let memory_bytes = self.state.memory.read_memory(*addr, byte_count)
-                    .map_err(|e| format!("Failed to read memory at address 0x{:x}: {}", addr, e))?;
+                    .unwrap_or_else(|_| vec![0; byte_count]); // Provide default bytes if read fails
     
-                if memory_bytes.len() != byte_count {
-                    log!(self.state.logger.clone(), "Memory read did not return enough bytes: expected {}, got {}", byte_count, memory_bytes.len());
-                    return Err(format!("Memory read did not return enough bytes: expected {}, got {}", byte_count, memory_bytes.len()));
-                }
+                let padded_bytes = if memory_bytes.len() < byte_count {
+                    log!(self.state.logger.clone(), "Memory read returned fewer bytes than expected, padding with zeros.");
+                    memory_bytes.into_iter().chain(std::iter::repeat(0).take(byte_count - memory_bytes.len())).collect::<Vec<_>>()
+                } else {
+                    memory_bytes
+                };
     
-                let concrete_value = u64::from_le_bytes(memory_bytes.try_into().expect("Memory read did not return enough bytes"));
+                let concrete_value = u64::from_le_bytes(padded_bytes.try_into().expect("Failed to convert bytes to u64"));
                 let symbolic_value = BV::from_u64(self.context, concrete_value, bit_size);
                 (concrete_value, symbolic_value)
             },
