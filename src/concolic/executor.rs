@@ -1063,69 +1063,121 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if instruction.opcode != Opcode::SubPiece || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for SUBPIECE".to_string());
         }
-
+    
+        // Fetch the source data (input0)
         log!(self.state.logger.clone(), "* Fetching source data from instruction.input[0] for SUBPIECE");
-        let input_var = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-        let input_size = input_var.get_size(); // Assuming get_size() method exists to fetch the size of the input varnode
-
+        let source_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let source_value = source_concolic.get_concrete_value();
+        let source_symbolic = source_concolic.get_symbolic_value_bv(self.context);
+    
+        // Fetch truncation offset from input1
         log!(self.state.logger.clone(), "* Fetching truncation offset from instruction.input[1] for SUBPIECE");
-        let truncate_offset = match &instruction.inputs[1].var {
-            Var::Const(value) => value.parse::<usize>().map_err(|_| "Invalid truncation offset".to_string())?,
-            _ => return Err("Second input for SUBPIECE must be a constant".to_string()),
-        };
-
-        let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-        log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
-
-        // Calculate the new size after truncation
-        let new_size = input_size.checked_sub(truncate_offset.try_into().unwrap()).ok_or("Truncation offset is larger than the input size")?;
-
-        // Perform truncation operation considering endianness
-        let result_value = input_var.concolic_subpiece(truncate_offset, new_size, self.context)
-            .map_err(|e| e.to_string())?;
-        log!(self.state.logger.clone(), "*** The result of SUBPIECE is: {:?}", result_value.clone());
-
-        // Determine the output variable and update it with the truncated data
-        if let Some(output_varnode) = instruction.output.as_ref() {
-            match &output_varnode.var {
-                Var::Unique(id) => {
-                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, format!("Unique(0x{:x})", id), output_size_bits));
-                    let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
-                        result_value.get_concrete_value(),
-                        unique_symbolic.to_bv(&self.context),
-                        self.context,
-                        output_size_bits
-                    );
-                    let unique_name = format!("Unique(0x{:x})", id);
-                    self.unique_variables.insert(unique_name.clone(), concolic_var);
-                    log!(self.state.logger.clone(), "Updated unique_variables with truncated result: {:?}", self.unique_variables);
-                },
-                _ => {
-                    log!(self.state.logger.clone(), "Output type is unsupported for SUBPIECE");
-                    return Err("Output type not supported".to_string());
-                }
-            }
+        let offset_value = if let Var::Const(value) = &instruction.inputs[1].var {
+            u32::from_str_radix(value, 16).unwrap_or_else(|_| value.parse().unwrap_or(0))
         } else {
-            return Err("No output variable specified for SUBPIECE instruction".to_string());
-        }
-
-        // Create a concolic variable for the result
+            return Err("SUBPIECE expects a constant for input1".to_string());
+        };
+    
+        let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+        let byte_offset = offset_value * 8;  // Offset is in bytes, convert to bits
+    
+        // Calculate the resulting truncated value
+        let truncated_concrete = if byte_offset >= 64 {
+            0  // If the offset is larger than the size of a u64, the result is zero
+        } else {
+            source_value >> byte_offset  // Shift right to truncate
+        };
+    
+        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, 64));
+    
+        log!(self.state.logger.clone(), "Truncated concrete value: {}", truncated_concrete);
+        log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+    
+        let result_value = ConcolicVar::new_concrete_and_symbolic_int(
+            truncated_concrete,
+            truncated_symbolic.clone(),
+            self.context,
+            output_size_bits
+        );
+    
+        // Handle the result based on the output varnode
+        self.handle_output(instruction.output.as_ref(), result_value.clone())?;
+    
+        // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-subpiece", current_addr_hex, self.instruction_counter);
-        match result_value {
-            ConcolicEnum::ConcolicVar(var) => {
-                self.state.create_or_update_concolic_variable_int(&result_var_name, var.concrete.to_u64(), var.symbolic);
-            },
-            ConcolicEnum::CpuConcolicValue(cpu_var) => {
-                self.state.create_or_update_concolic_variable_int(&result_var_name, cpu_var.get_concrete_value().unwrap_or(0), cpu_var.symbolic);
-            },
-            ConcolicEnum::MemoryConcolicValue(mem_var) => {
-                self.state.create_or_update_concolic_variable_int(&result_var_name, mem_var.concrete.to_u64(), mem_var.symbolic);
-            },
-        }
+        self.state.create_or_update_concolic_variable_int(
+            &result_var_name,
+            truncated_concrete,
+            SymbolicVar::Int(truncated_symbolic)
+        );
     
         Ok(())
     }
+
+    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+        if let Some(varnode) = output_varnode {
+            // Resize the result_value according to the output size specification
+            let size_bits = varnode.size.to_bitvector_size() as u32;
+            result_value.resize(size_bits);
+
+            match &varnode.var {
+                Var::Unique(id) => {
+                    let unique_name = format!("Unique(0x{:x})", id);
+                    self.unique_variables.insert(unique_name, result_value.clone());
+                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
+                    Ok(())
+                },
+                Var::Register(offset, _) => {
+                    log!(self.state.logger.clone(), "Output is a Register type");
+                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                    let concrete_value = result_value.concrete.to_u64();
+
+                    match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
+                        Ok(_) => {
+                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, concrete_value, size_bits);
+                            Ok(())
+                        },
+                        Err(e) => {
+                            log!(self.state.logger.clone(), "Error updating register at offset 0x{:x}: {}", offset, e);
+                            // Handle the case where the register offset might be a sub-register
+                            let closest_offset = cpu_state_guard.registers.keys().rev().find(|&&key| key < *offset);
+                            if let Some(&base_offset) = closest_offset {
+                                let diff = *offset - base_offset;
+                                let full_reg_size = cpu_state_guard.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
+
+                                if (diff * 8) + size_bits as u64 <= full_reg_size as u64 {
+                                    let original_value = cpu_state_guard.get_register_by_offset(base_offset, full_reg_size).unwrap();
+                                    let mask = ((1u64 << size_bits) - 1) << (diff * 8);
+                                    let new_value = (original_value.concrete.to_u64() & !mask) | ((concrete_value & ((1u64 << size_bits) - 1)) << (diff * 8));
+
+                                    cpu_state_guard.set_register_value_by_offset(base_offset, result_value.clone(), full_reg_size)
+                                        .map_err(|e| {
+                                            log!(self.state.logger.clone(), "Error updating sub-register at offset 0x{:x}: {}", offset, e);
+                                            e
+                                        })
+                                        .and_then(|_| {
+                                            log!(self.state.logger.clone(), "Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size_bits);
+                                            Ok(())
+                                        })
+                                } else {
+                                    Err(format!("Cannot fit value into register at offset 0x{:x}", offset))
+                                }
+                            } else {
+                                Err(format!("No suitable register found for offset 0x{:x}", offset))
+                            }
+                        }
+                    }
+                },
+                _ => {
+                    log!(self.state.logger.clone(), "Output type is unsupported");
+                    Err("Output type not supported".to_string())
+                }
+            }
+        } else {
+            Err("No output varnode specified".to_string())
+        }
+    }     
         
 }
 
