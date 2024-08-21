@@ -885,7 +885,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
                 let padded_bytes = if memory_bytes.len() < byte_count {
                     log!(self.state.logger.clone(), "Memory read returned fewer bytes than expected, padding with zeros.");
-                    memory_bytes.into_iter().chain(std::iter::repeat(0).take(byte_count - memory_bytes.len())).collect::<Vec<_>>()
+                    memory_bytes.clone().into_iter().chain(std::iter::repeat(0).take(byte_count - memory_bytes.len())).collect::<Vec<_>>()
                 } else {
                     memory_bytes
                 };
