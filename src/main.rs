@@ -69,7 +69,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut local_line_number = 0;  // Index of the current instruction within the block
 
     // For debugging
-    let address: u64 = 0x7fffffffe490;
+    let address: u64 = 0x7fffffffe4b0;
     let range = 0x8; 
 
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
