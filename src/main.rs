@@ -69,7 +69,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut local_line_number = 0;  // Index of the current instruction within the block
 
     // For debugging
-    let address: u64 = 0x4f1230;
+    let address: u64 = 0x7fffffffe490;
     let range = 0x0; 
 
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
@@ -96,8 +96,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             }
 
             // For debugging
-            //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
-            //executor.state.print_memory_content(address, range);
+            log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
+            executor.state.print_memory_content(address, range);
             let register0x206 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x206 is {:x}", register0x206.concrete);
             let register0x30 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap();
