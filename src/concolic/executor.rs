@@ -1066,14 +1066,20 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         // Fetch the source data (input0)
         log!(self.state.logger.clone(), "* Fetching source data from instruction.input[0] for SUBPIECE");
-        let source_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+        let source_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| format!("Failed to fetch source data: {}", e))?;
         let source_value = source_concolic.get_concrete_value();
-        let source_symbolic = source_concolic.get_symbolic_value_bv(self.context);
+        let source_symbolic = source_concolic.get_symbolic_value_bv(self.context)
+            .ok_or_else(|| "Failed to retrieve valid symbolic value for source data".to_string())?;
+    
+        // Validate symbolic value size
+        if source_symbolic.get_size() != instruction.inputs[0].size.to_bitvector_size() as u32 {
+            return Err("Symbolic value does not match the expected size".to_string());
+        }
     
         // Fetch truncation offset from input1
         log!(self.state.logger.clone(), "* Fetching truncation offset from instruction.input[1] for SUBPIECE");
         let offset_value = if let Var::Const(value) = &instruction.inputs[1].var {
-            u32::from_str_radix(value, 16).unwrap_or_else(|_| value.parse().unwrap_or(0))
+            value.parse::<u32>().map_err(|e| format!("Failed to parse offset value: {}", e))?
         } else {
             return Err("SUBPIECE expects a constant for input1".to_string());
         };
@@ -1088,7 +1094,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             source_value >> byte_offset  // Shift right to truncate
         };
     
-        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, 64));
+        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, 64))
+            .ok_or_else(|| "Failed to compute the symbolic shift operation".to_string())?;
     
         log!(self.state.logger.clone(), "Truncated concrete value: {}", truncated_concrete);
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
@@ -1114,7 +1121,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         Ok(())
     }
-
+    
     pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
