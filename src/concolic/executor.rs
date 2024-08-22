@@ -1068,8 +1068,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "* Fetching source data from instruction.input[0] for SUBPIECE");
         let source_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| format!("Failed to fetch source data: {}", e))?;
         let source_value = source_concolic.get_concrete_value();
-        let source_symbolic = source_concolic.get_symbolic_value_bv(self.context)
-            .ok_or_else(|| "Failed to retrieve valid symbolic value for source data".to_string())?;
+        let source_symbolic = source_concolic.get_symbolic_value_bv(self.context);
     
         // Validate symbolic value size
         if source_symbolic.get_size() != instruction.inputs[0].size.to_bitvector_size() as u32 {
@@ -1094,8 +1093,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             source_value >> byte_offset  // Shift right to truncate
         };
     
-        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, 64))
-            .ok_or_else(|| "Failed to compute the symbolic shift operation".to_string())?;
+        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, 64));
     
         log!(self.state.logger.clone(), "Truncated concrete value: {}", truncated_concrete);
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
