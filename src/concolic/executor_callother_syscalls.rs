@@ -220,11 +220,11 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             log!(executor.state.logger.clone(), "Yielding the CPU");
 
             // Normally, sched_yield returns 0 upon successful call
-            cpu_state_guard.set_register_value_by_offset(0x0, // RAX register offset
-                ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64),
-                64)?;
+            //cpu_state_guard.set_register_value_by_offset(0x0, // RAX register offset
+            //    ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64),
+            //    64)?;
             drop(cpu_state_guard);
-            
+
             // Create the concolic variables for the result
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-sched_yield", current_addr_hex, executor.instruction_counter);
