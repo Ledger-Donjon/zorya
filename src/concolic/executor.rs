@@ -248,7 +248,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         // Extract the required bits from the register's concrete value
         let extracted_value = ((original_register.concrete.to_u64() >> bit_offset) & mask) as u64;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + bit_size - 1) as u32, bit_offset as u32);
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + bit_size as u64 - 1) as u32, bit_offset as u32);
         let simplified_symbolic = extracted_symbolic.simplify();
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
