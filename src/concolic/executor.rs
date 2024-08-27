@@ -234,16 +234,18 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
     
-        // Calculate the safe number of bits to shift right (ensuring no overflow)
-        let safe_shift_bits = std::cmp::min(bit_size, register_size) as u32;
-        let mask = if bit_size < 64 {
-            (1u64 << bit_size) - 1
-        } else {
-            u64::MAX
-        };
+        // Calculate the safe number of bits to shift right. Prevent underflow by ensuring register_size is always larger.
+        let safe_shift_bits = std::cmp::min(bit_size as u32, register_size);
+        let effective_shift_amount = register_size - safe_shift_bits;
+        
+        if effective_shift_amount > 64 {
+            // Shift amount exceeds the width of u64, resulting in undefined behavior.
+            return Err(format!("Shift amount {} exceeds the bit width of u64", effective_shift_amount));
+        }
     
-        let extracted_value = (original_register.concrete.to_u64() >> (register_size as u32 - safe_shift_bits)) & mask;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(bit_size - 1, 0);
+        let mask = (1u64 << safe_shift_bits) - 1;
+        let extracted_value = (original_register.concrete.to_u64() >> effective_shift_amount) & mask;
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_shift_bits - 1, 0);
         let simplified_symbolic = extracted_symbolic.simplify();
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
@@ -251,7 +253,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }
+    }    
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
