@@ -234,30 +234,25 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
     
-        let full_register_bits = register_size as u64;
-        let required_bits = bit_size as u64;
+        // Determine the byte offset within the register
+        let byte_offset = offset % 32; // Assuming `offset` is based on byte addressability
+        let bit_offset = byte_offset * 8; // Convert byte offset to bit offset
     
-        // Compute the number of bits to shift right; it's essentially aligning the needed bits to the right
-        let effective_shift_amount = if full_register_bits > required_bits {
-            full_register_bits - required_bits
-        } else {
-            0
-        };
-    
-        // Ensure the shift does not overflow u64
-        if effective_shift_amount >= 64 {
-            return Err(format!("Shift amount {} exceeds the bit width of u64", effective_shift_amount));
+        // Correct the logic for bit offset to avoid shifting more than the register size
+        if bit_offset + bit_size as u64 > register_size as u64 {
+            return Err(format!("Shift and extraction exceed register size at offset 0x{:x}", offset));
         }
     
-        // Mask to extract only the needed bits
-        let mask = if required_bits < 64 {
-            (1u64 << required_bits) - 1
+        // Calculate the mask for the required bits
+        let mask = if bit_size < 64 {
+            (1u64 << bit_size) - 1
         } else {
             u64::MAX
         };
     
-        let extracted_value = (original_register.concrete.to_u64() >> effective_shift_amount) & mask;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((required_bits - 1) as u32, 0);
+        // Extract the bits safely
+        let extracted_value = (original_register.concrete.to_u64() >> bit_offset) & mask;
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_size as u64 + bit_offset - 1) as u32, bit_offset as u32);
         let simplified_symbolic = extracted_symbolic.simplify();
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
@@ -265,7 +260,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }            
+    }                
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
