@@ -227,7 +227,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
-        // Ensure that the bit_size to be extracted does not exceed the size of the register
+        // First, let's ensure that the register size is appropriate and the bit size does not exceed it.
         if register_size == 0 || bit_size > register_size {
             return Err(format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset));
         }
@@ -235,25 +235,20 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
     
-        // The offset is assumed to be correct as given and should not be recalculated with `% 32`.
-        // Calculate bit offset within the register directly from the given offset (assuming it's already aligned correctly).
-        let bit_offset = offset * 8; // Since we're extracting from a byte offset to bits.
+        // Correctly calculate the bit offset based on the offset within a 64-bit register
+        let bit_offset = (offset % 8) * 8; // Correct the modulo operation to consider the register's byte size
     
-        // Ensure that the extraction does not go beyond the register boundaries
-        if (bit_offset + bit_size as u64) > register_size as u64 {
+        // Check if the extraction request stays within the register boundaries
+        if bit_offset + bit_size as u64 > register_size as u64 {
             return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + bit_size as u64));
         }
     
-        // Compute the mask for the required number of bits
-        let mask = if bit_size < 64 {
-            (1u64 << bit_size) - 1
-        } else {
-            u64::MAX  // Should not normally hit this case since bit_size > 64 would exceed u64
-        };
+        // Compute the mask to extract only the desired bits
+        let mask = (1u64 << bit_size) - 1;
     
-        // Extract the value by shifting right to the appropriate bit offset and applying the mask
-        let extracted_value = (original_register.concrete.to_u64() >> bit_offset) & mask;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + bit_size as u64 - 1) as u32, bit_offset as u32);
+        // Extract the required bits from the register's concrete value
+        let extracted_value = ((original_register.concrete.to_u64() >> bit_offset) & mask) as u64;
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + bit_size - 1) as u32, bit_offset as u32);
         let simplified_symbolic = extracted_symbolic.simplify();
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
@@ -261,7 +256,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }                     
+    }
+                         
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
