@@ -227,6 +227,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
+        // Check that bit_size does not exceed register_size and that register_size is non-zero
         if register_size == 0 || bit_size > register_size {
             return Err(format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset));
         }
@@ -234,18 +235,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
     
-        // Ensure the shift does not exceed the bounds of u64
-        let shift_bits = u64::min(bit_size as u64, 63); // Cap shift at 63 to prevent overflow
+        // Calculate the range of bits to extract
+        let safe_high_bit = std::cmp::min(bit_size as u64 - 1, register_size as u64 - 1) as u32;
+        let safe_low_bit = (offset % register_size as u64 * 8) as u32; // Calculate the byte to bit offset within the register
     
-        // Perform extraction
-        let extracted_value = if shift_bits < register_size as u64 {
-            (original_register.concrete.to_u64() >> shift_bits) & ((1u64 << (bit_size - 1)) - 1)
-        } else {
-            0 // If the shift is equal or exceeds the register size, result is zero
-        };
-    
-        // Create symbolic value
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(bit_size as u32 - 1, 0);
+        let extracted_value = (original_register.concrete.to_u64() >> safe_low_bit) & ((1u64 << bit_size) - 1);
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract(safe_high_bit, safe_low_bit);
         let simplified_symbolic = extracted_symbolic.simplify();
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
@@ -253,7 +248,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }            
+    }    
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
