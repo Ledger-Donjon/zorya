@@ -234,21 +234,23 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let original_register = cpu_state_guard.get_register_by_offset(offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", offset))?;
     
+        // Calculate bit offset within the register based on the word boundary (assuming 32-bit word size for simplicity here)
         let bit_offset = (offset % 8) * 8; // Assuming offset is byte-aligned within the register
     
-        if bit_offset + bit_size as u64 > register_size as u64 {
+        if (bit_offset + bit_size as u64) > register_size as u64 {
             return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + bit_size as u64));
         }
     
-        // Adjust the mask calculation to avoid shifting by 64 bits
-        let mask: u64 = if bit_size == 64 {
-            u64::MAX  // Use all bits if extracting 64 bits
+        // Mask to extract only the needed bits
+        let mask: u64 = if bit_size < 64 {
+            (1u64 << bit_size) - 1
         } else {
-            (1u64 << bit_size) - 1  // Safely calculate the mask for less than 64 bits
+            u64::MAX
         };
     
+        // Perform the extraction
         let extracted_value = (original_register.concrete.to_u64() >> bit_offset) & mask;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + bit_size - 1) as u32, bit_offset as u32);
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + bit_size as u64 - 1) as u32, bit_offset as u32);
         let simplified_symbolic = extracted_symbolic.simplify();
     
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
@@ -256,7 +258,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(simplified_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }                 
+    }                     
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
