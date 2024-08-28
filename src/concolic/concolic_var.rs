@@ -146,6 +146,7 @@ impl<'ctx> ConcolicVar<'ctx> {
             ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
                 .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
             ConcreteVar::Bool(value) => Ok(value as u64),
+            ConcreteVar::LargeInt(ref values) => Ok(values[0]), // Return the lower 64 bits
         }
     }      
 

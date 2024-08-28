@@ -86,7 +86,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::DelaySlot => panic!("Opcode DelaySlot is not implemented yet"),
             Opcode::Label => panic!("Opcode Label is not implemented yet"),
             Opcode::Load => self.handle_load(instruction),
-            Opcode::LZCount => self.handle_lzcount(instruction),
+            Opcode::LZCount => panic!("Opcode LZCount is not implemented yet"), //self.handle_lzcount(instruction),
             Opcode::New => panic!("Opcode New is not implemented yet"), // allocates memory for an object and returns a pointer to that memory
             Opcode::Piece => panic!("Opcode Piece is not implemented yet"), // concatenation operation that combines two inputs
             Opcode::PopCount => self.handle_popcount(instruction),
@@ -799,23 +799,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }
 
-    // Helper function
-    pub fn initialize_var_if_absent(&mut self, varnode: &Varnode) -> Result<u64, String> {
-    
-        match self.state.get_concrete_var(varnode) {
-            Ok(ConcreteVar::Int(val)) => Ok(val), // Directly return u64 value
-            Ok(ConcreteVar::Float(_)) => Err("Expected an integer value, found a float".to_string()),
-            Ok(ConcreteVar::Str(_)) => Err("Expected an integer value, found a str".to_string()),
-            Ok(ConcreteVar::Bool(_)) => Err("Expected an integer value, found a bool".to_string()), 
-            Err(_) => {
-                // If the variable is not found, initialize it as an integer with a default value
-                let initial_value = 0u64; // Use u64 for initialization to match ConcreteVar::Int
-                //self.state.create_concolic_var_int(&var_name, initial_value, varnode.size.to_bitvector_size());
-                Ok(initial_value)
-            }
-        }
-    }
-        
+
     pub fn handle_copy(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Copy || instruction.inputs.len() != 1 {
             return Err("Invalid instruction format for COPY".to_string());
@@ -1035,27 +1019,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }   
 
-    pub fn handle_lzcount(&mut self, instruction: Inst) -> Result<(), String> {
-        if instruction.opcode != Opcode::LZCount || instruction.inputs.len() != 1 {
-            return Err("Invalid instruction format for LZCOUNT".to_string());
-        }
+    // pub fn handle_lzcount(&mut self, instruction: Inst) -> Result<(), String> {
+    //     if instruction.opcode != Opcode::LZCount || instruction.inputs.len() != 1 {
+    //         return Err("Invalid instruction format for LZCOUNT".to_string());
+    //     }
     
-        let input_varnode = &instruction.inputs[0];
-        let input_var = self.initialize_var_if_absent(input_varnode)?;
+    //     let input_varnode = &instruction.inputs[0];
+    //     let input_var = self.initialize_var_if_absent(input_varnode)?;
     
-        // Perform leading zero count on the concrete value
-        let lzcount = input_var.leading_zeros() as u64; // leading_zeros returns u32, convert to u64 for consistency
+    //     // Perform leading zero count on the concrete value
+    //     let lzcount = input_var.leading_zeros() as u64; // leading_zeros returns u32, convert to u64 for consistency
     
-        if let Some(output_varnode) = &instruction.output {
-            let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
-            let bitvector_size = output_varnode.size.to_bitvector_size();
+    //     if let Some(output_varnode) = &instruction.output {
+    //         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+    //         let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
+    //         let bitvector_size = output_varnode.size.to_bitvector_size();
     
-            //self.state.create_concolic_var_int(&result_var_name, lzcount, bitvector_size);
-        }
+    //         //self.state.create_concolic_var_int(&result_var_name, lzcount, bitvector_size);
+    //     }
     
-        Ok(())
-    }    
+    //     Ok(())
+    // }    
 
     // Handle the SUBPIECE operation
     pub fn handle_subpiece(&mut self, instruction: Inst) -> Result<(), String> {

@@ -1,91 +1,15 @@
-use std::{error::Error, fmt::{self, LowerHex}, num::Wrapping};
+use std::{error::Error, fmt::{self, LowerHex}};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConcreteVar {
     Int(u64),
+    LargeInt(Vec<u64>), // int larger than 64 bits
     Float(f64),
     Str(String),
     Bool(bool),
 }
 
-impl ConcreteVar {
-    // Addition operation
-    pub fn add(&self, other: &ConcreteVar) -> Self {
-        match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(*a + *b),
-            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => ConcreteVar::Float(*a + *b),
-            _ => panic!("Unsupported types for add operation"),
-        }
-    }
-
-    pub fn overflowing_add(&self, other: &Self) -> (Self, bool) {
-        match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => {
-                let (result, overflow) = a.overflowing_add(*b);
-                (ConcreteVar::Int(result), overflow)
-            },
-            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => {
-                // Floats do not overflow in the same way integers do
-                (ConcreteVar::Float(a + b), false)
-            },
-            _ => panic!("Type mismatch in overflowing_add")
-        }
-    }
-
-    // Custom carrying add operation
-    pub fn carrying_add(&self, other: &ConcreteVar, carry: bool) -> (Self, bool) {
-        match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => {
-                let carry_value = if carry { 1 } else { 0 };
-                let (intermediate, overflow1) = a.overflowing_add(*b);
-                let (result, overflow2) = intermediate.overflowing_add(carry_value);
-                (ConcreteVar::Int(result), overflow1 || overflow2)
-            },
-            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => {
-                // Floats do not carry in the same way integers do
-                (ConcreteVar::Float(a + b + if carry { 1.0 } else { 0.0 }), false)
-            },
-            _ => panic!("Type mismatch in carrying_add"),
-        }
-    }
-
-
-    // Subtraction operation
-    pub fn sub(&self, other: &ConcreteVar) -> Self {
-        match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(*a - *b),
-            (ConcreteVar::Float(a), ConcreteVar::Float(b)) => ConcreteVar::Float(*a - *b),
-            _ => panic!("Unsupported types for sub operation"),
-        }
-    }
-
-    // Safe signed subtraction with overflow handling
-    pub fn signed_sub_overflow(&self, other: &ConcreteVar) -> (Self, bool) {
-        match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => {
-                let (result, overflow) = (Wrapping(*a as i64) - Wrapping(*b as i64)).0.overflowing_sub(*b as i64);
-                (ConcreteVar::Int(result as u64), overflow)
-            },
-            _ => panic!("Unsupported types for signed sub with overflow operation"),
-        }
-    }
-
-    // Bitwise AND operation for integers
-    pub fn and(self, other: ConcreteVar) -> Self {
-        match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(a & b),
-            _ => panic!("Bitwise AND operation is not defined for floats"),
-        }
-    }
-
-    // Bitwise OR operation for integers
-    pub fn or(self, other: ConcreteVar) -> Self {
-        match (self, other) {
-            (ConcreteVar::Int(a), ConcreteVar::Int(b)) => ConcreteVar::Int(a | b),
-            _ => panic!("Bitwise OR operation is not defined for floats"),
-        }
-    }
-
+impl ConcreteVar {   
     // Method to convert ConcreteVar to a byte
     pub fn to_byte(&self) -> Result<u8, VarError> {
         match *self {
@@ -100,17 +24,18 @@ impl ConcreteVar {
             ConcreteVar::Float(_) => Err(VarError::ConversionError),
             ConcreteVar::Str(_) => Err(VarError::ConversionError),
             ConcreteVar::Bool(value) => Ok(value as u8),
+            ConcreteVar::LargeInt(_) => Err(VarError::ConversionError),
            
         }
     }
 
     // Method to convert ConcreteVar to an integer
     pub fn to_int(&self) -> Result<u64, VarError> {
-        match *self {
-            ConcreteVar::Int(value) => Ok(value),
+        match self {
+            ConcreteVar::Int(value) => Ok(*value),
             ConcreteVar::Float(value) => {
-                if value >= 0.0 && value <= u64::MAX as f64 {
-                    Ok(value as u64)
+                if value >= &0.0 && value <= &(u64::MAX as f64) {
+                    Ok(*value as u64)
                 } else {
                     Err(VarError::ConversionError)
                 }
@@ -119,7 +44,8 @@ impl ConcreteVar {
                 s.parse::<u64>()
                  .map_err(|_| VarError::ConversionError)
             },
-            ConcreteVar::Bool(value) => Ok(value as u64),
+            ConcreteVar::Bool(value) => Ok(*value as u64),
+            ConcreteVar::LargeInt(value) => Ok(value[0]), // little-endian interpretation
         }
     }
 
@@ -133,11 +59,11 @@ impl ConcreteVar {
 
     // Convert ConcreteVar to u64 directly, using default values for non-convertible types
     pub fn to_u64(&self) -> u64 {
-        match *self {
-            ConcreteVar::Int(value) => value,
+        match self {
+            ConcreteVar::Int(value) => *value,
             ConcreteVar::Float(value) => {
-                if value >= 0.0 && value < u64::MAX as f64 {
-                    value as u64
+                if value >= &0.0 && value < &(u64::MAX as f64) {
+                    *value as u64
                 } else {
                     0 // Default value for out-of-range or negative floats
                 }
@@ -145,27 +71,37 @@ impl ConcreteVar {
             ConcreteVar::Str(ref s) => {
                 s.parse::<u64>().unwrap_or(0) // Default value for unparsable strings
             },
-            ConcreteVar::Bool(value) => value as u64,
+            ConcreteVar::Bool(value) => *value as u64,
+            ConcreteVar::LargeInt(value) => value[0], // Return the lower 64 bits
         }
     }
 
     // Convert ConcreteVar to a String
     pub fn to_str(&self) -> String {
-        match *self {
+        match self {
             ConcreteVar::Int(value) => value.to_string(),
             ConcreteVar::Float(value) => value.to_string(),
             ConcreteVar::Str(ref s) => s.clone(),
             ConcreteVar::Bool(value) => value.to_string(),
+            ConcreteVar::LargeInt(values) => {
+                let mut result = String::new();
+                for &value in values.iter().rev() {
+                    result.push_str(&format!("{:016x}", value)); // Convert each u64 to a zero-padded hex string
+                }
+                // Remove leading zeros if needed
+                result.trim_start_matches('0').to_string()
+            }
         }
-    }
+    }    
 
     // Convert ConcreteVar to a boolean value
     pub fn to_bool(&self) -> bool {
-        match *self {
-            ConcreteVar::Int(value) => value != 0,
-            ConcreteVar::Float(value) => value != 0.0,
+        match self {
+            ConcreteVar::Int(value) => *value != 0,
+            ConcreteVar::Float(value) => *value != 0.0,
             ConcreteVar::Str(ref s) => !s.is_empty(),
-            ConcreteVar::Bool(value) => value,
+            ConcreteVar::Bool(value) => *value,
+            ConcreteVar::LargeInt(values) => values.iter().any(|&value| value != 0),
         }
     }
 
@@ -175,6 +111,7 @@ impl ConcreteVar {
             ConcreteVar::Float(_) => 64, // double precision floats
             ConcreteVar::Str(s) => (s.len() * 8) as u32,  // ?
             ConcreteVar::Bool(_) => 1,
+            ConcreteVar::LargeInt(values) => (values.len() * 64) as u32, // Size in bits
         }
     }
 
@@ -194,6 +131,15 @@ impl ConcreteVar {
             },
             ConcreteVar::Bool(_) => {
                 self
+            },
+            ConcreteVar::LargeInt(mut values) => {
+                let mut carry = 0u64;
+                for v in values.iter_mut().rev() {
+                    let new_carry = *v << (64 - (shift % 64));
+                    *v = (*v >> (shift % 64)) | carry;
+                    carry = new_carry;
+                }
+                ConcreteVar::LargeInt(values)
             },
         }
     } 
@@ -229,6 +175,12 @@ impl<'ctx> LowerHex for ConcreteVar {
             ConcreteVar::Float(value) => LowerHex::fmt(&value.to_bits(), f),
             ConcreteVar::Str(_s) => Err(fmt::Error::default()),
             ConcreteVar::Bool(value) => LowerHex::fmt(&(*value as u8), f),
+            ConcreteVar::LargeInt(values) => {
+                for value in values.iter().rev() {
+                    write!(f, "{:016x}", value)?; // Zero-padded to 16 hex digits per u64
+                }
+                Ok(())
+            },
         };
         Ok(())
     }

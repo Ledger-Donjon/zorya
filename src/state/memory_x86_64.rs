@@ -141,8 +141,9 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
             ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
                 .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
             ConcreteVar::Bool(value) => Ok(value as u64),
+            ConcreteVar::LargeInt(ref values) => Ok(values[0]), // Return the lower 64 bits
         }
-    }
+    }     
 
     pub fn get_size(&self) -> u32 {
         match &self.concrete {
@@ -150,6 +151,7 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
             ConcreteVar::Float(_) => 64, // double precision floats
             ConcreteVar::Str(s) => (s.len() * 8) as u32,  // ?
             ConcreteVar::Bool(_) => 1,
+            ConcreteVar::LargeInt(values) => (values.len() * 64) as u32, // Size in bits
         }
     }
 
@@ -467,6 +469,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 ConcreteVar::Float(val) => val.to_string(),
                 ConcreteVar::Str(val) => val.to_string(),
                 ConcreteVar::Bool(val) => val.to_string(),
+                ConcreteVar::LargeInt(values) => {
+                    let mut result = String::new();
+                    for &value in values.iter().rev() {
+                        result.push_str(&format!("{:016x}", value)); // Convert each u64 to a zero-padded hex string
+                    }
+                    // Remove leading zeros if needed
+                    result.trim_start_matches('0').to_string()
+                }
             };
 
             let symbolic_value = match &memory_value.symbolic {

@@ -21,10 +21,21 @@ pub struct CpuConcolicValue<'ctx> {
 }
 
 impl<'ctx> CpuConcolicValue<'ctx> {
-    pub fn new(ctx: &'ctx Context, concrete_value: u64, size: u32) -> Self {
+    pub fn new(ctx: &'ctx Context, initial_value: u64, size: u32) -> Self {
+        // Initialize the concrete value based on the size
+        let concrete = if size > 64 {
+            let num_u64s = (size as usize + 63) / 64; // Number of 64-bit chunks needed
+            ConcreteVar::LargeInt(vec![initial_value; num_u64s])
+        } else {
+            ConcreteVar::Int(initial_value)
+        };
+
+        // Initialize the symbolic value using BV::from_u64
+        let symbolic = SymbolicVar::Int(BV::from_u64(ctx, initial_value, size));
+
         CpuConcolicValue {
-            concrete: ConcreteVar::Int(concrete_value),
-            symbolic: SymbolicVar::Int(BV::from_u64(ctx, concrete_value, size)),  
+            concrete,
+            symbolic,
             ctx,
         }
     }
@@ -37,8 +48,9 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
                 .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
             ConcreteVar::Bool(value) => Ok(value as u64),
+            ConcreteVar::LargeInt(ref values) => Ok(values[0]), // Return the lower 64 bits
         }
-    }
+    }      
 
     // Method to retrieve the symbolic value
     pub fn get_symbolic_value(&self) -> &SymbolicVar<'ctx> {
@@ -98,22 +110,33 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         // Adjust the symbolic extraction
         let high = (offset + new_size as usize - 1) as u32;
         let low = offset as u32;
-        let new_symbolic = self.symbolic.extract(high, low)
-            .map_err(|_| "Failed to extract symbolic part")?;  // Properly handle the Result from extract
+        let new_symbolic = self.symbolic.to_bv(ctx).extract(high, low);
 
         // Adjust the concrete value: mask the bits after shifting right
         let mask = (1u64 << new_size) - 1;
-        let new_concrete = match self.concrete {
+        let new_concrete = match &self.concrete {
             ConcreteVar::Int(value) => (value >> offset) & mask,
+            ConcreteVar::LargeInt(values) => {
+                // Handle LargeInt truncation
+                let mut truncated_value = 0u64;
+                for (i, &chunk) in values.iter().enumerate().skip(offset / 64) {
+                    let shift = offset % 64;
+                    truncated_value |= chunk >> shift;
+                    if i < new_size as usize / 64 {
+                        truncated_value |= values[i + 1] << (64 - shift);
+                    }
+                }
+                truncated_value & mask
+            }
             _ => return Err("Unsupported operation for this concrete type"),
         };
 
         Ok(CpuConcolicValue {
             concrete: ConcreteVar::Int(new_concrete),
-            symbolic: new_symbolic,
+            symbolic: SymbolicVar::Int(new_symbolic),
             ctx,
         })
-    } 
+    }
 
     pub fn get_context_id(&self) -> String {
         format!("{:p}", self.ctx)
@@ -125,6 +148,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ConcreteVar::Float(_) => 64, // double precision floats
             ConcreteVar::Str(s) => (s.len() * 8) as u32,  // ?
             ConcreteVar::Bool(_) => 1,
+            ConcreteVar::LargeInt(values) => (values.len() * 64) as u32, // Size in bits
         }
     }
 }
