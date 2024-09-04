@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the INT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::concolic::executor::ConcolicExecutor;
+use crate::{concolic::executor::ConcolicExecutor, state::cpu_state};
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::{Bool, Float, BV};
 use std::io::Write;
@@ -229,30 +229,42 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         return Err("Invalid instruction format for INT_XOR".to_string());
     }
 
-    // Fetch concolic variables
-    log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_XOR");
+    log!(executor.state.logger.clone(), "* Fetching instruction inputs for INT_XOR");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-    log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_XOR");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
-    // Ensure both inputs are of the same size, if not, log error and return
-    if input0_var.get_size() != input1_var.get_size() {
-        log!(executor.state.logger.clone(), "Input sizes do not match for XOR operation");
-        return Err("Input sizes for INT_XOR must match".to_string());
-    }
+    // Extract the full register size from the register map using the output varnode's offset
+    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
+    let output_offset = match output_varnode.var {
+        Var::Register(offset, _) => offset,
+        _ => return Err("Output varnode must be a register".to_string()),
+    };
 
-    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+    let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+    let full_reg_size = cpu_state_guard.register_map.get(&output_offset)
+        .ok_or_else(|| format!("No register found at offset 0x{:x}", output_offset))?.1;
+
+    log!(executor.state.logger.clone(), "Full register size: {} bits", full_reg_size);
 
     // Perform the XOR operation
     let result_concrete = input0_var.get_concrete_value() ^ input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvxor(&input1_var.get_symbolic_value_bv(executor.context));
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_XOR is: {:?}\n", result_concrete);
+    // Adjust result to match the full register size
+    let extended_result_symbolic = result_symbolic.zero_ext(full_reg_size - 32); // Adjust the bit width to the full register size
 
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(
+        result_concrete,
+        extended_result_symbolic,
+        executor.context,
+        full_reg_size
+    );
+
+    log!(executor.state.logger.clone(), "*** The result of INT_XOR is: 0x{:X}", result_concrete);
+
+    drop(cpu_state_guard);
     // Handle the result based on the output varnode
-    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
+    handle_output(executor, Some(output_varnode), result_value.clone())?;
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
