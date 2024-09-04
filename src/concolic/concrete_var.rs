@@ -76,6 +76,32 @@ impl ConcreteVar {
         }
     }
 
+    // Method to convert ConcreteVar to u32 safely
+    pub fn to_u32(&self) -> Result<u32, VarError> {
+        match self {
+            ConcreteVar::Int(value) => {
+                if *value <= u32::MAX as u64 {
+                    Ok(*value as u32)
+                } else {
+                    Err(VarError::ConversionError)
+                }
+            },
+            ConcreteVar::Float(value) => {
+                if value >= &0.0 && value <= &(u32::MAX as f64) {
+                    Ok(*value as u32)
+                } else {
+                    Err(VarError::ConversionError)
+                }
+            },
+            ConcreteVar::Str(ref s) => {
+                s.parse::<u32>()
+                 .map_err(|_| VarError::ConversionError)
+            },
+            ConcreteVar::Bool(value) => Ok(*value as u32),
+            ConcreteVar::LargeInt(_) => Err(VarError::ConversionError),
+        }
+    }
+
     // Convert ConcreteVar to a String
     pub fn to_str(&self) -> String {
         match self {
