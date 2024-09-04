@@ -77,8 +77,6 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
     }
 }
 
-
-
 pub fn handle_float_nan(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::FloatNaN || instruction.inputs.len() != 1 {
         return Err("Invalid instruction format for FLOAT_NAN".to_string());
@@ -87,11 +85,27 @@ pub fn handle_float_nan(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     log!(executor.state.logger.clone(), "* Fetching floating-point input for FLOAT_NAN");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
 
-    let input_value = f64::from_bits(input0_var.get_concrete_value()); // Assumes floating-point input is stored as u64
-    let result_concrete = input_value.is_nan();
+    let result_concrete;
+    let result_symbolic;
+
+    // Adjust the following sizes and implementations based on your specific needs and environment
+    match input0_var.get_size() {
+        32 => { // For 32-bit floats
+            let input_value = f32::from_bits(input0_var.get_concrete_value() as u32);
+            result_concrete = input_value.is_nan();
+        },
+        64 => { // For 64-bit floats (double precision)
+            let input_value = f64::from_bits(input0_var.get_concrete_value());
+            result_concrete = input_value.is_nan();
+        },
+        _ => {
+            log!(executor.state.logger.clone(), "Unsupported float size for NaN check");
+            return Err("Unsupported float size for NaN check".to_string());
+        }
+    }
 
     // Directly create a Bool from the boolean result
-    let result_symbolic = Bool::from_bool(executor.context, result_concrete);
+    result_symbolic = Bool::from_bool(executor.context, result_concrete);
 
     log!(executor.state.logger.clone(), "Result of FLOAT_NAN check: {}", result_concrete);
 
