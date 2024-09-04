@@ -85,46 +85,39 @@ pub fn handle_float_nan(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     log!(executor.state.logger.clone(), "* Fetching floating-point input for FLOAT_NAN");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
 
-    let result_concrete;
-    let result_symbolic;
-
-    // Adjust the following sizes and implementations based on your specific needs and environment
-    match input0_var.get_size() {
-        32 => { // For 32-bit floats
-            let input_value = f32::from_bits(input0_var.get_concrete_value() as u32);
-            result_concrete = input_value.is_nan();
+    // Determine float precision based on size and interpret bits accordingly
+    let result_concrete = match input0_var.size.to_bitvector_size() {
+        32 => {  // Single precision (32-bit)
+            let input_value = f32::from_bits(input0_var.concrete as u32);
+            input_value.is_nan()
         },
-        64 => { // For 64-bit floats (double precision)
-            let input_value = f64::from_bits(input0_var.get_concrete_value());
-            result_concrete = input_value.is_nan();
+        64 => {  // Double precision (64-bit)
+            let input_value = f64::from_bits(input0_var.concrete);
+            input_value.is_nan()
         },
-        _ => {
-            log!(executor.state.logger.clone(), "Unsupported float size for NaN check");
-            return Err("Unsupported float size for NaN check".to_string());
-        }
-    }
-
-    // Directly create a Bool from the boolean result
-    result_symbolic = Bool::from_bool(executor.context, result_concrete);
+        _ => return Err(format!("Unsupported floating point size for NaN check: {}", input0_var.size.to_bitvector_size())),
+    };
 
     log!(executor.state.logger.clone(), "Result of FLOAT_NAN check: {}", result_concrete);
 
-    // The output should be a boolean value, ensure the output varnode is set properly
+    // Create a symbolic boolean value from the result
+    let result_symbolic = Bool::from_bool(executor.context, result_concrete);
+
+    // The output should be a boolean value
     if let Some(output_varnode) = instruction.output.as_ref() {
-        let result_value = ConcolicVar::new_concrete_and_symbolic_bool(
-            result_concrete,
-            result_symbolic,
-            executor.context,
-            output_varnode.size.to_bitvector_size() as u32,
-        );
+        let result_value = ConcolicVar {
+            concrete: result_concrete as u64,
+            symbolic: result_symbolic,
+            ctx: executor.context,
+        };
 
         // Handle the result based on the output varnode
-        handle_output(executor, Some(output_varnode), result_value.clone())?;
+        handle_output(executor, Some(output_varnode), result_value)?;
 
         // Create or update a concolic variable for the result
         let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-floatnan", current_addr_hex, executor.instruction_counter);
-        executor.state.create_or_update_concolic_variable_bool(&result_var_name, result_value.concrete.to_bool(), result_value.symbolic);
+        executor.state.create_or_update_concolic_variable_bool(&result_var_name, result_value.concrete != 0, result_value.symbolic);
     } else {
         return Err("Output varnode not specified for FLOAT_NAN instruction".to_string());
     }
