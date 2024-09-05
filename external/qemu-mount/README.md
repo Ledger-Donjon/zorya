@@ -20,8 +20,9 @@ cd /mnt/host
 sudo gdb [bin]
 	(gdb) set disable-randomization on
 	(gdb) break *0x[main.main addr]
+	(gdb) set environment LD_SHOW_AUXV=1 
 	(gdb) run
-        (gdb) set logging file cpu_mapping.txt
+    (gdb) set logging file cpu_mapping.txt
 	(gdb) set logging enabled on
 	(gdb) info all-registers
 	(gdb) set logging enabled off
