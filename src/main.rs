@@ -67,6 +67,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
+    let end_address: u64 = 0x45d578;
 
     // For debugging
     //let address: u64 = 0x7fffffffe4b0;
@@ -75,6 +76,11 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
+        if current_rip == end_address {
+            log!(executor.state.logger, "END ADDRESS 0x{:x} REACHED, STOP THE EXECUTION", end_address);
+            break; // Stop execution if end address is reached
+        }
+        
         log!(executor.state.logger, "*******************************************");
         log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
         log!(executor.state.logger, "*******************************************");
