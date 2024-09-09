@@ -270,7 +270,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "* Fetching branch target from instruction.input[0]");
         let branch_target_varnode = &instruction.inputs[0];
         let branch_target_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-        let branch_target_symbolic = match branch_target_concolic {
+        let branch_target_symbolic = match branch_target_concolic.clone() {
             ConcolicEnum::ConcolicVar(var) => var.symbolic,
             ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
             ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
@@ -280,9 +280,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let branch_target_concrete = match &branch_target_varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
-                log!(self.state.logger.clone(), "Branch target concrete : {:x}", addr); 
 
-                let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_target_symbolic.to_bv(&self.context), self.context, 64);
+                let branch_target_concolic = branch_target_concolic.to_concolic_var().unwrap();
             
                 log!(self.state.logger.clone(), "Branching to address {:x}", *addr);
                 // Update the RIP register to the branch target address

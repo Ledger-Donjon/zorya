@@ -78,4 +78,12 @@ impl<'ctx> ConcolicEnum<'ctx> {
             _ => None,
         }
     }
+
+    // Convert the concolic enum to a concolic variable
+    pub fn to_concolic_var(&self) -> Option<ConcolicVar<'ctx>> {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => Some(var.clone()),
+            _ => None,
+        }
+    }
 }
