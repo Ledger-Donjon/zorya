@@ -270,33 +270,59 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "* Fetching branch target from instruction.input[0]");
         let branch_target_address = self.extract_branch_target_address(branch_target_varnode)?;
 
-        // Update the RIP register to the new branch target address
-        {
-            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(branch_target_address, SymbolicVar::from_u64(&self.context, branch_target_address, 64).to_bv(&self.context), &self.context, 64), 64)?;
-        }
-        log!(self.state.logger.clone(), "Branching to address 0x{:x}", branch_target_address);
-
+        // Create concolic variable for branch target and update RIP register
+        let symbolic_var = SymbolicVar::from_u64(&self.context, branch_target_address, 64).to_bv(&self.context);
+        let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(branch_target_address, symbolic_var, &self.context, 64);
+    
         // Update the instruction counter
         self.instruction_counter += 1;
+
+        // Log the branch decision as a concolic variable for tracking
+        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let result_var_name = format!("{}-{:02}-branchind", current_addr_hex, self.instruction_counter);
+        self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_address, branch_target_concolic.symbolic);
 
         Ok(())
     }
 
-    fn extract_branch_target_address(&self, varnode: &Varnode) -> Result<u64, String> {
+    fn extract_branch_target_address(&mut self, varnode: &Varnode) -> Result<u64, String> {
         match &varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
+                // Update the RIP register to the new branch target address
+                {
+                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                    cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(*addr, SymbolicVar::from_u64(&self.context, *addr, 64).to_bv(&self.context), &self.context, 64), 64)?;
+                }
+                log!(self.state.logger.clone(), "Branching to address 0x{:x}", addr);
+
                 Ok(*addr)
             },
             Var::Const(value) => {
-                let value_str = value.trim_start_matches("0x");
-                u64::from_str_radix(value_str, 16)
-                    .map_err(|e| {
+                // Log the value to be parsed
+                log!(self.state.logger.clone(), "Attempting to parse branch target constant: {:?}", value);
+                
+                // Convert value to a string and remove the '0x' prefix
+                let value_string = value.to_string(); // Extend lifetime by storing in a variable
+                let value_str = value_string.trim_start_matches("0x"); // Now, this is safe
+                
+                // Attempt to parse the string as a hexadecimal number
+                let value_u64 = match u64::from_str_radix(value_str, 16) {
+                    Ok(value_u64) => {
+                        log!(self.state.logger.clone(), "Branch target is a constant: 0x{:x}, which means this is a sub instruction of a pcode instruction.", value_u64);
+                        value_u64
+                    },
+                    Err(e) => {
+                        // Log the error and return an error message
                         log!(self.state.logger.clone(), "Failed to parse constant as u64: {:?}", e);
-                        format!("Failed to parse constant as u64: {:?}", e)
-                    })
-            },
+                        return Err(format!("Failed to parse constant as u64: {:?}", e));
+                    }
+                }; 
+
+                self.pcode_internal_lines_to_be_jumped = value_u64 as usize;  // setting the number of lines to skip
+                
+                Ok(value_u64)
+            }
             _ => {
                 Err(format!("Branch instruction does not support this variable type: {:?}", varnode.var))
             }
@@ -318,11 +344,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Create concolic variable for branch target and update RIP register
         let symbolic_var = SymbolicVar::from_u64(&self.context, branch_target_address, 64).to_bv(&self.context);
         let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(branch_target_address, symbolic_var, &self.context, 64);
-        
-        {
-            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic.clone(), 64)?;
-        }
     
         // Update the instruction counter
         self.instruction_counter += 1;
