@@ -71,7 +71,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             self.instruction_counter += 1;
         }
 
-        let _ = match instruction.opcode {
+        match instruction.opcode {
             Opcode::Blank => panic!("Opcode Blank is not implemented yet"),
             Opcode::Branch => self.handle_branch(instruction), // unconditional jump to a specified address
             Opcode::BranchInd => self.handle_branchind(instruction),
@@ -151,7 +151,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::IntSub => executor_int::handle_int_sub(self, instruction),
             Opcode::IntXor => executor_int::handle_int_xor(self, instruction),
             Opcode::IntZExt => executor_int::handle_int_zext(self, instruction),
-        };
+        }?;
         Ok(())
     }
 
