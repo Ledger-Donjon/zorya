@@ -726,79 +726,75 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     // Handle STORE operation
     pub fn handle_store(&mut self, instruction: Inst) -> Result<(), String> {
+        // Validate the instruction format
         if instruction.opcode != Opcode::Store || instruction.inputs.len() != 3 {
             return Err("Invalid instruction format for STORE".to_string());
         }
-
+    
         // Fetch the pointer offset
         log!(self.state.logger.clone(), "* Fetching pointer offset from instruction.input[1]");
-        let pointer_offset_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-        let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
+        let pointer_offset_var = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+        let pointer_offset_concrete = pointer_offset_var.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
-
-        // Check for null pointer dereference
+    
+        // Validate pointer to prevent null dereference
         if pointer_offset_concrete == 0 {
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-            log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
+            log!(self.state.logger.clone(), "VULN: Null pointer dereference attempt detected, execution halted!");
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-            process::exit(1);
+            return Err("Attempted null pointer dereference".to_string());
         }
-
-        // Get the size of the input in bits
-        let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
-        log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
-
+    
         // Fetch the data to be stored
         log!(self.state.logger.clone(), "* Fetching data to store from instruction.input[2]");
-        let data_to_store_varnode = &instruction.inputs[2];
-        let data_to_store_concrete = match &data_to_store_varnode.var {
+        let data_to_store_var = &instruction.inputs[2];
+        let data_to_store_concrete = match &data_to_store_var.var {
             Var::Const(value) => {
-                let value_u128 = u128::from_str_radix(&value.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
-                log!(self.state.logger.clone(), "Data to store is a constant with value: 0x{:x}", value_u128);
-                value_u128
+                let parsed_value = u128::from_str_radix(&value.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
+                log!(self.state.logger.clone(), "Data to store is a constant with value: 0x{:x}", parsed_value);
+                parsed_value
             },
             _ => {
-                let data_to_store_concolic = self.varnode_to_concolic(data_to_store_varnode).map_err(|e| e.to_string())?;
-                data_to_store_concolic.get_concrete_value() as u128
+                let data_var = self.varnode_to_concolic(data_to_store_var).map_err(|e| e.to_string())?;
+                data_var.get_concrete_value() as u128
             }
         };
-
-        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete as u64, input_size_bits);
-        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete as u64, data_to_store_symbolic, self.context, input_size_bits);
-
+    
+        // Convert data to symbolic form and create concolic value
+        let data_size_bits = data_to_store_var.size.to_bitvector_size() as u32;
+        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete as u64, data_size_bits);
+        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete as u64, data_to_store_symbolic, self.context, data_size_bits);
+    
         log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
-
-        {
-            // Store the data in memory, byte by byte, in little-endian order
-            let mut memory_guard = self.state.memory.memory.write().unwrap();
-            let total_bytes = (instruction.inputs[2].size.to_bitvector_size() / 8) as u64;
-
-            for i in 0..total_bytes {
-                let byte_address = pointer_offset_concrete + i;
-                let byte_value = ((data_to_store_concrete >> (8 * i)) & 0xFF) as u8; // Extract each byte
-                let byte_value_symbolic = BV::from_u64(self.context, byte_value as u64, 8);
-                memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value as u64, byte_value_symbolic, 8));
-                log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
-            }
+    
+        // Store the data in memory, handling each byte
+        let mut memory_guard = self.state.memory.memory.write().unwrap();
+        let total_bytes = (data_size_bits / 8) as u64;
+        for i in 0..total_bytes {
+            let byte_address = pointer_offset_concrete.checked_add(i).ok_or_else(|| "Address calculation overflow".to_string())?;
+            let byte_value = ((data_to_store_concrete >> (8 * i)) & 0xFF) as u8; // Extract each byte
+            let byte_value_symbolic = BV::from_u64(self.context, byte_value as u64, 8);
+            memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value as u64, byte_value_symbolic, 8));
+            log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
         }
-
-        // If the address falls within the range of the CPU registers, update the register as well
-        {
-            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
-                cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic, input_size_bits)?;
-                log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
-            }
+    
+        // Optionally update CPU register if the address maps to one
+        let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+        if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, data_size_bits) {
+            cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic, data_size_bits)?;
+            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
         }
+        drop(memory_guard);
+        drop(cpu_state_guard);
 
-        // Create or update a concolic variable for the result of the store operation
+        // Record the operation for traceability
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete as u64, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete as u64, input_size_bits)));
-
+        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete as u64, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete as u64, data_size_bits)));
+    
         Ok(())
     }
-
+    
 
     pub fn handle_copy(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Copy || instruction.inputs.len() != 1 {
