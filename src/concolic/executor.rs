@@ -994,47 +994,46 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let source_symbolic = source_concolic.get_symbolic_value_bv(self.context);
     
         log!(self.state.logger.clone(), "* Fetching truncation offset from instruction.input[1] for SUBPIECE");
-        let offset_value = match &instruction.inputs[1].var {
-            Var::Const(value) => {
-                let trimmed_value = value.trim_start_matches("0x");
-                u32::from_str_radix(trimmed_value, 16).map_err(|e| format!("Failed to parse offset value: {}", e))?
-            },
-            _ => return Err("SUBPIECE expects a constant for input1".to_string()),
+        let offset_value = if let Var::Const(value) = &instruction.inputs[1].var {
+            value.trim_start_matches("0x").parse::<u32>().map_err(|e| format!("Failed to parse offset value: {}", e))?
+        } else {
+            return Err("SUBPIECE expects a constant for input1".to_string());
         };
     
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         let byte_offset = offset_value * 8;  // Offset is in bytes, convert to bits
     
-        log!(self.state.logger.clone(), "Truncation offset in bits: {}", byte_offset);
+        // Safeguard against invalid operations
+        if byte_offset >= source_symbolic.get_size() {
+            log!(self.state.logger.clone(), "Offset exceeds the size of the source data.");
+            return Err("Offset exceeds the size of the source data".to_string());
+        }
     
+        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, source_symbolic.get_size()));
         let truncated_concrete = if byte_offset >= 64 {
             0  // If the offset is larger than the size of a u64, the result is zero
         } else {
             source_value >> byte_offset  // Shift right to truncate
         };
     
-        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, 64));
-    
         log!(self.state.logger.clone(), "Truncated concrete value: 0x{:x}", truncated_concrete);
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
     
         let result_value = ConcolicVar::new_concrete_and_symbolic_int(
             truncated_concrete,
-            truncated_symbolic.clone(),
+            truncated_symbolic,
             self.context,
             output_size_bits
         );
     
-        // Handle the result based on the output varnode
         self.handle_output(instruction.output.as_ref(), result_value)?;
     
-        // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-subpiece", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, truncated_concrete, source_concolic.to_concolic_var().unwrap().symbolic);
     
         Ok(())
-    }     
+    }             
     
     pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
