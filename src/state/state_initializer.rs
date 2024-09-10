@@ -12,9 +12,7 @@ use crate::concolic::ConcolicVar;
 use crate::target_info::GLOBAL_TARGET_INFO;
 use super::cpu_state::SharedCpuState;
 
-pub fn initialize_cpu_registers(cpu_state: SharedCpuState) -> Result<()> {
-    println!("Debug : Inside get_mock");
-    
+pub fn initialize_cpu_registers(cpu_state: SharedCpuState) -> Result<()> {  
     let dumps_dir = {
             let info = GLOBAL_TARGET_INFO.lock().unwrap();
             info.memory_dumps.clone()

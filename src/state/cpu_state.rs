@@ -262,7 +262,7 @@ impl<'ctx> CpuState<'ctx> {
             self.register_map.insert(offset, (name.to_string(), size));
 
             // Print debug info to trace the initialization of registers
-            println!("Initialized register {} at offset 0x{:X} with value {:?} and size {}.", name, offset, concolic_value, size);
+            // println!("Initialized register {} at offset 0x{:X} with value {:?} and size {}.", name, offset, concolic_value, size);
         }
 
         Ok(())

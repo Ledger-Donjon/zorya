@@ -37,7 +37,7 @@ impl<'a> State<'a> {
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         
         log!(logger.clone(), "Initializing mock CPU state...\n");
-        let _ = state_initializer::initialize_cpu_registers(cpu_state.clone());
+        state_initializer::initialize_cpu_registers(cpu_state.clone())?;
 
         // Print the CPU registers after initialization
         let displayable_cpu_state = DisplayableCpuState(cpu_state.clone());
@@ -46,8 +46,8 @@ impl<'a> State<'a> {
         let memory_size: u64 = 1024 * 1024 * 1024; // 1 GiB memory size because dumps are 730 MB
         log!(logger.clone(), "Initializing memory...\n");
         let mut memory = MemoryX86_64::new(&ctx, memory_size)?;
-        let _ = memory.load_all_dumps();
-        let _ = memory.initialize_cpuid_memory_variables();
+        memory.load_all_dumps()?;
+        memory.initialize_cpuid_memory_variables()?;
 	
 	    // Virtual file system initialization
         log!(logger.clone(), "Initializing virtual file system...\n");
