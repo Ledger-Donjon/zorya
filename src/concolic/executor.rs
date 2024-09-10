@@ -767,7 +767,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
-                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, 0, bit_size).unwrap();
+                    // Find the closest register that is less than the provided offset
+                    let closest_register = cpu_state_guard.register_map.range(..offset).rev().next()
+                        .ok_or(format!("No register found before offset 0x{:x}", offset))?;
+                    log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", *closest_register.0, closest_register.1 .1);
+                    
+                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, closest_register.1 .1, bit_size).unwrap();
                     (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                 }
             },
@@ -1003,7 +1008,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         let byte_offset = offset_value * 8;  // Offset is in bytes, convert to bits
     
-        // Safeguard against invalid operations
+        // Check for invalid operations
         if byte_offset >= source_symbolic.get_size() {
             log!(self.state.logger.clone(), "Offset exceeds the size of the source data.");
             return Err("Offset exceeds the size of the source data".to_string());
