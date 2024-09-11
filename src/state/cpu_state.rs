@@ -348,35 +348,35 @@ impl<'ctx> CpuState<'ctx> {
         for (&base_offset, reg) in &self.registers {
             let reg_size_bits = reg.symbolic.get_size();  // Size of the register in bits
             let reg_size_bytes = reg_size_bits as u64 / 8;  // Size of the register in bytes
-    
+
             // Check if the offset is within the range of this register
             if offset >= base_offset && offset < base_offset + reg_size_bytes {
                 let byte_offset = offset - base_offset;  // Offset within the register in bytes
                 let bit_offset = byte_offset * 8;  // Offset within the register in bits
                 let effective_access_size = access_size.min(reg_size_bits - bit_offset as u32);  // Effective bits to access
-    
+
                 if bit_offset >= reg_size_bits as u64 {
                     // If the bit offset is outside the actual size of the register, skip
                     continue;
                 }
-    
+
                 // Calculate the high bit index and ensure it does not exceed the register size
                 let high_bit_index = std::cmp::min(bit_offset + effective_access_size as u64, reg_size_bits as u64) - 1;
                 let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(high_bit_index as u32, bit_offset as u32);
-    
+
                 // Mask to extract only the needed bits (avoiding right shift if not needed)
                 let mask = if effective_access_size < 64 {
                     (1u64 << effective_access_size) - 1
                 } else {
                     u64::MAX
                 };
-    
-                let new_concrete = if effective_access_size == 0 {
-                    0
+
+                let new_concrete = if effective_access_size == 0 || bit_offset >= 64 {
+                    0  // No need to shift if effective access size is zero or bit_offset is too large
                 } else {
                     (reg.concrete.to_u64() >> bit_offset) & mask
                 };
-    
+
                 return Some(CpuConcolicValue {
                     concrete: ConcreteVar::Int(new_concrete),
                     symbolic: SymbolicVar::Int(new_symbolic),
@@ -386,8 +386,8 @@ impl<'ctx> CpuState<'ctx> {
         }
         // Return None if no suitable register found
         None
-    }    
-     
+    }
+    
     /// Gets the concolic value of a register identified by its offset.
     pub fn get_concolic_register_by_offset(&self, offset: u64, size: u32) -> Option<ConcolicVar<'ctx>> {
         if let Some(reg) = self.registers.get(&offset) {
