@@ -104,29 +104,27 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // For debugging
             //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
             //executor.state.print_memory_content(address, range);
-            let register0x206 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x206 is {:x}", register0x206.concrete);
-            let register0x30 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x30 is {:x}", register0x30.concrete);
-            let register0x18 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x18 is {:x}", register0x18.concrete);
-            let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x10 is {:x}", register0x10.concrete);
-            let register0x0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x0 is {:x}", register0x0.concrete);
-            let register0x20 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x20 is {:x}", register0x20.concrete);
-            let register0x38 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x38 is {:x}", register0x38.concrete);
-            let register0xb0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0xb0 is {:x}", register0xb0.concrete);
-            let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x110 is {:x}", register0x110.concrete);
-            let register0x1200 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x1200, 256).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x1200 - YMM0 is {:x}", register0x1200.concrete);
+            // let register0x206 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x206 is {:x}", register0x206.concrete);
+            // let register0x30 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x30 is {:x}", register0x30.concrete);
+            // let register0x18 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x18 is {:x}", register0x18.concrete);
+            // let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x10 is {:x}", register0x10.concrete);
+            // let register0x0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x0 is {:x}", register0x0.concrete);
+            // let register0x20 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x20 is {:x}", register0x20.concrete);
+            // let register0x38 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x38 is {:x}", register0x38.concrete);
+            // let register0xb0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0xb0 is {:x}", register0xb0.concrete);
+            // let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x110 is {:x}", register0x110.concrete);
+            // let register0x1200 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x1200, 256).unwrap();
+            // log!(executor.state.logger,  "The value of register at offset 0x1200 - YMM0 is {:x}", register0x1200.concrete);
             
-
-
             // Check if there's a requested jump within the current block
             if executor.pcode_internal_lines_to_be_jumped > 0 {
                 let proposed_jump_target = local_line_number + executor.pcode_internal_lines_to_be_jumped;
