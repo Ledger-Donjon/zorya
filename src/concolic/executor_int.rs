@@ -39,29 +39,26 @@ fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Op
                     },
                     Err(e) => {
                         log!(executor.state.logger.clone(), "Error updating register at offset 0x{:x}: {}", offset, e);
-                        // Handle the case where the register offset might be a sub-register
-                        let closest_offset = cpu_state_guard.registers.keys().rev().find(|&&key| key < *offset);
+                        let closest_offset = cpu_state_guard.registers.keys().rev().find(|&&key| key <= *offset);
                         if let Some(&base_offset) = closest_offset {
                             let diff = *offset - base_offset;
                             let full_reg_size = cpu_state_guard.register_map.get(&base_offset).map(|&(_, size)| size).unwrap_or(64);
 
-                            if (diff * 8) + size_bits as u64 <= full_reg_size as u64 {
-                                let original_value = cpu_state_guard.get_register_by_offset(base_offset, full_reg_size).unwrap();
-                                let mask = ((1u64 << size_bits) - 1) << (diff * 8);
-                                let new_value = (original_value.concrete.to_u64() & !mask) | ((concrete_value & ((1u64 << size_bits) - 1)) << (diff * 8));
-
-                                cpu_state_guard.set_register_value_by_offset(base_offset, result_value.clone(), full_reg_size)
-                                    .map_err(|e| {
-                                        log!(executor.state.logger.clone(), "Error updating sub-register at offset 0x{:x}: {}", offset, e);
-                                        e
-                                    })
-                                    .and_then(|_| {
-                                        log!(executor.state.logger.clone(), "Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size_bits);
-                                        Ok(())
-                                    })
-                            } else {
-                                Err(format!("Cannot fit value into register at offset 0x{:x}", offset))
+                            if (diff * 8 + size_bits as u64 > 64) {
+                                return Err(format!("Shift calculation exceeds 64 bits at offset 0x{:x}", offset));
                             }
+
+                            let mask = if size_bits < 64 {
+                                ((1u64 << size_bits) - 1) << (diff * 8)
+                            } else {
+                                u64::MAX
+                            };
+
+                            let new_value = (concrete_value & mask) | (concrete_value << (diff * 8));
+                            cpu_state_guard.set_register_value_by_offset(base_offset, ConcolicVar::new_concrete_and_symbolic_int(new_value, result_value.symbolic.to_bv(&executor.context).clone(), executor.context, full_reg_size), full_reg_size)?;
+
+                            log!(executor.state.logger.clone(), "Updated sub-register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, new_value, size_bits);
+                            Ok(())
                         } else {
                             Err(format!("No suitable register found for offset 0x{:x}", offset))
                         }
