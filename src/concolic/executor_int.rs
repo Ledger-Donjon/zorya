@@ -773,7 +773,6 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         return Err("Invalid instruction format for INT_RIGHT".to_string());
     }
 
-    // Fetch concolic variables
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_RIGHT");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_RIGHT");
@@ -782,19 +781,24 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Perform the right shift operation
     let shift_amount = input1_var.get_concrete_value() as usize;
+
+    // Ensure the shift amount does not exceed the size of the data
+    if shift_amount >= output_size_bits as usize {
+        log!(executor.state.logger.clone(), "Shift amount {} exceeds the number of bits {}, adjusting to maximum shift.", shift_amount, output_size_bits);
+        return Err(format!("Shift amount exceeds the number of bits: {}", output_size_bits));
+    }
+
     let result_concrete = input0_var.get_concrete_value() >> shift_amount;
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvlshr(&BV::from_u64(executor.context, shift_amount as u64, output_size_bits));
 
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_RIGHT is: {:?}\n", result_concrete);
+    log!(executor.state.logger.clone(), "*** The result of INT_RIGHT is: {:x}\n", result_concrete);
 
     // Handle the result based on the output varnode
     handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
 
-    // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intright", current_addr_hex, executor.instruction_counter);
     executor.state.create_or_update_concolic_variable_int(&result_var_name, result_value.concrete.to_u64(), result_value.symbolic);
