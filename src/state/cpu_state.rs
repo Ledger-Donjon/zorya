@@ -348,7 +348,7 @@ impl<'ctx> CpuState<'ctx> {
         if let Some(reg) = self.registers.get(&offset) {
             return Some(reg.clone());
         }
-
+    
         // Handle sub-register access
         for (base_offset, reg) in &self.registers {
             let size_in_bytes = reg.symbolic.get_size() as u64 / 8;
@@ -358,17 +358,26 @@ impl<'ctx> CpuState<'ctx> {
                 // Calculate bit offset (e.g., accessing a word 16 bits in)
                 let bit_offset = byte_offset * 8;
                 let effective_access_size = access_size.min(reg.symbolic.get_size() as u32 - bit_offset as u32);
-
+    
                 // Ensure proper typing for bit operations
                 let high_bit = bit_offset + u64::from(effective_access_size) - 1;
                 let low_bit = bit_offset as u32;
-
+    
                 // Safely perform the extraction
                 let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(high_bit as u32, low_bit);
-
-                let mask = (1u64 << effective_access_size) - 1;
-                let new_concrete = (reg.concrete.to_u64() >> low_bit) & mask;
-
+    
+                let new_concrete = if effective_access_size == 64 {
+                    reg.concrete.to_u64() >> low_bit // Directly shift if 64 bits
+                } else {
+                    // Create mask safely for bit sizes less than 64
+                    let mask = if effective_access_size < 64 {
+                        (1u64 << effective_access_size) - 1
+                    } else {
+                        u64::MAX
+                    };
+                    (reg.concrete.to_u64() >> low_bit) & mask
+                };
+    
                 return Some(CpuConcolicValue {
                     concrete: ConcreteVar::Int(new_concrete),
                     symbolic: SymbolicVar::Int(new_symbolic),
@@ -378,7 +387,7 @@ impl<'ctx> CpuState<'ctx> {
         }
         None
     }
-
+     
     /// Gets the concolic value of a register identified by its offset.
     pub fn get_concolic_register_by_offset(&self, offset: u64, size: u32) -> Option<ConcolicVar<'ctx>> {
         if let Some(reg) = self.registers.get(&offset) {
