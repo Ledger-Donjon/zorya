@@ -344,38 +344,37 @@ impl<'ctx> CpuState<'ctx> {
 
     // Function to get a register by its offset, accounting for sub-register accesses
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
-        // Check if the exact register exists
-        if let Some(reg) = self.registers.get(&offset) {
-            return Some(reg.clone());
-        }
+        // Iterate over all registers to find one that spans the requested offset
+        for (&base_offset, reg) in &self.registers {
+            let reg_size_bits = reg.symbolic.get_size();  // Size of the register in bits
+            let reg_size_bytes = reg_size_bits as u64 / 8;  // Size of the register in bytes
     
-        // Handle sub-register access
-        for (base_offset, reg) in &self.registers {
-            let size_in_bytes = reg.symbolic.get_size() as u64 / 8;
-            if offset >= *base_offset && offset < *base_offset + size_in_bytes {
-                // Calculate byte offset within the larger register
-                let byte_offset = offset - base_offset;
-                // Calculate bit offset (e.g., accessing a word 16 bits in)
-                let bit_offset = byte_offset * 8;
-                let effective_access_size = access_size.min(reg.symbolic.get_size() as u32 - bit_offset as u32);
+            // Check if the offset is within the range of this register
+            if offset >= base_offset && offset < base_offset + reg_size_bytes {
+                let byte_offset = offset - base_offset;  // Offset within the register in bytes
+                let bit_offset = byte_offset * 8;  // Offset within the register in bits
+                let effective_access_size = access_size.min(reg_size_bits - bit_offset as u32);  // Effective bits to access
     
-                // Ensure proper typing for bit operations
-                let high_bit = bit_offset + u64::from(effective_access_size) - 1;
-                let low_bit = bit_offset as u32;
+                if bit_offset >= reg_size_bits as u64 {
+                    // If the bit offset is outside the actual size of the register, skip
+                    continue;
+                }
     
-                // Safely perform the extraction
-                let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(high_bit as u32, low_bit);
+                // Calculate the high bit index and ensure it does not exceed the register size
+                let high_bit_index = std::cmp::min(bit_offset + effective_access_size as u64, reg_size_bits as u64) - 1;
+                let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(high_bit_index as u32, bit_offset as u32);
     
-                let new_concrete = if effective_access_size == 64 {
-                    reg.concrete.to_u64() >> low_bit // Directly shift if 64 bits
+                // Mask to extract only the needed bits (avoiding right shift if not needed)
+                let mask = if effective_access_size < 64 {
+                    (1u64 << effective_access_size) - 1
                 } else {
-                    // Create mask safely for bit sizes less than 64
-                    let mask = if effective_access_size < 64 {
-                        (1u64 << effective_access_size) - 1
-                    } else {
-                        u64::MAX
-                    };
-                    (reg.concrete.to_u64() >> low_bit) & mask
+                    u64::MAX
+                };
+    
+                let new_concrete = if effective_access_size == 0 {
+                    0
+                } else {
+                    (reg.concrete.to_u64() >> bit_offset) & mask
                 };
     
                 return Some(CpuConcolicValue {
@@ -385,8 +384,9 @@ impl<'ctx> CpuState<'ctx> {
                 });
             }
         }
+        // Return None if no suitable register found
         None
-    }
+    }    
      
     /// Gets the concolic value of a register identified by its offset.
     pub fn get_concolic_register_by_offset(&self, offset: u64, size: u32) -> Option<ConcolicVar<'ctx>> {
