@@ -238,23 +238,16 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     };
 
     let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-    let full_reg_size = cpu_state_guard.register_map.get(&output_offset)
-        .ok_or_else(|| format!("No register found at offset 0x{:x}", output_offset))?.1;
-
-    log!(executor.state.logger.clone(), "Full register size: {} bits", full_reg_size);
 
     // Perform the XOR operation
     let result_concrete = input0_var.get_concrete_value() ^ input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvxor(&input1_var.get_symbolic_value_bv(executor.context));
-
-    // Adjust result to match the full register size
-    let extended_result_symbolic = result_symbolic.zero_ext(full_reg_size - 32); // Adjust the bit width to the full register size
-
+    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         result_concrete,
-        extended_result_symbolic,
+        result_symbolic,
         executor.context,
-        full_reg_size
+        output_size_bits
     );
 
     log!(executor.state.logger.clone(), "*** The result of INT_XOR is: 0x{:X}", result_concrete);

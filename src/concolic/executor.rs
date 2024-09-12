@@ -181,7 +181,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     let closest_register = cpu_state_guard.register_map.range(..offset).rev().next()
                         .ok_or(format!("No register found before offset 0x{:x}", offset))?;
                     log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", *closest_register.0, closest_register.1 .1);
-                    self.extract_and_create_concolic_value(&cpu_state_guard, *closest_register.0, closest_register.1 .1, bit_size)
+                    self.extract_and_create_concolic_value(&cpu_state_guard, *offset, closest_register.1 .1, bit_size)
                 }
             },
             // Keep track of the unique variables defined inside one address execution
@@ -775,7 +775,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         .ok_or(format!("No register found before offset 0x{:x}", offset))?;
                     log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", *closest_register.0, closest_register.1 .1);
                     
-                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *closest_register.0, closest_register.1 .1, bit_size).unwrap();
+                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, closest_register.1 .1, bit_size).unwrap();
                     (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                 }
             },
