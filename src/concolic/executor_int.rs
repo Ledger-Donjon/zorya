@@ -6,7 +6,7 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::{Bool, Float, BV};
 use std::io::Write;
 
-use super::{ConcolicVar, ConcreteVar, SymbolicVar};
+use super::ConcolicVar;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -226,38 +226,42 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         return Err("Invalid instruction format for INT_XOR".to_string());
     }
 
-    // Fetch concolic variables
+    log!(executor.state.logger.clone(), "* Fetching instruction inputs for INT_XOR");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
-    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-
-    // Determine the result based on the type of the input
-    let result_value = if let (ConcreteVar::LargeInt(ref vec0), ConcreteVar::LargeInt(ref vec1)) = (input0_var.to_concolic_var().unwrap().concrete, input1_var.to_concolic_var().unwrap().concrete) {
-        if vec0.len() == vec1.len() {
-            let mut result_vec: Vec<u64> = vec![];
-            let mut result_symbolic_vec = vec![];
-            for (v0, v1) in vec0.iter().zip(vec1) {
-                result_vec.push(v0 ^ v1);
-                let sym_v0 = BV::from_u64(executor.context, *v0, 64);
-                let sym_v1 = BV::from_u64(executor.context, *v1, 64);
-                result_symbolic_vec.push(sym_v0.bvxor(&sym_v1));
-            }
-            let result_concrete = ConcreteVar::LargeInt(result_vec);
-            let result_symbolic = SymbolicVar::LargeInt(result_symbolic_vec);
-            ConcolicVar::new_concrete_and_symbolic_int(result_concrete.to_u64(), result_symbolic.to_bv(executor.context), executor.context, output_size_bits)
-        } else {
-            return Err("Mismatch in sizes of LargeInt vectors".to_string());
-        }
-    } else {
-        // Regular INT_XOR operation
-        let result_concrete = input0_var.to_u64() ^ input1_var.to_u64();
-        let result_symbolic = input0_var.to_bv(executor.context).bvxor(&input1_var.to_bv(executor.context));
-        ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits)
+    // Extract the full register size from the register map using the output varnode's offset
+    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
+    let output_offset = match output_varnode.var {
+        Var::Register(offset, _) => offset,
+        _ => return Err("Output varnode must be a register".to_string()),
     };
 
+    let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+    let full_reg_size = cpu_state_guard.register_map.get(&output_offset)
+        .ok_or_else(|| format!("No register found at offset 0x{:x}", output_offset))?.1;
+
+    log!(executor.state.logger.clone(), "Full register size: {} bits", full_reg_size);
+
+    // Perform the XOR operation
+    let result_concrete = input0_var.get_concrete_value() ^ input1_var.get_concrete_value();
+    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvxor(&input1_var.get_symbolic_value_bv(executor.context));
+
+    // Adjust result to match the full register size
+    let extended_result_symbolic = result_symbolic.zero_ext(full_reg_size - 32); // Adjust the bit width to the full register size
+
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(
+        result_concrete,
+        extended_result_symbolic,
+        executor.context,
+        full_reg_size
+    );
+
+    log!(executor.state.logger.clone(), "*** The result of INT_XOR is: 0x{:X}", result_concrete);
+
+    drop(cpu_state_guard);
     // Handle the result based on the output varnode
-    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
+    handle_output(executor, Some(output_varnode), result_value.clone())?;
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -1074,4 +1078,3 @@ pub fn handle_int2float(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     Ok(())
 }
-
