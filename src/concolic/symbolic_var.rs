@@ -6,6 +6,7 @@ use z3_sys::Z3_ast;
 #[derive(Clone, Debug, PartialEq)]
 pub enum SymbolicVar<'ctx> {
     Int(BV<'ctx>),
+    LargeInt(Vec<BV<'ctx>>), // int larger than 64 bits
     Float(Float<'ctx>),
     Bool(Bool<'ctx>),
 }
@@ -32,6 +33,17 @@ impl<'ctx> SymbolicVar<'ctx> {
                 }
                 count
             },
+            SymbolicVar::LargeInt(vec) => {
+                let ctx = vec.first().expect("LargeInt vector should not be empty").get_ctx();
+                let mut count = BV::from_u64(ctx, 0, vec.first().unwrap().get_size());
+                for bv in vec {
+                    for i in 0..bv.get_size() {
+                        let bit = bv.extract(i, i);
+                        count = count.bvadd(&bit.zero_ext(bv.get_size() - 1));
+                    }
+                }
+                count
+            },
             SymbolicVar::Float(_) => panic!("Popcount is not defined for floating-point values"),
             SymbolicVar::Bool(_) => panic!("Popcount is not defined for boolean values"),
         }
@@ -44,6 +56,10 @@ impl<'ctx> SymbolicVar<'ctx> {
                 let extracted_bv = bv.extract(high, low);
                 Ok(SymbolicVar::Int(extracted_bv))
             },
+            SymbolicVar::LargeInt(vec) => {
+                let extracted_vec = vec.iter().map(|bv| bv.extract(high, low)).collect();
+                Ok(SymbolicVar::LargeInt(extracted_vec))
+            },
             SymbolicVar::Float(_) => Err("Extract operation not supported on floating-point symbolic variables"),
             SymbolicVar::Bool(_) => Err("Extract operation not supported on boolean symbolic variables"),
         }
@@ -53,6 +69,7 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn equal(&self, other: &SymbolicVar<'ctx>) -> bool {
         match (self, other) {
             (SymbolicVar::Int(a), SymbolicVar::Int(b)) => a.eq(&b),
+            (SymbolicVar::LargeInt(a), SymbolicVar::LargeInt(b)) => a.iter().zip(b.iter()).all(|(x, y)| x.eq(y)),
             (SymbolicVar::Float(a), SymbolicVar::Float(b)) => a.eq(&b),
             _ => false,
         }
@@ -60,9 +77,10 @@ impl<'ctx> SymbolicVar<'ctx> {
 
     pub fn to_str(&self) -> String {
         match self {
-            SymbolicVar::Int(value) => value.to_string(),
-            SymbolicVar::Float(value) => value.to_string(),
-            SymbolicVar::Bool(value) => value.to_string(),
+            SymbolicVar::Int(bv) => bv.to_string(),
+            SymbolicVar::LargeInt(vec) => vec.iter().map(|bv| bv.to_string()).collect::<Vec<_>>().join("|"),
+            SymbolicVar::Float(f) => f.to_string(),
+            SymbolicVar::Bool(b) => b.to_string(),
         }
     }
 
@@ -70,6 +88,7 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn to_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
         match self {
             SymbolicVar::Int(bv) => bv.clone(),
+            SymbolicVar::LargeInt(vec) => vec.first().expect("LargeInt should not be empty").clone(),
             SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a bit vector"),
             SymbolicVar::Bool(b) => {
                 let one = BV::from_u64(ctx, 1, 1); 
@@ -84,8 +103,7 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn to_float(&self) -> Float<'ctx> {
         match self {
             SymbolicVar::Float(f) => f.clone(),
-            SymbolicVar::Int(_) => panic!("Cannot convert a boolean symbolic variable to a float"), //TODO
-            SymbolicVar::Bool(_) => panic!("Cannot convert a boolean symbolic variable to a float"),
+            _ => panic!("Conversion to float is not supported for this type"),
         }
     }
 
@@ -94,27 +112,47 @@ impl<'ctx> SymbolicVar<'ctx> {
         match self {
             SymbolicVar::Bool(b) => b.clone(),
             SymbolicVar::Int(bv) => {
-                // if the bit vector is equal to 0, return false, otherwise true
-                if bv == &(BV::from_u64(bv.get_ctx(), 0, bv.get_size())) {
-                    Bool::from_bool(bv.get_ctx(), false)
-                } else {
-                    Bool::from_bool(bv.get_ctx(), true)
-                }
-            }
+                let zero = BV::from_u64(bv.get_ctx(), 0, bv.get_size());
+                bv.bvugt(&zero)  // Returns Bool directly
+            },
+            SymbolicVar::LargeInt(vec) => {
+                let ctx = vec[0].get_ctx();
+                let zero_bv = BV::from_u64(ctx, 0, vec[0].get_size());
+                let one_bv = BV::from_u64(ctx, 1, vec[0].get_size());
+                // Transform each BV comparison result to BV again for bitwise OR
+                let combined_or = vec.iter().fold(BV::from_u64(ctx, 0, 1), |acc, bv| {
+                    let is_non_zero = bv.bvugt(&zero_bv);
+                    let bv_is_non_zero = is_non_zero.ite(&one_bv, &zero_bv);
+                    acc.bvor(&bv_is_non_zero)
+                });
+                // Use bvredor to reduce to a single bit and then compare with zero
+                let reduced_or = combined_or.bvredor();
+                let value = !reduced_or._eq(&BV::from_u64(ctx, 0, 1));
+                let result = Bool::from_bool(ctx, value.as_bool().unwrap());
+                result
+            },
             SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a boolean"),
         }
     }
 
     // Convert a constant to a symbolic value.
     pub fn from_u64(ctx: &'ctx Context, value: u64, size: u32) -> SymbolicVar<'ctx> {
-        SymbolicVar::Int(BV::from_u64(ctx, value, size))
+        if size > 64 {
+            let num_blocks = (size + 63) / 64;
+            let mut vec = vec![BV::from_u64(ctx, 0, 64); num_blocks as usize];
+            vec[0] = BV::from_u64(ctx, value, size.min(64));
+            SymbolicVar::LargeInt(vec)
+        } else {
+            SymbolicVar::Int(BV::from_u64(ctx, value, size))
+        }
     }
 
     // Method to get the underlying Z3 AST
     pub fn get_z3_ast(&self) -> Z3_ast {
         match self {
             SymbolicVar::Int(bv) => bv.get_z3_ast(),
-            SymbolicVar::Float(fv) => fv.get_z3_ast(),
+            SymbolicVar::LargeInt(vec) => vec.first().unwrap().get_z3_ast(), // Simplified: returns AST of the first element
+            SymbolicVar::Float(f) => f.get_z3_ast(),
             SymbolicVar::Bool(b) => b.get_z3_ast(),
         }
     }
@@ -128,7 +166,8 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn get_ctx(&self) -> &'ctx Context {
         match self {
             SymbolicVar::Int(bv) => bv.get_ctx(),
-            SymbolicVar::Float(fv) => fv.get_ctx(),
+            SymbolicVar::LargeInt(vec) => vec.first().unwrap().get_ctx(),
+            SymbolicVar::Float(f) => f.get_ctx(),
             SymbolicVar::Bool(b) => b.get_ctx(),
         }
     }
@@ -136,16 +175,14 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn get_size(&self) -> u32 {
         match self {
             SymbolicVar::Int(bv) => bv.get_size(),
-            SymbolicVar::Float(_) => 64, 
-            SymbolicVar::Bool(_) => 64,
+            SymbolicVar::LargeInt(vec) => vec.iter().map(|bv| bv.get_size()).sum(),
+            SymbolicVar::Float(_) => 64,
+            SymbolicVar::Bool(_) => 1,
         }
     }
 
+    // Check if the symbolic variable is valid (i.e., its underlying AST is not null)
     pub fn is_valid(&self) -> bool {
-        match self {
-            SymbolicVar::Int(bv) => !bv.get_z3_ast().is_null(),
-            SymbolicVar::Float(fv) => !fv.get_z3_ast().is_null(),
-            SymbolicVar::Bool(b) => !b.get_z3_ast().is_null(),
-        }
+        !self.is_null()
     }
 }

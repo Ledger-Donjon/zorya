@@ -460,14 +460,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     // Display trait to visualize memory state (not for cloning)
-    pub fn display_memory(&self) -> std::fmt::Result {
+    pub fn display_memory(&self) -> fmt::Result {
         let memory = self.memory.read().unwrap();
         println!("Overview of the initialized memory:");
         for (address, memory_value) in memory.iter().take(20) {
             let concrete_value = match &memory_value.concrete {
                 ConcreteVar::Int(val) => val.to_string(),
                 ConcreteVar::Float(val) => val.to_string(),
-                ConcreteVar::Str(val) => val.to_string(),
+                ConcreteVar::Str(val) => val.clone(),
                 ConcreteVar::Bool(val) => val.to_string(),
                 ConcreteVar::LargeInt(values) => {
                     let mut result = String::new();
@@ -476,18 +476,21 @@ impl<'ctx> MemoryX86_64<'ctx> {
                     }
                     // Remove leading zeros if needed
                     result.trim_start_matches('0').to_string()
-                }
+                },
             };
 
             let symbolic_value = match &memory_value.symbolic {
                 SymbolicVar::Int(bv) => format!("{}", bv),
                 SymbolicVar::Float(float) => format!("{}", float),
-                SymbolicVar::Bool(bv) => format!("{}", bv),
+                SymbolicVar::Bool(b) => format!("{}", b),
+                SymbolicVar::LargeInt(vec) => {
+                    vec.iter().map(|bv| bv.to_string()).collect::<Vec<_>>().join(" | ")
+                },
             };
 
             println!("  {:#x}: MemoryConcolicValue {{ concrete: {}, symbolic: {} }}",
                      address, concrete_value, symbolic_value);
         }
         Ok(())
-    }
+    } 
 }

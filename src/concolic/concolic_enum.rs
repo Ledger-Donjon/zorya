@@ -86,4 +86,28 @@ impl<'ctx> ConcolicEnum<'ctx> {
             _ => None,
         }
     }
+
+    pub fn to_u64(&self) -> u64 {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => var.concrete.to_u64(),
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.concrete.to_u64(),
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.concrete.to_u64(),
+        }
+    }
+
+    pub fn to_bool(&self) -> bool {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => var.concrete.to_bool(),
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.concrete.to_bool(),
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.concrete.to_bool(),
+        }
+    }
+
+    pub fn to_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => var.symbolic.to_bv(ctx),
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic.to_bv(ctx),
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic.to_bv(ctx),
+        }
+    }
 }
