@@ -342,6 +342,12 @@ impl<'ctx> CpuState<'ctx> {
                 // Update the symbolic value
                 let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset as u64, full_reg_size);
                 let resized_symbolic = new_value.symbolic.to_bv(self.ctx).bvshl(&shift_amount_bv);
+                
+                // Ensure the extraction did not result in an invalid operation
+                if resized_symbolic.get_z3_ast().is_null() {
+                    return Err("Symbolic extraction resulted in an invalid state".to_string());
+                }
+                
                 let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size))
                     .bvor(&resized_symbolic);
 
