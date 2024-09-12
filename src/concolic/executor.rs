@@ -253,12 +253,19 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         // Perform the extraction
         let extracted_value = (original_register.concrete.to_u64() >> bit_offset) & mask;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + bit_size as u64 - 1) as u32, bit_offset as u32);
-        let simplified_symbolic = extracted_symbolic.simplify();
-    
+        // Perform the extraction using safe bounds
+        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
+            .extract((bit_offset + bit_size as u64 - 1) as u32, bit_offset as u32)
+            .simplify();
+
+        // Ensure the extraction did not result in an invalid operation
+        if extracted_symbolic.get_z3_ast().is_null() {
+            return Err("Symbolic extraction resulted in an invalid state".to_string());
+        }
+
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_value),
-            symbolic: SymbolicVar::Int(simplified_symbolic),
+            symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
     }                     
