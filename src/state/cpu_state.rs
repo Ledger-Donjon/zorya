@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::Mutex};
 use std::{fmt, fs};
 use anyhow::{Error, Result};
+use z3::ast::Ast;
 use std::sync::Arc;
 use anyhow::anyhow;
 use std::path::Path;
@@ -346,6 +347,11 @@ impl<'ctx> CpuState<'ctx> {
 
                 if combined_symbolic.get_size() as u32 != full_reg_size {
                     return Err("Symbolic operation exceeded valid size bounds after resizing".to_string());
+                }
+
+                // Ensure the extraction did not result in an invalid operation
+                if combined_symbolic.get_z3_ast().is_null() {
+                    return Err("Symbolic extraction resulted in an invalid state".to_string());
                 }
 
                 reg.concrete = ConcreteVar::Int(resized_concrete);
