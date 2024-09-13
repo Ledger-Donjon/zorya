@@ -299,15 +299,6 @@ impl<'ctx> CpuState<'ctx> {
         from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
 
-    /// Prevents left shift overflow by checking size limits.
-    fn generate_mask(size_bits: u32) -> u64 {
-        if size_bits >= 64 {
-            u64::MAX
-        } else {
-            (1u64 << size_bits) - 1
-        }
-    }
-
     /// Sets the value of a register identified by its offset.
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         let closest_reg = self.registers.range_mut(..=offset).rev().find(|&(key, _)| *key <= offset);
@@ -322,12 +313,8 @@ impl<'ctx> CpuState<'ctx> {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
 
-                // Ensure the shift amount is within the 64-bit boundary to prevent overflow
-                if new_size > 64 {
-                    return Err("Shift amount exceeds 64 bits, which is not supported".to_string());
-                }
-
-                let safe_bit_offset = bit_offset % 64;  // Ensure the bit offset is within a 64-bit boundary
+                // Safe bit offset ensures no overflow in shift operations
+                let safe_bit_offset = bit_offset % 64;
                 let mask = if new_size == 64 {
                     u64::MAX  // Use all bits if size is 64
                 } else {
@@ -340,24 +327,14 @@ impl<'ctx> CpuState<'ctx> {
                 let resized_concrete = (reg.concrete.to_u64() & inverse_mask) | new_concrete;
 
                 // Update the symbolic value
-                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset as u64, full_reg_size);
+                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset as u64, 64); // Ensure BV size matches the bit size of operations
                 let resized_symbolic = new_value.symbolic.to_bv(self.ctx).bvshl(&shift_amount_bv);
                 
-                // Ensure the extraction did not result in an invalid operation
-                if resized_symbolic.get_z3_ast().is_null() {
-                    return Err("Symbolic extraction resulted in an invalid state".to_string());
-                }
-                
-                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size))
+                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, 64))
                     .bvor(&resized_symbolic);
 
                 if combined_symbolic.get_size() as u32 != full_reg_size {
                     return Err("Symbolic operation exceeded valid size bounds after resizing".to_string());
-                }
-
-                // Ensure the extraction did not result in an invalid operation
-                if combined_symbolic.get_z3_ast().is_null() {
-                    return Err("Symbolic extraction resulted in an invalid state".to_string());
                 }
 
                 reg.concrete = ConcreteVar::Int(resized_concrete);
