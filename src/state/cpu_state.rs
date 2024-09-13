@@ -307,20 +307,20 @@ impl<'ctx> CpuState<'ctx> {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
                 let bit_offset = offset_within_reg * 8;
-                let full_reg_size = reg.symbolic.get_size() as u64;
+                let full_reg_size = reg.symbolic.get_size() as u64;  // Use u64 for register size comparisons
 
+                // Check if the new value can fit within the register starting from the bit_offset
                 if bit_offset + new_size as u64 > full_reg_size {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
 
-                // Ensure the bit shift is safe by checking against the maximum allowable shift for u64
-                let safe_bit_offset = if new_size + bit_offset as u32 > 64 {
-                    return Err(format!("Shift calculation exceeds 64 bits at offset 0x{:x}", offset));
+                // Calculate safe shift offsets within 64-bit boundary
+                let safe_bit_offset = bit_offset % 64;
+                let mask = if new_size < 64 {
+                    ((1u64 << new_size) - 1) << safe_bit_offset
                 } else {
-                    bit_offset % 64  // This ensures we do not overflow u64's shift limit
+                    u64::MAX << safe_bit_offset
                 };
-
-                let mask = ((1u64 << new_size.min(64)) - 1) << safe_bit_offset;  // Adjusted to prevent shift overflow
                 let inverse_mask = !mask;
 
                 // Update the concrete value
@@ -328,9 +328,9 @@ impl<'ctx> CpuState<'ctx> {
                 let resized_concrete = (reg.concrete.to_u64() & inverse_mask) | new_concrete;
 
                 // Update the symbolic value
-                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset, full_reg_size as u32);
+                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset, 64); // Use 64 as the bit length for shift amount
                 let resized_symbolic = new_value.symbolic.to_bv(self.ctx).bvshl(&shift_amount_bv);
-                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32))
+                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, 64))
                     .bvor(&resized_symbolic);
 
                 if combined_symbolic.get_size() as u32 != full_reg_size as u32 {
