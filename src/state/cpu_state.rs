@@ -333,6 +333,16 @@ impl<'ctx> CpuState<'ctx> {
                 let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, 64))
                     .bvor(&resized_symbolic);
 
+                if resized_symbolic.get_z3_ast().is_null() {
+                    println!("Warning: Symbolic operation resulted in a null AST. Operation skipped.");
+                    return Err("Symbolic extraction resulted in an invalid state".to_string());
+                }
+
+                if combined_symbolic.get_z3_ast().is_null() {
+                    println!("Warning: Symbolic operation resulted in a null AST. Operation skipped.");
+                    return Err("Symbolic extraction resulted in an invalid state".to_string());
+                }
+
                 if combined_symbolic.get_size() as u32 != full_reg_size as u32 {
                     return Err("Symbolic operation exceeded valid size bounds after resizing".to_string());
                 }
