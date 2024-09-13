@@ -3,7 +3,7 @@
 
 use crate::{concolic::executor::ConcolicExecutor, state::cpu_state};
 use parser::parser::{Inst, Opcode, Var, Varnode};
-use z3::ast::{Bool, Float, BV};
+use z3::ast::{Ast, Bool, Float, BV};
 use std::io::Write;
 
 use super::ConcolicVar;
@@ -231,17 +231,19 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
     // Extract the full register size from the register map using the output varnode's offset
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
-    let output_offset = match output_varnode.var {
-        Var::Register(offset, _) => offset,
-        _ => return Err("Output varnode must be a register".to_string()),
-    };
+    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?; 
 
     let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
 
     // Perform the XOR operation
     let result_concrete = input0_var.get_concrete_value() ^ input1_var.get_concrete_value();
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvxor(&input1_var.get_symbolic_value_bv(executor.context));
+    
+    // Ensure the extraction did not result in an invalid operation
+    if result_symbolic.get_z3_ast().is_null() {
+        return Err("Symbolic extraction resulted in an invalid state".to_string());
+    }
+
     let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         result_concrete,
