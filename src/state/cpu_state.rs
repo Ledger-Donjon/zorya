@@ -302,62 +302,57 @@ impl<'ctx> CpuState<'ctx> {
     /// Sets the value of a register identified by its offset, ensuring support for large registers.
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         let closest_reg = self.registers.range_mut(..=offset).rev().find(|&(key, _)| *key <= offset);
-
+    
         match closest_reg {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
                 let bit_offset = offset_within_reg * 8;  // Convert byte offset to bit offset
-                let full_reg_size = reg.symbolic.get_size() as u64;  // Fetch the full size of the register in bits
-
-                // Validate that the new value fits within the existing register
+                let full_reg_size = reg.symbolic.get_size() as u64;
+    
                 if bit_offset + new_size as u64 > full_reg_size {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
-
-                // Ensure the shift amount is within the bounds of the register size to prevent shifting errors
-                let safe_bit_offset = if full_reg_size < 64 {
-                    bit_offset % full_reg_size
-                } else {
-                    bit_offset % 64  // We assume shifts are safe within a 64-bit boundary
-                };
-
-                // Compute the mask for the new value and the inverse mask to clear the region in the original register
-                let mask = ((1u64 << new_size) - 1) << safe_bit_offset;
-                let inverse_mask = !mask;
-
-                // Update the concrete value
-                let new_concrete = ((new_value.concrete.to_u64() << safe_bit_offset) & mask) | (reg.concrete.to_u64() & inverse_mask);
-
-                // Prepare the symbolic shift amount and perform the symbolic operations
-                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset, full_reg_size as u32);
-                let resized_symbolic = new_value.symbolic.to_bv(self.ctx).bvshl(&shift_amount_bv);
-                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32))
-                    .bvor(&resized_symbolic);
-
-                if resized_symbolic.get_z3_ast().is_null() {
-                        println!("Warning: Symbolic operation resulted in a null AST. Operation skipped.");
-                        return Err("Symbolic extraction resulted in an invalid state".to_string());
-                    }
-
-                if combined_symbolic.get_z3_ast().is_null() {
-                    println!("Warning: Symbolic operation resulted in a null AST. Operation skipped.");
+    
+                // Handling large sizes by breaking down into manageable chunks
+                let mut current_bit_offset = bit_offset;
+                let mut remaining_size = new_size as u64;
+                let mut current_mask_shifted_value = new_value.concrete.to_u64();
+                let mut final_concrete = reg.concrete.to_u64();
+                let mut final_symbolic = reg.symbolic.to_bv(self.ctx).clone();
+    
+                while remaining_size > 0 {
+                    let current_size = remaining_size.min(64);  // Process up to 64 bits at a time
+                    let current_mask = (1u64 << current_size) - 1;
+    
+                    let mask = current_mask << current_bit_offset;
+                    let inverse_mask = !mask;
+    
+                    let new_concrete = (current_mask_shifted_value << current_bit_offset) & mask;
+                    final_concrete = (final_concrete & inverse_mask) | new_concrete;
+    
+                    let shift_amount_bv = BV::from_u64(self.ctx, current_bit_offset, full_reg_size as u32);
+                    let resized_symbolic = BV::from_u64(self.ctx, current_mask_shifted_value, current_size as u32).bvshl(&shift_amount_bv);
+                    final_symbolic = final_symbolic.bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32)).bvor(&resized_symbolic);
+    
+                    remaining_size -= current_size;
+                    current_bit_offset += current_size;
+                    current_mask_shifted_value >>= current_size;  // Prepare the next chunk of bits
+                }
+    
+                if final_symbolic.get_z3_ast().is_null() {
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
                 }
-
-                // Check for symbolic errors
-                if combined_symbolic.get_size() as u32 != full_reg_size as u32 {
-                    return Err("Symbolic operation exceeded valid size bounds after resizing".to_string());
-                }
-
-                reg.concrete = ConcreteVar::Int(new_concrete);
-                reg.symbolic = SymbolicVar::Int(combined_symbolic);
-
-                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, new_concrete, new_size, full_reg_size as u32);
+    
+                reg.concrete = ConcreteVar::Int(final_concrete);
+                reg.symbolic = SymbolicVar::Int(final_symbolic);
+    
+                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, final_concrete, new_size, full_reg_size as u32);
                 Ok(())
             },
             None => Err(format!("No suitable register found for offset 0x{:x}", offset))
         }
     }
+    
 
     // Function to get a register by its offset, accounting for sub-register accesses
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
