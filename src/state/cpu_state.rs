@@ -307,52 +307,52 @@ impl<'ctx> CpuState<'ctx> {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
                 let bit_offset = offset_within_reg * 8;  // Convert byte offset to bit offset
-                let full_reg_size = reg.symbolic.get_size() as u64;
+                let full_reg_size = reg.symbolic.get_size() as u64;  // Fetch the full size of the register in bits
     
                 if bit_offset + new_size as u64 > full_reg_size {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
     
-                // Handling large sizes by breaking down into manageable chunks
-                let mut current_bit_offset = bit_offset;
-                let mut remaining_size = new_size as u64;
-                let mut current_mask_shifted_value = new_value.concrete.to_u64();
-                let mut final_concrete = reg.concrete.to_u64();
-                let mut final_symbolic = reg.symbolic.to_bv(self.ctx).clone();
+                // Splitting large register settings into manageable parts
+                let num_parts = ((new_size as u64 + bit_offset) / 64) + 1;
+                for part in 0..num_parts {
+                    let part_bit_offset = part * 64;
+                    let effective_bit_offset = bit_offset + part_bit_offset;
     
-                while remaining_size > 0 {
-                    let current_size = remaining_size.min(64);  // Process up to 64 bits at a time
-                    let current_mask = (1u64 << current_size) - 1;
+                    if effective_bit_offset >= full_reg_size {
+                        break;  // Stop if the offset is beyond the register size
+                    }
     
-                    let mask = current_mask << current_bit_offset;
-                    let inverse_mask = !mask;
+                    let part_size = std::cmp::min(64, full_reg_size - effective_bit_offset) as u32;
+                    let mask = if part_size < 64 {
+                        (1u64 << part_size) - 1
+                    } else {
+                        u64::MAX
+                    };
     
-                    let new_concrete = (current_mask_shifted_value << current_bit_offset) & mask;
-                    final_concrete = (final_concrete & inverse_mask) | new_concrete;
+                    let shifted_mask = mask << (effective_bit_offset % 64);
+                    let inverse_mask = !shifted_mask;
+                    
+                    let new_concrete_part = ((new_value.concrete.to_u64() >> part_bit_offset) & mask) << (effective_bit_offset % 64);
+                    reg.concrete = ConcreteVar::Int((reg.concrete.to_u64() & inverse_mask) | new_concrete_part);
     
-                    let shift_amount_bv = BV::from_u64(self.ctx, current_bit_offset, full_reg_size as u32);
-                    let resized_symbolic = BV::from_u64(self.ctx, current_mask_shifted_value, current_size as u32).bvshl(&shift_amount_bv);
-                    final_symbolic = final_symbolic.bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32)).bvor(&resized_symbolic);
+                    let shift_amount_bv = BV::from_u64(self.ctx, effective_bit_offset % 64, full_reg_size as u32);
+                    let new_symbolic_part = BV::from_u64(self.ctx, ((new_value.concrete.to_u64() >> part_bit_offset) & mask), part_size).bvshl(&shift_amount_bv);
+                    let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32)).bvor(&new_symbolic_part);
     
-                    remaining_size -= current_size;
-                    current_bit_offset += current_size;
-                    current_mask_shifted_value >>= current_size;  // Prepare the next chunk of bits
+                    if combined_symbolic.get_z3_ast().is_null() {
+                        return Err("Symbolic extraction resulted in an invalid state".to_string());
+                    }
+                    
+                    reg.symbolic = SymbolicVar::Int(combined_symbolic);
                 }
     
-                if final_symbolic.get_z3_ast().is_null() {
-                    return Err("Symbolic extraction resulted in an invalid state".to_string());
-                }
-    
-                reg.concrete = ConcreteVar::Int(final_concrete);
-                reg.symbolic = SymbolicVar::Int(final_symbolic);
-    
-                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, final_concrete, new_size, full_reg_size as u32);
+                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, reg.concrete.to_u64(), new_size, full_reg_size);
                 Ok(())
             },
             None => Err(format!("No suitable register found for offset 0x{:x}", offset))
         }
-    }
-    
+    }    
 
     // Function to get a register by its offset, accounting for sub-register accesses
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
