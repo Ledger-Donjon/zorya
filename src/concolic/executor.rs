@@ -230,7 +230,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
-        // Ensure that bit_size doesn't exceed the register size and is valid
+        // Ensure that the bit_size doesn't exceed the register size and is valid
         if register_size == 0 || bit_size > register_size {
             return Err(format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset));
         }
@@ -273,7 +273,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }                         
+    }                             
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
