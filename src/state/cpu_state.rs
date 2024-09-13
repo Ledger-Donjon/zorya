@@ -307,14 +307,14 @@ impl<'ctx> CpuState<'ctx> {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
                 let bit_offset = offset_within_reg * 8;
-                let full_reg_size = reg.symbolic.get_size() as u32;
+                let full_reg_size = reg.symbolic.get_size() as u64;  // Cast full_reg_size to u64
 
-                if bit_offset + new_size as u64 > full_reg_size as u64 {
+                if bit_offset + new_size as u64 > full_reg_size {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
 
-                let safe_bit_offset = bit_offset % full_reg_size as u64; // Adjust for actual size of the register
-                let mask = if new_size < full_reg_size {
+                let safe_bit_offset = bit_offset % full_reg_size;  // Now both operands are u64
+                let mask = if new_size < full_reg_size as u32 {
                     ((1u64 << new_size) - 1) << safe_bit_offset
                 } else {
                     u64::MAX << safe_bit_offset
@@ -326,19 +326,19 @@ impl<'ctx> CpuState<'ctx> {
                 let resized_concrete = (reg.concrete.to_u64() & inverse_mask) | new_concrete;
 
                 // Update the symbolic value
-                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset as u64, full_reg_size);
+                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset, full_reg_size as u32);
                 let resized_symbolic = new_value.symbolic.to_bv(self.ctx).bvshl(&shift_amount_bv);
-                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size))
+                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32))
                     .bvor(&resized_symbolic);
 
-                if combined_symbolic.get_size() as u32 != full_reg_size {
+                if combined_symbolic.get_size() as u32 != full_reg_size as u32 {
                     return Err("Symbolic operation exceeded valid size bounds after resizing".to_string());
                 }
 
                 reg.concrete = ConcreteVar::Int(resized_concrete);
                 reg.symbolic = SymbolicVar::Int(combined_symbolic);
 
-                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, resized_concrete, new_size, full_reg_size);
+                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, resized_concrete, new_size, full_reg_size as u32);
                 Ok(())
             },
             None => Err(format!("No suitable register found for offset 0x{:x}", offset))
