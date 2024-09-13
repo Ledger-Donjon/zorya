@@ -306,51 +306,53 @@ impl<'ctx> CpuState<'ctx> {
         match closest_reg {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
-                let bit_offset = offset_within_reg * 8;
-                let full_reg_size = reg.symbolic.get_size() as u64;  // Use u64 for register size comparisons
+                let bit_offset = offset_within_reg * 8;  // Convert byte offset to bit offset
+                let full_reg_size = reg.symbolic.get_size() as u64;  // Fetch the full size of the register in bits
 
-                // Check if the new value can fit within the register starting from the bit_offset
+                // Validate that the new value fits within the existing register
                 if bit_offset + new_size as u64 > full_reg_size {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
 
-                // Calculate safe shift offsets within 64-bit boundary
-                let safe_bit_offset = bit_offset % 64;
-                let mask = if new_size < 64 {
-                    ((1u64 << new_size) - 1) << safe_bit_offset
+                // Ensure the shift amount is within the bounds of the register size to prevent shifting errors
+                let safe_bit_offset = if full_reg_size < 64 {
+                    bit_offset % full_reg_size
                 } else {
-                    u64::MAX << safe_bit_offset
+                    bit_offset % 64  // We assume shifts are safe within a 64-bit boundary
                 };
+
+                // Compute the mask for the new value and the inverse mask to clear the region in the original register
+                let mask = ((1u64 << new_size) - 1) << safe_bit_offset;
                 let inverse_mask = !mask;
 
                 // Update the concrete value
-                let new_concrete = (new_value.concrete.to_u64() << safe_bit_offset) & mask;
-                let resized_concrete = (reg.concrete.to_u64() & inverse_mask) | new_concrete;
+                let new_concrete = ((new_value.concrete.to_u64() << safe_bit_offset) & mask) | (reg.concrete.to_u64() & inverse_mask);
 
-                // Update the symbolic value
-                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset, 64); // Use 64 as the bit length for shift amount
+                // Prepare the symbolic shift amount and perform the symbolic operations
+                let shift_amount_bv = BV::from_u64(self.ctx, safe_bit_offset, full_reg_size as u32);
                 let resized_symbolic = new_value.symbolic.to_bv(self.ctx).bvshl(&shift_amount_bv);
-                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, 64))
+                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32))
                     .bvor(&resized_symbolic);
 
                 if resized_symbolic.get_z3_ast().is_null() {
-                    println!("Warning: Symbolic operation resulted in a null AST. Operation skipped.");
-                    return Err("Symbolic extraction resulted in an invalid state".to_string());
-                }
+                        println!("Warning: Symbolic operation resulted in a null AST. Operation skipped.");
+                        return Err("Symbolic extraction resulted in an invalid state".to_string());
+                    }
 
                 if combined_symbolic.get_z3_ast().is_null() {
                     println!("Warning: Symbolic operation resulted in a null AST. Operation skipped.");
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
                 }
 
+                // Check for symbolic errors
                 if combined_symbolic.get_size() as u32 != full_reg_size as u32 {
                     return Err("Symbolic operation exceeded valid size bounds after resizing".to_string());
                 }
 
-                reg.concrete = ConcreteVar::Int(resized_concrete);
+                reg.concrete = ConcreteVar::Int(new_concrete);
                 reg.symbolic = SymbolicVar::Int(combined_symbolic);
 
-                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, resized_concrete, new_size, full_reg_size as u32);
+                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, new_concrete, new_size, full_reg_size as u32);
                 Ok(())
             },
             None => Err(format!("No suitable register found for offset 0x{:x}", offset))
