@@ -310,12 +310,12 @@ impl<'ctx> CpuState<'ctx> {
                 let bit_offset = offset_within_reg * 8;  // Convert byte offset to bit offset
                 let full_reg_size = reg.symbolic.get_size() as u64;  // Fetch the full size of the register in bits
     
-                if (bit_offset + new_size as u64) > full_reg_size {
+                if bit_offset + new_size as u64 > full_reg_size {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
     
                 // Extract the part of the register that remains unchanged
-                let high_bits = if (bit_offset + new_size as u64) < full_reg_size {
+                let high_bits = if bit_offset + new_size as u64 < full_reg_size {
                     reg.symbolic.to_bv(self.ctx).extract((full_reg_size - 1) as u32, (bit_offset + new_size as u64) as u32)
                 } else {
                     BV::from_u64(self.ctx, 0, 0)  // No higher bits to preserve
@@ -329,10 +329,10 @@ impl<'ctx> CpuState<'ctx> {
     
                 // Combine the new value into the correct bit position
                 if let SymbolicVar::Int(new_bv) = new_value.symbolic {
-                    let shifted_new_value = new_bv.bvshl(&BV::from_u64(self.ctx, bit_offset as u64, new_size as u32));
+                    let shifted_new_value = new_bv.bvshl(&BV::from_u64(self.ctx, bit_offset as u64, new_size as u64));
     
                     // Recombine high bits, new value, and low bits into a new symbolic value
-                    let combined_symbolic = if (bit_offset + new_size as u64) < full_reg_size {
+                    let combined_symbolic = if bit_offset + new_size as u64 < full_reg_size {
                         high_bits.concat(&shifted_new_value).concat(&low_bits)
                     } else {
                         shifted_new_value.concat(&low_bits)
@@ -344,7 +344,7 @@ impl<'ctx> CpuState<'ctx> {
                     }
     
                     // Now set the concrete value in the same way, combining unchanged parts with the new value
-                    let high_bits_concrete = if (bit_offset + new_size as u64) < 64 {
+                    let high_bits_concrete = if bit_offset + new_size as u64 < 64 {
                         (reg.concrete.to_u64() >> (bit_offset + new_size as u64)) << (bit_offset + new_size as u64)
                     } else {
                         0
@@ -362,8 +362,7 @@ impl<'ctx> CpuState<'ctx> {
                     reg.concrete = ConcreteVar::Int(new_concrete);
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
     
-                    // Output to console instead of logger
-                    println!("Register updated: offset=0x{:x}, size={} bits", offset, new_size);
+                    log!(self.logger.clone(), "Register updated: offset=0x{:x}, size={} bits", offset, new_size);
                     Ok(())
                 } else {
                     Err("Invalid symbolic value type".to_string())
@@ -371,7 +370,7 @@ impl<'ctx> CpuState<'ctx> {
             },
             None => Err(format!("No suitable register found for offset 0x{:x}", offset)),
         }
-    }        
+    }    
 
     // Function to get a register by its offset, accounting for sub-register accesses
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
