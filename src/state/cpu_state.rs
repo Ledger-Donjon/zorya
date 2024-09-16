@@ -332,8 +332,8 @@ impl<'ctx> CpuState<'ctx> {
     
                 println!("Attempting to set value for register at offset: 0x{:x}, bit offset: {}, register size: {}", offset, bit_offset, full_reg_size);
     
-                // Calculate the mask for the new value (now supports large registers)
-                let mask = CpuState::<'ctx>::create_mask(new_size);
+                // Calculate the mask
+                let mask = Self::create_mask(new_size);
                 log::debug!("Mask: {:?}", mask);
     
                 if let ConcreteVar::LargeInt(ref mut large_concrete) = reg.concrete {
@@ -395,7 +395,7 @@ impl<'ctx> CpuState<'ctx> {
             },
             None => Err(format!("No suitable register found for offset 0x{:x}", offset))
         }
-    }                        
+    }                            
 
     // Function to get a register by its offset, accounting for sub-register accesses and handling large registers
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
