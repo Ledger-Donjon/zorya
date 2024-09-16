@@ -231,49 +231,47 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let closest_register = cpu_state_guard.register_map.range(..=offset).rev().next()
             .ok_or(format!("No register found before offset 0x{:x}", offset))?;
         let (base_register_offset, &(_, register_size)) = closest_register;
-        log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", base_register_offset, register_size);
-
-        let bit_offset = (offset - base_register_offset) * 8; // Calculate the bit offset within the register
-
-        // Ensure that the extraction is within the bounds of the register
+    
+        // Calculate the bit offset within the register correctly considering the actual byte alignment
+        let bit_offset = (offset - base_register_offset) * 8;
+        log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}, Calculating bit offset for offset 0x{:x} results in {}", base_register_offset, register_size, offset, bit_offset);
+    
+        // Ensure that we don't exceed the register size with the requested extraction
         if bit_offset + u64::from(bit_size) > u64::from(register_size) {
             return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + u64::from(bit_size)));
         }
-        log!(self.state.logger.clone(), "Relative offset is 0x{:x}", bit_offset);
-
+    
         let original_register = cpu_state_guard.get_register_by_offset(*base_register_offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", base_register_offset))?;
-        log!(self.state.logger.clone(), "Extracting {} bits from register: {}", bit_size, original_register);
-
+    
         // Adjust bit_offset and bit_size to extract correctly
         let safe_bit_offset = if bit_offset >= register_size as u64 {
             return Err(format!("Bit offset exceeds the size of the register, resulting in a shift overflow at offset 0x{:x}", offset));
         } else {
             bit_offset
         };
-
+    
         let mask: u64 = if bit_size < 64 {
             (1u64 << bit_size) - 1
         } else {
             u64::MAX
         };
-
+    
         let extracted_value = (original_register.concrete.to_u64() >> safe_bit_offset) & mask;
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
             .extract((safe_bit_offset + u64::from(bit_size) - 1) as u32, safe_bit_offset as u32)
             .simplify();
-
+    
         if extracted_symbolic.get_z3_ast().is_null() {
             return Err("Symbolic extraction resulted in an invalid state".to_string());
         }
-
+    
         Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
             concrete: ConcreteVar::Int(extracted_value),
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }
-                                             
+    }                                     
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
