@@ -22,7 +22,6 @@ pub struct CpuConcolicValue<'ctx> {
 
 impl<'ctx> CpuConcolicValue<'ctx> {
     pub fn new(ctx: &'ctx Context, initial_value: u64, size: u32) -> Self {
-        // Initialize the concrete value based on the size
         let concrete = if size > 64 {
             let num_u64s = (size as usize + 63) / 64; // Number of 64-bit chunks needed
             ConcreteVar::LargeInt(vec![initial_value; num_u64s])
@@ -30,8 +29,14 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ConcreteVar::Int(initial_value)
         };
 
-        // Initialize the symbolic value using BV::from_u64
-        let symbolic = SymbolicVar::Int(BV::from_u64(ctx, initial_value, size));
+        // Create symbolic values that are consistent with the concrete size
+        let symbolic = if size > 64 {
+            let num_bvs = (size as usize + 63) / 64; // Number of BV objects needed
+            let bvs = (0..num_bvs).map(|_| BV::from_u64(ctx, initial_value, 64)).collect();
+            SymbolicVar::LargeInt(bvs)
+        } else {
+            SymbolicVar::Int(BV::from_u64(ctx, initial_value, size))
+        };
 
         CpuConcolicValue {
             concrete,

@@ -227,53 +227,89 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
-        // Find the closest register that includes or precedes the requested offset. It can be the register itself.
         let closest_register = cpu_state_guard.register_map.range(..=offset).rev().next()
             .ok_or(format!("No register found before offset 0x{:x}", offset))?;
         let (base_register_offset, &(_, register_size)) = closest_register;
     
-        // Calculate the bit offset within the register correctly considering the actual byte alignment
-        let bit_offset = (offset - base_register_offset) * 8;
-        log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}, Calculating bit offset for offset 0x{:x} results in {}", base_register_offset, register_size, offset, bit_offset);
+        let bit_offset = (offset - base_register_offset) * 8; // Calculate the bit offset within the register
     
-        // Ensure that we don't exceed the register size with the requested extraction
         if bit_offset + u64::from(bit_size) > u64::from(register_size) {
             return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + u64::from(bit_size)));
         }
     
         let original_register = cpu_state_guard.get_register_by_offset(*base_register_offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", base_register_offset))?;
-        log!(self.state.logger.clone(), "Register found for extraction: {} with symbolic size: {:?}", original_register, original_register.symbolic.get_size());
     
-        // Adjust bit_offset and bit_size to extract correctly
-        let safe_bit_offset = if bit_offset >= register_size as u64 {
-            return Err(format!("Bit offset exceeds the size of the register, resulting in a shift overflow at offset 0x{:x}", offset));
-        } else {
-            bit_offset
-        };
+        match &original_register.concrete {
+            ConcreteVar::Int(value) => {
+                let mask: u64 = if bit_size < 64 {
+                    (1u64 << bit_size) - 1
+                } else {
+                    u64::MAX
+                };
+                let extracted_value = (*value >> bit_offset) & mask;
+                let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
+                    .extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32)
+                    .simplify();
     
-        let mask: u64 = if bit_size < 64 {
-            (1u64 << bit_size) - 1
-        } else {
-            u64::MAX
-        };
-        log!(self.state.logger.clone(), "Mask calculated for extraction: 0x{:x}", mask);
-        
-        let extracted_value = (original_register.concrete.to_u64() >> safe_bit_offset) & mask;
-        let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
-            .extract((safe_bit_offset + u64::from(bit_size) - 1) as u32, safe_bit_offset as u32)
-            .simplify();
+                if extracted_symbolic.get_z3_ast().is_null() {
+                    return Err("Symbolic extraction resulted in an invalid state".to_string());
+                }
     
-        if extracted_symbolic.get_z3_ast().is_null() {
-            return Err("Symbolic extraction resulted in an invalid state".to_string());
+                Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+                    concrete: ConcreteVar::Int(extracted_value),
+                    symbolic: SymbolicVar::Int(extracted_symbolic),
+                    ctx: cpu_state_guard.ctx,
+                }))
+            },
+            ConcreteVar::LargeInt(values) => {
+                let start_index = (bit_offset / 64) as usize;
+                let end_index = ((bit_offset + u64::from(bit_size)) / 64) as usize;
+                let bit_offset_within_first = (bit_offset % 64) as u32;
+                let bits_in_first = std::cmp::min(64 - bit_offset_within_first, u32::from(bit_size)) as u32;
+    
+                let mut extracted_bits = 0;
+                let mut result_value = 0u64;
+    
+                // Extract bits from each part of the LargeInt
+                for i in start_index..=end_index {
+                    if i < values.len() {
+                        let part = values[i];
+                        let part_bits = if i == start_index {
+                            // Extract starting part
+                            (part >> bit_offset_within_first) & ((1 << bits_in_first) - 1)
+                        } else {
+                            // Subsequent parts
+                            let remaining_bits = bit_size - extracted_bits;
+                            let bits_to_take = std::cmp::min(64, remaining_bits) as u32;
+                            part & ((1 << bits_to_take) - 1)
+                        };
+    
+                        result_value |= part_bits << extracted_bits;
+                        extracted_bits += bits_in_first;
+                        if extracted_bits >= bit_size {
+                            break;
+                        }
+                    }
+                }
+    
+                let symbolic_result = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
+                    .extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32)
+                    .simplify();
+    
+                if symbolic_result.get_z3_ast().is_null() {
+                    return Err("Symbolic extraction resulted in an invalid state".to_string());
+                }
+    
+                Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+                    concrete: ConcreteVar::LargeInt(vec![result_value]), // Simplified handling, typically should handle vector parts
+                    symbolic: SymbolicVar::Int(symbolic_result),
+                    ctx: cpu_state_guard.ctx,
+                }))
+            },
+            _ => Err("Unsupported concrete variable type for extraction".to_string())
         }
-    
-        Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
-            concrete: ConcreteVar::Int(extracted_value),
-            symbolic: SymbolicVar::Int(extracted_symbolic),
-            ctx: cpu_state_guard.ctx,
-        }))
-    }                                     
+    }                                         
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
