@@ -334,7 +334,7 @@ impl<'ctx> CpuState<'ctx> {
     
                 // Calculate the mask
                 let mask = Self::create_mask(new_size);
-                log::debug!("Mask: {:?}", mask);
+                println!("Mask: {:?}", mask);
     
                 if let ConcreteVar::LargeInt(ref mut large_concrete) = reg.concrete {
                     // Handle large concrete values (for registers larger than 64 bits)
