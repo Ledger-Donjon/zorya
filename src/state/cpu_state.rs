@@ -315,9 +315,10 @@ impl<'ctx> CpuState<'ctx> {
 
                 println!("Attempting to set value for register at offset: 0x{:x}, bit offset: {}, register size: {}", offset, bit_offset, full_reg_size);
 
-                if bit_offset + new_size as u64 > full_reg_size {
-                    return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
-                }
+                if bit_offset >= full_reg_size {
+                    log::error!("Bit offset calculation exceeds symbolic size.");
+                    return Err("Bit offset calculation exceeds symbolic size.".to_string());
+                }                
 
                 // Perform the shift only if it's within the bounds of u64
                 let mask = if new_size < 64 {
@@ -325,6 +326,7 @@ impl<'ctx> CpuState<'ctx> {
                 } else {
                     u64::MAX
                 };
+                log::debug!("Mask: 0x{:x}", mask);
                 
                 let safe_shift = if bit_offset < 64 {
                     (new_value.concrete.to_u64() & mask) << bit_offset
