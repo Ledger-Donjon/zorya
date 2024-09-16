@@ -234,11 +234,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err(format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset));
         }
     
-        // Calculate bit offset within the register taking into account the byte alignment
+        // Calculate base register offset and bit offset within the register
         let base_register_offset = offset - (offset % (register_size / 8) as u64);
         let bit_offset = (offset - base_register_offset) * 8; // Offset within the register, in bits
     
-        // Ensure that we don't exceed the register size
         if (bit_offset + bit_size as u64) > register_size as u64 {
             return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + bit_size as u64));
         }
@@ -246,19 +245,25 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let original_register = cpu_state_guard.get_register_by_offset(base_register_offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", base_register_offset))?;
     
-        // Perform the extraction
+        // Adjust bit_offset for operations exceeding the u64 range
+        let safe_bit_offset = if bit_offset >= 64 {
+            return Err(format!("Bit offset exceeds 64 bits, resulting in a shift overflow at offset 0x{:x}", offset));
+        } else {
+            bit_offset
+        };
+    
+        // Calculate mask and perform extraction
         let mask: u64 = if bit_size < 64 {
             (1u64 << bit_size) - 1
         } else {
             u64::MAX
         };
     
-        let extracted_value = (original_register.concrete.to_u64() >> bit_offset) & mask;
+        let extracted_value = (original_register.concrete.to_u64() >> safe_bit_offset) & mask;
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
-            .extract((bit_offset + bit_size as u64 - 1) as u32, bit_offset as u32)
+            .extract((safe_bit_offset + bit_size as u64 - 1) as u32, safe_bit_offset as u32)
             .simplify();
     
-        // Ensure the extraction did not result in an invalid operation
         if extracted_symbolic.get_z3_ast().is_null() {
             return Err("Symbolic extraction resulted in an invalid state".to_string());
         }
@@ -268,7 +273,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }                                     
+    }                                         
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
