@@ -174,14 +174,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Ok(ConcolicEnum::CpuConcolicValue(cpu_concolic_value))
                     } else {
                         log!(self.state.logger.clone(), "Register at offset 0x{:x} exists but with size {} bits, needs {} bits, extraction needed", offset, reg_size, bit_size);
-                        self.extract_and_create_concolic_value(&cpu_state_guard, *offset, reg_size, bit_size)
+                        self.extract_and_create_concolic_value(&cpu_state_guard, *offset, bit_size)
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
-                    let closest_register = cpu_state_guard.register_map.range(..offset).rev().next()
-                        .ok_or(format!("No register found before offset 0x{:x}", offset))?;
-                    log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", *closest_register.0, closest_register.1 .1);
-                    self.extract_and_create_concolic_value(&cpu_state_guard, *offset, closest_register.1 .1, bit_size)
+                    self.extract_and_create_concolic_value(&cpu_state_guard, *offset, bit_size)
                 }
             },
             // Keep track of the unique variables defined inside one address execution
@@ -229,40 +226,33 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
-    fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, register_size: u32, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
-        if register_size == 0 || bit_size > register_size {
-            return Err(format!("Cannot extract {} bits from a register of size {} at offset 0x{:x}", bit_size, register_size, offset));
-        }
+    fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
+        // Find the closest register that starts before the requested offset. It can be the register itself.
+        let closest_register = cpu_state_guard.register_map.range(..=offset).rev().next()
+            .ok_or(format!("No register found before offset 0x{:x}", offset))?;
+        let (base_register_offset, &(_, register_size)) = closest_register;
     
-        // Calculate base register offset and bit offset within the register
-        let base_register_offset = offset - (offset % (register_size / 8) as u64);
-        let bit_offset = (offset - base_register_offset) * 8; // Offset within the register, in bits
+        let bit_offset = (offset - base_register_offset) * 8; // Calculate the bit offset within the register
         log!(self.state.logger.clone(), "Extracting {} bits from register at offset 0x{:x} with size {} bits, resulting in bit offset {}", bit_size, base_register_offset, register_size, bit_offset);
     
-        if (bit_offset + bit_size as u64) > register_size as u64 {
-            return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + bit_size as u64));
+        // Ensure that we don't exceed the register size
+        if bit_offset + u64::from(bit_size) > u64::from(register_size) {
+            return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + u64::from(bit_size)));
         }
     
-        let original_register = cpu_state_guard.get_register_by_offset(base_register_offset, register_size)
+        let original_register = cpu_state_guard.get_register_by_offset(*base_register_offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", base_register_offset))?;
     
-        // Adjust bit_offset for operations exceeding the u64 range
-        let safe_bit_offset = if bit_offset >= 64 {
-            return Err(format!("Bit offset exceeds 64 bits, resulting in a shift overflow at offset 0x{:x}", offset));
-        } else {
-            bit_offset
-        };
-    
-        // Calculate mask and perform extraction
+        // Calculate the mask for extraction
         let mask: u64 = if bit_size < 64 {
             (1u64 << bit_size) - 1
         } else {
             u64::MAX
         };
     
-        let extracted_value = (original_register.concrete.to_u64() >> safe_bit_offset) & mask;
+        let extracted_value = (original_register.concrete.to_u64() >> bit_offset) & mask;
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
-            .extract((safe_bit_offset + bit_size as u64 - 1) as u32, safe_bit_offset as u32)
+            .extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32)
             .simplify();
     
         if extracted_symbolic.get_z3_ast().is_null() {
@@ -274,7 +264,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             symbolic: SymbolicVar::Int(extracted_symbolic),
             ctx: cpu_state_guard.ctx,
         }))
-    }                                         
+    }                                             
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
@@ -778,17 +768,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         (cpu_concolic_value.get_concrete_value().unwrap(), cpu_concolic_value.get_symbolic_value().to_bv(&self.context))
                     } else {
                         log!(self.state.logger.clone(), "Register at offset 0x{:x} exists but with size {} bits, needs {} bits, extraction needed", offset, reg_size, bit_size);
-                        let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, reg_size, bit_size).unwrap();
+                        let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, bit_size).unwrap();
                         (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                     }
                 } else {
                     log!(self.state.logger.clone(), "No direct register match found at offset 0x{:x}, extraction required", offset);
-                    // Find the closest register that is less than the provided offset
-                    let closest_register = cpu_state_guard.register_map.range(..offset).rev().next()
-                        .ok_or(format!("No register found before offset 0x{:x}", offset))?;
-                    log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", *closest_register.0, closest_register.1 .1);
-                    
-                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, closest_register.1 .1, bit_size).unwrap();
+                    let result = self.extract_and_create_concolic_value(&cpu_state_guard, *offset, bit_size).unwrap();
                     (result.get_concrete_value(), result.get_symbolic_value_bv(&self.context))
                 }
             },
