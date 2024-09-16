@@ -313,12 +313,7 @@ impl<'ctx> CpuState<'ctx> {
                 let bit_offset = offset_within_reg * 8; // Convert byte offset to bit offset
                 let full_reg_size = reg.symbolic.get_size() as u64; // Fetch the full size of the register in bits
 
-                println!("Attempting to set value for register at offset: 0x{:x}, bit offset: {}, register size: {}", offset, bit_offset, full_reg_size);
-
-                if bit_offset >= full_reg_size {
-                    log::error!("Bit offset calculation exceeds symbolic size.");
-                    return Err("Bit offset calculation exceeds symbolic size.".to_string());
-                }                
+                println!("Attempting to set value for register at offset: 0x{:x}, bit offset: {}, register size: {}", offset, bit_offset, full_reg_size);             
 
                 // Perform the shift only if it's within the bounds of u64
                 let mask = if new_size < 64 {
