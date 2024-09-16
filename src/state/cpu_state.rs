@@ -303,115 +303,43 @@ impl<'ctx> CpuState<'ctx> {
     /// Sets the value of a register identified by its offset, ensuring support for large registers.
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         let closest_reg = self.registers.range_mut(..=offset).rev().find(|&(key, _)| *key <= offset);
-    
+
         match closest_reg {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
-                let bit_offset = offset_within_reg * 8;  // Convert byte offset to bit offset
-                let full_reg_size = reg.symbolic.get_size() as u64;  // Fetch the full size of the register in bits
-    
+                let bit_offset = offset_within_reg * 8; // Convert byte offset to bit offset
+                let full_reg_size = reg.symbolic.get_size() as u64; // Fetch the full size of the register in bits
+
                 println!("Attempting to set value for register at offset: 0x{:x}, bit offset: {}, register size: {}", offset, bit_offset, full_reg_size);
-    
-                // Ensure that the new size and bit offset are within valid bounds
-                if (bit_offset + new_size as u64) > full_reg_size {
+
+                if bit_offset + new_size as u64 > full_reg_size {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
-    
-                // Extract the part of the register that remains unchanged (high bits)
-                let high_bits = if (bit_offset + new_size as u64) < full_reg_size {
-                    let extracted_high = reg.symbolic.to_bv(self.ctx).extract((full_reg_size - 1) as u32, (bit_offset + new_size as u64) as u32);
-                    
-                    // Check that the high bits extraction is valid
-                    if extracted_high.get_z3_ast().is_null() {
-                        return Err("Invalid Z3 AST for high bits extraction".to_string());
-                    }
-                    println!("High bits extracted successfully: {} bits", full_reg_size - bit_offset - new_size as u64);
-                    extracted_high
+
+                let mask = if new_size == 64 {
+                    u64::MAX << bit_offset
                 } else {
-                    BV::from_u64(self.ctx, 0, 0)  // No higher bits to preserve
+                    ((1u64 << new_size) - 1) << bit_offset
                 };
-    
-                // Extract the part of the register that remains unchanged (low bits)
-                let low_bits = if bit_offset > 0 {
-                    let extracted_low = reg.symbolic.to_bv(self.ctx).extract((bit_offset - 1) as u32, 0);
-    
-                    // Check that the low bits extraction is valid
-                    if extracted_low.get_z3_ast().is_null() {
-                        return Err("Invalid Z3 AST for low bits extraction".to_string());
-                    }
-                    println!("Low bits extracted successfully: {} bits", bit_offset);
-                    extracted_low
-                } else {
-                    BV::from_u64(self.ctx, 0, 0)  // No lower bits to preserve
-                };
-    
-                // Combine the new value into the correct bit position
-                if let SymbolicVar::Int(new_bv) = new_value.symbolic {
-                    let shifted_new_value = new_bv.bvshl(&BV::from_u64(self.ctx, bit_offset as u64, new_size as u32));
-    
-                    // Check if the shift result is valid
-                    if shifted_new_value.get_z3_ast().is_null() {
-                        return Err("Invalid Z3 AST after shift operation".to_string());
-                    }
-                    println!("Shifted new value: {} bits", new_size);
-    
-                    // Recombine high bits, new value, and low bits into a new symbolic value
-                    let combined_symbolic = if (bit_offset + new_size as u64) < full_reg_size {
-                        let combined_high = high_bits.concat(&shifted_new_value);
-    
-                        // Check if the high+new concatenation is valid
-                        if combined_high.get_z3_ast().is_null() {
-                            return Err("Invalid Z3 AST after high+new concatenation".to_string());
-                        }
-    
-                        let final_combined = combined_high.concat(&low_bits);
-    
-                        // Check if the final concatenation is valid
-                        if final_combined.get_z3_ast().is_null() {
-                            return Err("Invalid Z3 AST after final concatenation".to_string());
-                        }
-    
-                        println!("Final symbolic value combined successfully.");
-                        final_combined
-                    } else {
-                        let final_combined = shifted_new_value.concat(&low_bits);
-    
-                        // Check if the final concatenation is valid
-                        if final_combined.get_z3_ast().is_null() {
-                            return Err("Invalid Z3 AST after final concatenation (no high bits)".to_string());
-                        }
-    
-                        println!("Final symbolic value combined successfully (no high bits).");
-                        final_combined
-                    };
-    
-                    // Set the new concrete value (similar to symbolic recombination)
-                    let high_bits_concrete = if (bit_offset + new_size as u64) < 64 {
-                        (reg.concrete.to_u64() >> (bit_offset + new_size as u64)) << (bit_offset + new_size as u64)
-                    } else {
-                        0
-                    };
-    
-                    let low_bits_concrete = if bit_offset > 0 {
-                        reg.concrete.to_u64() & ((1u64 << bit_offset) - 1)
-                    } else {
-                        0
-                    };
-    
-                    let new_concrete = (new_value.concrete.to_u64() << bit_offset) | low_bits_concrete | high_bits_concrete;
-    
-                    // Set the new concrete and symbolic values for the register
-                    reg.concrete = ConcreteVar::Int(new_concrete);
-                    reg.symbolic = SymbolicVar::Int(combined_symbolic);
-    
-                    // Output the result to console for debugging
-                    println!("Register updated: offset=0x{:x}, size={} bits", offset, new_size);
-                    Ok(())
-                } else {
-                    Err("Invalid symbolic value type".to_string())
+                let inverse_mask = !mask;
+
+                let new_concrete_value = ((new_value.concrete.to_u64() & ((1u64 << new_size) - 1)) << bit_offset);
+                let new_concrete = (reg.concrete.to_u64() & inverse_mask) | new_concrete_value;
+
+                let new_symbolic_value = new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size as u32 - new_size).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32));
+                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32)).bvor(&new_symbolic_value);
+
+                if combined_symbolic.get_z3_ast().is_null() {
+                    return Err("Symbolic extraction resulted in an invalid state".to_string());
                 }
+
+                reg.concrete = ConcreteVar::Int(new_concrete);
+                reg.symbolic = SymbolicVar::Int(combined_symbolic);
+
+                println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, new_concrete, new_size, full_reg_size as u32);
+                Ok(())
             },
-            None => Err(format!("No suitable register found for offset 0x{:x}", offset)),
+            None => Err(format!("No suitable register found for offset 0x{:x}", offset))
         }
     }                
 
