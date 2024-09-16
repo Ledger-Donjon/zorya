@@ -391,12 +391,14 @@ impl<'ctx> CpuState<'ctx> {
                             let updated_symbolic = large_symbolic[idx + i]
                                 .bvand(&inner_mask.bvnot())
                                 .bvor(&symbolic_value_part);
+                            println!("Updated symbolic value for chunk {}: {:?}", i, updated_symbolic);
                             
                             if updated_symbolic.get_z3_ast().is_null() {
                                 println!("Error: Symbolic update for large integer failed (null AST) on chunk {}", i);
                                 return Err("Symbolic update failed, resulting in a null AST".to_string());
                             }
                             symbolic_updates.push(updated_symbolic);
+                            println!("Symbolic update for chunk {} successful", i);
                         }
     
                         // Replace the symbolic part with the updated chunks
