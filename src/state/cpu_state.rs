@@ -11,8 +11,6 @@ use std::path::Path;
 use z3::{ast::BV, Context};
 
 use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
-use crate::executor;
-
 pub type SharedCpuState<'a> = Arc<Mutex<CpuState<'a>>>;
 
 #[derive(Debug, Clone)]
