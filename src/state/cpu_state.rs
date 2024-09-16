@@ -323,43 +323,59 @@ impl<'ctx> CpuState<'ctx> {
     /// Sets the value of a register identified by its offset, ensuring support for large registers.
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         let closest_reg = self.registers.range_mut(..=offset).rev().find(|&(key, _)| *key <= offset);
-    
+
         match closest_reg {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
                 let bit_offset = offset_within_reg * 8; // Convert byte offset to bit offset
                 let full_reg_size = reg.symbolic.get_size() as u64; // Fetch the full size of the register in bits
-    
+
                 println!("Attempting to set value for register at offset: 0x{:x}, bit offset: {}, register size: {}", offset, bit_offset, full_reg_size);
-    
+
                 // Calculate the mask
                 let mask = Self::create_mask(new_size);
                 println!("Mask: {:?}", mask);
-    
+
+                // Handle large concrete values (for registers larger than 64 bits)
                 if let ConcreteVar::LargeInt(ref mut large_concrete) = reg.concrete {
-                    // Handle large concrete values (for registers larger than 64 bits)
                     let idx = (bit_offset / 64) as usize; // Index in the Vec<u64>
                     let inner_bit_offset = (bit_offset % 64) as u32; // Offset within the specific u64 element
-    
+
                     // Ensure the Vec<u64> is large enough
                     if idx >= large_concrete.len() {
                         return Err(format!("Bit offset {} exceeds the size of the large integer register", bit_offset));
                     }
-    
+
                     // Apply the mask to each chunk of the large integer
                     for (i, &mask_chunk) in mask.iter().enumerate() {
                         let new_concrete_part = (new_value.concrete.to_u64() & mask_chunk) << inner_bit_offset;
                         large_concrete[idx + i] = (large_concrete[idx + i] & !(mask_chunk << inner_bit_offset)) | new_concrete_part;
                     }
-    
+
                     // Handle symbolic value update for large integers
                     if let SymbolicVar::LargeInt(ref mut large_symbolic) = reg.symbolic {
-                        let new_symbolic_value = new_value.symbolic.to_bv(self.ctx)
-                            .zero_ext(full_reg_size as u32 - new_size)
-                            .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
-                        large_symbolic[idx] = large_symbolic[idx]
-                            .bvand(&BV::from_u64(self.ctx, !mask[0], 64))
-                            .bvor(&new_symbolic_value);
+                        let mut symbolic_updates = Vec::new();
+
+                        // Apply symbolic updates for each 64-bit chunk
+                        for i in 0..mask.len() {
+                            let inner_mask = BV::from_u64(self.ctx, mask[i], 64);
+                            let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
+                                .zero_ext(full_reg_size as u32 - new_size)
+                                .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
+                            let updated_symbolic = large_symbolic[idx + i]
+                                .bvand(&inner_mask.bvnot())
+                                .bvor(&symbolic_value_part);
+                            
+                            if updated_symbolic.get_z3_ast().is_null() {
+                                return Err("Symbolic update failed, resulting in a null AST".to_string());
+                            }
+                            symbolic_updates.push(updated_symbolic);
+                        }
+
+                        // Replace the symbolic part with the updated chunks
+                        for (i, updated_symbolic) in symbolic_updates.into_iter().enumerate() {
+                            large_symbolic[idx + i] = updated_symbolic;
+                        }
                     } else {
                         return Err("Mismatch between large concrete and non-large symbolic values".to_string());
                     }
@@ -370,10 +386,10 @@ impl<'ctx> CpuState<'ctx> {
                     } else {
                         0 // Shifting by 64 or more would cause an overflow
                     };
-    
+
                     let new_concrete_value = safe_shift & mask[0];
                     let new_concrete = (reg.concrete.to_u64() & !mask[0]) | new_concrete_value;
-    
+
                     // Update the symbolic value for 64-bit registers
                     let new_symbolic_value = new_value.symbolic.to_bv(self.ctx)
                         .zero_ext(full_reg_size as u32 - new_size)
@@ -381,22 +397,22 @@ impl<'ctx> CpuState<'ctx> {
                     let combined_symbolic = reg.symbolic.to_bv(self.ctx)
                         .bvand(&BV::from_u64(self.ctx, !mask[0], full_reg_size as u32))
                         .bvor(&new_symbolic_value);
-    
+
                     if combined_symbolic.get_z3_ast().is_null() {
                         return Err("Symbolic extraction resulted in an invalid state".to_string());
                     }
-    
+
                     reg.concrete = ConcreteVar::Int(new_concrete);
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
                 }
-    
+
                 println!("Register at base offset 0x{:x} updated to {:x} with size {} bits, preserving total size of {} bits.", base_offset, new_value.concrete.to_u64(), new_size, full_reg_size as u32);
                 Ok(())
             },
             None => Err(format!("No suitable register found for offset 0x{:x}", offset))
         }
-    }                            
-
+    }
+                                
     // Function to get a register by its offset, accounting for sub-register accesses and handling large registers
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
         // Iterate over all registers to find one that spans the requested offset
