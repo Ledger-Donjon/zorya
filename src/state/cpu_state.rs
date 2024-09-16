@@ -352,7 +352,7 @@ impl<'ctx> CpuState<'ctx> {
         }
     }                
 
-    // Function to get a register by its offset, accounting for sub-register accesses
+    // Function to get a register by its offset, accounting for sub-register accesses and handling large registers
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
         // Iterate over all registers to find one that spans the requested offset
         for (&base_offset, reg) in &self.registers {
@@ -372,26 +372,51 @@ impl<'ctx> CpuState<'ctx> {
 
                 // Calculate the high bit index and ensure it does not exceed the register size
                 let high_bit_index = std::cmp::min(bit_offset + effective_access_size as u64, reg_size_bits as u64) - 1;
-                let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(high_bit_index as u32, bit_offset as u32);
 
-                // Mask to extract only the needed bits (avoiding right shift if not needed)
-                let mask = if effective_access_size < 64 {
-                    (1u64 << effective_access_size) - 1
+                // Handling for LargeInt types
+                if let ConcreteVar::LargeInt(ref values) = reg.concrete {
+                    // Extract the correct u64 value from the vector based on bit offset
+                    let index = (bit_offset / 64) as usize;
+                    let concrete_value = if index < values.len() {
+                        values[index]
+                    } else {
+                        0 // If index is out of bounds, assume the value is zero
+                    };
+
+                    // Symbolic extraction should handle vectors too
+                    if let SymbolicVar::LargeInt(ref bvs) = reg.symbolic {
+                        let symbolic_value = if index < bvs.len() {
+                            bvs[index].clone() // Clone to maintain context integrity
+                        } else {
+                            BV::from_u64(self.ctx, 0, 64) // Default to zero if out of bounds
+                        };
+
+                        return Some(CpuConcolicValue {
+                            concrete: ConcreteVar::Int(concrete_value),
+                            symbolic: SymbolicVar::Int(symbolic_value),
+                            ctx: self.ctx,
+                        });
+                    }
                 } else {
-                    u64::MAX
-                };
+                    // Standard extraction for non-LargeInt types
+                    let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(high_bit_index as u32, bit_offset as u32);
+                    let mask = if effective_access_size < 64 {
+                        (1u64 << effective_access_size) - 1
+                    } else {
+                        u64::MAX
+                    };
+                    let new_concrete = if effective_access_size == 0 || bit_offset >= 64 {
+                        0  // No need to shift if effective access size is zero or bit_offset is too large
+                    } else {
+                        (reg.concrete.to_u64() >> bit_offset) & mask
+                    };
 
-                let new_concrete = if effective_access_size == 0 || bit_offset >= 64 {
-                    0  // No need to shift if effective access size is zero or bit_offset is too large
-                } else {
-                    (reg.concrete.to_u64() >> bit_offset) & mask
-                };
-
-                return Some(CpuConcolicValue {
-                    concrete: ConcreteVar::Int(new_concrete),
-                    symbolic: SymbolicVar::Int(new_symbolic),
-                    ctx: self.ctx,
-                });
+                    return Some(CpuConcolicValue {
+                        concrete: ConcreteVar::Int(new_concrete),
+                        symbolic: SymbolicVar::Int(new_symbolic),
+                        ctx: self.ctx,
+                    });
+                }
             }
         }
         // Return None if no suitable register found
