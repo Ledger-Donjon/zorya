@@ -316,18 +316,24 @@ impl<'ctx> CpuState<'ctx> {
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
 
-                let mask = if new_size == 64 {
-                    u64::MAX << bit_offset
+                // Perform the shift only if it's within the bounds of u64
+                let mask = if new_size < 64 {
+                    (1u64 << new_size) - 1
                 } else {
-                    ((1u64 << new_size) - 1) << bit_offset
+                    u64::MAX
                 };
-                let inverse_mask = !mask;
+                
+                let safe_shift = if bit_offset < 64 {
+                    (new_value.concrete.to_u64() & mask) << bit_offset
+                } else {
+                    0 // If bit_offset is 64 or more, shifting would overflow, so set to zero
+                };
 
-                let new_concrete_value = ((new_value.concrete.to_u64() & ((1u64 << new_size) - 1)) << bit_offset);
-                let new_concrete = (reg.concrete.to_u64() & inverse_mask) | new_concrete_value;
+                let new_concrete_value = safe_shift & mask;
+                let new_concrete = (reg.concrete.to_u64() & !mask) | new_concrete_value;
 
                 let new_symbolic_value = new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size as u32 - new_size).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32));
-                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, inverse_mask, full_reg_size as u32)).bvor(&new_symbolic_value);
+                let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, !mask, full_reg_size as u32)).bvor(&new_symbolic_value);
 
                 if combined_symbolic.get_z3_ast().is_null() {
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
