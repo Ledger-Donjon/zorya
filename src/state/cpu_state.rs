@@ -386,17 +386,23 @@ impl<'ctx> CpuState<'ctx> {
                             let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
                                 .zero_ext(full_reg_size as u32 - new_size)
                                 .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
+
+                            if symbolic_value_part.get_z3_ast().is_null() {
+                                println!("Error: Symbolic update for large integer failed (null AST) on chunk {}", i);
+                                return Err("Symbolic update failed, resulting in a null AST".to_string());
+                            }
                             println!("Updated symbolic value for chunk {}: {:?}", i, symbolic_value_part);
     
                             let updated_symbolic = large_symbolic[idx + i]
                                 .bvand(&inner_mask.bvnot())
                                 .bvor(&symbolic_value_part);
-                            println!("Updated symbolic value for chunk {}: {:?}", i, updated_symbolic);
                             
                             if updated_symbolic.get_z3_ast().is_null() {
                                 println!("Error: Symbolic update for large integer failed (null AST) on chunk {}", i);
                                 return Err("Symbolic update failed, resulting in a null AST".to_string());
                             }
+                            println!("Updated symbolic value for chunk {}: {:?}", i, updated_symbolic);
+                            
                             symbolic_updates.push(updated_symbolic);
                             println!("Symbolic update for chunk {} successful", i);
                         }
