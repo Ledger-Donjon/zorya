@@ -237,6 +237,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Calculate base register offset and bit offset within the register
         let base_register_offset = offset - (offset % (register_size / 8) as u64);
         let bit_offset = (offset - base_register_offset) * 8; // Offset within the register, in bits
+        log!(self.state.logger.clone(), "Extracting {} bits from register at offset 0x{:x} with size {} bits, resulting in bit offset {}", bit_size, base_register_offset, register_size, bit_offset);
     
         if (bit_offset + bit_size as u64) > register_size as u64 {
             return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + bit_size as u64));
