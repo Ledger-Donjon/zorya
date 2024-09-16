@@ -243,6 +243,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let original_register = cpu_state_guard.get_register_by_offset(*base_register_offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", base_register_offset))?;
+        log!(self.state.logger.clone(), "Register found for extraction: {} with symbolic size: {:?}", original_register, original_register.symbolic.get_size());
     
         // Adjust bit_offset and bit_size to extract correctly
         let safe_bit_offset = if bit_offset >= register_size as u64 {
@@ -256,7 +257,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             u64::MAX
         };
-    
+        log!(self.state.logger.clone(), "Mask calculated for extraction: 0x{:x}", mask);
+        
         let extracted_value = (original_register.concrete.to_u64() >> safe_bit_offset) & mask;
         let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
             .extract((safe_bit_offset + u64::from(bit_size) - 1) as u32, safe_bit_offset as u32)
