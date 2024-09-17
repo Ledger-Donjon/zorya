@@ -991,7 +991,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Perform the popcount operation
         let result_concrete = input_var.get_concrete_value().count_ones();
-        let result_symbolic = input_var.to_concolic_var().unwrap().symbolic.popcount();
+        let mut result_symbolic = input_var.to_concolic_var().unwrap().symbolic.popcount();
+
+        // Ensure the result size matches the output size
+        result_symbolic = result_symbolic.extract(output_size_bits - 1, 0); // Truncate to output size
         let popcount_result = ConcolicVar::new_concrete_and_symbolic_int(result_concrete as u64, result_symbolic, self.context, output_size_bits);
 
         // Handle the result based on the output varnode

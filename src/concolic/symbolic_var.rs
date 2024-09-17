@@ -22,6 +22,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         SymbolicVar::Float(float)
     }
 
+    /// Perform a population count (popcount) on the symbolic variable
     pub fn popcount(&self) -> BV<'ctx> {
         match self {
             SymbolicVar::Int(bv) => {
@@ -44,8 +45,14 @@ impl<'ctx> SymbolicVar<'ctx> {
                 }
                 count
             },
+            SymbolicVar::Bool(bool_val) => {
+                // Popcount for booleans: true is 1, false is 0
+                let ctx = bool_val.get_ctx();
+                let count = if bool_val.as_bool().unwrap() { BV::from_u64(bool_val.get_ctx(), 1, 1) } else { BV::from_u64(bool_val.get_ctx(), 0, 1) };
+                // Since a boolean has size 1, we don't need to extend the result
+                count
+            },
             SymbolicVar::Float(_) => panic!("Popcount is not defined for floating-point values"),
-            SymbolicVar::Bool(_) => panic!("Popcount is not defined for boolean values"),
         }
     }
 
