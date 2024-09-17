@@ -513,7 +513,7 @@ impl<'ctx> CpuState<'ctx> {
                 
                     // Update symbolic value while preserving the rest of the symbolic state
                     let updated_symbolic = large_symbolic[idx]
-                        .bvand(&BV::from_u64(self.ctx, !(mask << inner_bit_offset), 64)) // Clear the relevant bits
+                        .bvand(&BV::from_u64(self.ctx, !(mask << inner_bit_offset),new_size)) // Clear the relevant bits
                         .bvor(&symbolic_value_part); // Set the new symbolic value for the target bits
                 
                     if updated_symbolic.get_z3_ast().is_null() {
