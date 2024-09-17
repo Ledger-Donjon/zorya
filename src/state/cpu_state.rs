@@ -22,7 +22,9 @@ pub struct CpuConcolicValue<'ctx> {
 
 impl<'ctx> CpuConcolicValue<'ctx> {
     pub fn new(ctx: &'ctx Context, initial_value: u64, size: u32) -> Self {
+        println!("Creating new CpuConcolicValue with initial value: 0x{:x}, size: {}", initial_value, size);
         let concrete = if size > 64 {
+            println!("Creating LargeInt for size > 64");
             // Split the initial_value into 64-bit chunks (little-endian order)
             let mut chunks = vec![];
             let mut remaining_value = initial_value;
@@ -39,6 +41,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
             ConcreteVar::LargeInt(chunks)
         } else {
+            println!("Creating Int for size <= 64");
             ConcreteVar::Int(initial_value)
         };
 
