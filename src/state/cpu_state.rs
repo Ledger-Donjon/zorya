@@ -497,7 +497,15 @@ impl<'ctx> CpuState<'ctx> {
                         new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 64))
                     } else {
                         // Standard case for bit-vectors
-                        new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), new_size))
+                        let extension_size = full_reg_size as u32 - new_size;
+                
+                        // Only apply zero_ext if the extension size is greater than 0
+                        if extension_size > 0 {
+                            new_value.symbolic.to_bv(self.ctx).zero_ext(extension_size).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
+                        } else {
+                            // No need to extend, directly shift the symbolic value
+                            new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
+                        }
                     };
                 
                     if symbolic_value_part.get_z3_ast().is_null() {
@@ -531,20 +539,22 @@ impl<'ctx> CpuState<'ctx> {
                     println!("bit_offset: {}", bit_offset);
                     println!("new_value.symbolic: {:?} with size {}", new_value.symbolic, new_value.symbolic.get_size());
                     println!("new_value.symbolic.to_bv(self.ctx): {:?} with size {}", new_value.symbolic.to_bv(self.ctx), new_value.symbolic.to_bv(self.ctx).get_size());
-                    println!("new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, bit_offset, 64)): {:?} with size {}", new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, bit_offset, 64)), new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, bit_offset, 64)).get_size());
-
+                
                     // For smaller registers or if the symbolic value is an Int
                     let new_symbolic_value = if new_value.symbolic.is_bool() {
                         // Convert Boolean to a bit-vector of size 1 (true = #b1, false = #b0)
-                        new_value.symbolic
-                            .to_bv(self.ctx)
-                            .bvshl(&BV::from_u64(self.ctx, bit_offset, 64))
+                        new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, bit_offset, 64))
                     } else {
                         // Normal case
-                        new_value.symbolic
-                            .to_bv(self.ctx)
-                            .zero_ext(full_reg_size as u32 - new_size)
-                            .bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32))
+                        let extension_size = full_reg_size as u32 - new_size;
+                
+                        // Only apply zero_ext if the extension size is greater than 0
+                        if extension_size > 0 {
+                            new_value.symbolic.to_bv(self.ctx).zero_ext(extension_size).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32))
+                        } else {
+                            // No need to extend, directly shift the symbolic value
+                            new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32))
+                        }
                     };
                 
                     if new_symbolic_value.get_z3_ast().is_null() {
