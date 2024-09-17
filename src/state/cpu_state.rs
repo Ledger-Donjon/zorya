@@ -23,15 +23,16 @@ pub struct CpuConcolicValue<'ctx> {
 impl<'ctx> CpuConcolicValue<'ctx> {
     pub fn new(ctx: &'ctx Context, initial_value: u64, size: u32) -> Self {
         let concrete = if size > 64 {
-            let num_u64s = (size as usize + 63) / 64; // Number of 64-bit chunks needed
+            // Large registers should be split into 64-bit chunks
+            let num_u64s = (size as usize + 63) / 64;
             ConcreteVar::LargeInt(vec![initial_value; num_u64s])
         } else {
             ConcreteVar::Int(initial_value)
         };
 
-        // Create symbolic values that are consistent with the concrete size
+        // Initialize the symbolic part based on size.
         let symbolic = if size > 64 {
-            let num_bvs = (size as usize + 63) / 64; // Number of BV objects needed
+            let num_bvs = (size as usize + 63) / 64; // Number of 64-bit BV chunks needed
             let bvs = (0..num_bvs).map(|_| BV::from_u64(ctx, initial_value, 64)).collect();
             SymbolicVar::LargeInt(bvs)
         } else {
