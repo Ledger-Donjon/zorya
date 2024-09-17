@@ -230,6 +230,7 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     log!(executor.state.logger.clone(), "* Fetching instruction inputs for INT_XOR");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+    log!(executor.state.logger.clone(), "input0_var: {:?}, input1_var: {:?}", input0_var, input1_var);
 
     let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?; 
 
