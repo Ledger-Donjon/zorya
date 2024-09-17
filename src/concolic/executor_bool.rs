@@ -13,49 +13,6 @@ macro_rules! log {
         writeln!($logger, $($arg)*).unwrap();
     }};
 }
-
-fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
-    if let Some(varnode) = output_varnode {
-        // Resize the result_value according to the output size specification
-        let size_bits = varnode.size.to_bitvector_size() as u32;
-
-        match &varnode.var {
-            Var::Unique(id) => {
-                let unique_name = format!("Unique(0x{:x})", id);
-                executor.unique_variables.insert(unique_name, result_value.clone());
-                log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
-                Ok(())
-            },
-            Var::Register(offset, _) => {
-                log!(executor.state.logger.clone(), "Output is a Register type");
-                let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                let concrete_value = result_value.concrete.to_u64();
-
-                match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
-                    Ok(_) => {
-                        log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, concrete_value, size_bits);
-                        Ok(())
-                    },
-                    Err(e) => {
-                        let error_msg = format!("Failed to update register at offset 0x{:x}: {}", offset, e);
-                        log!(executor.state.logger.clone(), "{}", error_msg);
-                        Err(error_msg)
-                    }
-                }
-            },
-            _ => {
-                let error_msg = "Output type is unsupported".to_string();
-                log!(executor.state.logger.clone(), "{}", error_msg);
-                Err(error_msg)
-            }
-        }
-    } else {
-        let error_msg = "No output varnode specified".to_string();
-        log!(executor.state.logger.clone(), "{}", error_msg);
-        Err(error_msg)
-    }
-}
-
 // Handle the BOOL_AND instruction
 pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::BoolAnd || instruction.inputs.len() != 2 {
@@ -84,7 +41,7 @@ pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     log!(executor.state.logger.clone(), "*** The result of BOOL_AND is: {:?}\n", result_concrete);
 
     // Handle the result based on the output varnode
-    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
+    executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
     Ok(())
 }
@@ -111,7 +68,7 @@ pub fn handle_bool_negate(executor: &mut ConcolicExecutor, instruction: Inst) ->
     log!(executor.state.logger.clone(), "*** The result of BOOL_NEGATE is: {:?}\n", result_concrete);
 
     // Handle the result based on the output varnode
-    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
+    executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
     Ok(())
 }
@@ -141,7 +98,7 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     log!(executor.state.logger.clone(), "*** The result of BOOL_OR is: {:?}\n", result_concrete);
 
     // Handle the result based on the output varnode
-    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
+    executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
     Ok(())
 }
@@ -175,7 +132,7 @@ pub fn handle_bool_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     log!(executor.state.logger.clone(), "*** The result of BOOL_XOR is: {:?}\n", result_concrete);
 
     // Handle the result based on the output varnode
-    handle_output(executor, instruction.output.as_ref(), result_value.clone())?;
+    executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
     Ok(())
 }

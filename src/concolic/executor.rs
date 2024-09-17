@@ -311,7 +311,49 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             _ => Err("Unsupported concrete variable type for extraction".to_string())
         }
-    }                                         
+    }
+
+    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+        if let Some(varnode) = output_varnode {
+            // Resize the result_value according to the output size specification
+            let size_bits = varnode.size.to_bitvector_size() as u32;
+
+            match &varnode.var {
+                Var::Unique(id) => {
+                    log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
+                    let unique_name = format!("Unique(0x{:x})", id);
+                    self.unique_variables.insert(unique_name, result_value.clone());
+                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
+                    Ok(())
+                },
+                Var::Register(offset, _) => {
+                    log!(self.state.logger.clone(), "Output is a Register type");
+                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+    
+                    match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
+                        Ok(_) => {
+                            // check
+                            let register = cpu_state_guard.get_register_by_offset(*offset, size_bits);
+                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, register.unwrap().concrete.to_u64(), size_bits);
+                            Ok(())
+                        },
+                        Err(e) => {
+                            let error_msg = format!("Failed to update register at offset 0x{:x}: {}", offset, e);
+                            log!(self.state.logger.clone(), "{}", error_msg);
+                            Err(error_msg)
+                        }
+                    }
+                },
+                _ => {
+                    let error_msg = "Output type is unsupported".to_string();
+                    log!(self.state.logger.clone(), "{}", error_msg);
+                    Err(error_msg)
+                }
+            }
+        } else {
+            Err("No output varnode specified".to_string())
+        }
+    }                                          
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
@@ -1086,49 +1128,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         self.state.create_or_update_concolic_variable_int(&result_var_name, truncated_concrete, source_concolic.to_concolic_var().unwrap().symbolic);
     
         Ok(())
-    }             
-    
-    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
-        if let Some(varnode) = output_varnode {
-            // Resize the result_value according to the output size specification
-            let size_bits = varnode.size.to_bitvector_size() as u32;
-
-            match &varnode.var {
-                Var::Unique(id) => {
-                    let unique_name = format!("Unique(0x{:x})", id);
-                    self.unique_variables.insert(unique_name, result_value.clone());
-                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
-                    Ok(())
-                },
-                Var::Register(offset, _) => {
-                    log!(self.state.logger.clone(), "Output is a Register type");
-                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-    
-                    match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
-                        Ok(_) => {
-                            // check
-                            let register = cpu_state_guard.get_register_by_offset(*offset, size_bits);
-                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, register.unwrap().concrete.to_u64(), size_bits);
-                            Ok(())
-                        },
-                        Err(e) => {
-                            let error_msg = format!("Failed to update register at offset 0x{:x}: {}", offset, e);
-                            log!(self.state.logger.clone(), "{}", error_msg);
-                            Err(error_msg)
-                        }
-                    }
-                },
-                _ => {
-                    let error_msg = "Output type is unsupported".to_string();
-                    log!(self.state.logger.clone(), "{}", error_msg);
-                    Err(error_msg)
-                }
-            }
-        } else {
-            Err("No output varnode specified".to_string())
-        }
-    }     
-        
+    }                 
 }
 
 impl<'ctx> fmt::Display for ConcolicExecutor<'ctx> {
