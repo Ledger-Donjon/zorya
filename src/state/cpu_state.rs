@@ -495,12 +495,17 @@ impl<'ctx> CpuState<'ctx> {
                         bv_bool_extended.bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 8))
                     } else {
                         // Standard case for bit-vectors
-                        let extension_size = full_reg_size as u32 - new_size;
+                        let extension_size = 64 as u32 - new_size; // each chunk is 64 bits
                 
                         if extension_size > 0 {
-                            new_value.symbolic.to_bv(self.ctx).zero_ext(extension_size).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
+                            new_value.symbolic
+                                .to_bv(self.ctx)
+                                .zero_ext(extension_size)
+                                .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
                         } else {
-                            new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
+                            new_value.symbolic
+                                .to_bv(self.ctx)
+                                .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
                         }
                     };
                 
