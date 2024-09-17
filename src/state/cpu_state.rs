@@ -477,11 +477,7 @@ impl<'ctx> CpuState<'ctx> {
                 // SYMBOLIC VALUE HANDLING
                 // ----------------------
                 if let SymbolicVar::LargeInt(ref mut large_symbolic) = reg.symbolic {
-                    println!("full_reg_size: {}", full_reg_size);
-                    println!("new_size: {}", new_size);
-                    println!("bit_offset: {}", bit_offset);
                     println!("Handling symbolic value for large integer register");
-                    println!("Symbolic value for the relevant part: {:?}", new_value.symbolic);
     
                     let idx = (bit_offset / 64) as usize;
                     let inner_bit_offset = (bit_offset % 64) as u32;
@@ -491,17 +487,8 @@ impl<'ctx> CpuState<'ctx> {
                         return Err("Bit offset exceeds size of the large integer symbolic register".to_string());
                     }
     
-                    // Handle symbolic values (Boolean and Bit-vector cases)
-                    let symbolic_value_part = if new_value.symbolic.is_bool() {
-                        // Convert Boolean to bit-vector and extend it
-                        let bv_bool = new_value.symbolic.to_bv(self.ctx);
-                        bv_bool.zero_ext(7).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 8))
-                    } else {
-                        // Normal case for bit-vectors
-                        new_value.symbolic
-                            .to_bv(self.ctx)
-                            .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), new_size))
-                    };
+                    // Update symbolic value for the relevant part of the register
+                    let symbolic_value_part = new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), new_size));
     
                     if symbolic_value_part.get_z3_ast().is_null() {
                         println!("Error: Symbolic update failed (null AST)");
