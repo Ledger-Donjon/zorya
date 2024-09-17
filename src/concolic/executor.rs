@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
+use std::result;
 use std::sync::MutexGuard;
 use std::process;
 
@@ -987,66 +988,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
-    
-        let popcount_result = match input_var {
-            ConcolicEnum::ConcolicVar(concolic_var) => {
-                let concrete_value = concolic_var.concrete.to_u64();
-                let popcount = concrete_value.count_ones() as u64;
-                log!(self.state.logger.clone(), "Concrete value: {}, Popcount: {}", concrete_value, popcount);
-                let symbolic_value = concolic_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, output_size_bits)
-            },
-            ConcolicEnum::CpuConcolicValue(cpu_var) => {
-                let concrete_value = cpu_var.get_concrete_value().unwrap_or(0);
-                let popcount = concrete_value.count_ones() as u64;
-                log!(self.state.logger.clone(), "CPU concrete value: {}, Popcount: {}", concrete_value, popcount);
-                let symbolic_value = cpu_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, output_size_bits)
-            },
-            ConcolicEnum::MemoryConcolicValue(mem_var) => {
-                let concrete_value = mem_var.get_concrete_value().unwrap_or(0);
-                let popcount = concrete_value.count_ones() as u64;
-                log!(self.state.logger.clone(), "Memory concrete value: {}, Popcount: {}", concrete_value, popcount);
-                let symbolic_value = mem_var.popcount();
-                ConcolicVar::new_concrete_and_symbolic_int(popcount, symbolic_value, self.context, output_size_bits)
-            },
-        };
-    
-        //log!(self.state.logger.clone(), "*** The result of POPCOUNT is: {:?}", popcount_result.clone());
-    
-        match instruction.output.as_ref().map(|v| &v.var) {
-            Some(Var::Unique(id)) => {
-                let unique_name = format!("Unique(0x{:x})", id);
-                self.unique_variables.insert(unique_name.clone(), popcount_result.clone());
-                log!(self.state.logger.clone(), "Updated unique variable: {} with concrete size {:?} and symbolic size {:?}", unique_name, popcount_result.concrete.get_size(), popcount_result.symbolic.get_size());
-            },
-            Some(Var::Register(offset, _)) => {
-                log!(self.state.logger.clone(), "Output is a Register type");
-                let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                let concrete_value = popcount_result.concrete.to_u64();
-                log!(self.state.logger.clone(), "Setting register value at offset 0x{:x} to {}", offset, concrete_value);
-                let set_result = cpu_state_guard.set_register_value_by_offset(*offset, popcount_result.clone(), output_size_bits);
-                match set_result {
-                    Ok(_) => {
-                        let updated_value = cpu_state_guard.get_register_by_offset(*offset, input_size_bits).unwrap();
-                        if updated_value.get_concrete_value()? == concrete_value {
-                            log!(self.state.logger.clone(), "Successfully updated register at offset 0x{:x} with value {}", offset, updated_value);
-                        } else {
-                            log!(self.state.logger.clone(), "Failed to verify updated register at offset 0x{:x}", offset);
-                            return Err(format!("Failed to verify updated register value at offset 0x{:x}", offset));
-                        }
-                    },
-                    Err(e) => {
-                        log!(self.state.logger.clone(), "Failed to set register value: {}", e);
-                        return Err(format!("Failed to set register value at offset 0x{:x}", offset));
-                    }
-                }
-            },
-            _ => {
-                log!(self.state.logger.clone(), "Output type is unsupported");
-                return Err("Output type not supported".to_string());
-            }
-        }
+
+        // Perform the popcount operation
+        let result_concrete = input_var.get_concrete_value().count_ones();
+        let result_symbolic = input_var.to_concolic_var().unwrap().symbolic.popcount();
+        let popcount_result = ConcolicVar::new_concrete_and_symbolic_int(result_concrete as u64, result_symbolic, self.context, output_size_bits);
+
+        // Handle the result based on the output varnode
+        self.handle_output(instruction.output.as_ref(), popcount_result.clone())?;
         
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-popcount", current_addr_hex, self.instruction_counter);

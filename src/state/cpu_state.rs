@@ -99,10 +99,6 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         // If sizes are equal, no resize operation is needed.
     }
 
-    pub fn popcount(&self) -> BV<'ctx> {
-        self.symbolic.popcount()
-    }
-
     pub fn concolic_zero_extend(&self, new_size: u32) -> Result<Self, &'static str> {
         let current_size = self.symbolic.get_size() as u32;
         if new_size <= current_size {

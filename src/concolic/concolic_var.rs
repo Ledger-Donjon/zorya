@@ -13,7 +13,7 @@ pub struct ConcolicVar<'ctx> {
 impl<'ctx> ConcolicVar<'ctx> {
     // Function to create a new ConcolicVar with a symbolic integer
     pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic: BV<'ctx>, ctx: &'ctx Context, size: u32) -> Self {
-        let mut var = ConcolicVar {
+        let var = ConcolicVar {
             concrete: ConcreteVar::Int(concrete),
             symbolic: SymbolicVar::Int(symbolic),
             ctx,
@@ -34,16 +34,12 @@ impl<'ctx> ConcolicVar<'ctx> {
 
     // Function to create a new ConcolicVar with a symbolic boolean
     pub fn new_concrete_and_symbolic_bool(concrete: bool, symbolic: Bool<'ctx>, ctx: &'ctx Context, _size: u32) -> Self {
-        let mut var = ConcolicVar {
+        let var = ConcolicVar {
             concrete: ConcreteVar::Bool(concrete),
             symbolic: SymbolicVar::Bool(symbolic),
             ctx,
         };
         var
-    }
-
-    pub fn popcount(&self) -> BV<'ctx> {
-        self.symbolic.popcount()
     }
 
     pub fn truncate(&self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<Self, &'static str> {
