@@ -230,6 +230,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let closest_register = cpu_state_guard.register_map.range(..=offset).rev().next()
             .ok_or(format!("No register found before offset 0x{:x}", offset))?;
         let (base_register_offset, &(_, register_size)) = closest_register;
+        log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", base_register_offset, register_size);
     
         let bit_offset = (offset - base_register_offset) * 8; // Calculate the bit offset within the register
     
