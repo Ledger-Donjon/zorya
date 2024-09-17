@@ -491,19 +491,19 @@ impl<'ctx> CpuState<'ctx> {
                         return Err("Bit offset exceeds size of the large integer symbolic register".to_string());
                     }
                 
-                    // Check if the symbolic value is Boolean
+                    // Handle boolean symbolic values and convert them to bit-vectors
                     let symbolic_value_part = if new_value.symbolic.is_bool() {
-                        // Convert Boolean to a bit-vector of size 1 (true = #b1, false = #b0)
-                        new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 64))
+                        // Convert the Boolean result into a bit-vector of size 8 (for byte-sized registers)
+                        let bv_bool = new_value.symbolic.to_bv(self.ctx);
+                        let bv_bool_extended = bv_bool.zero_ext(7);  // Convert to 8 bits (1 bit Boolean -> 8 bits)
+                        bv_bool_extended.bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 8))
                     } else {
                         // Standard case for bit-vectors
                         let extension_size = full_reg_size as u32 - new_size;
                 
-                        // Only apply zero_ext if the extension size is greater than 0
                         if extension_size > 0 {
                             new_value.symbolic.to_bv(self.ctx).zero_ext(extension_size).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
                         } else {
-                            // No need to extend, directly shift the symbolic value
                             new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32))
                         }
                     };
@@ -542,17 +542,16 @@ impl<'ctx> CpuState<'ctx> {
                 
                     // For smaller registers or if the symbolic value is an Int
                     let new_symbolic_value = if new_value.symbolic.is_bool() {
-                        // Convert Boolean to a bit-vector of size 1 (true = #b1, false = #b0)
-                        new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, bit_offset, 64))
+                        // Convert Boolean to a bit-vector of size 8 (for byte-sized registers)
+                        let bv_bool = new_value.symbolic.to_bv(self.ctx);
+                        let bv_bool_extended = bv_bool.zero_ext(7);  // Convert to 8 bits
+                        bv_bool_extended.bvshl(&BV::from_u64(self.ctx, bit_offset, 8))
                     } else {
-                        // Normal case
                         let extension_size = full_reg_size as u32 - new_size;
                 
-                        // Only apply zero_ext if the extension size is greater than 0
                         if extension_size > 0 {
                             new_value.symbolic.to_bv(self.ctx).zero_ext(extension_size).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32))
                         } else {
-                            // No need to extend, directly shift the symbolic value
                             new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32))
                         }
                     };
@@ -572,8 +571,7 @@ impl<'ctx> CpuState<'ctx> {
                     }
                 
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
-                }
-                
+                }               
 
                 println!("Register at base offset 0x{:x} updated with size {} bits, preserving total size of {} bits.", base_offset, new_size, full_reg_size);
                 Ok(())
