@@ -481,48 +481,47 @@ impl<'ctx> CpuState<'ctx> {
                     println!("new_size: {}", new_size);
                     println!("bit_offset: {}", bit_offset);
                     println!("Handling symbolic value for large integer register");
-                    println!("Symbolic value for the relevant part: {:?}", new_value.symbolic); 
-                
+                    println!("Symbolic value for the relevant part: {:?}", new_value.symbolic);
+    
                     let idx = (bit_offset / 64) as usize;
                     let inner_bit_offset = (bit_offset % 64) as u32;
-                
+    
                     if idx >= large_symbolic.len() {
                         println!("Error: Bit offset exceeds size of the large integer symbolic register");
                         return Err("Bit offset exceeds size of the large integer symbolic register".to_string());
                     }
-                
-                    // Handle boolean symbolic values and convert them to bit-vectors
+    
+                    // Handle symbolic values (Boolean and Bit-vector cases)
                     let symbolic_value_part = if new_value.symbolic.is_bool() {
-                        // Convert the Boolean result into a bit-vector of size 8 (for byte-sized registers)
+                        // Convert Boolean to bit-vector and extend it
                         let bv_bool = new_value.symbolic.to_bv(self.ctx);
-                        let bv_bool_extended = bv_bool.zero_ext(7);  // Convert to 8 bits (1 bit Boolean -> 8 bits)
-                        bv_bool_extended.bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 8))
+                        bv_bool.zero_ext(7).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 8))
                     } else {
-                        // Standard case for bit-vectors
+                        // Normal case for bit-vectors
                         new_value.symbolic
                             .to_bv(self.ctx)
                             .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), new_size))
                     };
-                
+    
                     if symbolic_value_part.get_z3_ast().is_null() {
                         println!("Error: Symbolic update failed (null AST)");
                         return Err("Symbolic update failed, resulting in a null AST".to_string());
                     }
-                
+    
                     println!("Symbolic value for the relevant part: {:?}", symbolic_value_part);
-                
+    
                     // Update symbolic value while preserving the rest of the symbolic state
                     let updated_symbolic = large_symbolic[idx]
-                        .bvand(&BV::from_u64(self.ctx, !(mask << inner_bit_offset),new_size)) // Clear the relevant bits
+                        .bvand(&BV::from_u64(self.ctx, !(mask << inner_bit_offset), 64)) // Clear the relevant bits
                         .bvor(&symbolic_value_part); // Set the new symbolic value for the target bits
-                
+    
                     if updated_symbolic.get_z3_ast().is_null() {
                         println!("Error: Updated symbolic value is null for chunk {}", idx);
                         return Err("Symbolic update failed, resulting in a null AST".to_string());
                     }
-                
+    
                     large_symbolic[idx] = updated_symbolic;
-                
+    
                     // Handle carry over to the next chunk if needed
                     if inner_bit_offset + new_size as u32 > 64 && idx + 1 < large_symbolic.len() {
                         let remaining_symbolic_bits = new_value.symbolic.to_bv(self.ctx)
