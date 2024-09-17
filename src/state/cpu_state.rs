@@ -29,7 +29,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
             for _ in 0..(size / 64) {
                 chunks.push(remaining_value & 0xFFFFFFFFFFFFFFFF); // Take the least significant 64 bits
-                remaining_value >>= 64; // Shift the value for the next chunk
+                remaining_value >>= std::cmp::min(63, remaining_value.leading_zeros() as u64); // Shift the value safely
             }
 
             // Handle any leftover bits if the size is not a multiple of 64
@@ -57,7 +57,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ctx,
         }
     }
-    
+
     // Method to retrieve the concrete u64 value
     pub fn get_concrete_value(&self) -> Result<u64, String> {
         match self.concrete {
