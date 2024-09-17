@@ -481,6 +481,7 @@ impl<'ctx> CpuState<'ctx> {
                     println!("new_size: {}", new_size);
                     println!("bit_offset: {}", bit_offset);
                     println!("Handling symbolic value for large integer register");
+                    println!("Symbolic value for the relevant part: {:?}", new_value.symbolic); 
                 
                     let idx = (bit_offset / 64) as usize;
                     let inner_bit_offset = (bit_offset % 64) as u32;
