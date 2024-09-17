@@ -482,70 +482,80 @@ impl<'ctx> CpuState<'ctx> {
                 // ----------------------
                 if let SymbolicVar::LargeInt(ref mut large_symbolic) = reg.symbolic {
                     println!("Handling symbolic value for large integer register");
-
+                
                     let idx = (bit_offset / 64) as usize;
                     let inner_bit_offset = (bit_offset % 64) as u32;
-
+                
                     if idx >= large_symbolic.len() {
                         println!("Error: Bit offset exceeds size of the large integer symbolic register");
                         return Err("Bit offset exceeds size of the large integer symbolic register".to_string());
                     }
-
-                    // Update symbolic value for the relevant part of the register
-                    let symbolic_value_part = new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), new_size));
-
+                
+                    // Check if the symbolic value is Boolean
+                    let symbolic_value_part = if new_value.symbolic.is_bool() {
+                        // Convert Boolean to a bit-vector of size 1 (true = #b1, false = #b0)
+                        new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 64))
+                    } else {
+                        // Standard case for bit-vectors
+                        new_value.symbolic.to_bv(self.ctx).bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), new_size))
+                    };
+                
                     if symbolic_value_part.get_z3_ast().is_null() {
                         println!("Error: Symbolic update failed (null AST)");
                         return Err("Symbolic update failed, resulting in a null AST".to_string());
                     }
-
+                
                     println!("Symbolic value for the relevant part: {:?}", symbolic_value_part);
-
+                
                     // Update symbolic value while preserving the rest of the symbolic state
-                    let updated_symbolic = large_symbolic[idx].bvand(&BV::from_u64(self.ctx, !(mask << inner_bit_offset), 64)).bvor(&symbolic_value_part);
-
+                    let updated_symbolic = large_symbolic[idx]
+                        .bvand(&BV::from_u64(self.ctx, !(mask << inner_bit_offset), 64)) // Clear the relevant bits
+                        .bvor(&symbolic_value_part); // Set the new symbolic value for the target bits
+                
                     if updated_symbolic.get_z3_ast().is_null() {
                         println!("Error: Updated symbolic value is null for chunk {}", idx);
                         return Err("Symbolic update failed, resulting in a null AST".to_string());
                     }
-
+                
                     large_symbolic[idx] = updated_symbolic;
-
+                
                     // Handle carry over to the next chunk if needed
                     if inner_bit_offset + new_size as u32 > 64 && idx + 1 < large_symbolic.len() {
-                        let remaining_symbolic_bits = new_value.symbolic.to_bv(self.ctx).extract((new_size - (64 - inner_bit_offset)) as u32, 0);
+                        let remaining_symbolic_bits = new_value.symbolic.to_bv(self.ctx)
+                            .extract((new_size - (64 - inner_bit_offset)) as u32, 0);
                         large_symbolic[idx + 1] = large_symbolic[idx + 1].bvor(&remaining_symbolic_bits);
                     }
                 } else {
                     println!("full_reg_size: {}", full_reg_size);
                     println!("new_size: {}", new_size);
                     println!("bit_offset: {}", bit_offset);
-                    println!("new_value.symbolic: {:?}", new_value.symbolic);
-                    println!("new_value.symbolic.to_bv: {:?}", new_value.symbolic.to_bv(self.ctx));
-                    println!("new_value.symbolic.to_bv.zero_extend: {:?}", new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size as u32 - new_size));
-                    println!("new_value.symbolic.to_bv.zero_extend.bvshl: {:?}", new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size as u32 - new_size).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32)));
-
-                    // Ensure small symbolic values remain as Int
-                    let new_symbolic_value = new_value.symbolic
-                        .to_bv(self.ctx)
-                        .zero_ext(full_reg_size as u32 - new_size)
-                        .bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32));
-
+                
+                    // For smaller registers or if the symbolic value is an Int
+                    let new_symbolic_value = if new_value.symbolic.is_bool() {
+                        // Convert Boolean to a bit-vector of size 1 (true = #b1, false = #b0)
+                        new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, bit_offset, 64))
+                    } else {
+                        // Normal case
+                        new_value.symbolic.to_bv(self.ctx).zero_ext(full_reg_size as u32 - new_size).bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32))
+                    };
+                
                     if new_symbolic_value.get_z3_ast().is_null() {
                         println!("Error: New symbolic value is null");
                         return Err("New symbolic value is null".to_string());
                     }
-                    println!("New symbolic value calculated: {:?}", new_symbolic_value);
-
-                    let combined_symbolic = reg.symbolic.to_bv(self.ctx).bvand(&BV::from_u64(self.ctx, !mask, full_reg_size as u32)).bvor(&new_symbolic_value);
-
+                
+                    let combined_symbolic = reg.symbolic.to_bv(self.ctx)
+                        .bvand(&BV::from_u64(self.ctx, !mask, full_reg_size as u32)) // Clear target bits
+                        .bvor(&new_symbolic_value); // Set the new symbolic value for those bits
+                
                     if combined_symbolic.get_z3_ast().is_null() {
                         println!("Error: Combined symbolic value is null");
                         return Err("Symbolic extraction resulted in an invalid state".to_string());
                     }
-
+                
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
                 }
+                
 
                 println!("Register at base offset 0x{:x} updated with size {} bits, preserving total size of {} bits.", base_offset, new_size, full_reg_size);
                 Ok(())

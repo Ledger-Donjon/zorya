@@ -163,6 +163,11 @@ impl<'ctx> SymbolicVar<'ctx> {
         ast.is_null() 
     }
 
+    // Method to check if the symbolic variable is a boolean
+    pub fn is_bool(&self) -> bool {
+        matches!(self, SymbolicVar::Bool(_))
+    }
+
     pub fn get_ctx(&self) -> &'ctx Context {
         match self {
             SymbolicVar::Int(bv) => bv.get_ctx(),
@@ -185,4 +190,6 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn is_valid(&self) -> bool {
         !self.is_null()
     }
+
+
 }
