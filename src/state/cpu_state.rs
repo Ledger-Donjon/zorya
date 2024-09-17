@@ -477,6 +477,9 @@ impl<'ctx> CpuState<'ctx> {
                 // SYMBOLIC VALUE HANDLING
                 // ----------------------
                 if let SymbolicVar::LargeInt(ref mut large_symbolic) = reg.symbolic {
+                    println!("full_reg_size: {}", full_reg_size);
+                    println!("new_size: {}", new_size);
+                    println!("bit_offset: {}", bit_offset);
                     println!("Handling symbolic value for large integer register");
                 
                     let idx = (bit_offset / 64) as usize;
