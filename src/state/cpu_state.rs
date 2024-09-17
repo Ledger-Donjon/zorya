@@ -54,6 +54,8 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             SymbolicVar::Int(BV::from_u64(ctx, initial_value, size))
         };
 
+        println!("Created new CpuConcolicValue with concrete: {:?}, symbolic: {:?}", concrete, symbolic);
+
         CpuConcolicValue {
             concrete,
             symbolic,
