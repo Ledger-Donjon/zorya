@@ -1,11 +1,11 @@
 use std::{collections::BTreeMap, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
-use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar, state::cpu_state::DisplayableCpuState};
+use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use nix::libc::SS_DISABLE;
 use parser::parser::Varnode;
 use z3::Context;
 use std::fmt;
-use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::MemoryX86_64, state_initializer, CpuState, VirtualFileSystem};
+use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::MemoryX86_64, CpuState, VirtualFileSystem};
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -34,14 +34,11 @@ impl<'a> State<'a> {
         log!(logger.clone(), "Initializing State...\n");
 
         // Initialize CPU state in a shared and thread-safe manner
-        let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
-        
         log!(logger.clone(), "Initializing mock CPU state...\n");
-        state_initializer::initialize_cpu_registers(cpu_state.clone())?;
-
-        // Print the CPU registers after initialization
-        let displayable_cpu_state = DisplayableCpuState(cpu_state.clone());
-        log!(logger.clone(), "Current CPU State: {}", displayable_cpu_state);
+        let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
+        log!(logger.clone(), "Uploading dumps to CPU registers...\n");
+        cpu_state.lock().unwrap().upload_dumps_to_cpu_registers()?;
+        log!(logger.clone(), "CPU state initialized.\n : {:?}", cpu_state);
 
         let memory_size: u64 = 1024 * 1024 * 1024; // 1 GiB memory size because dumps are 730 MB
         log!(logger.clone(), "Initializing memory...\n");

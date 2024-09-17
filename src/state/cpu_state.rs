@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, sync::Mutex};
 use std::{fmt, fs};
 use anyhow::{Error, Result};
+use regex::Regex;
 use z3::ast::Ast;
 use std::sync::Arc;
 use anyhow::anyhow;
@@ -12,6 +13,7 @@ use z3::{ast::BV, Context};
 
 use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
 pub type SharedCpuState<'a> = Arc<Mutex<CpuState<'a>>>;
+use crate::target_info::GLOBAL_TARGET_INFO;
 
 #[derive(Debug, Clone)]
 pub struct CpuConcolicValue<'ctx> {
@@ -311,6 +313,87 @@ impl<'ctx> CpuState<'ctx> {
 
         println!("No matching register found for {} with offset 0x{:X}", name, offset);
         false
+    }
+
+    pub fn upload_dumps_to_cpu_registers(&mut self) -> Result<()> {  
+        let dumps_dir = {
+                let info = GLOBAL_TARGET_INFO.lock().unwrap();
+                info.memory_dumps.clone()
+            };
+    
+        let cpu_output_path = dumps_dir.join("cpu_mapping.txt");    
+        let cpu_output = fs::read_to_string(&cpu_output_path);    
+        let result = Self::parse_and_update_cpu_state_from_gdb_output(self, &cpu_output.unwrap());
+        if let Err(e) = result {
+            println!("Error during CPU state update: {}", e);
+            return Err(e);
+        } 
+    
+        Ok(())
+    }
+    
+    // Function to parse GDB output and update CPU state
+    fn parse_and_update_cpu_state_from_gdb_output(&mut self, gdb_output: &str) -> Result<()> {
+        let re_general = Regex::new(r"^\s*(\w+)\s+0x([\da-f]+)").unwrap();
+        let re_flags = Regex::new(r"^\s*eflags\s+0x[0-9a-f]+\s+\[(.*?)\]").unwrap();
+    
+        // Display current state of flag registrations for debugging
+        println!("Flag Registrations:");
+        for (offset, (name, size)) in self.register_map.iter() {
+            println!("{}: offset = 0x{:x}, size = {}", name, offset, size);
+        }
+    
+        // Parse general registers
+        for line in gdb_output.lines() {
+            if let Some(caps) = re_general.captures(line) {
+                let register_name = caps.get(1).unwrap().as_str().to_uppercase();
+                let value_concrete = u64::from_str_radix(caps.get(2).unwrap().as_str(), 16)
+                    .map_err(|e| anyhow!("Failed to parse hex value for {}: {}", register_name, e))?;
+    
+                if let Some((offset, size)) = self.clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
+                    let value_symbolic = BV::from_u64(&self.ctx, value_concrete, *size);
+                    let value_concolic = ConcolicVar::new_concrete_and_symbolic_int(value_concrete, value_symbolic, &self.ctx, *size);
+                    let _ = self.set_register_value_by_offset(offset, value_concolic, *size);
+                    println!("Updated register {} with value {}", register_name, value_concrete);
+                }
+            }
+        }
+    
+        // Special handling for flags within eflags output
+        for line in gdb_output.lines() {
+            if let Some(caps) = re_flags.captures(line) {
+                let flags_line = caps.get(1).unwrap().as_str();
+                println!("Parsed flags line: {}", flags_line);  // Debug statement
+    
+                let flag_list = ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"];
+    
+                for &flag in flag_list.iter() {
+                    let flag_concrete = if flags_line.contains(flag) { 1 } else { 0 };
+                    if let Some((offset, size)) = self.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
+                        println!("Setting flag {} to {}", flag, flag_concrete);  // Debug statement
+                        let flag_symbolic = BV::from_u64(&self.ctx, flag_concrete, *size);
+                        let flag_concolic = ConcolicVar::new_concrete_and_symbolic_int(flag_concrete, flag_symbolic, &self.ctx, *size);
+                        let _ = self.set_register_value_by_offset(offset, flag_concolic, *size);
+                        
+                        // Verify update
+                        let updated_value = self.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
+                        println!("Verification: {} is now set to {:?}", flag, updated_value);
+                    } else {
+                        println!("Flag {} not found in register_map", flag);
+                    }
+                }
+            }
+        }
+    
+        // Verify final state of specific flags
+        for &flag in ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"].iter() {
+            if let Some((offset, size)) = self.register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
+                let flag_value = self.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64()).unwrap_or(0);
+                println!("{} flag value: {}", flag, flag_value);  // Debug statement
+            }
+        }
+    
+        Ok(())
     }
 
     // Helper function to extract a value from a string using start and end delimiters
@@ -616,15 +699,5 @@ impl fmt::Display for CpuState<'_> {
         writeln!(f, "Register map:")?;
         println!("{:?}", &self.register_map);
         Ok(())
-    }
-}
-
-// Newtype wrapper around Arc<Mutex<CpuState>>
-pub struct DisplayableCpuState<'ctx>(pub Arc<Mutex<CpuState<'ctx>>>);
-
-impl<'ctx> fmt::Display for DisplayableCpuState<'ctx> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let cpu_state = self.0.lock().unwrap(); // Lock the mutex to access the CPU state
-        write!(f, "{}", cpu_state)
     }
 }
