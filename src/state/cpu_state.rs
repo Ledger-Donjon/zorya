@@ -379,6 +379,17 @@ impl<'ctx> CpuState<'ctx> {
 
                         for i in 0..mask.len() {
                             let inner_mask = BV::from_u64(self.ctx, mask[i], 64);
+
+                            // Validate the size of the shift and bit-vector
+                            let symbolic_size = new_value.symbolic.to_bv(self.ctx).get_size();
+                            println!("Symbolic size before shift: {}", symbolic_size);
+
+                            if symbolic_size + inner_bit_offset as u32 > 64 {
+                                println!("Error: Shift amount exceeds 64 bits");
+                                return Err(format!("Shift amount exceeds valid bit-vector size for chunk {}", i));
+                            }
+
+                            // Perform the shift
                             let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
                                 .zero_ext(full_reg_size as u32 - new_size)
                                 .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
@@ -388,6 +399,19 @@ impl<'ctx> CpuState<'ctx> {
                                 return Err("Symbolic update failed, resulting in a null AST".to_string());
                             }
                             println!("Symbolic value for chunk {}: {:?}", i, symbolic_value_part);
+
+                            // Validate the sizes of the operands before applying bvand and bvor
+                            println!("Checking sizes for bvand and bvor operations");
+                            let large_symbolic_size = large_symbolic[idx + i].get_size();
+                            let symbolic_value_part_size = symbolic_value_part.get_size();
+                            let inner_mask_size = inner_mask.get_size();
+                            println!("large_symbolic size: {}, symbolic_value_part size: {}, inner_mask size: {}",
+                                large_symbolic_size, symbolic_value_part_size, inner_mask_size);
+
+                            if large_symbolic_size != symbolic_value_part_size || inner_mask_size != symbolic_value_part_size {
+                                println!("Error: Bit-vector sizes do not match for chunk {}", i);
+                                return Err(format!("Bit-vector size mismatch in bvand/bvor operations for chunk {}", i));
+                            }
 
                             let updated_symbolic = large_symbolic[idx + i]
                                 .bvand(&inner_mask.bvnot())
@@ -458,7 +482,7 @@ impl<'ctx> CpuState<'ctx> {
                 Err(format!("No suitable register found for offset 0x{:x}", offset))
             }
         }
-    }    
+    }
                                 
     // Function to get a register by its offset, accounting for sub-register accesses and handling large registers
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
