@@ -386,35 +386,63 @@ impl<'ctx> CpuState<'ctx> {
     
                             println!("large_symbolic size: {}, symbolic_value_part size: {}", large_symbolic_size, symbolic_value_size);
     
-                            if symbolic_value_size != large_symbolic_size {
-                                println!("Error: Bit-vector size mismatch in symbolic update");
-                                return Err(format!("Bit-vector size mismatch in bvand/bvor operations for chunk {}", i));
+                            // Fix size mismatch
+                            if large_symbolic_size != symbolic_value_size {
+                                // Pad or truncate the symbolic value to match the size of `large_symbolic`
+                                let symbolic_value_part = if symbolic_value_size < large_symbolic_size {
+                                    new_value.symbolic.to_bv(self.ctx).zero_ext(large_symbolic_size - symbolic_value_size)
+                                } else {
+                                    new_value.symbolic.to_bv(self.ctx).extract(large_symbolic_size - 1, 0)
+                                };
+    
+                                // Perform the shift
+                                let symbolic_shift_value = symbolic_value_part.bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), large_symbolic_size as u32));
+    
+                                if symbolic_shift_value.get_z3_ast().is_null() {
+                                    println!("Error: Symbolic update failed on chunk {} (null AST)", i);
+                                    return Err("Symbolic update failed, resulting in a null AST".to_string());
+                                }
+    
+                                println!("Symbolic value for chunk {}: {:?}", i, symbolic_shift_value);
+    
+                                // Update symbolic value after ensuring size compatibility
+                                let updated_symbolic = large_symbolic[idx + i]
+                                    .bvand(&inner_mask.bvnot())
+                                    .bvor(&symbolic_shift_value);
+    
+                                if updated_symbolic.get_z3_ast().is_null() {
+                                    println!("Error: Updated symbolic value is null for chunk {}", i);
+                                    return Err("Symbolic update failed, resulting in a null AST".to_string());
+                                }
+    
+                                println!("Updated symbolic value for chunk {}: {:?}", i, updated_symbolic);
+                                symbolic_updates.push(updated_symbolic);
+                            } else {
+                                // Perform the shift if no size mismatch
+                                let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
+                                    .zero_ext(full_reg_size as u32 - new_size)
+                                    .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), large_symbolic_size as u32));
+    
+                                if symbolic_value_part.get_z3_ast().is_null() {
+                                    println!("Error: Symbolic update failed on chunk {} (null AST)", i);
+                                    return Err("Symbolic update failed, resulting in a null AST".to_string());
+                                }
+    
+                                println!("Symbolic value for chunk {}: {:?}", i, symbolic_value_part);
+    
+                                // Update symbolic value after ensuring size compatibility
+                                let updated_symbolic = large_symbolic[idx + i]
+                                    .bvand(&inner_mask.bvnot())
+                                    .bvor(&symbolic_value_part);
+    
+                                if updated_symbolic.get_z3_ast().is_null() {
+                                    println!("Error: Updated symbolic value is null for chunk {}", i);
+                                    return Err("Symbolic update failed, resulting in a null AST".to_string());
+                                }
+    
+                                println!("Updated symbolic value for chunk {}: {:?}", i, updated_symbolic);
+                                symbolic_updates.push(updated_symbolic);
                             }
-    
-                            // Perform the shift
-                            let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
-                                .zero_ext(full_reg_size as u32 - new_size)
-                                .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
-    
-                            if symbolic_value_part.get_z3_ast().is_null() {
-                                println!("Error: Symbolic update failed on chunk {} (null AST)", i);
-                                return Err("Symbolic update failed, resulting in a null AST".to_string());
-                            }
-    
-                            println!("Symbolic value for chunk {}: {:?}", i, symbolic_value_part);
-    
-                            // Update symbolic value after ensuring size compatibility
-                            let updated_symbolic = large_symbolic[idx + i]
-                                .bvand(&inner_mask.bvnot())
-                                .bvor(&symbolic_value_part);
-    
-                            if updated_symbolic.get_z3_ast().is_null() {
-                                println!("Error: Updated symbolic value is null for chunk {}", i);
-                                return Err("Symbolic update failed, resulting in a null AST".to_string());
-                            }
-    
-                            println!("Updated symbolic value for chunk {}: {:?}", i, updated_symbolic);
-                            symbolic_updates.push(updated_symbolic);
                         }
     
                         // Replace the symbolic part with the updated chunks
@@ -473,7 +501,7 @@ impl<'ctx> CpuState<'ctx> {
                 Err(format!("No suitable register found for offset 0x{:x}", offset))
             }
         }
-    }    
+    }        
                                 
     // Function to get a register by its offset, accounting for sub-register accesses and handling large registers
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
