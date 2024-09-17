@@ -23,9 +23,21 @@ pub struct CpuConcolicValue<'ctx> {
 impl<'ctx> CpuConcolicValue<'ctx> {
     pub fn new(ctx: &'ctx Context, initial_value: u64, size: u32) -> Self {
         let concrete = if size > 64 {
-            // Large registers should be split into 64-bit chunks
-            let num_u64s = (size as usize + 63) / 64;
-            ConcreteVar::LargeInt(vec![initial_value; num_u64s])
+            // Split the initial_value into 64-bit chunks (little-endian order)
+            let mut chunks = vec![];
+            let mut remaining_value = initial_value;
+
+            for _ in 0..(size / 64) {
+                chunks.push(remaining_value & 0xFFFFFFFFFFFFFFFF); // Take the least significant 64 bits
+                remaining_value >>= 64; // Shift the value for the next chunk
+            }
+
+            // Handle any leftover bits if the size is not a multiple of 64
+            if size % 64 != 0 {
+                chunks.push(remaining_value & ((1u64 << (size % 64)) - 1)); // Mask the remaining bits
+            }
+
+            ConcreteVar::LargeInt(chunks)
         } else {
             ConcreteVar::Int(initial_value)
         };
@@ -45,7 +57,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ctx,
         }
     }
-
+    
     // Method to retrieve the concrete u64 value
     pub fn get_concrete_value(&self) -> Result<u64, String> {
         match self.concrete {
