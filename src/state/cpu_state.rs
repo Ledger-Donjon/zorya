@@ -410,7 +410,7 @@ impl<'ctx> CpuState<'ctx> {
                     // Update the symbolic value for the specific part of the register
                     let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
                         .zero_ext(64 as u32 - new_size) // Extend to fit the register
-                        .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
+                        .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 64 as u32));
     
                     if symbolic_value_part.get_z3_ast().is_null() {
                         println!("Error: Symbolic update failed (null AST)");
