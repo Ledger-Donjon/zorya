@@ -466,7 +466,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         match &branch_target_varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
-                log!(self.state.logger.clone(), "Branch target concrete : {:x}", addr); 
+                let branch_target_varnode_symbolic = SymbolicVar::from_u64(&self.context, *addr, 64).to_bv(&self.context);
 
                 // Fetch the branch condition (input1)
                 log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
@@ -479,7 +479,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 };
                 log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
 
-                let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_condition_symbolic.to_bv(&self.context), self.context, 64);
+                let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_target_varnode_symbolic, self.context, 64);
             
                 // Check the branch condition
                 if branch_condition_concrete != 0 {

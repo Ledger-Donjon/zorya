@@ -623,9 +623,6 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Perform the AND operation
     let result_concrete = input0_var.get_concrete_value() & input1_var.get_concrete_value();
-    log!(executor.state.logger.clone(), "The concrete result of INT_AND is: {:?}", result_concrete);
-    log!(executor.state.logger.clone(), "The symbolic imput0 is {:?} with size {}", input0_var.get_symbolic_value_bv(executor.context), input0_var.get_symbolic_value_bv(executor.context).get_size());
-    log!(executor.state.logger.clone(), "The symbolic imput1 is {:?} with size {}", input1_var.get_symbolic_value_bv(executor.context), input1_var.get_symbolic_value_bv(executor.context).get_size());
     let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvand(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
 
