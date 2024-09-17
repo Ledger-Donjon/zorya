@@ -29,7 +29,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
             for _ in 0..(size / 64) {
                 chunks.push(remaining_value & 0xFFFFFFFFFFFFFFFF); // Take the least significant 64 bits
-                remaining_value >>= std::cmp::min(63, remaining_value.leading_zeros() as u64); // Shift the value safely
+                remaining_value >>= 64; // Shift right by 64 bits
             }
 
             // Handle any leftover bits if the size is not a multiple of 64
