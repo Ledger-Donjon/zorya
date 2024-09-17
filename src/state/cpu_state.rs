@@ -416,7 +416,7 @@ impl<'ctx> CpuState<'ctx> {
                             | (remaining_bits & mask);
                     }
                 } else {
-                    // Handle normal 64-bit concrete values
+                    // Ensure that small registers remain as Int
                     let safe_shift = if bit_offset < 64 {
                         (new_value.concrete.to_u64() & mask) << bit_offset
                     } else {
@@ -456,7 +456,7 @@ impl<'ctx> CpuState<'ctx> {
 
                     // Update symbolic value for the relevant part of the register
                     let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
-                        .zero_ext(64 - new_size) // Extend to fit the current chunk
+                        .zero_ext(64 as u32 - new_size) // Extend to fit the current chunk
                         .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), 64));
 
                     if symbolic_value_part.get_z3_ast().is_null() {
@@ -488,7 +488,7 @@ impl<'ctx> CpuState<'ctx> {
                         large_symbolic[idx + 1] = large_symbolic[idx + 1].bvor(&remaining_symbolic_bits);
                     }
                 } else {
-                    // Handle normal 64-bit symbolic values
+                    // Ensure small symbolic values remain as Int
                     let new_symbolic_value = new_value.symbolic.to_bv(self.ctx)
                         .zero_ext(full_reg_size as u32 - new_size)
                         .bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32));
