@@ -531,7 +531,6 @@ impl<'ctx> CpuState<'ctx> {
                     println!("bit_offset: {}", bit_offset);
                     println!("new_value.symbolic: {:?} with size {}", new_value.symbolic, new_value.symbolic.get_size());
                     println!("new_value.symbolic.to_bv(self.ctx): {:?} with size {}", new_value.symbolic.to_bv(self.ctx), new_value.symbolic.to_bv(self.ctx).get_size());
-                    println!("new_value.symbolic.to_bv(self.ctx).zero_ext(63): {:?} with size {}", new_value.symbolic.to_bv(self.ctx).zero_ext(63), new_value.symbolic.to_bv(self.ctx).zero_ext(63).get_size());
                     println!("new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, bit_offset, 64)): {:?} with size {}", new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, bit_offset, 64)), new_value.symbolic.to_bv(self.ctx).zero_ext(63).bvshl(&BV::from_u64(self.ctx, bit_offset, 64)).get_size());
 
                     // For smaller registers or if the symbolic value is an Int
@@ -539,7 +538,6 @@ impl<'ctx> CpuState<'ctx> {
                         // Convert Boolean to a bit-vector of size 1 (true = #b1, false = #b0)
                         new_value.symbolic
                             .to_bv(self.ctx)
-                            .zero_ext(63)
                             .bvshl(&BV::from_u64(self.ctx, bit_offset, 64))
                     } else {
                         // Normal case
