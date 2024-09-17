@@ -307,11 +307,11 @@ fn rotate_left(bv: BV, bits: u32) -> BV {
     bv.extract(size - 1, bits).concat(&bv.extract(bits - 1, 0))
 }
 
-fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
     if let Some(varnode) = output_varnode {
         // Resize the result_value according to the output size specification
         let size_bits = varnode.size.to_bitvector_size() as u32;
-        result_value.resize(size_bits);
+
 
         match &varnode.var {
             Var::Unique(id) => {

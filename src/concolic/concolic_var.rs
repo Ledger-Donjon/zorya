@@ -18,7 +18,6 @@ impl<'ctx> ConcolicVar<'ctx> {
             symbolic: SymbolicVar::Int(symbolic),
             ctx,
         };
-        var.resize(size);
         var
     }
 
@@ -40,93 +39,8 @@ impl<'ctx> ConcolicVar<'ctx> {
             symbolic: SymbolicVar::Bool(symbolic),
             ctx,
         };
-        var.resize_bool();
         var
     }
-    
-
-    // Function to resize a boolean concolic variable
-    fn resize_bool(&mut self) {
-        if let ConcreteVar::Bool(value) = self.concrete {
-            // Set the concrete value to 0 or 1, according to the boolean state
-            self.concrete = ConcreteVar::Int(value as u64);
-    
-            // For symbolic part, ensure it's either 0 or 1, expanded to 8 bits
-            if let SymbolicVar::Bool(symbolic_bool) = &self.symbolic {
-                let bv_true = BV::from_u64(self.ctx, 1, 8);
-                let bv_false = BV::from_u64(self.ctx, 0, 8);
-                self.symbolic = SymbolicVar::Int(symbolic_bool.ite(&bv_true, &bv_false));
-            }
-        }
-    }
-
-    fn resize_largeint(&mut self, size: u32) {
-        if size == 0 || size > 1024 {  // Assuming you might have LargeInt up to 1024 bits for this example.
-            panic!("Invalid size for resizing: size must be between 1 and 1024");
-        }
-    
-        let num_u64s = (size + 63) / 64;  // Calculate the number of u64 values needed to store the given size
-        let last_bits = size % 64;  // Bits in the last u64 if not fully utilized
-    
-        // Resize the vector to contain the right number of u64 entries
-        if let ConcreteVar::LargeInt(ref mut values) = self.concrete {
-            values.resize(num_u64s as usize, 0);
-    
-            // Mask the last u64 if not fully utilized
-            if last_bits > 0 {
-                let mask = (1u64 << last_bits) - 1;
-                values[num_u64s as usize - 1] &= mask;
-            }
-        }
-    
-        // Resize the symbolic vector similarly
-        if let SymbolicVar::LargeInt(ref mut vec) = self.symbolic {
-            vec.resize(num_u64s as usize, BV::from_u64(self.ctx, 0, 64));
-            if last_bits > 0 && !vec.is_empty() {
-                let new_size = num_u64s as usize - 1;
-                vec[new_size] = vec[new_size].extract(last_bits - 1, 0);
-            }
-        }
-    }
-    
-    // General resize function
-    pub fn resize(&mut self, size: u32) {
-        match &mut self.symbolic {
-            SymbolicVar::Int(_) | SymbolicVar::Bool(_) => self.resize_int(size),
-            SymbolicVar::Float(_) => self.resize_float(size),
-            SymbolicVar::LargeInt(_) => self.resize_largeint(size),
-        }
-    }
-    
-    // Function to resize an integer concolic variable
-    fn resize_int(&mut self, size: u32) {
-        if size == 0 || size > 256 {
-            panic!("Invalid size for resizing: size must be between 1 and 256");
-        }
-
-        // Handle concrete resizing
-        let mask = if size >= 64 {
-            u64::MAX // Use all bits if size is 64 or more
-        } else {
-            (1u64 << size) - 1 // Safe for sizes up to 63
-        };
-        if let ConcreteVar::Int(ref mut concrete) = self.concrete {
-            *concrete &= mask;
-        }
-
-        // Handle symbolic resizing
-        let current_size = self.symbolic.to_bv(self.ctx).get_size() as u32;
-        if size < current_size {
-            self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(self.ctx).extract(size - 1, 0));
-        } else if size > current_size {
-            self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(self.ctx).zero_ext(size - current_size));
-        }
-    }
-    
-    // Placeholder function for resizing float
-    fn resize_float(&mut self, _size: u32) {
-        log::error!("Float resizing is not supported");
-    }   
 
     pub fn popcount(&self) -> BV<'ctx> {
         self.symbolic.popcount()

@@ -400,24 +400,6 @@ impl<'ctx> CpuState<'ctx> {
     fn extract_value<'a>(&self, from: &'a str, start_delim: &str, end_delim: &str) -> &'a str {
         from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
-    
-    /// Creates a mask that spans multiple 64-bit chunks if needed.
-    fn create_mask(new_size: u32) -> Vec<u64> {
-        let mut mask = Vec::new();
-        let chunks = (new_size + 63) / 64; // How many 64-bit chunks we need
-
-        for i in 0..chunks {
-            if i == chunks - 1 && new_size % 64 != 0 {
-                // For the last chunk, only include the needed bits
-                mask.push((1u64 << (new_size % 64)) - 1);
-            } else {
-                // For all other chunks, the mask is full 64 bits
-                mask.push(u64::MAX);
-            }
-        }
-
-        mask
-    }
 
     /// Sets the value of a register based on its offset
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {

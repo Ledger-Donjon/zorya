@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the INT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{concolic::executor::ConcolicExecutor, state::cpu_state};
+use crate::concolic::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::{Ast, Bool, Float, BV};
 use std::io::Write;
@@ -14,42 +14,31 @@ macro_rules! log {
     }};
 }
 
-fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+fn handle_output<'ctx>(executor: &mut ConcolicExecutor<'ctx>, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
     if let Some(varnode) = output_varnode {
         // Resize the result_value according to the output size specification
         let size_bits = varnode.size.to_bitvector_size() as u32;
-        result_value.resize(size_bits);
 
         match &varnode.var {
             Var::Unique(id) => {
                 let unique_name = format!("Unique(0x{:x})", id);
                 executor.unique_variables.insert(unique_name, result_value.clone());
-                log!(
-                    executor.state.logger.clone(), 
-                    "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", 
-                    id, size_bits, result_value.symbolic.get_size()
-                );
+                log!(executor.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
                 Ok(())
             },
             Var::Register(offset, _) => {
                 log!(executor.state.logger.clone(), "Output is a Register type");
                 let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-                let concrete_value = result_value.concrete.to_u64();
 
                 match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
                     Ok(_) => {
-                        log!(
-                            executor.state.logger.clone(), 
-                            "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", 
-                            offset, concrete_value, size_bits
-                        );
+                        // check
+                        let register = cpu_state_guard.get_register_by_offset(*offset, size_bits);
+                        log!(executor.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, register.unwrap().concrete.to_u64(), size_bits);
                         Ok(())
                     },
                     Err(e) => {
-                        let error_msg = format!(
-                            "Failed to update register at offset 0x{:x}: {}", 
-                            offset, e
-                        );
+                        let error_msg = format!("Failed to update register at offset 0x{:x}: {}", offset, e);
                         log!(executor.state.logger.clone(), "{}", error_msg);
                         Err(error_msg)
                     }
