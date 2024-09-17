@@ -403,8 +403,6 @@ impl<'ctx> CpuState<'ctx> {
 
     /// Sets the value of a register based on its offset
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
-        println!("Setting register value for offset: 0x{:x}, new size: {}", offset, new_size);
-
         // Find the closest register that covers or contains the offset
         let closest_reg = self
             .registers
@@ -418,10 +416,7 @@ impl<'ctx> CpuState<'ctx> {
                 let bit_offset = offset_within_reg * 8; // Convert byte offset to bit offset within the register
                 let full_reg_size = reg.symbolic.get_size() as u64; // Fetch the full size of the register in bits
 
-                println!(
-                    "Closest register found at offset 0x{:x}, register size: {}",
-                    base_offset, full_reg_size
-                );
+                println!("Closest register found at offset 0x{:x}, register size: {}", base_offset, full_reg_size);
                 println!("Calculated bit offset: {}, within register", bit_offset);
 
                 // Ensure the bit offset + new size does not exceed the register size
@@ -490,10 +485,7 @@ impl<'ctx> CpuState<'ctx> {
                     println!("Safe shift calculated: 0x{:x}", safe_shift);
 
                     let new_concrete_value = safe_shift & mask;
-                    println!(
-                        "New concrete value after applying mask: 0x{:x}",
-                        new_concrete_value
-                    );
+                    println!("New concrete value after applying mask: 0x{:x}", new_concrete_value);
 
                     // Update the concrete value while preserving the rest of the register
                     let new_concrete = (reg.concrete.to_u64() & !mask) | new_concrete_value;
@@ -553,6 +545,9 @@ impl<'ctx> CpuState<'ctx> {
                         large_symbolic[idx + 1] = large_symbolic[idx + 1].bvor(&remaining_symbolic_bits);
                     }
                 } else {
+                    println!("full_reg_size: {}", full_reg_size);
+                    println!("new_size: {}", new_size);
+                    println!("bit_offset: {}", bit_offset);
                     // Ensure small symbolic values remain as Int
                     let new_symbolic_value = new_value.symbolic.to_bv(self.ctx)
                         .zero_ext(full_reg_size as u32 - new_size)
