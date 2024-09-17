@@ -240,7 +240,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let original_register = cpu_state_guard.get_register_by_offset(*base_register_offset, register_size)
             .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", base_register_offset))?;
-    
+        log!(self.state.logger.clone(), "Original register : {}", original_register);
+
         match &original_register.concrete {
             ConcreteVar::Int(value) => {
                 let mask: u64 = if bit_size < 64 {
