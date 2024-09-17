@@ -303,118 +303,155 @@ impl<'ctx> CpuState<'ctx> {
         from.split(start_delim).nth(1).unwrap().split(end_delim).next().unwrap()
     }
     
-    /// Sets the value of a register identified by its offset, ensuring support for large registers.
+    /// Creates a mask that spans multiple 64-bit chunks if needed.
+    fn create_mask(new_size: u32) -> Vec<u64> {
+        let mut mask = Vec::new();
+        let chunks = (new_size + 63) / 64; // How many 64-bit chunks we need
+
+        for i in 0..chunks {
+            if i == chunks - 1 && new_size % 64 != 0 {
+                // For the last chunk, only include the needed bits
+                mask.push((1u64 << (new_size % 64)) - 1);
+            } else {
+                // For all other chunks, the mask is full 64 bits
+                mask.push(u64::MAX);
+            }
+        }
+
+        mask
+    }
+
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         println!("Setting register value for offset: 0x{:x}, new size: {}", offset, new_size);
-    
+
         // Find the closest register that covers or contains the offset
         let closest_reg = self.registers.range_mut(..=offset).rev().find(|&(key, _)| *key <= offset);
-    
+
         match closest_reg {
             Some((base_offset, reg)) => {
                 let offset_within_reg = offset - base_offset;
                 let bit_offset = offset_within_reg * 8; // Convert byte offset to bit offset within the register
                 let full_reg_size = reg.symbolic.get_size() as u64; // Fetch the full size of the register in bits
-    
+
                 println!("Closest register found at offset 0x{:x}, register size: {}", base_offset, full_reg_size);
                 println!("Calculated bit offset: {}, within register", bit_offset);
-    
+
                 // Ensure the bit offset + new size does not exceed the register size
                 if bit_offset + new_size as u64 > full_reg_size {
                     println!("Error: Bit offset + new size exceeds full register size.");
                     return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
                 }
-    
-                // Create a mask for the 32 bits we're updating
-                let mask: u64 = (1u64 << new_size) - 1; // Only target the first 32 bits
-                println!("Mask created for 32-bit target: 0x{:x}", mask);
-    
+
+                // Create the mask based on new_size
+                let mask = Self::create_mask(new_size);
+                println!("Mask created: {:?}", mask);
+
                 // ----------------------
                 // CONCRETE VALUE HANDLING
                 // ----------------------
                 if let ConcreteVar::LargeInt(ref mut large_concrete) = reg.concrete {
                     println!("Handling large concrete values for large register (LargeInt)");
-    
+
                     let idx = (bit_offset / 64) as usize; // Index in the Vec<u64>
                     let inner_bit_offset = (bit_offset % 64) as u32; // Offset within the specific u64 element
-    
+
                     println!("Index within Vec<u64>: {}, inner bit offset: {}", idx, inner_bit_offset);
-    
-                    // Ensure the index is within bounds
+
                     if idx >= large_concrete.len() {
                         println!("Error: Bit offset exceeds size of the large integer register");
                         return Err("Bit offset exceeds size of the large integer register".to_string());
                     }
-    
-                    // Update the first 32 bits of the first chunk only
-                    let new_concrete_part = (new_value.concrete.to_u64() & mask) << inner_bit_offset;
-                    println!("Applying mask to large integer chunk 0, new_concrete_part: 0x{:x}", new_concrete_part);
-    
-                    // Preserve the rest of the chunk while updating the targeted bits
-                    large_concrete[idx] = (large_concrete[idx] & !(mask << inner_bit_offset)) | new_concrete_part;
+
+                    // Apply the mask to each relevant chunk of the large integer register
+                    for (i, &mask_chunk) in mask.iter().enumerate() {
+                        let new_concrete_part = (new_value.concrete.to_u64() & mask_chunk) << inner_bit_offset;
+                        println!("Applying mask to large integer chunk {}, new_concrete_part: 0x{:x}", i, new_concrete_part);
+
+                        // Update the relevant portion of the concrete value without affecting the other parts
+                        large_concrete[idx + i] = (large_concrete[idx + i] & !(mask_chunk << inner_bit_offset)) | new_concrete_part;
+                    }
+                } else {
+                    // Handle normal 64-bit concrete values
+                    let safe_shift = if bit_offset < 64 {
+                        (new_value.concrete.to_u64() & mask[0]) << bit_offset
+                    } else {
+                        0 // If bit_offset >= 64, shifting would overflow, so leave as 0
+                    };
+                    println!("Safe shift calculated: 0x{:x}", safe_shift);
+
+                    let new_concrete_value = safe_shift & mask[0];
+                    println!("New concrete value after applying mask: 0x{:x}", new_concrete_value);
+
+                    // Update the concrete value while preserving the rest of the register
+                    let new_concrete = (reg.concrete.to_u64() & !mask[0]) | new_concrete_value;
+                    println!("Final concrete value for register: 0x{:x}", new_concrete);
+
+                    reg.concrete = ConcreteVar::Int(new_concrete);
                 }
-    
+
                 // ----------------------
                 // SYMBOLIC VALUE HANDLING
                 // ----------------------
                 if let SymbolicVar::LargeInt(ref mut large_symbolic) = reg.symbolic {
                     println!("Handling symbolic value for large integer register");
-    
+
                     let idx = (bit_offset / 64) as usize;
                     let inner_bit_offset = (bit_offset % 64) as u32;
-    
+
                     if idx >= large_symbolic.len() {
                         println!("Error: Bit offset exceeds size of the large integer symbolic register");
                         return Err("Bit offset exceeds size of the large integer symbolic register".to_string());
                     }
-    
-                    // Update only the first chunk's symbolic value for the first 32 bits
-                    let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
-                        .zero_ext(full_reg_size as u32 - new_size) // Extend to fit the register size
-                        .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
-    
-                    if symbolic_value_part.get_z3_ast().is_null() {
-                        println!("Error: Symbolic update failed (null AST)");
-                        return Err("Symbolic update failed, resulting in a null AST".to_string());
+
+                    // Update symbolic value for each chunk
+                    for i in 0..mask.len() {
+                        let symbolic_value_part = new_value.symbolic.to_bv(self.ctx)
+                            .zero_ext(full_reg_size as u32 - new_size) // Extend to fit the register
+                            .bvshl(&BV::from_u64(self.ctx, inner_bit_offset.into(), full_reg_size as u32));
+
+                        if symbolic_value_part.get_z3_ast().is_null() {
+                            println!("Error: Symbolic update failed on chunk {} (null AST)", i);
+                            return Err("Symbolic update failed, resulting in a null AST".to_string());
+                        }
+
+                        println!("Symbolic value for chunk {}: {:?}", i, symbolic_value_part);
+
+                        // Update symbolic value while preserving the rest of the symbolic state
+                        let updated_symbolic = large_symbolic[idx + i]
+                            .bvand(&BV::from_u64(self.ctx, !mask[i], 64)) // Clear the relevant bits
+                            .bvor(&symbolic_value_part); // Set the new symbolic value for the target bits
+
+                        if updated_symbolic.get_z3_ast().is_null() {
+                            println!("Error: Updated symbolic value is null for chunk {}", i);
+                            return Err("Symbolic update failed, resulting in a null AST".to_string());
+                        }
+
+                        large_symbolic[idx + i] = updated_symbolic;
                     }
-    
-                    println!("Symbolic value for chunk 0: {:?}", symbolic_value_part);
-    
-                    // Update symbolic value for the first chunk, keeping the rest intact
-                    let updated_symbolic = large_symbolic[idx]
-                        .bvand(&BV::from_u64(self.ctx, !mask, 64)) // Clear the target bits
-                        .bvor(&symbolic_value_part); // Set the new symbolic value for the target bits
-    
-                    if updated_symbolic.get_z3_ast().is_null() {
-                        println!("Error: Updated symbolic value is null for chunk 0");
-                        return Err("Symbolic update failed, resulting in a null AST".to_string());
-                    }
-    
-                    large_symbolic[idx] = updated_symbolic; // Only update the first chunk
                 } else {
-                    // Handle normal 64-bit symbolic values if not a LargeInt
+                    // Handle normal 64-bit symbolic values
                     let new_symbolic_value = new_value.symbolic.to_bv(self.ctx)
                         .zero_ext(full_reg_size as u32 - new_size)
                         .bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32));
-    
+
                     if new_symbolic_value.get_z3_ast().is_null() {
                         println!("Error: New symbolic value is null");
                         return Err("New symbolic value is null".to_string());
                     }
                     println!("New symbolic value calculated: {:?}", new_symbolic_value);
-    
+
                     let combined_symbolic = reg.symbolic.to_bv(self.ctx)
-                        .bvand(&BV::from_u64(self.ctx, !mask, full_reg_size as u32)) // Clear target bits
+                        .bvand(&BV::from_u64(self.ctx, !mask[0], full_reg_size as u32)) // Clear target bits
                         .bvor(&new_symbolic_value); // Set the new symbolic value for those bits
-    
+
                     if combined_symbolic.get_z3_ast().is_null() {
                         println!("Error: Combined symbolic value is null");
                         return Err("Symbolic extraction resulted in an invalid state".to_string());
                     }
-    
+
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
                 }
-    
+
                 println!("Register at base offset 0x{:x} updated with size {} bits, preserving total size of {} bits.", base_offset, new_size, full_reg_size);
                 Ok(())
             },
