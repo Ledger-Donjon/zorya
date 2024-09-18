@@ -602,11 +602,13 @@ impl<'ctx> CpuState<'ctx> {
                 // Handling for LargeInt types
                 if let ConcreteVar::LargeInt(ref values) = reg.concrete {
                     let concrete_value = Self::extract_bits_from_large_int(values, start_bit, end_bit);
+                    println!("Extracted concrete value: {:?}", concrete_value);
 
                     // For symbolic value
                     if let SymbolicVar::LargeInt(ref bvs) = reg.symbolic {
                         let symbolic_value =
                             self.extract_symbolic_bits_from_large_int(self.ctx, bvs, start_bit, end_bit);
+                        println!("Extracted symbolic value: {:?}", symbolic_value);
 
                         return Some(CpuConcolicValue {
                             concrete: concrete_value,
