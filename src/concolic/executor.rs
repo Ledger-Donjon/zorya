@@ -302,9 +302,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Handle the concrete extraction from LargeInt
                 let start_bit = bit_offset;
                 let end_bit = start_bit + u64::from(bit_size) - 1;
-    
+
+                log!(self.state.logger.clone(), "Extracting from LargeInt with values: {:?}", values);
                 let extracted_concrete = CpuState::extract_bits_from_large_int(values, start_bit, end_bit);
-    
+                log!(self.state.logger.clone(), "Extracted concrete value: 0x{:x}", extracted_concrete);
+
                 // Use extract_symbolic_bits_from_large_int to extract the symbolic value
                 if let SymbolicVar::LargeInt(ref bvs) = original_register.symbolic {
                     let cpu_state_guard = self.state.cpu_state.lock().unwrap();
@@ -314,6 +316,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         start_bit,
                         end_bit,
                     );
+                    log!(self.state.logger.clone(), "Extracted symbolic value: {:?}", extracted_symbolic);
     
                     Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
                         concrete: extracted_concrete,
