@@ -761,6 +761,7 @@ impl<'ctx> CpuState<'ctx> {
 
     // Function to extract bits from a large symbolic value (Vec<BV<'ctx>>), returns SymbolicVar
     pub fn extract_symbolic_bits_from_large_int(&self, ctx: &'ctx Context, bvs: &[BV<'ctx>], start_bit: u64, end_bit: u64) -> SymbolicVar<'ctx> {
+            println!("Extracting symbolic bits from large integer");
             if start_bit > end_bit {
                 // Invalid range, return zero
                 return SymbolicVar::Int(BV::from_u64(ctx, 0, 1));
@@ -768,6 +769,7 @@ impl<'ctx> CpuState<'ctx> {
         
             let total_bits = (end_bit - start_bit + 1) as u32;
             if total_bits <= 64 {
+                println!("Extracting bits within 64 bits");
                 let mut result_bv = BV::from_u64(ctx, 0, total_bits);
                 let mut current_bit = start_bit;
                 let mut result_bit_pos = 0u32;
@@ -812,11 +814,13 @@ impl<'ctx> CpuState<'ctx> {
         
                 SymbolicVar::Int(result_bv)
             } else {
+                println!("Extracting bits across multiple 64-bit chunks");
                 // Extract into a Vec<BV<'ctx>>
                 let num_bvs = ((total_bits + 63) / 64) as usize;
                 let mut result_bvs = vec![BV::from_u64(ctx, 0, 64); num_bvs];
                 let mut current_bit = start_bit;
                 let mut result_bit_pos = 0u64;
+                println!("Total bits: {}, num_bvs: {}", total_bits, num_bvs);
         
                 while current_bit <= end_bit {
                     let chunk_index = (current_bit / 64) as usize;
@@ -827,6 +831,7 @@ impl<'ctx> CpuState<'ctx> {
                         current_bit += 1;
                         continue;
                     }
+                    println!("Current bit: {}, chunk index: {}, bit in chunk: {}", current_bit, chunk_index, bit_in_chunk);
         
                     let bits_left_in_extract = end_bit - current_bit + 1;
                     if bits_left_in_extract == 0 {
@@ -841,13 +846,16 @@ impl<'ctx> CpuState<'ctx> {
                         .get(chunk_index)
                         .cloned()
                         .unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
+                    println!("Extracting bits from chunk: {:?}", bv_chunk);
         
                     let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take_u32 - 1, bit_in_chunk);
+                    println!("Extracted bits: {:?}", extracted_bv);
         
                     let result_index = (result_bit_pos / 64) as usize;
                     let result_bit_offset = (result_bit_pos % 64) as u32;
         
                     if result_bit_offset + bits_to_take_u32 <= 64 {
+                        println!("Bits fit within current BV");
                         // All bits fit within current BV
                         let shifted_extracted_bv = if result_bit_offset > 0 {
                             extracted_bv
