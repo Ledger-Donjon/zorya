@@ -267,9 +267,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     base_register_offset
                 )
             })?;
-        log!(
-            self.state.logger.clone(),
-            "Original register: {:?}, concrete value: {:?}",
+        log!(self.state.logger.clone(), "Original register: {:?}, concrete value: {:?}",
             original_register,
             original_register.concrete
         );

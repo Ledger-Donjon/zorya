@@ -671,25 +671,31 @@ impl<'ctx> CpuState<'ctx> {
             let mut result = 0u64;
             let mut bit_pos = 0u64;
             let mut current_bit = start_bit;
-
+    
             while current_bit <= end_bit {
                 let chunk_index = (current_bit / 64) as usize;
                 let bit_in_chunk = current_bit % 64;
-
+    
                 let bits_left_in_chunk = 64 - bit_in_chunk;
                 let bits_left_in_extract = end_bit - current_bit + 1;
                 let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
-
+    
+                // Prevent bits_to_take from being zero
+                if bits_to_take == 0 {
+                    current_bit += 1;
+                    continue;
+                }
+    
                 let chunk = values.get(chunk_index).copied().unwrap_or(0);
-
+    
                 let mask = Self::safe_left_mask(bits_to_take) << bit_in_chunk;
                 let bits = Self::safe_shift_right(chunk & mask, bit_in_chunk);
-
                 result |= Self::safe_shift_left(bits, bit_pos);
-
+    
                 current_bit += bits_to_take;
                 bit_pos += bits_to_take;
             }
+    
             ConcreteVar::Int(result)
         } else {
             // Extract into a Vec<u64>
@@ -697,43 +703,49 @@ impl<'ctx> CpuState<'ctx> {
             let mut result = vec![0u64; num_u64s];
             let mut bit_pos = 0u64;
             let mut current_bit = start_bit;
-
+    
             while current_bit <= end_bit {
                 let chunk_index = (current_bit / 64) as usize;
                 let bit_in_chunk = current_bit % 64;
-
+    
                 let bits_left_in_chunk = 64 - bit_in_chunk;
                 let bits_left_in_extract = end_bit - current_bit + 1;
                 let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
-
+    
+                // Prevent bits_to_take from being zero
+                if bits_to_take == 0 {
+                    current_bit += 1;
+                    continue;
+                }
+    
                 let chunk = values.get(chunk_index).copied().unwrap_or(0);
-
+    
                 let mask = Self::safe_left_mask(bits_to_take) << bit_in_chunk;
                 let bits = Self::safe_shift_right(chunk & mask, bit_in_chunk);
-
+    
                 let result_index = (bit_pos / 64) as usize;
                 let result_bit_offset = bit_pos % 64;
-
+    
                 if result_bit_offset + bits_to_take <= 64 {
                     // All bits fit within current u64
                     result[result_index] |= Self::safe_shift_left(bits, result_bit_offset);
                 } else {
                     // Bits span across two u64s
                     let bits_in_current = 64 - result_bit_offset;
-
+                    let bits_in_next = bits_to_take - bits_in_current;
+    
                     let bits_in_current_mask = Self::safe_left_mask(bits_in_current);
-                    // No need for bits_in_next_mask since it will fit in the next u64
-
                     result[result_index] |= Self::safe_shift_left(bits & bits_in_current_mask, result_bit_offset);
                     result[result_index + 1] |= Self::safe_shift_right(bits, bits_in_current);
                 }
-
+    
                 current_bit += bits_to_take;
                 bit_pos += bits_to_take;
             }
+    
             ConcreteVar::LargeInt(result)
         }
-    }
+    }    
 
     // Function to extract bits from a large symbolic value (Vec<BV<'ctx>>), returns SymbolicVar
     pub fn extract_symbolic_bits_from_large_int(&self, ctx: &'ctx Context, bvs: &[BV<'ctx>], start_bit: u64, end_bit: u64) -> SymbolicVar<'ctx> {
@@ -742,19 +754,28 @@ impl<'ctx> CpuState<'ctx> {
             let mut result_bv = BV::from_u64(ctx, 0, total_bits);
             let mut current_bit = start_bit;
             let mut result_bit_pos = 0u32;
-    
+
             while current_bit <= end_bit {
                 let chunk_index = (current_bit / 64) as usize;
                 let bit_in_chunk = (current_bit % 64) as u32;
-    
+
                 let bits_left_in_chunk = 64 - bit_in_chunk;
                 let bits_left_in_extract = (end_bit - current_bit + 1) as u32;
                 let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
-    
-                let bv_chunk = bvs.get(chunk_index).cloned().unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
-    
+
+                // Prevent bits_to_take from being zero
+                if bits_to_take == 0 {
+                    current_bit += 1;
+                    continue;
+                }
+
+                let bv_chunk = bvs
+                    .get(chunk_index)
+                    .cloned()
+                    .unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
+
                 let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take - 1, bit_in_chunk);
-    
+
                 let shifted_extracted_bv = if result_bit_pos > 0 {
                     extracted_bv
                         .zero_ext(total_bits - bits_to_take - result_bit_pos)
@@ -762,13 +783,13 @@ impl<'ctx> CpuState<'ctx> {
                 } else {
                     extracted_bv.zero_ext(total_bits - bits_to_take)
                 };
-    
+
                 result_bv = result_bv.bvor(&shifted_extracted_bv);
-    
+
                 current_bit += bits_to_take as u64;
                 result_bit_pos += bits_to_take;
             }
-    
+
             SymbolicVar::Int(result_bv)
         } else {
             // Extract into a Vec<BV<'ctx>>
@@ -776,24 +797,33 @@ impl<'ctx> CpuState<'ctx> {
             let mut result_bvs = vec![BV::from_u64(ctx, 0, 64); num_bvs];
             let mut current_bit = start_bit;
             let mut result_bit_pos = 0u64;
-    
+
             while current_bit <= end_bit {
                 let chunk_index = (current_bit / 64) as usize;
                 let bit_in_chunk = (current_bit % 64) as u32;
-    
+
                 let bits_left_in_chunk = 64 - bit_in_chunk;
                 let bits_left_in_extract = end_bit - current_bit + 1;
                 let bits_to_take = std::cmp::min(bits_left_in_chunk as u64, bits_left_in_extract);
-    
+
+                // Prevent bits_to_take from being zero
+                if bits_to_take == 0 {
+                    current_bit += 1;
+                    continue;
+                }
+
                 let bits_to_take_u32 = bits_to_take as u32;
-    
-                let bv_chunk = bvs.get(chunk_index).cloned().unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
-    
+
+                let bv_chunk = bvs
+                    .get(chunk_index)
+                    .cloned()
+                    .unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
+
                 let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take_u32 - 1, bit_in_chunk);
-    
+
                 let result_index = (result_bit_pos / 64) as usize;
                 let result_bit_offset = (result_bit_pos % 64) as u32;
-    
+
                 if result_bit_offset + bits_to_take_u32 <= 64 {
                     // All bits fit within current BV
                     let shifted_extracted_bv = if result_bit_offset > 0 {
@@ -803,33 +833,35 @@ impl<'ctx> CpuState<'ctx> {
                     } else {
                         extracted_bv.zero_ext(64 - bits_to_take_u32)
                     };
-    
+
                     result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv);
                 } else {
                     // Bits span across two BVs
                     let bits_in_current = 64 - result_bit_offset;
-    
-                    let extracted_bv_current = extracted_bv.extract(bits_in_current - 1, 0);
-    
-                    let extracted_bv_next = extracted_bv.extract(bits_to_take_u32 - 1, bits_in_current);
-    
+                    let bits_in_current_u32 = bits_in_current as u32;
+                    let bits_in_next = bits_to_take_u32 - bits_in_current_u32;
+
+                    let extracted_bv_current = extracted_bv.extract(bits_in_current_u32 - 1, 0);
+
+                    let extracted_bv_next = extracted_bv.extract(bits_to_take_u32 - 1, bits_in_current_u32);
+
                     let shifted_extracted_bv_current = if result_bit_offset > 0 {
                         extracted_bv_current
-                            .zero_ext(64 - bits_in_current - result_bit_offset)
+                            .zero_ext(64 - bits_in_current_u32 - result_bit_offset)
                             .bvshl(&BV::from_u64(ctx, result_bit_offset as u64, 64))
                     } else {
-                        extracted_bv_current.zero_ext(64 - bits_in_current)
+                        extracted_bv_current.zero_ext(64 - bits_in_current_u32)
                     };
-    
+
                     result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv_current);
-    
+
                     result_bvs[result_index + 1] = result_bvs[result_index + 1].bvor(&extracted_bv_next);
                 }
-    
+
                 current_bit += bits_to_take;
                 result_bit_pos += bits_to_take;
             }
-    
+
             SymbolicVar::LargeInt(result_bvs)
         }
     }    
