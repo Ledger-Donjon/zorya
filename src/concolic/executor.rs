@@ -266,10 +266,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }))
             },
             ConcreteVar::LargeInt(values) => {
+                println!("Inside LargeInt handling of values: {:?}", values);
                 let start_index = (bit_offset / 64) as usize;
                 let end_index = ((bit_offset + u64::from(bit_size)) / 64) as usize;
                 let bit_offset_within_first = (bit_offset % 64) as u32;
                 let bits_in_first = std::cmp::min(64 - bit_offset_within_first, u32::from(bit_size)) as u32;
+                println!("start_index: {}, end_index: {}, bit_offset_within_first: {}, bits_in_first: {}", start_index, end_index, bit_offset_within_first, bits_in_first);
     
                 let mut extracted_bits = 0;
                 let mut result_value = 0u64;
@@ -295,6 +297,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         }
                     }
                 }
+                println!("Extracted value: {:x}", result_value);
     
                 let symbolic_result = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
                     .extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32)
@@ -303,6 +306,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 if symbolic_result.get_z3_ast().is_null() {
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
                 }
+
+                println!("Symbolic result: {:?}", symbolic_result);
     
                 Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
                     concrete: ConcreteVar::LargeInt(vec![result_value]), // Simplified handling, typically should handle vector parts
