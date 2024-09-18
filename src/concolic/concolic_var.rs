@@ -122,6 +122,6 @@ impl<'ctx> ConcolicVar<'ctx> {
 
 impl<'ctx> fmt::Display for ConcolicVar<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Concrete: Int(0x{:x}), Symbolic: {:?}", self.concrete, self.symbolic)
+        write!(f, "Concrete: {:x}, Symbolic: {:?}", self.concrete, self.symbolic)
     }
 }

@@ -692,7 +692,7 @@ impl<'ctx> CpuState<'ctx> {
                 current_bit += bits_to_take;
                 bit_pos += bits_to_take;
             }
-
+            println!("Returning ConcreteVar::Int({:016x})", result);
             ConcreteVar::Int(result)
         } else {
             // Extract into a Vec<u64>
@@ -734,7 +734,7 @@ impl<'ctx> CpuState<'ctx> {
                 current_bit += bits_to_take;
                 bit_pos += bits_to_take;
             }
-
+            println!("Returning ConcreteVar::LargeInt({:?})", result);
             ConcreteVar::LargeInt(result)
         }
     }
