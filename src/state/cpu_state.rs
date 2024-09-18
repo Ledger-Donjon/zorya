@@ -400,31 +400,31 @@ impl<'ctx> CpuState<'ctx> {
     /// Sets the value of a register based on its offset
     pub fn set_register_value_by_offset(&mut self, offset: u64, new_value: ConcolicVar<'ctx>, new_size: u32) -> Result<(), String> {
         // Find the closest register that covers or contains the offset
-        let closest_reg = self.registers.range_mut(..=offset).rev().find(|&(key, _)| *key <= offset);
+    let closest_reg = self.registers.range_mut(..=offset).rev().find(|&(key, _)| *key <= offset);
 
-        match closest_reg {
-            Some((base_offset, reg)) => {
-                let offset_within_reg = offset - base_offset;
-                let bit_offset = offset_within_reg * 8; // Convert byte offset to bit offset within the register
-                let full_reg_size = reg.symbolic.get_size() as u64; // Full size of the register in bits
+    match closest_reg {
+        Some((base_offset, reg)) => {
+            let offset_within_reg = offset - base_offset;
+            let bit_offset = offset_within_reg * 8; // Convert byte offset to bit offset within the register
+            let full_reg_size = reg.symbolic.get_size() as u64; // Full size of the register in bits
 
-                println!("Closest register found at offset 0x{:x}, register size: {}", base_offset, full_reg_size);
-                println!("Calculated bit offset: {}, within register", bit_offset);
+            println!("Closest register found at offset 0x{:x}, register size: {}", base_offset, full_reg_size);
+            println!("Calculated bit offset: {}, within register", bit_offset);
 
-                // Ensure the bit offset + new size does not exceed the register size
-                if bit_offset + new_size as u64 > full_reg_size {
-                    println!("Error: Bit offset + new size exceeds full register size.");
-                    return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
-                }
+            // Ensure the bit offset + new size does not exceed the register size
+            if bit_offset + new_size as u64 > full_reg_size {
+                println!("Error: Bit offset + new size exceeds full register size.");
+                return Err(format!("Cannot fit value into register starting at offset 0x{:x}: size overflow", base_offset));
+            }
 
-                // Determine the mask to update only the affected bits
-                let mask = if new_size < 64 {
-                    (1u64 << new_size) - 1
-                } else {
-                    u64::MAX
-                };
+            // Determine the mask to update only the affected bits
+            let mask = if new_size < 64 {
+                (1u64 << new_size) - 1
+            } else {
+                u64::MAX
+            };
 
-                println!("Mask created for the relevant part: 0x{:x}", mask);
+            println!("Mask created for the relevant part: 0x{:x}", mask);
 
                 // ----------------------
                 // CONCRETE VALUE HANDLING
@@ -544,30 +544,33 @@ impl<'ctx> CpuState<'ctx> {
                     println!("full_reg_size: {}", full_reg_size);
                     println!("new_size: {}", new_size);
                     println!("bit_offset: {}", bit_offset);
-                    println!("new_value.symbolic: {:?} with size {}", new_value.symbolic, new_value.symbolic.get_size());
                     
+                    // Get the symbolic value as BV of the appropriate size
+                    let new_symbolic_bv = new_value.symbolic.to_bv_of_size(self.ctx, new_size);
+
                     // Ensure small symbolic values remain as Int
-                    let new_symbolic_value = new_value.symbolic
-                        .to_bv(self.ctx)
+                    let new_symbolic_value = new_symbolic_bv
                         .zero_ext(full_reg_size as u32 - new_size)
                         .bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32));
-                
+
                     if new_symbolic_value.get_z3_ast().is_null() {
                         println!("Error: New symbolic value is null");
                         return Err("New symbolic value is null".to_string());
                     }
-                
+
                     println!("New symbolic value calculated: {:?}", new_symbolic_value);
-                
+
                     let combined_symbolic = reg.symbolic.to_bv(self.ctx)
                         .bvand(&BV::from_u64(self.ctx, !mask, full_reg_size as u32)) // Clear target bits
                         .bvor(&new_symbolic_value); // Set the new symbolic value for those bits
-                
+
                     if combined_symbolic.get_z3_ast().is_null() {
                         println!("Error: Combined symbolic value is null");
                         return Err("Symbolic extraction resulted in an invalid state".to_string());
                     }
-                
+
+                    println!("Combined symbolic value: {:?}", combined_symbolic);
+                    
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
                 }
                 

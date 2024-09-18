@@ -193,6 +193,24 @@ impl<'ctx> SymbolicVar<'ctx> {
         }
     }
 
+    pub fn to_bv_of_size(&self, ctx: &'ctx Context, size: u32) -> BV<'ctx> {
+        match self {
+            SymbolicVar::Bool(b) => {
+                b.ite(&BV::from_u64(ctx, 1, size), &BV::from_u64(ctx, 0, size))
+            }
+            SymbolicVar::Int(bv) => {
+                if bv.get_size() == size {
+                    bv.clone()
+                } else if bv.get_size() > size {
+                    bv.extract(size - 1, 0)
+                } else {
+                    bv.zero_ext(size - bv.get_size())
+                }
+            }
+            _ => panic!("Unsupported symbolic type for to_bv_of_size"),
+        }
+    }
+
     // Check if the symbolic variable is valid (i.e., its underlying AST is not null)
     pub fn is_valid(&self) -> bool {
         !self.is_null()
