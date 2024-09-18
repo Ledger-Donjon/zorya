@@ -195,7 +195,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, bit_size)
                     })
                     .clone();
-                //log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
+                log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
                 Ok(ConcolicEnum::ConcolicVar(var))
             },
             Var::Const(value) => {
@@ -229,12 +229,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
-    fn extract_and_create_concolic_value(
-        &self,
-        cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>,
-        offset: u64,
-        bit_size: u32,
-    ) -> Result<ConcolicEnum<'ctx>, String> {
+    fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
         let closest_register = cpu_state_guard
             .register_map
             .range(..=offset)
@@ -242,12 +237,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .next()
             .ok_or(format!("No register found before offset 0x{:x}", offset))?;
         let (base_register_offset, &(_, register_size)) = closest_register;
-        log!(
-            self.state.logger.clone(),
-            "Closest register found at offset 0x{:x} with size {}",
-            base_register_offset,
-            register_size
-        );
+        log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", base_register_offset, register_size);
     
         let bit_offset = (offset - base_register_offset) * 8; // Calculate the bit offset within the register
     
@@ -267,10 +257,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     base_register_offset
                 )
             })?;
-        log!(self.state.logger.clone(), "Original register: {:?}, concrete value: {:?}",
-            original_register,
-            original_register.concrete
-        );
     
         match &original_register.concrete {
             ConcreteVar::Int(value) => {
@@ -302,22 +288,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Handle the concrete extraction from LargeInt
                 let start_bit = bit_offset;
                 let end_bit = start_bit + u64::from(bit_size) - 1;
-
-                log!(self.state.logger.clone(), "Extracting from LargeInt with values: {:?}", values);
                 let extracted_concrete = CpuState::extract_bits_from_large_int(values, start_bit, end_bit);
-                log!(self.state.logger.clone(), "Extracted concrete value: 0x{:x}", extracted_concrete);
 
                 // Use extract_symbolic_bits_from_large_int to extract the symbolic value
                 if let SymbolicVar::LargeInt(ref bvs) = original_register.symbolic {
-                    println!("Extracting symbolic value from LargeInt");
                     let extracted_symbolic = CpuState::extract_symbolic_bits_from_large_int(
                         &cpu_state_guard.ctx,
                         bvs,
                         start_bit,
                         end_bit,
-                    );
-                    log!(self.state.logger.clone(), "Extracted symbolic value: {:?}", extracted_symbolic);
-    
+                    );    
                     Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
                         concrete: extracted_concrete,
                         symbolic: extracted_symbolic,
