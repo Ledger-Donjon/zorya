@@ -299,6 +299,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }
                 println!("Extracted value: {:x}", result_value);
     
+                println!("Original symbolic: {:?}", original_register.symbolic);
+                println!("Original symbolic.to_bv(&cpu_state_guard.ctx): {:?}", original_register.symbolic.to_bv(&cpu_state_guard.ctx));
+                println!("Original symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32): {:?}", original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32));
                 let symbolic_result = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
                     .extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32)
                     .simplify();
