@@ -310,8 +310,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Use extract_symbolic_bits_from_large_int to extract the symbolic value
                 if let SymbolicVar::LargeInt(ref bvs) = original_register.symbolic {
                     println!("Extracting symbolic value from LargeInt");
-                    let cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let extracted_symbolic = cpu_state_guard.extract_symbolic_bits_from_large_int(
+                    let extracted_symbolic = CpuState::extract_symbolic_bits_from_large_int(
                         &cpu_state_guard.ctx,
                         bvs,
                         start_bit,

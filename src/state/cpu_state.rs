@@ -605,7 +605,7 @@ impl<'ctx> CpuState<'ctx> {
                     // For symbolic value
                     if let SymbolicVar::LargeInt(ref bvs) = reg.symbolic {
                         let symbolic_value =
-                            self.extract_symbolic_bits_from_large_int(self.ctx, bvs, start_bit, end_bit);
+                            Self::extract_symbolic_bits_from_large_int(self.ctx, bvs, start_bit, end_bit);
                         return Some(CpuConcolicValue {
                             concrete: concrete_value,
                             symbolic: symbolic_value,
@@ -760,7 +760,7 @@ impl<'ctx> CpuState<'ctx> {
     }        
 
     // Function to extract bits from a large symbolic value (Vec<BV<'ctx>>), returns SymbolicVar
-    pub fn extract_symbolic_bits_from_large_int(&self, ctx: &'ctx Context, bvs: &[BV<'ctx>], start_bit: u64, end_bit: u64) -> SymbolicVar<'ctx> {
+    pub fn extract_symbolic_bits_from_large_int(ctx: &'ctx Context, bvs: &[BV<'ctx>], start_bit: u64, end_bit: u64) -> SymbolicVar<'ctx> {
             println!("Extracting symbolic bits from large integer");
             if start_bit > end_bit {
                 // Invalid range, return zero
