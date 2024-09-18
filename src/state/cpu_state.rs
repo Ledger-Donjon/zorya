@@ -494,10 +494,19 @@ impl<'ctx> CpuState<'ctx> {
                     let mask = ((1u64 << bits_to_update) - 1) << inner_bit_offset;
                 
                     // Extract the symbolic value part to be updated
-                    let symbolic_value_part = new_value.symbolic
-                        .to_bv(self.ctx)
-                        .extract((bits_to_update - 1) as u32, 0)
-                        .bvshl(&BV::from_u64(self.ctx, inner_bit_offset as u64, bits_to_update));
+                    let symbolic_value_part = if new_value.symbolic.is_bool() {
+                        // For boolean values, convert to 1-bit vector and extend as necessary
+                        new_value.symbolic
+                            .to_bv(self.ctx)
+                            .zero_ext(63)  // Extend to fit 64 bits
+                            .bvshl(&BV::from_u64(self.ctx, inner_bit_offset as u64, 64))
+                    } else {
+                        // For bit-vector values, shift and handle accordingly
+                        new_value.symbolic
+                            .to_bv(self.ctx)
+                            .extract((bits_to_update - 1) as u32, 0)
+                            .bvshl(&BV::from_u64(self.ctx, inner_bit_offset as u64, bits_to_update))
+                    };
                 
                     if symbolic_value_part.get_z3_ast().is_null() {
                         println!("Error: Symbolic update failed (null AST)");
@@ -538,7 +547,7 @@ impl<'ctx> CpuState<'ctx> {
                         }
                 
                         large_symbolic[idx + 1] = updated_next_chunk;
-                    }
+                    }               
                 } else {
                     // Handle the case for smaller symbolic registers (Int type)
                     println!("full_reg_size: {}", full_reg_size);
