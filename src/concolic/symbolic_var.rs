@@ -95,14 +95,21 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn to_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
         match self {
             SymbolicVar::Int(bv) => bv.clone(),
-            SymbolicVar::LargeInt(vec) => vec.first().expect("LargeInt should not be empty").clone(),
+            SymbolicVar::LargeInt(vec) => {
+                // Concatenate the BVs in the vector to form a single BV
+                // Since in little-endian, least significant bits are in vec[0], we need to reverse the vector
+                let mut bv_iter = vec.iter().rev();
+                let first_bv = bv_iter.next().expect("LargeInt should not be empty").clone();
+                bv_iter.fold(first_bv, |acc, bv| {
+                    acc.concat(&bv.clone())
+                })
+            },
             SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a bit vector"),
             SymbolicVar::Bool(b) => {
                 let one = BV::from_u64(ctx, 1, 1); 
                 let zero = BV::from_u64(ctx, 0, 1); 
                 b.ite(&one, &zero) // If `b` is true, return `one`, otherwise return `zero`
             }
-            
         }
     }
 

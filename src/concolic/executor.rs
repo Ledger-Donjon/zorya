@@ -6,12 +6,14 @@ use std::result;
 use std::sync::MutexGuard;
 use std::process;
 
+use crate::state::cpu_state;
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::memory_x86_64::MemoryConcolicValue;
 use crate::state::state_manager::Logger;
 use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
+use nix::libc::cpu_set_t;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::Ast;
 use z3::ast::BV;
@@ -227,33 +229,66 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
-    fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
-        let closest_register = cpu_state_guard.register_map.range(..=offset).rev().next()
+    fn extract_and_create_concolic_value(
+        &self,
+        cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>,
+        offset: u64,
+        bit_size: u32,
+    ) -> Result<ConcolicEnum<'ctx>, String> {
+        let closest_register = cpu_state_guard
+            .register_map
+            .range(..=offset)
+            .rev()
+            .next()
             .ok_or(format!("No register found before offset 0x{:x}", offset))?;
         let (base_register_offset, &(_, register_size)) = closest_register;
-        log!(self.state.logger.clone(), "Closest register found at offset 0x{:x} with size {}", base_register_offset, register_size);
+        log!(
+            self.state.logger.clone(),
+            "Closest register found at offset 0x{:x} with size {}",
+            base_register_offset,
+            register_size
+        );
     
         let bit_offset = (offset - base_register_offset) * 8; // Calculate the bit offset within the register
     
         if bit_offset + u64::from(bit_size) > u64::from(register_size) {
-            return Err(format!("Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}", offset, bit_offset + u64::from(bit_size)));
+            return Err(format!(
+                "Attempted to extract beyond the register's limit at offset 0x{:x}. Total bits requested: {}",
+                offset,
+                bit_offset + u64::from(bit_size)
+            ));
         }
     
-        let original_register = cpu_state_guard.get_register_by_offset(*base_register_offset, register_size)
-            .ok_or_else(|| format!("Failed to retrieve register for extraction at offset 0x{:x}", base_register_offset))?;
-        log!(self.state.logger.clone(), "Original register : {:?}, formatted concrete beeing {:x}", original_register.concrete, original_register.concrete);
-
+        let original_register = cpu_state_guard
+            .get_register_by_offset(*base_register_offset, register_size)
+            .ok_or_else(|| {
+                format!(
+                    "Failed to retrieve register for extraction at offset 0x{:x}",
+                    base_register_offset
+                )
+            })?;
+        log!(
+            self.state.logger.clone(),
+            "Original register: {:?}, concrete value: {:?}",
+            original_register,
+            original_register.concrete
+        );
+    
         match &original_register.concrete {
             ConcreteVar::Int(value) => {
+                // Handle the concrete extraction
                 let mask: u64 = if bit_size < 64 {
                     (1u64 << bit_size) - 1
                 } else {
                     u64::MAX
                 };
                 let extracted_value = (*value >> bit_offset) & mask;
-                let extracted_symbolic = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
-                    .extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32)
-                    .simplify();
+    
+                // Handle the symbolic extraction
+                let symbolic_bv = original_register.symbolic.to_bv(&cpu_state_guard.ctx);
+                let high_bit = (bit_offset + u64::from(bit_size) - 1) as u32;
+                let low_bit = bit_offset as u32;
+                let extracted_symbolic = symbolic_bv.extract(high_bit, low_bit).simplify();
     
                 if extracted_symbolic.get_z3_ast().is_null() {
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
@@ -264,64 +299,37 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     symbolic: SymbolicVar::Int(extracted_symbolic),
                     ctx: cpu_state_guard.ctx,
                 }))
-            },
+            }
             ConcreteVar::LargeInt(values) => {
-                println!("Inside LargeInt handling of values: {:?}", values);
-                let start_index = (bit_offset / 64) as usize;
-                let end_index = ((bit_offset + u64::from(bit_size)) / 64) as usize;
-                let bit_offset_within_first = (bit_offset % 64) as u32;
-                let bits_in_first = std::cmp::min(64 - bit_offset_within_first, u32::from(bit_size)) as u32;
-                println!("start_index: {}, end_index: {}, bit_offset_within_first: {}, bits_in_first: {}", start_index, end_index, bit_offset_within_first, bits_in_first);
+                // Handle the concrete extraction from LargeInt
+                let start_bit = bit_offset;
+                let end_bit = start_bit + u64::from(bit_size) - 1;
     
-                let mut extracted_bits = 0;
-                let mut result_value = 0u64;
+                let extracted_concrete = CpuState::extract_bits_from_large_int(values, start_bit, end_bit);
     
-                // Extract bits from each part of the LargeInt
-                for i in start_index..=end_index {
-                    if i < values.len() {
-                        let part = values[i];
-                        let part_bits = if i == start_index {
-                            // Extract starting part
-                            (part >> bit_offset_within_first) & ((1 << bits_in_first) - 1)
-                        } else {
-                            // Subsequent parts
-                            let remaining_bits = bit_size - extracted_bits;
-                            let bits_to_take = std::cmp::min(64, remaining_bits) as u32;
-                            part & ((1 << bits_to_take) - 1)
-                        };
+                // Use extract_symbolic_bits_from_large_int to extract the symbolic value
+                if let SymbolicVar::LargeInt(ref bvs) = original_register.symbolic {
+                    let cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                    let extracted_symbolic = cpu_state_guard.extract_symbolic_bits_from_large_int(
+                        &cpu_state_guard.ctx,
+                        bvs,
+                        start_bit,
+                        end_bit,
+                    );
     
-                        result_value |= part_bits << extracted_bits;
-                        extracted_bits += bits_in_first;
-                        if extracted_bits >= bit_size {
-                            break;
-                        }
-                    }
+                    Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
+                        concrete: extracted_concrete,
+                        symbolic: extracted_symbolic,
+                        ctx: cpu_state_guard.ctx,
+                    }))
+                } else {
+                    return Err("Expected LargeInt symbolic variable".to_string());
                 }
-                println!("Extracted value: {:x}", result_value);
-    
-                println!("Original symbolic: {:?}", original_register.symbolic);
-                println!("Original symbolic.to_bv(&cpu_state_guard.ctx): {:?}", original_register.symbolic.to_bv(&cpu_state_guard.ctx));
-                println!("Original symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32): {:?}", original_register.symbolic.to_bv(&cpu_state_guard.ctx).extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32));
-                let symbolic_result = original_register.symbolic.to_bv(&cpu_state_guard.ctx)
-                    .extract((bit_offset + u64::from(bit_size) - 1) as u32, bit_offset as u32)
-                    .simplify();
-    
-                if symbolic_result.get_z3_ast().is_null() {
-                    return Err("Symbolic extraction resulted in an invalid state".to_string());
-                }
-
-                println!("Symbolic result: {:?}", symbolic_result);
-    
-                Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
-                    concrete: ConcreteVar::LargeInt(vec![result_value]), // Simplified handling, typically should handle vector parts
-                    symbolic: SymbolicVar::Int(symbolic_result),
-                    ctx: cpu_state_guard.ctx,
-                }))
-            },
-            _ => Err("Unsupported concrete variable type for extraction".to_string())
+            }
+            _ => Err("Unsupported concrete variable type for extraction".to_string()),
         }
-    }
-
+    }    
+    
     pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
