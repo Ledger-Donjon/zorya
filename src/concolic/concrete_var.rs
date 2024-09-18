@@ -202,11 +202,11 @@ impl<'ctx> LowerHex for ConcreteVar {
             ConcreteVar::Str(_s) => Err(fmt::Error::default()),
             ConcreteVar::Bool(value) => LowerHex::fmt(&(*value as u8), f),
             ConcreteVar::LargeInt(values) => {
-                for value in values.iter().rev() {
-                    write!(f, "{:016x}", value)?; // Zero-padded to 16 hex digits per u64
+                for chunk in values.iter().rev() {
+                    write!(f, "{:016x}", chunk)?;
                 }
                 Ok(())
-            },
+            }, 
         };
         Ok(())
     }
