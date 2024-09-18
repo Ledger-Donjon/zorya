@@ -581,14 +581,14 @@ impl<'ctx> CpuState<'ctx> {
     pub fn get_register_by_offset(&self, offset: u64, access_size: u32) -> Option<CpuConcolicValue<'ctx>> {
         // Iterate over all registers to find one that spans the requested offset
         for (&base_offset, reg) in &self.registers {
-            let reg_size_bits = reg.symbolic.get_size();  // Size of the register in bits
-            let reg_size_bytes = reg_size_bits as u64 / 8;  // Size of the register in bytes
+            let reg_size_bits = reg.symbolic.get_size(); // Size of the register in bits
+            let reg_size_bytes = reg_size_bits as u64 / 8; // Size of the register in bytes
 
             // Check if the offset is within the range of this register
             if offset >= base_offset && offset < base_offset + reg_size_bytes {
-                let byte_offset = offset - base_offset;  // Offset within the register in bytes
-                let bit_offset = byte_offset * 8;  // Offset within the register in bits
-                let effective_access_size = access_size.min(reg_size_bits - bit_offset as u32);  // Effective bits to access
+                let byte_offset = offset - base_offset; // Offset within the register in bytes
+                let bit_offset = byte_offset * 8; // Offset within the register in bits
+                let effective_access_size = access_size.min(reg_size_bits - bit_offset as u32); // Effective bits to access
 
                 if bit_offset >= reg_size_bits as u64 {
                     // If the bit offset is outside the actual size of the register, skip
@@ -605,24 +605,26 @@ impl<'ctx> CpuState<'ctx> {
 
                     // For symbolic value
                     if let SymbolicVar::LargeInt(ref bvs) = reg.symbolic {
-                        let symbolic_value = self.extract_symbolic_bits_from_large_int(self.ctx, bvs, start_bit, end_bit);
+                        let symbolic_value =
+                            self.extract_symbolic_bits_from_large_int(self.ctx, bvs, start_bit, end_bit);
 
                         return Some(CpuConcolicValue {
-                            concrete: ConcreteVar::Int(concrete_value),
-                            symbolic: SymbolicVar::Int(symbolic_value),
+                            concrete: concrete_value,
+                            symbolic: symbolic_value,
                             ctx: self.ctx,
                         });
                     }
                 } else {
                     // Standard extraction for non-LargeInt types
-                    let new_symbolic = reg.symbolic.to_bv(self.ctx).extract(end_bit as u32, bit_offset as u32);
+                    let new_symbolic =
+                        reg.symbolic.to_bv(self.ctx).extract(end_bit as u32, start_bit as u32);
                     let mask = if effective_access_size < 64 {
                         (1u64 << effective_access_size) - 1
                     } else {
                         u64::MAX
                     };
                     let new_concrete = if effective_access_size == 0 || bit_offset >= 64 {
-                        0  // No need to shift if effective access size is zero or bit_offset is too large
+                        0 // No need to shift if effective access size is zero or bit_offset is too large
                     } else {
                         (reg.concrete.to_u64() >> bit_offset) & mask
                     };
@@ -639,79 +641,206 @@ impl<'ctx> CpuState<'ctx> {
         None
     }
 
-    fn extract_bits_from_large_int(values: &[u64], start_bit: u64, end_bit: u64) -> u64 {
-        let mut result = 0u64;
-        let mut bit_pos = 0u64;
-        let mut current_bit = start_bit;
-
-        while current_bit <= end_bit {
-            let chunk_index = (current_bit / 64) as usize;
-            let bit_in_chunk = (current_bit % 64) as u64;
-
-            let bits_left_in_chunk = 64 - bit_in_chunk;
-            let bits_left_in_extract = end_bit - current_bit + 1;
-            let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
-
-            let chunk = if chunk_index < values.len() {
-                values[chunk_index]
-            } else {
-                0
-            };
-
-            let mask = Self::safe_left_mask(bits_to_take) << bit_in_chunk;
-            let bits = (chunk & mask) >> bit_in_chunk;
-
-            result |= bits << bit_pos;
-
-            current_bit += bits_to_take;
-            bit_pos += bits_to_take;
+    // Helper functions for safe shifts
+    fn safe_shift_left(value: u64, shift: u64) -> u64 {
+        if shift >= 64 {
+            0
+        } else {
+            value << shift
         }
-
-        result
     }
 
-    fn extract_symbolic_bits_from_large_int(&self, ctx: &'ctx Context, bvs: &[BV<'ctx>], start_bit: u64, end_bit: u64) -> BV<'ctx> {
-        let mut result: Option<BV<'ctx>> = None;
-        let mut current_bit = start_bit;
-
-        while current_bit <= end_bit {
-            let chunk_index = (current_bit / 64) as usize;
-            let bit_in_chunk = (current_bit % 64) as u64;
-
-            let bits_left_in_chunk = 64 - bit_in_chunk;
-            let bits_left_in_extract = end_bit - current_bit + 1;
-            let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
-
-            let bv_chunk = if chunk_index < bvs.len() {
-                bvs[chunk_index].clone()
-            } else {
-                BV::from_u64(ctx, 0, 64)
-            };
-
-            let high_bit = (bit_in_chunk + bits_to_take - 1) as u32;
-            let low_bit = bit_in_chunk as u32;
-
-            let extracted_bv = bv_chunk.extract(high_bit, low_bit);
-
-            result = if let Some(res_bv) = result {
-                Some(extracted_bv.concat(&res_bv))
-            } else {
-                Some(extracted_bv)
-            };
-
-            current_bit += bits_to_take;
+    fn safe_shift_right(value: u64, shift: u64) -> u64 {
+        if shift >= 64 {
+            0
+        } else {
+            value >> shift
         }
-
-        result.expect("No bits extracted")
     }
 
-
-    // Helper function
     fn safe_left_mask(bits: u64) -> u64 {
         if bits >= 64 {
             !0u64
         } else {
             (1u64 << bits) - 1
+        }
+    }
+
+    // Function to extract bits from a large integer (Vec<u64>), returns ConcreteVar
+    fn extract_bits_from_large_int(values: &[u64], start_bit: u64, end_bit: u64) -> ConcreteVar {
+        let total_bits = end_bit - start_bit + 1;
+        if total_bits <= 64 {
+            let mut result = 0u64;
+            let mut bit_pos = 0u64;
+            let mut current_bit = start_bit;
+
+            while current_bit <= end_bit {
+                let chunk_index = (current_bit / 64) as usize;
+                let bit_in_chunk = current_bit % 64;
+
+                let bits_left_in_chunk = 64 - bit_in_chunk;
+                let bits_left_in_extract = end_bit - current_bit + 1;
+                let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
+
+                let chunk = values.get(chunk_index).copied().unwrap_or(0);
+
+                let mask = Self::safe_left_mask(bits_to_take) << bit_in_chunk;
+                let bits = Self::safe_shift_right(chunk & mask, bit_in_chunk);
+
+                result |= Self::safe_shift_left(bits, bit_pos);
+
+                current_bit += bits_to_take;
+                bit_pos += bits_to_take;
+            }
+
+            ConcreteVar::Int(result)
+        } else {
+            // Extract into a Vec<u64>
+            let num_u64s = ((total_bits + 63) / 64) as usize;
+            let mut result = vec![0u64; num_u64s];
+            let mut bit_pos = 0u64;
+            let mut current_bit = start_bit;
+
+            while current_bit <= end_bit {
+                let chunk_index = (current_bit / 64) as usize;
+                let bit_in_chunk = current_bit % 64;
+
+                let bits_left_in_chunk = 64 - bit_in_chunk;
+                let bits_left_in_extract = end_bit - current_bit + 1;
+                let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
+
+                let chunk = values.get(chunk_index).copied().unwrap_or(0);
+
+                let mask = Self::safe_left_mask(bits_to_take) << bit_in_chunk;
+                let bits = Self::safe_shift_right(chunk & mask, bit_in_chunk);
+
+                let result_index = (bit_pos / 64) as usize;
+                let result_bit_offset = bit_pos % 64;
+
+                if result_bit_offset + bits_to_take <= 64 {
+                    // All bits fit within current u64
+                    result[result_index] |= Self::safe_shift_left(bits, result_bit_offset);
+                } else {
+                    // Bits span across two u64s
+                    let bits_in_current = 64 - result_bit_offset;
+
+                    let bits_in_current_mask = Self::safe_left_mask(bits_in_current);
+                    // No need for bits_in_next_mask since it will fit in the next u64
+
+                    result[result_index] |= Self::safe_shift_left(bits & bits_in_current_mask, result_bit_offset);
+                    result[result_index + 1] |= Self::safe_shift_right(bits, bits_in_current);
+                }
+
+                current_bit += bits_to_take;
+                bit_pos += bits_to_take;
+            }
+
+            ConcreteVar::LargeInt(result)
+        }
+    }
+
+    // Function to extract bits from a large symbolic value (Vec<BV<'ctx>>), returns SymbolicVar
+    fn extract_symbolic_bits_from_large_int(
+        &self,
+        ctx: &'ctx Context,
+        bvs: &[BV<'ctx>],
+        start_bit: u64,
+        end_bit: u64,
+    ) -> SymbolicVar<'ctx> {
+        let total_bits = (end_bit - start_bit + 1) as u32;
+        if total_bits <= 64 {
+            let mut result_bv = BV::from_u64(ctx, 0, total_bits);
+            let mut current_bit = start_bit;
+            let mut result_bit_pos = 0u32;
+
+            while current_bit <= end_bit {
+                let chunk_index = (current_bit / 64) as usize;
+                let bit_in_chunk = (current_bit % 64) as u32;
+
+                let bits_left_in_chunk = 64 - bit_in_chunk;
+                let bits_left_in_extract = (end_bit - current_bit + 1) as u32;
+                let bits_to_take = std::cmp::min(bits_left_in_chunk, bits_left_in_extract);
+
+                let bv_chunk = bvs.get(chunk_index).cloned().unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
+
+                let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take - 1, bit_in_chunk);
+
+                let shifted_extracted_bv = if result_bit_pos > 0 {
+                    extracted_bv
+                        .zero_ext(total_bits - bits_to_take - result_bit_pos)
+                        .bvshl(&BV::from_u64(ctx, result_bit_pos as u64, total_bits))
+                } else {
+                    extracted_bv.zero_ext(total_bits - bits_to_take)
+                };
+
+                result_bv = result_bv.bvor(&shifted_extracted_bv);
+
+                current_bit += bits_to_take as u64;
+                result_bit_pos += bits_to_take;
+            }
+
+            SymbolicVar::Int(result_bv)
+        } else {
+            // Extract into a Vec<BV<'ctx>>
+            let num_bvs = ((total_bits + 63) / 64) as usize;
+            let mut result_bvs = vec![BV::from_u64(ctx, 0, 64); num_bvs];
+            let mut current_bit = start_bit;
+            let mut result_bit_pos = 0u64;
+
+            while current_bit <= end_bit {
+                let chunk_index = (current_bit / 64) as usize;
+                let bit_in_chunk = (current_bit % 64) as u32;
+
+                let bits_left_in_chunk = 64 - bit_in_chunk;
+                let bits_left_in_extract = end_bit - current_bit + 1;
+                let bits_to_take = std::cmp::min(bits_left_in_chunk as u64, bits_left_in_extract);
+
+                let bits_to_take_u32 = bits_to_take as u32;
+
+                let bv_chunk = bvs.get(chunk_index).cloned().unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
+
+                let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take_u32 - 1, bit_in_chunk);
+
+                let result_index = (result_bit_pos / 64) as usize;
+                let result_bit_offset = (result_bit_pos % 64) as u32;
+
+                if result_bit_offset + bits_to_take_u32 <= 64 {
+                    // All bits fit within current BV
+                    let shifted_extracted_bv = if result_bit_offset > 0 {
+                        extracted_bv
+                            .zero_ext(64 - bits_to_take_u32 - result_bit_offset)
+                            .bvshl(&BV::from_u64(ctx, result_bit_offset as u64, 64))
+                    } else {
+                        extracted_bv.zero_ext(64 - bits_to_take_u32)
+                    };
+
+                    result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv);
+                } else {
+                    // Bits span across two BVs
+                    let bits_in_current = 64 - result_bit_offset;
+
+                    let extracted_bv_current = extracted_bv.extract(bits_in_current - 1, 0);
+
+                    let extracted_bv_next = extracted_bv.extract(bits_to_take_u32 - 1, bits_in_current);
+
+                    let shifted_extracted_bv_current = if result_bit_offset > 0 {
+                        extracted_bv_current
+                            .zero_ext(64 - bits_in_current - result_bit_offset)
+                            .bvshl(&BV::from_u64(ctx, result_bit_offset as u64, 64))
+                    } else {
+                        extracted_bv_current.zero_ext(64 - bits_in_current)
+                    };
+
+                    result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv_current);
+
+                    result_bvs[result_index + 1] = result_bvs[result_index + 1].bvor(&extracted_bv_next);
+                }
+
+                current_bit += bits_to_take;
+                result_bit_pos += bits_to_take;
+            }
+
+            SymbolicVar::LargeInt(result_bvs)
         }
     }
     
