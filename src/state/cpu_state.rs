@@ -431,28 +431,29 @@ impl<'ctx> CpuState<'ctx> {
                 // ----------------------
                 if let ConcreteVar::LargeInt(ref mut large_concrete) = reg.concrete {
                     println!("Handling large concrete values for large register (LargeInt)");
-
+                
                     let idx = (bit_offset / 64) as usize; // Index in the Vec<u64>
                     let inner_bit_offset = (bit_offset % 64) as u32; // Offset within the specific u64 element
-
+                
                     println!("Index within Vec<u64>: {}, inner bit offset: {}", idx, inner_bit_offset);
-
+                
                     if idx >= large_concrete.len() {
                         println!("Error: Bit offset exceeds size of the large integer register");
                         return Err("Bit offset exceeds size of the large integer register".to_string());
                     }
-
+                
                     // Update the relevant portion of the chunk, handle carry between chunks
                     let new_concrete_part = (new_value.concrete.to_u64() & mask) << inner_bit_offset;
                     println!("Applying mask to large integer chunk {}, new_concrete_part: 0x{:x}", idx, new_concrete_part);
-
+                
                     // Update the relevant portion of the concrete value without affecting other parts
                     large_concrete[idx] = (large_concrete[idx] & !(mask << inner_bit_offset)) | new_concrete_part;
-
+                
                     // Handle carry over to the next chunk if necessary
                     if inner_bit_offset + new_size as u32 > 64 && idx + 1 < large_concrete.len() {
                         let remaining_bits = new_value.concrete.to_u64() >> (64 - inner_bit_offset);
-                        large_concrete[idx + 1] = (large_concrete[idx + 1] & !(mask >> (64 - inner_bit_offset))) | (remaining_bits & (mask >> (64 - inner_bit_offset)));
+                        large_concrete[idx + 1] = (large_concrete[idx + 1] & !(mask >> (64 - inner_bit_offset)))
+                                                | (remaining_bits & (mask >> (64 - inner_bit_offset)));
                     }
                 } else {
                     // Ensure that small registers remain as Int
@@ -462,17 +463,16 @@ impl<'ctx> CpuState<'ctx> {
                         0 // If bit_offset >= 64, shifting would overflow, so leave as 0
                     };
                     println!("Safe shift calculated: 0x{:x}", safe_shift);
-
+                
                     let new_concrete_value = safe_shift & mask;
                     println!("New concrete value after applying mask: 0x{:x}", new_concrete_value);
-
+                
                     // Update the concrete value while preserving the rest of the register
                     let new_concrete = (reg.concrete.to_u64() & !mask) | new_concrete_value;
                     println!("Final concrete value for register: 0x{:x}", new_concrete);
-
+                
                     reg.concrete = ConcreteVar::Int(new_concrete);
-                }
-
+                }                
                 // ----------------------
                 // SYMBOLIC VALUE HANDLING
                 // ----------------------
@@ -494,19 +494,10 @@ impl<'ctx> CpuState<'ctx> {
                     let mask = ((1u64 << bits_to_update) - 1) << inner_bit_offset;
                 
                     // Extract the symbolic value part to be updated
-                    let symbolic_value_part = if new_value.symbolic.is_bool() {
-                        // For boolean values, convert to 1-bit vector and extend as necessary
-                        new_value.symbolic
-                            .to_bv(self.ctx)
-                            .zero_ext(63)  // Extend to fit 64 bits
-                            .bvshl(&BV::from_u64(self.ctx, inner_bit_offset as u64, 64))
-                    } else {
-                        // For bit-vector values, shift and handle accordingly
-                        new_value.symbolic
-                            .to_bv(self.ctx)
-                            .extract((bits_to_update - 1) as u32, 0)
-                            .bvshl(&BV::from_u64(self.ctx, inner_bit_offset as u64, bits_to_update))
-                    };
+                    let symbolic_value_part = new_value.symbolic
+                        .to_bv(self.ctx)
+                        .extract((bits_to_update - 1) as u32, 0)
+                        .bvshl(&BV::from_u64(self.ctx, inner_bit_offset as u64, bits_to_update));
                 
                     if symbolic_value_part.get_z3_ast().is_null() {
                         println!("Error: Symbolic update failed (null AST)");
@@ -547,7 +538,7 @@ impl<'ctx> CpuState<'ctx> {
                         }
                 
                         large_symbolic[idx + 1] = updated_next_chunk;
-                    }               
+                    }
                 } else {
                     // Handle the case for smaller symbolic registers (Int type)
                     println!("full_reg_size: {}", full_reg_size);
