@@ -88,7 +88,10 @@ pub fn handle_unlock(executor: &mut ConcolicExecutor) -> Result<(), String> {
 pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     log!(executor.state.logger.clone(), "This CALLOTHER operation is an CPUID operation.");
 
-    // Memory starting address for EAX, EBX, ECX, EDX
+    // Get the output size of the instruction
+    let output_size = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+
+    // Memory address to temporarly store EAX, EBX, ECX, EDX
     let base_address = 0x300000;
 
     // Register offsets for EAX, EBX, ECX, and EDX
@@ -236,7 +239,7 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Resul
     drop(cpu_state_guard);
 
     // Set the result in the CPU state
-    executor.handle_output(instruction.output.as_ref(), ConcolicVar::new_concrete_and_symbolic_int(base_address, SymbolicVar::new_int(base_address.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64))?;
+    executor.handle_output(instruction.output.as_ref(), ConcolicVar::new_concrete_and_symbolic_int(base_address, SymbolicVar::new_int(base_address.try_into().unwrap(), executor.context, output_size).to_bv(executor.context), executor.context, 64))?;
 
     // Create the concolic variables for the results
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
