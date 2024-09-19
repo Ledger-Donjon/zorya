@@ -2,7 +2,7 @@
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
 use crate::concolic::executor::ConcolicExecutor;
-use parser::parser::{Inst, Opcode, Var, Varnode};
+use parser::parser::{Inst, Opcode};
 use z3::ast::{Ast, Bool, Float, BV};
 use std::io::Write;
 

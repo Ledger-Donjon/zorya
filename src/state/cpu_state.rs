@@ -409,7 +409,6 @@ impl<'ctx> CpuState<'ctx> {
                 let full_reg_size = reg.symbolic.get_size() as u64; // Full size of the register in bits
     
                 println!("Closest register found at offset 0x{:x}, register size: {}", base_offset, full_reg_size);
-                println!("Calculated bit offset: {}, within register", bit_offset);
     
                 // Ensure the bit offset + new size does not exceed the register size
                 if bit_offset + new_size as u64 > full_reg_size {
@@ -439,7 +438,6 @@ impl<'ctx> CpuState<'ctx> {
                         let mask = Self::safe_left_mask(bits_in_chunk) << inner_bit_offset;
     
                         let value_part = (value & Self::safe_left_mask(bits_in_chunk)) << inner_bit_offset;
-                        println!("Applying mask to large integer chunk {}, value_part: 0x{:x}", idx, value_part);
     
                         large_concrete[idx] = (large_concrete[idx] & !mask) | value_part;
     
@@ -454,7 +452,6 @@ impl<'ctx> CpuState<'ctx> {
                     } else {
                         0 // If bit_offset >= 64, shifting would overflow, so leave as 0
                     };
-                    println!("Safe shift calculated: 0x{:x}", safe_shift);
     
                     let mask = if new_size >= 64 {
                         !0u64
@@ -462,11 +459,9 @@ impl<'ctx> CpuState<'ctx> {
                         (1u64 << new_size) - 1
                     };
                     let new_concrete_value = safe_shift & (mask << bit_offset);
-                    println!("New concrete value after applying mask: 0x{:x}", new_concrete_value);
     
                     // Update the concrete value while preserving the rest of the register
                     let new_concrete = (reg.concrete.to_u64() & !(mask << bit_offset)) | new_concrete_value;
-                    println!("Final concrete value for register: 0x{:x}", new_concrete);
     
                     reg.concrete = ConcreteVar::Int(new_concrete);
                 }
@@ -728,7 +723,6 @@ impl<'ctx> CpuState<'ctx> {
                 } else {
                     // Bits span across two u64s
                     let bits_in_current = 64 - result_bit_offset;
-                    let bits_in_next = bits_to_take - bits_in_current;
     
                     let bits_in_current_mask = Self::safe_left_mask(bits_in_current);
                     result[result_index] |= Self::safe_shift_left(bits & bits_in_current_mask, result_bit_offset);
@@ -804,7 +798,6 @@ impl<'ctx> CpuState<'ctx> {
                 let mut result_bvs = vec![BV::from_u64(ctx, 0, 64); num_bvs];
                 let mut current_bit = start_bit;
                 let mut result_bit_pos = 0u64;
-                println!("Total bits: {}, num_bvs: {}", total_bits, num_bvs);
         
                 while current_bit <= end_bit {
                     let chunk_index = (current_bit / 64) as usize;
@@ -815,7 +808,6 @@ impl<'ctx> CpuState<'ctx> {
                         current_bit += 1;
                         continue;
                     }
-                    println!("Current bit: {}, chunk index: {}, bit in chunk: {}", current_bit, chunk_index, bit_in_chunk);
         
                     let bits_left_in_extract = end_bit - current_bit + 1;
                     if bits_left_in_extract == 0 {
@@ -830,16 +822,13 @@ impl<'ctx> CpuState<'ctx> {
                         .get(chunk_index)
                         .cloned()
                         .unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
-                    println!("Extracting bits from chunk: {:?}", bv_chunk);
         
                     let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take_u32 - 1, bit_in_chunk);
-                    println!("Extracted bits: {:?}", extracted_bv);
         
                     let result_index = (result_bit_pos / 64) as usize;
                     let result_bit_offset = (result_bit_pos % 64) as u32;
         
                     if result_bit_offset + bits_to_take_u32 <= 64 {
-                        println!("Bits fit within current BV");
                         // All bits fit within current BV
                         let shifted_extracted_bv = if result_bit_offset > 0 {
                             extracted_bv
@@ -854,7 +843,6 @@ impl<'ctx> CpuState<'ctx> {
                         // Bits span across two BVs
                         let bits_in_current = 64 - result_bit_offset;
                         let bits_in_current_u32 = bits_in_current as u32;
-                        let bits_in_next = bits_to_take_u32 - bits_in_current_u32;
         
                         let extracted_bv_current = extracted_bv.extract(bits_in_current_u32 - 1, 0);
         
