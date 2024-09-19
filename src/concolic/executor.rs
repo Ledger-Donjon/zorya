@@ -319,7 +319,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             match &varnode.var {
                 Var::Unique(id) => {
                     log!(self.state.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
-                    let unique_name = format!("Unique(0x{:x})_{}", id, bit_size); // Include bit_size in the key
+                    let unique_name = format!("Unique(0x{:x})", id); 
                     let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, unique_name.clone(), bit_size));
                     let var = self.unique_variables.entry(unique_name.clone())
                         .or_insert_with(|| {
