@@ -311,38 +311,18 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }    
     
-    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
             let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
 
             match &varnode.var {
                 Var::Unique(id) => {
-                    match result_value.symbolic { 
-                        SymbolicVar::Bool(bool) => {
-                            // Convert the boolean symbolic variable to an 8-bit BV
-                            let bool_u8 = BV::from_u64(&self.context, bool.as_bool().unwrap() as u64, 8);
-
-                            let result_value = ConcolicVar {
-                                concrete: result_value.concrete,
-                                symbolic: SymbolicVar::Int((bool_u8)),
-                                ctx: self.context
-                            };
-                            log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
-                            let unique_name = format!("Unique(0x{:x})", id);
-                            self.unique_variables.insert(unique_name, result_value.clone());
-                            log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, bit_size, result_value.symbolic.get_size());
-                            Ok(())
-                        },
-                        _ => {
-                            log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
-                            let unique_name = format!("Unique(0x{:x})", id);
-                            self.unique_variables.insert(unique_name, result_value.clone());
-                            log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, bit_size, result_value.symbolic.get_size());
-                            Ok(())
-                        }
-                    }
-                    
+                    log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
+                    let unique_name = format!("Unique(0x{:x})", id);
+                    self.unique_variables.insert(unique_name, result_value.clone());
+                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, bit_size, result_value.symbolic.get_size());
+                    Ok(())
                 }, 
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
