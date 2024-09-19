@@ -311,13 +311,18 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }    
     
-    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
             let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
 
             match &varnode.var {
                 Var::Unique(id) => {
+                    // Resize the result_value according to the output size specification
+                    if result_value.symbolic.get_size() != bit_size {
+                        result_value.symbolic = result_value.symbolic.resize(bit_size, &self.context);
+                    }
+
                     log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
                     let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name, result_value.clone());

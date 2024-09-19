@@ -200,6 +200,56 @@ impl<'ctx> SymbolicVar<'ctx> {
         }
     }
 
+    pub fn resize(&self, bit_size: u32, ctx: &'ctx Context) -> Self {
+        match self {
+            SymbolicVar::Int(bv) => {
+                let current_size = bv.get_size();
+                if bit_size > current_size {
+                    SymbolicVar::Int(bv.zero_ext(bit_size - current_size))
+                } else if bit_size < current_size {
+                    SymbolicVar::Int(bv.extract(bit_size - 1, 0))
+                } else {
+                    self.clone()
+                }
+            },
+            SymbolicVar::LargeInt(bvs) => {
+                let current_size = bvs.iter().map(|bv| bv.get_size()).sum::<u32>();
+                if bit_size > current_size {
+                    // Zero-extend by adding zero BVs to the most significant bits
+                    let mut new_bvs = bvs.clone();
+                    let mut bits_remaining = bit_size - current_size;
+                    while bits_remaining > 0 {
+                        let bits_in_chunk = std::cmp::min(bits_remaining, 64);
+                        new_bvs.push(BV::from_u64(ctx, 0, bits_in_chunk));
+                        bits_remaining -= bits_in_chunk;
+                    }
+                    SymbolicVar::LargeInt(new_bvs)
+                } else if bit_size < current_size {
+                    // Truncate to the desired size
+                    let mut bits_to_keep = bit_size;
+                    let mut new_bvs = Vec::new();
+                    for bv in bvs {
+                        if bits_to_keep == 0 {
+                            break;
+                        }
+                        let bv_size = bv.get_size();
+                        if bv_size <= bits_to_keep {
+                            new_bvs.push(bv.clone());
+                            bits_to_keep -= bv_size;
+                        } else {
+                            new_bvs.push(bv.extract(bits_to_keep - 1, 0));
+                            bits_to_keep = 0;
+                        }
+                    }
+                    SymbolicVar::LargeInt(new_bvs)
+                } else {
+                    self.clone()
+                }
+            },
+            _ => self.clone(), // TODO : add other cases
+        }
+    }
+
     pub fn to_bv_of_size(&self, ctx: &'ctx Context, size: u32) -> BV<'ctx> {
         match self {
             SymbolicVar::Bool(b) => {
