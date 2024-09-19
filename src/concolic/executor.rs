@@ -327,7 +327,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, bit_size)
                         })
                         .clone();
-                    log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
+                    self.unique_variables.insert(unique_name, var);
+                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, bit_size, result_value.symbolic.get_size());
                     Ok(())
                 }, 
                 Var::Register(offset, _) => {
