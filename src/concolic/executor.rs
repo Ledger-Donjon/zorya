@@ -314,25 +314,31 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
-            let size_bits = varnode.size.to_bitvector_size() as u32;
+            let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
 
             match &varnode.var {
                 Var::Unique(id) => {
-                    log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
-                    let unique_name = format!("Unique(0x{:x})", id);
-                    self.unique_variables.insert(unique_name, result_value.clone());
-                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, size_bits, result_value.symbolic.get_size());
+                    log!(self.state.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
+                    let unique_name = format!("Unique(0x{:x})_{}", id, bit_size); // Include bit_size in the key
+                    let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, unique_name.clone(), bit_size));
+                    let var = self.unique_variables.entry(unique_name.clone())
+                        .or_insert_with(|| {
+                            log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {:x} and size {:?}", unique_name, *id as u64, varnode.size);
+                            ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, bit_size)
+                        })
+                        .clone();
+                    log!(self.state.logger.clone(), "Retrieved unique variable: {} with symbolic size: {:?}", var, var.symbolic.get_size());
                     Ok(())
-                },
+                }, 
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
     
-                    match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), size_bits) {
+                    match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), bit_size) {
                         Ok(_) => {
                             // check
-                            let register = cpu_state_guard.get_register_by_offset(*offset, size_bits);
-                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, register.unwrap().concrete.to_u64(), size_bits);
+                            let register = cpu_state_guard.get_register_by_offset(*offset, bit_size);
+                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, register.unwrap().concrete.to_u64(), bit_size);
                             Ok(())
                         },
                         Err(e) => {

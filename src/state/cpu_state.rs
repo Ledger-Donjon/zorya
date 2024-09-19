@@ -448,7 +448,6 @@ impl<'ctx> CpuState<'ctx> {
                         value >>= bits_in_chunk;
                     }
                 } else {
-                    // Existing handling for smaller concrete values...
                     // Ensure that small registers remain as Int
                     let safe_shift = if bit_offset < 64 {
                         (new_value.concrete.to_u64() & Self::safe_left_mask(new_size as u64)) << bit_offset
@@ -474,9 +473,7 @@ impl<'ctx> CpuState<'ctx> {
                 // ----------------------
                 // SYMBOLIC VALUE HANDLING
                 // ----------------------
-                if let SymbolicVar::LargeInt(ref mut large_symbolic) = reg.symbolic {
-                    println!("Handling symbolic value for large integer register");
-    
+                if let SymbolicVar::LargeInt(ref mut large_symbolic) = reg.symbolic { 
                     let mut remaining_bits = new_size as u64;
                     let mut current_bit_offset = bit_offset;
                     let new_symbolic_bv = new_value.symbolic.to_bv_of_size(self.ctx, new_size);
@@ -506,9 +503,7 @@ impl<'ctx> CpuState<'ctx> {
                             println!("Error: Symbolic update failed (null AST)");
                             return Err("Symbolic update failed, resulting in a null AST".to_string());
                         }
-    
-                        println!("Symbolic value for the relevant part: {:?}", symbolic_value_part_shifted);
-    
+        
                         // Mask to clear only the relevant bits in the current chunk
                         let mask = Self::safe_left_mask(bits_in_chunk_u32 as u64) << inner_bit_offset;
     
@@ -527,11 +522,6 @@ impl<'ctx> CpuState<'ctx> {
                         current_bit_offset += bits_in_chunk;
                     }
                 } else {
-                    // Existing handling for smaller symbolic values...
-                    println!("full_reg_size: {}", full_reg_size);
-                    println!("new_size: {}", new_size);
-                    println!("bit_offset: {}", bit_offset);
-    
                     // Get the symbolic value as BV of the appropriate size
                     let new_symbolic_bv = new_value.symbolic.to_bv_of_size(self.ctx, new_size);
     
@@ -543,10 +533,7 @@ impl<'ctx> CpuState<'ctx> {
                     if new_symbolic_value.get_z3_ast().is_null() {
                         println!("Error: New symbolic value is null");
                         return Err("New symbolic value is null".to_string());
-                    }
-    
-                    println!("New symbolic value calculated: {:?}", new_symbolic_value);
-    
+                    }    
                     let mask = if new_size >= 64 {
                         !0u64
                     } else {
@@ -561,9 +548,6 @@ impl<'ctx> CpuState<'ctx> {
                         println!("Error: Combined symbolic value is null");
                         return Err("Symbolic extraction resulted in an invalid state".to_string());
                     }
-    
-                    println!("Combined symbolic value: {:?}", combined_symbolic);
-    
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
                 }
     
