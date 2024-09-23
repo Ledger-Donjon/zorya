@@ -328,34 +328,71 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_SLESS");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
-    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
+    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Determine the type based on size and perform signed comparison
-    let result_concrete;
-    let result_symbolic;
-    match instruction.inputs[0].size.to_bitvector_size() {
-        32 => {
-            let input0_concrete = input0_var.get_concrete_value() as i32 as i64;  // Sign-extend if necessary
-            let input1_concrete = input1_var.get_concrete_value() as i32 as i64;  // Sign-extend if necessary
+    // Adapt input types if necessary
+    let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool()
+        || input1_var.is_bool()
+        || input0_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits
+        || input1_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits
+    {
+        log!(executor.state.logger.clone(), "Adapting types for INT_SLESS");
+        executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
+    } else {
+        (input0_var, input1_var)
+    };
+
+    // Convert ConcolicEnum back to ConcolicVar
+    let input0_var = adapted_input0_var.to_concolic_var().ok_or("Failed to convert input0_var")?;
+    let input1_var = adapted_input1_var.to_concolic_var().ok_or("Failed to convert input1_var")?;
+
+    // Determine the bit size from the output
+    let bit_size = output_size_bits;
+
+    // Perform signed comparison based on bit_size
+    let result_concrete: bool;
+    let result_symbolic: Bool;
+
+    match bit_size {
+        8 => {
+            // Cast to i8
+            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i8 as i64; // Sign-extend to i64
+            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i8 as i64; // Sign-extend to i64
             result_concrete = input0_concrete < input1_concrete;
-            result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvslt(&input1_var.get_symbolic_value_bv(executor.context));
+            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
+        },
+        16 => {
+            // Cast to i16
+            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i16 as i64; // Sign-extend to i64
+            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i16 as i64; // Sign-extend to i64
+            result_concrete = input0_concrete < input1_concrete;
+            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
+        },
+        32 => {
+            // Cast to i32
+            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i32 as i64; // Sign-extend to i64
+            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i32 as i64; // Sign-extend to i64
+            result_concrete = input0_concrete < input1_concrete;
+            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
         },
         64 => {
-            let input0_concrete = input0_var.get_concrete_value() as i64;  // Direct cast to i64
-            let input1_concrete = input1_var.get_concrete_value() as i64;  // Direct cast to i64
+            // Cast to i64
+            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i64; // Sign-extend to i64
+            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i64; // Sign-extend to i64
             result_concrete = input0_concrete < input1_concrete;
-            result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvslt(&input1_var.get_symbolic_value_bv(executor.context));
+            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
         },
-        _ => return Err("Unsupported bit size for INT_SLESS".to_string()),
+        _ => return Err(format!("Unsupported bit size for INT_SLESS: {}", bit_size)),
     }
 
     log!(executor.state.logger.clone(), "*** The result of INT_SLESS is: {:?}", result_concrete);
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, output_size_bits);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, bit_size);
 
     // Handle the result based on the output varnode
-    executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
+    executor.handle_output(Some(output_varnode), result_value.clone())?;
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -364,6 +401,7 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     Ok(())
 }
+
 
 pub fn handle_int_lessequal(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntLessEqual || instruction.inputs.len() != 2 {
