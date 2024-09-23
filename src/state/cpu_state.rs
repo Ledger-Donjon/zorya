@@ -169,6 +169,13 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             ConcreteVar::LargeInt(values) => (values.len() * 64) as u32, // Size in bits
         }
     }
+
+    pub fn is_bool(&self) -> bool {
+        match &self.concrete {
+            ConcreteVar::Bool(_) => true,
+            _ => false,
+        }
+    }
 }
 
 

@@ -154,6 +154,13 @@ impl<'ctx> MemoryConcolicValue<'ctx> {
     pub fn get_context_id(&self) -> String {
         format!("{:p}", self.ctx)
     }
+
+    pub fn is_bool(&self) -> bool {
+        match &self.concrete {
+            ConcreteVar::Bool(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl<'ctx> fmt::Display for MemoryConcolicValue<'ctx> {
