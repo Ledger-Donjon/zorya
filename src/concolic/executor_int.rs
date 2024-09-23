@@ -660,24 +660,23 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     } else {
         (input0_var, input1_var)
     };
-    log!(executor.state.logger.clone(), "Adapted input0_var: {:?}", adapted_input0_var);
-    log!(executor.state.logger.clone(), "Adapted input1_var: {:?}", adapted_input1_var);
 
     // Convert ConcolicEnum back to ConcolicVar
     let input0_var = adapted_input0_var.to_concolic_var().unwrap();
-    log!(executor.state.logger.clone(), "Converted input0_var: {:?}", input0_var);
     let input1_var = adapted_input1_var.to_concolic_var().unwrap();
-    log!(executor.state.logger.clone(), "Converted input1_var: {:?}", input1_var);
 
     // Fetch symbolic values
     let input0_symbolic = input0_var.symbolic.to_bv(executor.context);
-    log!(executor.state.logger.clone(), "Input0 symbolic: {:?}", input0_symbolic);
     let input1_symbolic = input1_var.symbolic.to_bv(executor.context);
-    log!(executor.state.logger.clone(), "Input1 symbolic: {:?}", input1_symbolic);
 
     // Perform the OR operation
     let result_concrete = input0_var.concrete.to_u64() | input1_var.concrete.to_u64();
     let result_symbolic = input0_symbolic.bvor(&input1_symbolic);
+    log!(executor.state.logger.clone(), "Result symbolic value: {:?}", result_symbolic);
+
+    if result_symbolic.get_size() == 0 {
+        return Err("Symbolic value is null".to_string());
+    }
 
     // Create the result ConcolicVar
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
