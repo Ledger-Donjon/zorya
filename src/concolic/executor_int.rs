@@ -178,11 +178,9 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Adapt types of input variables (in case of an operation between a Bool (size 1) and an Int (usually size 8))
     let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool() || input1_var.is_bool() {
-        let (adapted_input0_var, adapted_input1_var) = executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?;
-        (adapted_input0_var, adapted_input1_var)
+        executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
     } else {
-        let (adapted_input0_var, adapted_input1_var) = (input0_var, input1_var);
-        (adapted_input0_var, adapted_input1_var)
+        (input0_var, input1_var)
     };
 
     // Convert ConcolicEnum back to ConcolicVar
@@ -647,25 +645,41 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
 
     // Fetch concolic variables
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_OR");
-    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0])?;
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_OR");
-    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1])?;
 
-    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
+
+    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Adapt types of input variables (necessary if it is an operation )
-    let (input0_var, input1_var) = executor.adapt_types(input0_var, input1_var, output_size_bits)?;
+    // Adapt types of input variables (in case of an operation between a Bool (size 1) and an Int (usually size 8))
+    let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool() || input1_var.is_bool() {
+        executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
+    } else {
+        (input0_var, input1_var)
+    };
+
+    // Convert ConcolicEnum back to ConcolicVar
+    let input0_var = adapted_input0_var.to_concolic_var().unwrap();
+    let input1_var = adapted_input1_var.to_concolic_var().unwrap();
+
+    // Fetch symbolic values
+    let input0_symbolic = input0_var.symbolic.to_bv(executor.context);
+    let input1_symbolic = input1_var.symbolic.to_bv(executor.context);
 
     // Perform the OR operation
-    let result_concrete = input0_var.get_concrete_value() | input1_var.get_concrete_value();
-    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvor(&input1_var.get_symbolic_value_bv(executor.context));
+    let result_concrete = input0_var.concrete.to_u64() | input1_var.concrete.to_u64();
+    let result_symbolic = input0_symbolic.bvor(&input1_symbolic);
+
+    // Create the result ConcolicVar
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_OR is: {:?}\n", result_concrete);
+    log!(executor.state.logger.clone(), "*** The result of INT_OR is: 0x{:X}", result_concrete);
 
     // Handle the result based on the output varnode
-    executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
+    executor.handle_output(Some(output_varnode), result_value.clone())?;
 
     // Create or update a concolic variable for the result
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
@@ -674,6 +688,7 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
 
     Ok(())
 }
+
 
 pub fn handle_int_left(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntLeft || instruction.inputs.len() != 2 {
