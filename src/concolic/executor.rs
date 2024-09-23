@@ -1090,7 +1090,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     _ => return Err("Expected ConcreteVar::Bool".to_string()),
                 };
                 // Resize concrete value
-                let resized_concrete = concrete_value & ((1u64 << bit_size) - 1);
+                let mask = if bit_size >= 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << bit_size) - 1
+                };
+                let resized_concrete = concrete_value & mask;
                 Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
                     concrete: ConcreteVar::Int(resized_concrete),
                     symbolic: SymbolicVar::Int(bv),
@@ -1113,7 +1118,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     ConcreteVar::Int(value) => value,
                     _ => return Err("Expected ConcreteVar::Int".to_string()),
                 };
-                let resized_concrete = concrete_value & ((1u64 << bit_size) - 1);
+                let mask = if bit_size >= 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << bit_size) - 1
+                };
+                let resized_concrete = concrete_value & mask;
                 Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
                     concrete: ConcreteVar::Int(resized_concrete),
                     symbolic: SymbolicVar::Int(resized_bv),
