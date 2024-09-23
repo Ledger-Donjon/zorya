@@ -1076,7 +1076,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }
 
-    // Helper function to adapt a single variable
+    // Helper function to extend the size of a Bool when there is an operation between a Bool (size 1) and an Integer (usually size 8)
     fn adapt_var(&self, var: ConcolicEnum<'ctx>, bit_size: u32, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, String> {
         let concolic_var = var.to_concolic_var().unwrap();
         match &concolic_var.symbolic {
@@ -1100,33 +1100,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     ctx,
                 }))
             },
-            SymbolicVar::Int(bv) => {
-                // Resize BV to bit_size if necessary
-                let current_size = bv.get_size();
-                let resized_bv = if current_size < bit_size {
-                    bv.zero_ext(bit_size - current_size)
-                } else if current_size > bit_size {
-                    bv.extract(bit_size - 1, 0)
-                } else {
-                    bv.clone()
-                };
-                // Resize concrete value
-                let concrete_value = match concolic_var.concrete {
-                    ConcreteVar::Int(value) => value,
-                    _ => return Err("Expected ConcreteVar::Int".to_string()),
-                };
-                let resized_concrete = if bit_size < 64 {
-                    concrete_value & ((1u64 << bit_size) - 1)
-                } else {
-                    concrete_value
-                };
-                Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
-                    concrete: ConcreteVar::Int(resized_concrete),
-                    symbolic: SymbolicVar::Int(resized_bv),
-                    ctx,
-                }))
+            _ => {
+                // Return the original variable without modification
+                Ok(ConcolicEnum::ConcolicVar(concolic_var))
             },
-            _ => Err("Unsupported SymbolicVar type in adapt_types".to_string()),
         }
     } 
 
