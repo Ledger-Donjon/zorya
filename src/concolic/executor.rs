@@ -1090,11 +1090,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     _ => return Err("Expected ConcreteVar::Bool".to_string()),
                 };
                 // Resize concrete value
-                let resized_concrete = if bit_size < 64 {
-                    concrete_value & ((1u64 << bit_size) - 1)
-                } else {
-                    concrete_value
-                };
+                let resized_concrete = concrete_value & ((1u64 << bit_size) - 1);
                 Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
                     concrete: ConcreteVar::Int(resized_concrete),
                     symbolic: SymbolicVar::Int(bv),

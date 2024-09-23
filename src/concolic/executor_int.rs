@@ -654,8 +654,8 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Adapt types of input variables (in case of an operation between a Bool (size 1) and an Int (usually size 8))
-    let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool() || input1_var.is_bool() {
+    // Adapt types of input variables
+    let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool() || input1_var.is_bool() || input0_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits || input1_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits {
         log!(executor.state.logger.clone(), "Adapting types for INT_OR");
         executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
     } else {
@@ -696,7 +696,6 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
 
     Ok(())
 }
-
 
 pub fn handle_int_left(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntLeft || instruction.inputs.len() != 2 {
