@@ -435,23 +435,29 @@ impl<'ctx> CpuState<'ctx> {
                     while remaining_bits > 0 {
                         let idx = (current_bit_offset / 64) as usize; // Index in the Vec<u64>
                         let inner_bit_offset = (current_bit_offset % 64) as u32; // Offset within the specific u64 element
-    
+                    
                         if idx >= large_concrete.len() {
                             println!("Error: Bit offset exceeds size of the large integer register");
                             return Err("Bit offset exceeds size of the large integer register".to_string());
                         }
-    
+                    
                         let bits_in_chunk = std::cmp::min(64 - inner_bit_offset as u64, remaining_bits);
                         let mask = Self::safe_left_mask(bits_in_chunk) << inner_bit_offset;
-    
+                    
                         let value_part = (value & Self::safe_left_mask(bits_in_chunk)) << inner_bit_offset;
-    
+                    
                         large_concrete[idx] = (large_concrete[idx] & !mask) | value_part;
-    
+                    
                         remaining_bits -= bits_in_chunk;
                         current_bit_offset += bits_in_chunk;
-                        value >>= bits_in_chunk;
-                    }
+                    
+                        // Adjust value shift
+                        if bits_in_chunk < 64 {
+                            value >>= bits_in_chunk;
+                        } else {
+                            value = 0;
+                        }
+                    }                    
                 } else {
                     // Ensure that small registers remain as Int
                     let safe_shift = if bit_offset < 64 {
