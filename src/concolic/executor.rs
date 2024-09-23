@@ -1124,8 +1124,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Return the original variable without modification
                 Ok(ConcolicEnum::ConcolicVar(concolic_var))
             },
-        }
-    } 
+        } 
+    }
 
     pub fn adapt_types(&self, var1: ConcolicEnum<'ctx>, var2: ConcolicEnum<'ctx>, bit_size: u32) -> Result<(ConcolicEnum<'ctx>, ConcolicEnum<'ctx>), String> {
         let ctx = self.context;
