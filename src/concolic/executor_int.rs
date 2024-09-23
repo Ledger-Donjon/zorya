@@ -660,6 +660,7 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     } else {
         (input0_var, input1_var)
     };
+    log!(executor.state.logger.clone(), "Adapted input0_var: {:?}", adapted_input0_var);
 
     // Convert ConcolicEnum back to ConcolicVar
     let input0_var = adapted_input0_var.to_concolic_var().unwrap();
