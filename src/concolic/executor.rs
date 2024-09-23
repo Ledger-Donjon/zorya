@@ -311,7 +311,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }    
     
-    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, mut result_value: ConcolicVar<'ctx>) -> Result<(), String> {
+    pub fn handle_output(&mut self, output_varnode: Option<&Varnode>, result_value: ConcolicVar<'ctx>) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
             let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits

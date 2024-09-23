@@ -91,6 +91,16 @@ impl<'ctx> ConcolicEnum<'ctx> {
     pub fn to_concolic_var(&self) -> Option<ConcolicVar<'ctx>> {
         match self {
             ConcolicEnum::ConcolicVar(var) => Some(var.clone()),
+            ConcolicEnum::CpuConcolicValue(cpu_var) => Some(ConcolicVar {
+                concrete: cpu_var.concrete.clone(),
+                symbolic: cpu_var.symbolic.clone(),
+                ctx: cpu_var.ctx,
+            }),
+            ConcolicEnum::MemoryConcolicValue(mem_var) => Some(ConcolicVar {
+                concrete: mem_var.concrete.clone(),
+                symbolic: mem_var.symbolic.clone(),
+                ctx: mem_var.ctx,
+            }),
             _ => None,
         }
     }
