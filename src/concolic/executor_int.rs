@@ -166,34 +166,31 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     }
 
     log!(executor.state.logger.clone(), "* Fetching instruction inputs for INT_XOR");
-    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0])?;
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1])?;
     log!(executor.state.logger.clone(), "input0_var: {:?}, input1_var: {:?}", input0_var.get_concrete_value(), input1_var.get_concrete_value());
 
-    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?; 
-
-    // Lock the CPU state for access to registers
-    let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-
-    // Fetch symbolic values
-    let input0_symbolic = input0_var.get_symbolic_value_bv(executor.context);
-    let input1_symbolic = input1_var.get_symbolic_value_bv(executor.context);
-
-    // Ensure the symbolic sizes are valid before performing XOR
-    if input0_symbolic.get_size() == 0 || input1_symbolic.get_size() == 0 {
-        return Err("Symbolic value size is zero, invalid state".to_string());
-    }
-
-    // Perform the XOR operation
-    let result_concrete = input0_var.get_concrete_value() ^ input1_var.get_concrete_value();
-    let result_symbolic = input0_symbolic.bvxor(&input1_symbolic);
-
-    // Ensure the symbolic extraction didn't produce an invalid result
-    if result_symbolic.get_z3_ast().is_null() {
-        return Err("Symbolic extraction resulted in an invalid state".to_string());
-    }
+    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
 
     let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+    log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+
+    // Adapt types of input variables (in case of an operation between a Bool (size 1) and an Int (usually size 8))
+    let (adapted_input0_var, adapted_input1_var) = executor.adapt_types(input0_var, input1_var, output_size_bits)?;
+
+    // Convert ConcolicEnum back to ConcolicVar
+    let input0_var = adapted_input0_var.to_concolic_var().unwrap();
+    let input1_var = adapted_input1_var.to_concolic_var().unwrap();
+
+    // Fetch symbolic values
+    let input0_symbolic = input0_var.symbolic.to_bv(executor.context);
+    let input1_symbolic = input1_var.symbolic.to_bv(executor.context);
+
+    // Perform the XOR operation
+    let result_concrete = input0_var.concrete.to_u64() ^ input1_var.concrete.to_u64();
+    let result_symbolic = input0_symbolic.bvxor(&input1_symbolic);
+
+    // Create the result ConcolicVar
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         result_concrete,
         result_symbolic,
@@ -202,9 +199,6 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     );
 
     log!(executor.state.logger.clone(), "*** The result of INT_XOR is: 0x{:X}", result_concrete);
-
-    // Drop the CPU state lock
-    drop(cpu_state_guard);
 
     // Handle the result based on the output varnode
     executor.handle_output(Some(output_varnode), result_value.clone())?;
