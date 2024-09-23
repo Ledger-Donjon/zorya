@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the INT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::concolic::executor::ConcolicExecutor;
+use crate::{concolic::executor::ConcolicExecutor, executor};
 use parser::parser::{Inst, Opcode};
 use z3::ast::{Ast, Bool, Float, BV};
 use std::io::Write;
@@ -650,14 +650,11 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_OR");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
-    // Ensure both inputs are of the same size
-    if input0_var.get_size() != input1_var.get_size() {
-        log!(executor.state.logger.clone(), "Input sizes do not match for OR operation");
-        return Err("Input sizes for INT_OR must match".to_string());
-    }
-
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+
+    // Adapt types of input variables (necessary if it is an operation )
+    let (input0_var, input1_var) = executor.adapt_types(input0_var, input1_var, output_size_bits)?;
 
     // Perform the OR operation
     let result_concrete = input0_var.get_concrete_value() | input1_var.get_concrete_value();

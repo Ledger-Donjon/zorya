@@ -1074,8 +1074,72 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         self.state.create_or_update_concolic_variable_int(&result_var_name, truncated_concrete, source_concolic.to_concolic_var().unwrap().symbolic);
     
         Ok(())
-    }                 
-}
+    }
+
+    // Helper function to adapt a single variable
+    fn adapt_var(&self, var: ConcolicEnum<'ctx>, bit_size: u32, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, String> {
+        let concolic_var = var.to_concolic_var().unwrap();
+        match &concolic_var.symbolic {
+            SymbolicVar::Bool(b) => {
+                // Convert Bool to BV of bit_size
+                let bv = b.ite(&BV::from_u64(ctx, 1, bit_size), &BV::from_u64(ctx, 0, bit_size));
+                // Convert concrete Bool to u64
+                let concrete_value = match concolic_var.concrete {
+                    ConcreteVar::Bool(b_val) => if b_val { 1u64 } else { 0u64 },
+                    _ => return Err("Expected ConcreteVar::Bool".to_string()),
+                };
+                // Resize concrete value
+                let resized_concrete = if bit_size < 64 {
+                    concrete_value & ((1u64 << bit_size) - 1)
+                } else {
+                    concrete_value
+                };
+                Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
+                    concrete: ConcreteVar::Int(resized_concrete),
+                    symbolic: SymbolicVar::Int(bv),
+                    ctx,
+                }))
+            },
+            SymbolicVar::Int(bv) => {
+                // Resize BV to bit_size if necessary
+                let current_size = bv.get_size();
+                let resized_bv = if current_size < bit_size {
+                    bv.zero_ext(bit_size - current_size)
+                } else if current_size > bit_size {
+                    bv.extract(bit_size - 1, 0)
+                } else {
+                    bv.clone()
+                };
+                // Resize concrete value
+                let concrete_value = match concolic_var.concrete {
+                    ConcreteVar::Int(value) => value,
+                    _ => return Err("Expected ConcreteVar::Int".to_string()),
+                };
+                let resized_concrete = if bit_size < 64 {
+                    concrete_value & ((1u64 << bit_size) - 1)
+                } else {
+                    concrete_value
+                };
+                Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
+                    concrete: ConcreteVar::Int(resized_concrete),
+                    symbolic: SymbolicVar::Int(resized_bv),
+                    ctx,
+                }))
+            },
+            _ => Err("Unsupported SymbolicVar type in adapt_types".to_string()),
+        }
+    } 
+
+    pub fn adapt_types(&self, var1: ConcolicEnum<'ctx>, var2: ConcolicEnum<'ctx>, bit_size: u32) -> Result<(ConcolicEnum<'ctx>, ConcolicEnum<'ctx>), String> {
+        let ctx = self.context;
+
+        let adapted_var1 = self.adapt_var(var1, bit_size, ctx)?;
+        let adapted_var2 = self.adapt_var(var2, bit_size, ctx)?;
+
+        Ok((adapted_var1, adapted_var2))
+    }
+}             
+
 
 impl<'ctx> fmt::Display for ConcolicExecutor<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
