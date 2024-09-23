@@ -656,6 +656,7 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
 
     // Adapt types of input variables (in case of an operation between a Bool (size 1) and an Int (usually size 8))
     let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool() || input1_var.is_bool() {
+        log!(executor.state.logger.clone(), "Adapting types for INT_OR");
         executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
     } else {
         (input0_var, input1_var)
