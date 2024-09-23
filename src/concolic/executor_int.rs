@@ -616,12 +616,6 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_AND");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
 
-    // Ensure both inputs are of the same size, if not, log error and return
-    if input0_var.get_size() != input1_var.get_size() {
-        log!(executor.state.logger.clone(), "Input sizes do not match for AND operation");
-        return Err("Input sizes for INT_AND must match".to_string());
-    }
-
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
