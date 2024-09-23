@@ -177,7 +177,13 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
     // Adapt types of input variables (in case of an operation between a Bool (size 1) and an Int (usually size 8))
-    let (adapted_input0_var, adapted_input1_var) = executor.adapt_types(input0_var, input1_var, output_size_bits)?;
+    let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool() || input1_var.is_bool() {
+        let (adapted_input0_var, adapted_input1_var) = executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?;
+        (adapted_input0_var, adapted_input1_var)
+    } else {
+        let (adapted_input0_var, adapted_input1_var) = (input0_var, input1_var);
+        (adapted_input0_var, adapted_input1_var)
+    };
 
     // Convert ConcolicEnum back to ConcolicVar
     let input0_var = adapted_input0_var.to_concolic_var().unwrap();

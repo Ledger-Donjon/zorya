@@ -35,6 +35,14 @@ impl<'ctx> ConcolicEnum<'ctx> {
         }
     }
 
+    pub fn is_bool(&self) -> bool {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => var.concrete.is_bool(),
+            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.concrete.is_bool(),
+            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.concrete.is_bool(),
+        }
+    }
+
     // Retrieve the concrete value of the concolic variable
     pub fn get_concrete_value(&self) -> u64 {
         match self {

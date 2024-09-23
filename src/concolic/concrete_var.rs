@@ -177,6 +177,13 @@ impl ConcreteVar {
             _ => panic!("Bitwise AND operation is not defined for floats"),
         }
     }
+
+    pub fn is_bool(&self) -> bool {
+        match self {
+            ConcreteVar::Bool(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug)]
