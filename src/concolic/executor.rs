@@ -1101,6 +1101,29 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     ctx,
                 }))
             },
+            SymbolicVar::Int(bv) => {
+                log!(self.state.logger.clone(), "Adapting Int to size {}", bit_size);
+                // Resize BV to bit_size if necessary
+                let current_size = bv.get_size();
+                let resized_bv = if current_size < bit_size {
+                    bv.zero_ext(bit_size - current_size)
+                } else if current_size > bit_size {
+                    bv.extract(bit_size - 1, 0)
+                } else {
+                    bv.clone()
+                };
+                // Resize concrete value
+                let concrete_value = match concolic_var.concrete {
+                    ConcreteVar::Int(value) => value,
+                    _ => return Err("Expected ConcreteVar::Int".to_string()),
+                };
+                let resized_concrete = concrete_value & ((1u64 << bit_size) - 1);
+                Ok(ConcolicEnum::ConcolicVar(ConcolicVar {
+                    concrete: ConcreteVar::Int(resized_concrete),
+                    symbolic: SymbolicVar::Int(resized_bv),
+                    ctx,
+                }))
+            },
             _ => {
                 // Return the original variable without modification
                 Ok(ConcolicEnum::ConcolicVar(concolic_var))
