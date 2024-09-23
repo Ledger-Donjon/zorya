@@ -723,18 +723,38 @@ pub fn handle_int_left(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    let shift_amount = input1_var.get_concrete_value() as usize;
+    // Adapt input types if necessary
+    let (adapted_input0_var, adapted_input1_var) = if input1_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits {
+        log!(executor.state.logger.clone(), "Adapting types for INT_LEFT");
+        executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
+    } else {
+        (input0_var, input1_var)
+    };
 
-    // Check if the shift amount is valid
-    if shift_amount >= 64 {
-        log!(executor.state.logger.clone(), "Shift amount {} exceeds bit width, adjusting to maximum", shift_amount);
-        return Err(format!("Shift amount exceeds bit width: {}", shift_amount));
-    }
+    let input0_var = adapted_input0_var.to_concolic_var().unwrap();
+    let input1_var = adapted_input1_var.to_concolic_var().unwrap();
 
-    let result_concrete = input0_var.get_concrete_value().wrapping_shl(shift_amount as u32);
-    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvshl(&BV::from_u64(executor.context, shift_amount as u64, output_size_bits));
+    let shift_amount = input1_var.concrete.to_u64() as usize;
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
+    // Handle shift amount exceeding bit width
+    let result_concrete = if shift_amount >= output_size_bits as usize {
+        log!(executor.state.logger.clone(), "Shift amount {} exceeds bit width {}, setting result to zero", shift_amount, output_size_bits);
+        0
+    } else {
+        input0_var.concrete.to_u64().wrapping_shl(shift_amount as u32)
+    };
+
+    let shift_bv = input1_var.symbolic.to_bv(executor.context);
+
+    let shift_limit = BV::from_u64(executor.context, output_size_bits as u64, shift_bv.get_size());
+    let condition = shift_bv.bvuge(&shift_limit);
+
+    let zero_bv = BV::from_u64(executor.context, 0, output_size_bits);
+    let shifted_bv = input0_var.symbolic.to_bv(executor.context).bvshl(&shift_bv);
+
+    let result_symbolic = condition.ite(&zero_bv, &shifted_bv);
+
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits); 
 
     log!(executor.state.logger.clone(), "*** The result of INT_LEFT is: {:x}", result_concrete);
 
