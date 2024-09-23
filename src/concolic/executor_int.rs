@@ -669,13 +669,11 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     // Fetch symbolic values
     let input0_symbolic = input0_var.symbolic.to_bv(executor.context);
     let input1_symbolic = input1_var.symbolic.to_bv(executor.context);
-    log!(executor.state.logger.clone(), "Input0 symbolic value: {:?} with size {}", input0_symbolic, input0_symbolic.get_size());
-    log!(executor.state.logger.clone(), "Input1 symbolic value: {:?} with size {}", input1_symbolic, input1_symbolic.get_size());
+
 
     // Perform the OR operation
     let result_concrete = input0_var.concrete.to_u64() | input1_var.concrete.to_u64();
     let result_symbolic = input0_symbolic.bvor(&input1_symbolic);
-    log!(executor.state.logger.clone(), "Result symbolic value: {:?}", result_symbolic);
 
     if result_symbolic.get_size() == 0 {
         return Err("Symbolic value is null".to_string());
