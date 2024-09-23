@@ -1,9 +1,9 @@
 /// Focuses on implementing the execution of the INT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{concolic::executor::ConcolicExecutor, executor};
+use crate::concolic::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode};
-use z3::ast::{Ast, Bool, Float, BV};
+use z3::ast::{Bool, Float, BV};
 use std::io::Write;
 
 use super::ConcolicVar;
@@ -830,9 +830,21 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
+    // Adapt types of input variables (in case of an operation between a Bool (size 1) and an Int (usually size 8))
+    let (adapted_input0_var, adapted_input1_var) = 
+    if input0_var.is_bool() 
+        || input1_var.is_bool() 
+        || input0_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits 
+        || input1_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits {
+        log!(executor.state.logger.clone(), "Adapting Boolean and Integer types for INT_OR");
+        executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
+    } else {
+        (input0_var, input1_var)
+    };
+
     // Perform the multiplication
-    let result_concrete = input0_var.get_concrete_value().wrapping_mul(input1_var.get_concrete_value());
-    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvmul(&input1_var.get_symbolic_value_bv(executor.context));
+    let result_concrete = adapted_input0_var.get_concrete_value().wrapping_mul(adapted_input1_var.get_concrete_value());
+    let result_symbolic = adapted_input0_var.get_symbolic_value_bv(executor.context).bvmul(&adapted_input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
 
     log!(executor.state.logger.clone(), "*** The result of INT_MULT is: {:?}\n", result_concrete);
