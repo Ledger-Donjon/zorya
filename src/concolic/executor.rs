@@ -2,18 +2,15 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
-use std::result;
 use std::sync::MutexGuard;
 use std::process;
 
-use crate::state::cpu_state;
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::memory_x86_64::MemoryConcolicValue;
 use crate::state::state_manager::Logger;
 use crate::state::CpuState;
 use crate::state::MemoryX86_64;
 use crate::state::State;
-use nix::libc::cpu_set_t;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::Ast;
 use z3::ast::BV;
@@ -372,7 +369,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Log the branch decision as a concolic variable for tracking
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-        let result_var_name = format!("{}-{:02}-branchind", current_addr_hex, self.instruction_counter);
+        let result_var_name = format!("{}-{:02}-branch", current_addr_hex, self.instruction_counter);
         self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_address, branch_target_concolic.symbolic);
 
         Ok(())
@@ -416,6 +413,52 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 
                 Ok(value_u64)
             }
+            Var::Register(offset, size) => {
+                log!(self.state.logger.clone(), "Branch target is a Register at offset: 0x{:x} with size: {:?}", offset, size);
+                
+                // Validate that the register size matches the expected size
+                let expected_bit_size = 64; // Assuming branch targets are 64-bit addresses; adjust if necessary
+                if size.to_bitvector_size() != expected_bit_size {
+                    return Err(format!(
+                        "Unsupported register bit size for INT_SLESS: {}, expected {}",
+                        size.to_bitvector_size(),
+                        expected_bit_size
+                    ));
+                }
+                
+                // Retrieve the register's concrete and symbolic values
+                let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                let register_value = cpu_state_guard.get_register_by_offset(*offset, expected_bit_size)
+                    .ok_or_else(|| format!("Failed to retrieve register by offset 0x{:x}", offset))?;
+                
+                let concrete_value = match register_value.concrete {
+                    ConcreteVar::Int(val) => val,
+                    _ => return Err(format!("Unsupported concrete type for register at offset 0x{:x}", offset)),
+                };
+                
+                let symbolic_value = match &register_value.symbolic {
+                    SymbolicVar::Int(bv) => bv.clone(),
+                    _ => return Err(format!("Unsupported symbolic type for register at offset 0x{:x}", offset)),
+                };
+                
+                // Update the RIP register with the branch target address
+                {
+                    cpu_state_guard.set_register_value_by_offset(
+                        0x288, // Assuming RIP is at offset 0x288; adjust as per your architecture
+                        ConcolicVar::new_concrete_and_symbolic_int(
+                            concrete_value,
+                            symbolic_value.clone(),
+                            &self.context,
+                            expected_bit_size,
+                        ),
+                        expected_bit_size,
+                    )?;
+                }
+                
+                log!(self.state.logger.clone(), "Branching to address 0x{:x} from register at offset 0x{:x}", concrete_value, offset);
+                
+                Ok(concrete_value)
+            },
             _ => {
                 Err(format!("Branch instruction does not support this variable type: {:?}", varnode.var))
             }
