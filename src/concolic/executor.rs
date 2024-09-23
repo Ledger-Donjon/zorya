@@ -1081,6 +1081,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let concolic_var = var.to_concolic_var().unwrap();
         match &concolic_var.symbolic {
             SymbolicVar::Bool(b) => {
+                log!(self.state.logger.clone(), "Adapting Bool to size {}", bit_size);
                 // Convert Bool to BV of bit_size
                 let bv = b.ite(&BV::from_u64(ctx, 1, bit_size), &BV::from_u64(ctx, 0, bit_size));
                 // Convert concrete Bool to u64
