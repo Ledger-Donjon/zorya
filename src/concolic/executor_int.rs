@@ -15,7 +15,6 @@ macro_rules! log {
 }
 
 // Function to handle INT_CARRY instruction
-// Function to handle INT_CARRY instruction
 pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntCarry || instruction.inputs.len() != 2 {
         return Err("Invalid instruction format for INT_CARRY".to_string());

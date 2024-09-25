@@ -250,16 +250,78 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // Handle specific memory addresses
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-                let memory_var = MemoryX86_64::get_memory_concolic_var(&self.state.memory, self.context, *addr, bit_size);
-                
+
+                // Determine the number of bytes to read based on the bit size
+                let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
+                let byte_size = ((bit_size + 7) / 8) as usize; // Number of bytes to read
+
+                log!(self.state.logger.clone(), "Bit size: {}, Byte size: {}", bit_size, byte_size);
+
+                // Read from memory and assemble the value
+                let (concrete_value, symbolic_bv) = {
+                    // Lock the memory for reading/writing
+                    let mut memory = self.state.memory.memory.write().unwrap();
+
+                    let mut concrete_value = 0u128;
+                    let mut symbolic_bv = None; // Option<BV<'ctx>>
+
+                    for i in 0..byte_size {
+                        let current_addr = *addr + i as u64;
+
+                        // Retrieve or initialize the memory value at this address
+                        let mem_value = memory.entry(current_addr).or_insert_with(|| {
+                            // Initialize uninitialized memory with a fresh symbolic variable
+                            let symbolic_name = format!("mem_{:x}", current_addr);
+                            let symbolic_bv = BV::new_const(self.context, symbolic_name, 8);
+                            MemoryConcolicValue::new(self.context, 0, symbolic_bv, 8)
+                        }).clone();
+
+                        // Combine concrete values
+                        if let ConcreteVar::Int(val) = mem_value.concrete {
+                            concrete_value |= (val as u128) << (i * 8);
+                        } else {
+                            return Err(format!("Unsupported concrete value type at memory address 0x{:x}", current_addr));
+                        }
+
+                        // Combine symbolic values
+                        let mem_symbolic_bv = mem_value.symbolic.to_bv(self.context);
+                        symbolic_bv = Some(if let Some(existing_bv) = symbolic_bv {
+                            // For little-endian architecture, the least significant byte is at the lowest address
+                            mem_symbolic_bv.concat(&existing_bv)
+                        } else {
+                            mem_symbolic_bv
+                        });
+                    }
+
+                    // Ensure symbolic_bv is not None
+                    let symbolic_bv = symbolic_bv.ok_or_else(|| "Failed to assemble symbolic value from memory".to_string())?;
+
+                    // Adjust the size of the symbolic value
+                    let symbolic_bv = if symbolic_bv.get_size() > bit_size {
+                        symbolic_bv.extract(bit_size - 1, 0)
+                    } else if symbolic_bv.get_size() < bit_size {
+                        symbolic_bv.zero_ext(bit_size - symbolic_bv.get_size())
+                    } else {
+                        symbolic_bv
+                    };
+
+                    // Truncate concrete value to the required size
+                    let concrete_value = concrete_value & ((1u128 << bit_size) - 1);
+
+                    (concrete_value as u64, symbolic_bv)
+                };
+
+                // Create MemoryConcolicValue with the assembled values
+                let memory_concolic_value = MemoryConcolicValue::new(self.context, concrete_value, symbolic_bv, bit_size);
+
                 // Check if the symbolic variable is valid
-                if memory_var.symbolic.get_z3_ast().is_null() {
+                if memory_concolic_value.symbolic.get_z3_ast().is_null() {
                     return Err(format!("Memory symbolic variable at address 0x{:x} has a null AST", addr));
                 }
-                
-                log!(self.state.logger.clone(), "Retrieved memory address: {:?} with symbolic size: {:?}", memory_var.concrete, memory_var.symbolic.get_size());
-                Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
-            },   
+
+                log!(self.state.logger.clone(), "Retrieved memory value: {:?} with symbolic size: {:?}", memory_concolic_value.concrete, memory_concolic_value.symbolic.get_size());
+                Ok(ConcolicEnum::MemoryConcolicValue(memory_concolic_value))
+            },
         }
     }
 
