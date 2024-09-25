@@ -438,6 +438,62 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         }
                     }
                 },
+                Var::Memory(addr) => {
+                    log!(self.state.logger.clone(), "Output is a Memory type at address 0x{:x}", addr);
+                    let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
+                    let byte_size = ((bit_size + 7) / 8) as usize; // Number of bytes to write
+                    log!(self.state.logger.clone(), "Bit size: {}, Byte size: {}", bit_size, byte_size);
+                
+                    // Extract concrete value
+                    let concrete_value = result_value.get_concrete_value()?;
+                
+                    // Extract symbolic value
+                    let symbolic_bv = result_value.symbolic.to_bv(self.context);
+                
+                    // Ensure symbolic value size matches bit_size
+                    let symbolic_size = symbolic_bv.get_size();
+                    if symbolic_size != bit_size {
+                        return Err(format!("Symbolic size {} does not match bit size {}", symbolic_size, bit_size));
+                    }
+                
+                    // Split the concrete value into bytes (little endian)
+                    let concrete_bytes = &concrete_value.to_le_bytes()[..byte_size];
+                
+                    // Split the symbolic value into bytes
+                    let mut symbolic_bytes = Vec::with_capacity(byte_size);
+                    for i in 0..byte_size {
+                        let low = (i * 8) as u32;
+                        let high = if low + 7 >= bit_size {
+                            bit_size - 1
+                        } else {
+                            low + 7
+                        };
+                        let byte_bv = symbolic_bv.extract(high, low);
+                        symbolic_bytes.push(byte_bv);
+                    }
+                
+                    // Now write each byte to memory
+                    let mut memory = self.state.memory.memory.write().unwrap(); // Acquire write lock on memory
+                
+                    // Now write each byte to memory
+                    for (i, (&concrete_byte, symbolic_byte)) in concrete_bytes.iter().zip(symbolic_bytes.into_iter()).enumerate() {
+                        let current_addr = *addr + i as u64;
+
+                        // Create a MemoryConcolicValue for this byte
+                        let mem_concolic_value = MemoryConcolicValue::new(
+                            self.context,
+                            concrete_byte as u64,
+                            symbolic_byte,
+                            8
+                        );
+
+                        // Write to memory
+                        memory.insert(current_addr, mem_concolic_value);
+                    } 
+                
+                    log!(self.state.logger.clone(), "Wrote value 0x{:x} to memory at address 0x{:x}", concrete_value, addr);
+                    Ok(())
+                },                
                 _ => {
                     let error_msg = "Output type is unsupported".to_string();
                     log!(self.state.logger.clone(), "{}", error_msg);
