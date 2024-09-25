@@ -144,6 +144,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger,  "The value of register at offset 0x18 is {:x}", register0x18.concrete);
             let register0x20 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x20 is {:x}", register0x20.concrete);
+            let register0x28 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x28, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x28 is {:x}", register0x28.concrete);
             let register0x30 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x30 is {:x}", register0x30.concrete);
             let register0x38 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap();
