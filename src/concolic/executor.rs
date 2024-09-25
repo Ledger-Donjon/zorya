@@ -1113,19 +1113,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-                let memory_bytes = self.state.memory.read_memory(*addr, byte_count)
-                    .unwrap_or_else(|_| vec![0; byte_count]); // Provide default bytes if read fails
-    
-                let padded_bytes = if memory_bytes.len() < 8 {
-                    log!(self.state.logger.clone(), "Padding memory read with zeros to fit u64.");
-                    memory_bytes.clone().into_iter().chain(std::iter::repeat(0).take(8 - memory_bytes.len())).collect::<Vec<_>>()
-                } else {
-                    memory_bytes[0..8].to_vec() // Ensure no more than 8 bytes are taken
-                };
-    
-                let concrete_value = u64::from_le_bytes(padded_bytes.try_into().unwrap()); // This should now always be valid
-                let symbolic_value = BV::from_u64(self.context, concrete_value, bit_size);
-                (concrete_value, symbolic_value)
+                
+                let symbolic_value = BV::from_u64(self.context, *addr, bit_size);
+                (*addr, symbolic_value)
             },
         };
     
