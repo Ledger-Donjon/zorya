@@ -1150,7 +1150,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         output_size_bits
                     );
                     self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
-                    //log!(self.state.logger.clone(), "Content of output {:?} after copying: {:?}", unique_name, concolic_var);
+                    log!(self.state.logger.clone(), "Content of output {:?} after copying: {:?}", unique_name, concolic_var.concrete);
                 },
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
