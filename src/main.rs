@@ -48,13 +48,26 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 
     log!(executor.state.logger, "Preprocessing the p-code file...");
 
+    let mut current_address = 0u64;
+
     for line in reader.lines().filter_map(Result::ok) {
-        if line.trim_start().starts_with("0x") {
-            let current_address = u64::from_str_radix(&line.trim()[2..], 16).unwrap();
+        let line = line.trim_start();
+
+        if line.starts_with("0x") {
+            // Address line, possibly with symbol
+            let parts: Vec<&str> = line.trim().split_whitespace().collect();
+            let address_str = parts[0];
+            current_address = u64::from_str_radix(&address_str[2..], 16).unwrap();
             instructions_map.entry(current_address).or_insert_with(Vec::new);
+
+            // Check if there is a symbol in the line
+            if parts.len() > 1 && parts[1].ends_with(':') {
+                let symbol = parts[1].trim_end_matches(':').to_string();
+                executor.symbol_table.insert(current_address, symbol);
+            }
         } else if let Some(inst) = line.parse::<Inst>().ok() {
-            if let Some(current_address) = instructions_map.keys().last().copied() {
-                instructions_map.get_mut(&current_address).unwrap().push(inst);
+            if let Some(instr_list) = instructions_map.get_mut(&current_address) {
+                instr_list.push(inst);
             }
         }
     }
@@ -62,7 +75,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
     log!(executor.state.logger, "Completed preprocessing.");
 
     Ok(instructions_map)
-}
+} 
 
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) {
     let mut current_rip = start_address;

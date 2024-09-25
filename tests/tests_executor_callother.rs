@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, RwLock};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
     use nix::libc::{gettid, MAP_FIXED};
     use parser::parser::{Inst, Opcode, Size, Var, Varnode};
     use z3::{Config, Context, Solver};
@@ -81,6 +81,7 @@ mod tests {
             context: ctx,
             solver: Solver::new(ctx),
             state: State::new(ctx, Logger::new("execution_log.txt").unwrap()).unwrap(),
+            symbol_table: HashMap::new(),
             current_address: Some(0x1000),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),

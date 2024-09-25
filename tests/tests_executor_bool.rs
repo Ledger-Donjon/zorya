@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
 
     use z3::ast::BV;
     use zorya::concolic::executor_bool::{handle_bool_and, handle_bool_negate, handle_bool_xor};
@@ -20,6 +20,7 @@ mod tests {
             context: ctx,
             solver: Solver::new(ctx),
             state,
+            symbol_table: HashMap::new(),
             current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
