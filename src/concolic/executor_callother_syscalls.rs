@@ -680,7 +680,22 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-sched_getaffinity", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, simulated_mask.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, simulated_mask.try_into().unwrap(), 64)));
-        },        
+        },
+        231 => { // sys_exit_group
+            log!(executor.state.logger.clone(), "Syscall type: sys_exit_group");
+            let status = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
+            log!(executor.state.logger.clone(), "Exiting group with status code: {}", status);
+            drop(cpu_state_guard);
+
+            // Set the exit status and termination flag
+            executor.state.exit_status = Some(status as i32);
+            executor.state.is_terminated = true;
+
+            // Create the concolic variables for the results
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-exit_group", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, status.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, status.try_into().unwrap(), 64)));
+        },      
         257 => { // sys_openat : open file relative to a directory file descriptor
             log!(executor.state.logger.clone(), "Syscall type: sys_openat");
             let pathname_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;

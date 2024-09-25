@@ -110,8 +110,25 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}", local_line_number, inst);
 
             // Execute the instruction and handle errors
-            if let Err(e) = executor.execute_instruction(inst.clone(), current_rip) {
-                log!(executor.state.logger, "Failed to execute instruction: {}", e);
+            match executor.execute_instruction(inst.clone(), current_rip) {
+                Ok(_) => {
+                    // Check if the process has terminated
+                    if executor.state.is_terminated {
+                        log!(executor.state.logger, "Execution terminated with status: {:?}", executor.state.exit_status);
+                        return; // Exit the function as execution has terminated
+                    }
+                }
+                Err(e) => {
+                    log!(executor.state.logger, "Execution error: {}", e);
+                    if executor.state.is_terminated {
+                        log!(executor.state.logger, "Process terminated via syscall with exit status: {:?}", executor.state.exit_status);
+                        return; // Exit the function as execution has terminated
+                    } else {
+                        // Handle other errors as needed
+                        log!(executor.state.logger, "Unhandled execution error: {}", e);
+                        return; // Exit the function or handle the error appropriately
+                    }
+                }
             }
 
             // For debugging

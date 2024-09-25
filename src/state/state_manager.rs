@@ -27,6 +27,8 @@ pub struct State<'a> {
     pub signal_mask: u32,  // store the signal mask
     pub futex_manager: FutexManager,
     pub altstack: StackT, // structure used by the sigaltstack system call to define an alternate signal stack
+    pub is_terminated: bool,     // Indicates if the process is terminated
+    pub exit_status: Option<i32>, // Stores the exit status code of the process
 }
 
 impl<'a> State<'a> {
@@ -61,7 +63,8 @@ impl<'a> State<'a> {
             signal_mask: 0,  // Initialize with no signals blocked
             futex_manager: FutexManager::new(),
             altstack: StackT::default(),
-            
+            is_terminated: false,
+            exit_status: None,
         };
         //state.print_memory_content(address, range);
 
@@ -97,6 +100,8 @@ impl<'a> State<'a> {
             signal_mask: 0,  // Initialize with no signals blocked
             futex_manager: FutexManager::new(),
             altstack: StackT::default(),
+            is_terminated: false,
+            exit_status: None,
         })
     }
 
