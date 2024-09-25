@@ -15,6 +15,7 @@ macro_rules! log {
 }
 
 // Function to handle INT_CARRY instruction
+// Function to handle INT_CARRY instruction
 pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntCarry || instruction.inputs.len() != 2 {
         return Err("Invalid instruction format for INT_CARRY".to_string());
@@ -29,19 +30,46 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Perform the unsigned addition and check for carry
+    // Determine the bit size of the operands
     let bv_size = instruction.inputs[0].size.to_bitvector_size() as u32;
-    let result_concrete = input0_var.get_concrete_value() as u128 + input1_var.get_concrete_value() as u128; // Use u128 to ensure no overflow in Rust
-    let carry_concrete = result_concrete >> bv_size != 0; // If the result requires more bits than the size, there was a carry
 
-    // Symbolic carry check
-    let zero_bv = BV::from_u64(executor.context, 0, bv_size);
-    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvadd(&input1_var.get_symbolic_value_bv(executor.context));
-    let carry_symbolic = result_symbolic.bvadd_no_overflow(&zero_bv, false); // false for unsigned overflow check
+    // Concrete computation
+    let input0_concrete = input0_var.get_concrete_value() as u128;
+    let input1_concrete = input1_var.get_concrete_value() as u128;
+    let result_concrete = input0_concrete + input1_concrete; // Use u128 to prevent overflow
+    let carry_concrete = ((result_concrete >> bv_size) & 1) != 0; // Extract carry bit
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(carry_concrete, carry_symbolic, executor.context, output_size_bits);
+    // Symbolic computation
+    // Zero-extend both inputs by 1 bit
+    let input0_symbolic_ext = input0_var.get_symbolic_value_bv(executor.context).zero_ext(1);
+    let input1_symbolic_ext = input1_var.get_symbolic_value_bv(executor.context).zero_ext(1);
 
-    log!(executor.state.logger.clone(), "*** The result of INT_CARRY is: {:?}\n", carry_concrete);
+    // Perform the addition
+    let result_symbolic_ext = input0_symbolic_ext.bvadd(&input1_symbolic_ext);
+
+    // Extract the carry bit (MSB)
+    let carry_symbolic = result_symbolic_ext.extract(bv_size, bv_size); // Extract bit at position bv_size
+
+    // Zero-extend carry_symbolic to match output_size_bits (if necessary)
+    let carry_symbolic_ext = if output_size_bits > 1 {
+        carry_symbolic.zero_ext(output_size_bits - 1)
+    } else {
+        carry_symbolic
+    };
+
+    // Create the result concolic variable
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(
+        carry_concrete as u64,
+        carry_symbolic_ext,
+        executor.context,
+        output_size_bits,
+    );
+
+    log!(
+        executor.state.logger.clone(),
+        "*** The result of INT_CARRY is: {:?}\n",
+        carry_concrete
+    );
 
     // Handle the result based on the output varnode
     executor.handle_output(instruction.output.as_ref(), result_value)?;
