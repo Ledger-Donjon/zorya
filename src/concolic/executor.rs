@@ -670,28 +670,46 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("Invalid instruction format for CALLIND".to_string());
         }
     
-        // Fetch the offset of the next instruction from the first input
-        log!(self.state.logger.clone(), "* Fetching offset of the next instruction from instruction.input[0]");
-        let next_instruction_offset_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-        let next_instruction_offset_concrete = next_instruction_offset_concolic.get_concrete_value();
-        let next_instruction_offset_symbolic = match next_instruction_offset_concolic {
-            ConcolicEnum::ConcolicVar(var) => var.symbolic,
-            ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
-            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
-        };
-        log!(self.state.logger.clone(), "Next instruction offset concrete: {:x}", next_instruction_offset_concrete);
+        // Fetch the target address from the first input
+        log!(self.state.logger.clone(), "* Fetching target address from instruction.input[0]");
+        let target_address_concolic = self.varnode_to_concolic(&instruction.inputs[0])
+            .map_err(|e| e.to_string())?;
+        let target_address_concrete = target_address_concolic.get_concrete_value();
+        let target_address_symbolic = target_address_concolic.get_symbolic_value_bv(self.context);
     
-        // Perform the branch to the next instruction location
-        self.current_address = Some(next_instruction_offset_concrete);
-        log!(self.state.logger.clone(), "Branched to next instruction location: {:x}", next_instruction_offset_concrete);
-        
-        // Create or update a concolic variable for the result of the callind operation (optional, depends on the semantics)
-        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        log!(self.state.logger.clone(), "Target address concrete: 0x{:x}", target_address_concrete);
+    
+        // Update RIP to the target address
+        {
+            let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+            let target_address_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                target_address_concrete,
+                target_address_symbolic,
+                self.context,
+                64,
+            );
+            cpu_state_guard
+                .set_register_value_by_offset(0x288, target_address_concolic.clone(), 64)
+                .map_err(|e| e.to_string())?;
+        }
+    
+        // Update the instruction counter
+        self.instruction_counter += 1;
+    
+        // Log the callind operation
+        let current_addr_hex = format!("{:x}", self.current_address.unwrap_or(0));
         let result_var_name = format!("{}-{:02}-callind", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, next_instruction_offset_concrete, next_instruction_offset_symbolic);
-        
+        self.state.create_or_update_concolic_variable_int(
+            &result_var_name,
+            target_address_concrete,
+            target_address_concolic.to_concolic_var().unwrap().symbolic,
+        );
+    
+        // Update current_address to the new RIP
+        self.current_address = Some(target_address_concrete);
+    
         Ok(())
-    }
+    }    
     
     // Handle return operation
     pub fn handle_return(&mut self, instruction: Inst) -> Result<(), String> {
