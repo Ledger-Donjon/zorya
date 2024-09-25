@@ -251,6 +251,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
                 let memory_var = MemoryX86_64::get_memory_concolic_var(&self.state.memory, self.context, *addr, bit_size);
+                
+                // Check if the symbolic variable is valid
+                if memory_var.symbolic.get_z3_ast().is_null() {
+                    return Err(format!("Memory symbolic variable at address 0x{:x} has a null AST", addr));
+                }
+                
                 log!(self.state.logger.clone(), "Retrieved memory address: {:?} with symbolic size: {:?}", memory_var.concrete, memory_var.symbolic.get_size());
                 Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
             },   

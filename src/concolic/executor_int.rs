@@ -3,7 +3,7 @@
 
 use crate::concolic::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode};
-use z3::ast::{Bool, Float, BV};
+use z3::ast::{Ast, Bool, Float, BV};
 use std::io::Write;
 
 use super::ConcolicVar;
@@ -38,6 +38,16 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     let input1_concrete = input1_var.get_concrete_value() as u128;
     let result_concrete = input0_concrete + input1_concrete; // Use u128 to prevent overflow
     let carry_concrete = ((result_concrete >> bv_size) & 1) != 0; // Extract carry bit
+
+    // Symbolic computation
+    let input0_symbolic_bv = input0_var.get_symbolic_value_bv(executor.context);
+    if input0_symbolic_bv.get_z3_ast().is_null() {
+        return Err("Input0 symbolic variable has a null AST".to_string());
+    }
+    let input1_symbolic_bv = input1_var.get_symbolic_value_bv(executor.context);
+    if input1_symbolic_bv.get_z3_ast().is_null() {
+        return Err("Input1 symbolic variable has a null AST".to_string());
+    }
 
     // Symbolic computation
     // Zero-extend both inputs by 1 bit
