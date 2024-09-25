@@ -169,6 +169,14 @@ impl<'ctx> fmt::Display for MemoryConcolicValue<'ctx> {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Sigaction {
+    pub handler: u64,   // sa_handler or sa_sigaction (union)
+    pub flags: u64,     // sa_flags
+    pub restorer: u64,  // sa_restorer (deprecated)
+    pub mask: u64,      // sa_mask
+}
+
 #[allow(dead_code)] // for not used memory_size var for Debug
 #[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
@@ -233,6 +241,39 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
 
         Ok(())
+    }
+
+    pub fn read_sigaction(&self, address: u64) -> Result<Sigaction, MemoryError> {
+        // Read the sigaction structure from memory
+        let handler = self.read_u64(address)?;
+        let flags = self.read_u64(address + 8)?;
+        let restorer = self.read_u64(address + 16)?;
+        let mask = self.read_u64(address + 24)?;
+        Ok(Sigaction { handler, flags, restorer, mask })
+    }
+
+    pub fn write_sigaction(&mut self, address: u64, sigaction: &Sigaction) -> Result<(), MemoryError> {
+        // Write the sigaction structure to memory
+        self.write_u64(address, sigaction.handler)?;
+        self.write_u64(address + 8, sigaction.flags)?;
+        self.write_u64(address + 16, sigaction.restorer)?;
+        self.write_u64(address + 24, sigaction.mask)?;
+        Ok(())
+    }
+
+    // Helper methods to read and write u64 values
+    pub fn read_u64(&self, address: u64) -> Result<u64, MemoryError> {
+        let bytes = self.read_memory(address, 8)?;
+        if bytes.len() == 8 {
+            Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
+        } else {
+            Err(MemoryError::IncorrectSliceLength)
+        }
+    }
+
+    pub fn write_u64(&mut self, address: u64, value: u64) -> Result<(), MemoryError> {
+        let bytes = value.to_le_bytes(); // Convert u64 to 8 bytes in little-endian order
+        self.write_memory(address, &bytes)
     }
 
     pub fn load_all_dumps(&self) -> Result<(), MemoryError> {

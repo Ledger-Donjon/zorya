@@ -166,6 +166,57 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-mmap", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, addr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)));
         }
+        13 => { // rt_sigaction
+            log!(executor.state.logger.clone(), "Syscall type: rt_sigaction");
+
+            // Retrieve parameters from registers
+            let signum_offset = 0x38; // RDI
+            let act_offset = 0x30;    // RSI
+            let oldact_offset = 0x28; // RDX
+            let sigsetsize_offset = 0x20; // R10
+
+            let signum = cpu_state_guard.get_register_by_offset(signum_offset, 64).unwrap().get_concrete_value()? as i32;
+            let act_ptr = cpu_state_guard.get_register_by_offset(act_offset, 64).unwrap().get_concrete_value()?;
+            let oldact_ptr = cpu_state_guard.get_register_by_offset(oldact_offset, 64).unwrap().get_concrete_value()?;
+            let sigsetsize = cpu_state_guard.get_register_by_offset(sigsetsize_offset, 64).unwrap().get_concrete_value()? as usize;
+
+            log!(executor.state.logger.clone(), "rt_sigaction called with signum: {}, act_ptr: 0x{:x}, oldact_ptr: 0x{:x}, sigsetsize: {}", signum, act_ptr, oldact_ptr, sigsetsize);
+
+            // For simplicity, let's assume sigsetsize is correct (e.g., 8 bytes)
+
+            // Handle oldact_ptr (if not NULL)
+            if oldact_ptr != 0 {
+                // Retrieve the current signal action for signum from the state
+                let current_action = executor.state.signal_handlers.get(&signum).cloned().unwrap_or_default();
+
+                // Write the current_action into *oldact_ptr in memory
+                executor.state.memory.write_sigaction(oldact_ptr, &current_action)
+                    .map_err(|e| format!("Failed to write old action to memory: {}", e))?;
+            }
+
+            // Handle act_ptr (if not NULL)
+            if act_ptr != 0 {
+                // Read the new action from *act_ptr in memory
+                let new_action = executor.state.memory.read_sigaction(act_ptr)
+                    .map_err(|e| format!("Failed to read new action from memory: {}", e))?;
+
+                // Update the signal handler for signum in the state
+                executor.state.signal_handlers.insert(signum, new_action);
+            }
+
+            // Return success
+            cpu_state_guard.set_register_value_by_offset(rax_offset,
+                ConcolicVar::new_concrete_and_symbolic_int(0,
+                    SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context),
+                    executor.context, 64), 64)?;
+
+            drop(cpu_state_guard);
+
+            // Create concolic variable for the result
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-rt_sigaction", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, 0u64, SymbolicVar::Int(BV::from_u64(executor.context, 0u64, 64)));
+        },
         14 => { // sys_rt_sigprocmask
             log!(executor.state.logger.clone(), "Syscall type: sys_rt_sigprocmask");
             // Read the 'how' argument from the RDI register, which specifies the action on the signal mask.

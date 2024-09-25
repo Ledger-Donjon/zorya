@@ -1,11 +1,11 @@
-use std::{collections::BTreeMap, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
+use std::{collections::{BTreeMap, HashMap}, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use nix::libc::SS_DISABLE;
 use parser::parser::Varnode;
 use z3::Context;
 use std::fmt;
-use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::MemoryX86_64, CpuState, VirtualFileSystem};
+use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::{MemoryX86_64, Sigaction}, CpuState, VirtualFileSystem};
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -29,6 +29,7 @@ pub struct State<'a> {
     pub altstack: StackT, // structure used by the sigaltstack system call to define an alternate signal stack
     pub is_terminated: bool,     // Indicates if the process is terminated
     pub exit_status: Option<i32>, // Stores the exit status code of the process
+    pub signal_handlers: HashMap<i32, Sigaction>, // Stores the signal handlers
 }
 
 impl<'a> State<'a> {
@@ -65,6 +66,7 @@ impl<'a> State<'a> {
             altstack: StackT::default(),
             is_terminated: false,
             exit_status: None,
+            signal_handlers: HashMap::new(),
         };
         //state.print_memory_content(address, range);
 
@@ -102,6 +104,7 @@ impl<'a> State<'a> {
             altstack: StackT::default(),
             is_terminated: false,
             exit_status: None,
+            signal_handlers: HashMap::new(),
         })
     }
 
