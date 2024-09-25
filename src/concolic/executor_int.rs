@@ -857,28 +857,39 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
 
     // Perform the right shift operation
     let shift_amount = input1_var.get_concrete_value() as u64;
-    if shift_amount >= output_size_bits as u64 {
-        return Err(format!("Shift amount {} exceeds output size {} bits", shift_amount, output_size_bits));
-    }
 
-    // Use Z3 BitVector for shifting if necessary
-    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvlshr(&BV::from_u64(executor.context, shift_amount, output_size_bits));
-    let result_concrete = if shift_amount < 64 {
-        input0_var.get_concrete_value() >> shift_amount
+    // Use Z3 BitVector for shifting
+    let shift_bv = BV::from_u64(executor.context, shift_amount, output_size_bits);
+    let result_symbolic = input0_var.get_symbolic_value_bv(executor.context).bvlshr(&shift_bv);
+
+    // Compute concrete value
+    let result_concrete = if shift_amount >= output_size_bits as u64 {
+        0
     } else {
-        0 // If shift amount is greater than the width of a u64, the result is zero
+        input0_var.get_concrete_value() >> shift_amount
     };
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete, result_symbolic, executor.context, output_size_bits);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_int(
+        result_concrete,
+        result_symbolic,
+        executor.context,
+        output_size_bits,
+    );
 
     log!(executor.state.logger.clone(), "*** The result of INT_RIGHT is: {:x}", result_concrete);
 
     // Handle the result based on the output varnode
     executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+    let current_addr_hex = executor
+        .current_address
+        .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intright", current_addr_hex, executor.instruction_counter);
-    executor.state.create_or_update_concolic_variable_int(&result_var_name, result_value.concrete.to_u64(), result_value.symbolic);
+    executor.state.create_or_update_concolic_variable_int(
+        &result_var_name,
+        result_value.concrete.to_u64(),
+        result_value.symbolic,
+    );
 
     Ok(())
 }
