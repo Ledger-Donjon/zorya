@@ -299,22 +299,34 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     fn load_memory_dump(&self, file_path: &Path) -> Result<(), MemoryError> {
+        let start_addr = self.parse_start_address_from_path(file_path)?;
+    
         let file = File::open(file_path)?;
         let mut reader = BufReader::new(file);
-        let mut contents = Vec::new();
-        reader.read_to_end(&mut contents)?;
-
-        let start_addr = self.parse_start_address_from_path(file_path)?;
-
-        let mut memory = self.memory.write().unwrap();  // Lock memory for writing
-        for (offset, &byte) in contents.iter().enumerate() {
-            let address = start_addr + offset as u64;
-            let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
-            memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
+    
+        let mut buffer = [0u8; 4096]; // Adjust the buffer size as needed
+        let mut offset = 0u64;
+    
+        let mut memory = self.memory.write().unwrap(); // Lock memory for writing
+    
+        loop {
+            let bytes_read = reader.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+    
+            for i in 0..bytes_read {
+                let address = start_addr + offset + i as u64;
+                let byte = buffer[i];
+                let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+                memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
+            }
+    
+            offset += bytes_read as u64;
         }
-
+    
         Ok(())
-    }
+    }    
 
     fn parse_start_address_from_path(&self, path: &Path) -> Result<u64, MemoryError> {
         let file_name = path.file_name().ok_or(io::Error::new(io::ErrorKind::NotFound, "File name not found"))?;
