@@ -45,9 +45,8 @@ impl<'a> State<'a> {
 
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
 
-        let memory_size: u64 = 1024 * 1024 * 1024; // 1 GiB memory size because dumps are 730 MB
         log!(logger.clone(), "Initializing memory...\n");
-        let memory = MemoryX86_64::new(&ctx, memory_size, vfs.clone())?;
+        let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory.load_all_dumps()?;
         memory.initialize_cpuid_memory_variables()?; 
 	
@@ -78,7 +77,7 @@ impl<'a> State<'a> {
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         let memory_size: u64 = 0x100000; // 1GB memory size because dumps are 730 MB
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
-        let memory = MemoryX86_64::new(&ctx, memory_size, vfs.clone())?;
+        let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         Ok(State {
             concolic_vars: BTreeMap::new(),
             ctx,

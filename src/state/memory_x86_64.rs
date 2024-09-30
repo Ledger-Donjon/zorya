@@ -115,16 +115,14 @@ impl<'ctx> MemoryRegion<'ctx> {
 pub struct MemoryX86_64<'ctx> {
     pub regions: Arc<RwLock<Vec<MemoryRegion<'ctx>>>>,
     pub ctx: &'ctx Context,
-    pub memory_size: u64,
     pub vfs: Arc<RwLock<VirtualFileSystem>>,
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
-    pub fn new(ctx: &'ctx Context, memory_size: u64, vfs: Arc<RwLock<VirtualFileSystem>>) -> Result<Self, MemoryError> {
+    pub fn new(ctx: &'ctx Context, vfs: Arc<RwLock<VirtualFileSystem>>) -> Result<Self, MemoryError> {
         Ok(MemoryX86_64 {
             regions: Arc::new(RwLock::new(Vec::new())),
             ctx,
-            memory_size,
             vfs,
         })
     }
@@ -162,6 +160,11 @@ impl<'ctx> MemoryX86_64<'ctx> {
         };
     
         println!("Using chunk size: {} bytes", chunk_size);
+        // Log the size of a single MemoryCell
+        let memory_cell_size = std::mem::size_of::<MemoryCell>();
+        println!("Size of a single MemoryCell: {} bytes", memory_cell_size);
+        let memory_cell_size_full = std::mem::size_of::<[MemoryCell; 1]>();
+        print!("Size of a full MemoryCell array: {} bytes", memory_cell_size_full);
     
         let symbolic = BV::new_const(self.ctx, 0, 8);
         let mut memory_region = MemoryRegion {
