@@ -680,7 +680,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 log!(executor.state.logger.clone(), "Read ss_size: 0x{:x}", ss_size);
             
                 // Validate the stack flags
-                if ss_flags != 0 && ss_flags != SS_DISABLE.try_into().unwrap() {
+                if ss_flags != 0i32 && ss_flags != SS_DISABLE as i32 {
                     log!(executor.state.logger.clone(), "Invalid ss_flags: 0x{:x}", ss_flags);
                     return Err("EINVAL: Invalid ss_flags".to_string());
                 }

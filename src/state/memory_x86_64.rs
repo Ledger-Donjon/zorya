@@ -1,9 +1,10 @@
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, SeekFrom};
+use std::io::{self, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use libc::{madvise, MADV_SEQUENTIAL};
 
 use memmap2::Mmap;
 use regex::Regex;
@@ -15,7 +16,6 @@ use crate::target_info::GLOBAL_TARGET_INFO;
 // Protection flags for memory regions
 const PROT_READ: i32 = 0x1;
 const PROT_WRITE: i32 = 0x2;
-const PROT_EXEC: i32 = 0x4;
 
 #[derive(Debug)]
 pub enum MemoryError {
@@ -145,18 +145,23 @@ impl<'ctx> MemoryX86_64<'ctx> {
             let path = entry.path();
             if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
                 println!("Initializing memory section from file: {:?}", path);
-                self.load_memory_dump_with_mmap(&path)?;
+                self.load_memory_dump_with_mmap_and_advice(&path)?;
             }
         }
         Ok(())
     }
 
-    pub fn load_memory_dump_with_mmap(&self, file_path: &Path) -> Result<(), MemoryError> {
+    pub fn load_memory_dump_with_mmap_and_advice(&self, file_path: &Path) -> Result<(), MemoryError> {
         let start_addr = self.parse_start_address_from_path(file_path)?;
     
         // Open the file and create a memory map
         let file = File::open(file_path)?;
         let mmap = unsafe { Mmap::map(&file)? };
+    
+        // Provide advice to the kernel on how the memory will be used
+        unsafe {
+            madvise(mmap.as_ptr() as *mut _, mmap.len(), MADV_SEQUENTIAL); // or MADV_WILLNEED for prefetching
+        }
     
         let symbolic = BV::new_const(self.ctx, 0, 8);
     
