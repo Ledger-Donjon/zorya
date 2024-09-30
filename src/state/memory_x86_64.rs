@@ -159,13 +159,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let mut concrete_data = Vec::new();
         reader.read_to_end(&mut concrete_data)?;
 
+        let symbolic  = BV::new_const(self.ctx, 0, 8);
+
         // Initialize symbolic data for each byte
         let data_cells = concrete_data
             .iter()
             .map(|&byte| {
                 //let symbolic = BV::from_u64(self.ctx, byte as u64, 8);
-                let symbolic  = BV::new_const(self.ctx, 0, 8);
-                MemoryCell::new(byte, symbolic)
+                MemoryCell::new(byte, symbolic.clone())
             })
             .collect::<Vec<_>>();
 
