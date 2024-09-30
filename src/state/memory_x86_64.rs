@@ -4,9 +4,9 @@ use std::fs::{self, File};
 use std::io::{self, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use libc::{madvise, MADV_SEQUENTIAL};
+use std::cmp::min;
 
-use memmap2::Mmap;
+use memmap2::MmapOptions;
 use regex::Regex;
 use z3::{ast::BV, Context};
 
@@ -145,36 +145,56 @@ impl<'ctx> MemoryX86_64<'ctx> {
             let path = entry.path();
             if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
                 println!("Initializing memory section from file: {:?}", path);
-                self.load_memory_dump_with_mmap_and_advice(&path)?;
+                self.load_memory_dump_with_dynamic_chunk_size(&path)?;
             }
         }
         Ok(())
     }
 
-    pub fn load_memory_dump_with_mmap_and_advice(&self, file_path: &Path) -> Result<(), MemoryError> {
+    pub fn load_memory_dump_with_dynamic_chunk_size(&self, file_path: &Path) -> Result<(), MemoryError> {
         let start_addr = self.parse_start_address_from_path(file_path)?;
-    
-        // Open the file and create a memory map
         let file = File::open(file_path)?;
-        let mmap = unsafe { Mmap::map(&file)? };
+        let file_len = file.metadata()?.len();
     
-        // Provide advice to the kernel on how the memory will be used
-        unsafe {
-            madvise(mmap.as_ptr() as *mut _, mmap.len(), MADV_SEQUENTIAL); // or MADV_WILLNEED for prefetching
-        }
+        // Dynamically set chunk size based on the file size
+        let chunk_size = match file_len {
+            0..=100_000_000 => 64 * 1024,        // For files smaller than 100 MB, use 64 KB chunks
+            100_000_001..=1_000_000_000 => 256 * 1024, // For files between 100 MB and 1 GB, use 256 KB chunks
+            _ => 1 * 1024 * 1024,                // For files larger than 1 GB, use 1 MB chunks
+        };
+    
+        println!("Using chunk size: {} bytes", chunk_size);
     
         let symbolic = BV::new_const(self.ctx, 0, 8);
-    
         let mut memory_region = MemoryRegion {
             start_address: start_addr,
-            end_address: start_addr + mmap.len() as u64,
+            end_address: start_addr,
             data: Vec::new(),
             prot: PROT_READ | PROT_WRITE,
         };
     
-        for &byte in mmap.iter() {
-            memory_region.data.push(MemoryCell::new(byte, symbolic.clone()));
+        let mut current_offset = 0;
+    
+        while current_offset < file_len {
+            let size = min(chunk_size as u64, file_len - current_offset);
+    
+            // Map a chunk of the file
+            let mmap = unsafe {
+                MmapOptions::new()
+                    .offset(current_offset)
+                    .len(size as usize)
+                    .map(&file)?
+            };
+    
+            // Process the chunk
+            for &byte in mmap.iter() {
+                memory_region.data.push(MemoryCell::new(byte, symbolic.clone()));
+            }
+    
+            current_offset += size;
         }
+    
+        memory_region.end_address = start_addr + file_len;
     
         let mut regions = self.regions.write().unwrap();
         regions.push(memory_region);
