@@ -160,7 +160,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
         };
     
         println!("Using chunk size: {} bytes", chunk_size);
-        // Log the size of a single MemoryCell
         let memory_cell_size = std::mem::size_of::<MemoryCell>();
         println!("Size of a single MemoryCell: {} bytes", memory_cell_size);
         let memory_cell_size_full = std::mem::size_of::<[MemoryCell; 1]>();

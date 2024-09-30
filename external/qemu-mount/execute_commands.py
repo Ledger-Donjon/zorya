@@ -14,7 +14,7 @@ class ExecuteCommands(gdb.Command):
         if not arg:
             gdb.write("Usage: exec <path to command file>\n")
             return
-        
+
         # Ensure the dumps directory exists
         dumps_dir = 'dumps'
         if not os.path.exists(dumps_dir):
@@ -48,3 +48,4 @@ class ExecuteCommands(gdb.Command):
             gdb.write(f"General error: {str(e)}\n")
 
 ExecuteCommands()
+
