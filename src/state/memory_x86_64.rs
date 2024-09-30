@@ -1,12 +1,10 @@
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, SeekFrom};
+use std::io::{self, BufReader, Read, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use std::cmp::min;
 
-use memmap2::MmapOptions;
 use regex::Regex;
 use z3::{ast::BV, Context};
 
@@ -174,31 +172,32 @@ impl<'ctx> MemoryX86_64<'ctx> {
         };
     
         let mut current_offset = 0;
+        let mut reader = BufReader::new(file);
+        let mut buffer = vec![0; chunk_size];  // Create a buffer for reading chunks
     
+        // Read the file in chunks using BufReader
         while current_offset < file_len {
-            let size = min(chunk_size as u64, file_len - current_offset);
+            // Read a chunk of data into the buffer
+            let bytes_read = reader.read(&mut buffer)?;
     
-            // Map a chunk of the file
-            let mmap = unsafe {
-                MmapOptions::new()
-                    .offset(current_offset)
-                    .len(size as usize)
-                    .map(&file)?
-            };
+            if bytes_read == 0 {
+                break;  // EOF reached
+            }
     
-            // Process the chunk
-            for &byte in mmap.iter() {
+            // Process each byte in the chunk
+            for &byte in &buffer[..bytes_read] {
                 memory_region.data.push(MemoryCell::new(byte, symbolic.clone()));
             }
     
-            current_offset += size;
+            current_offset += bytes_read as u64;
         }
     
-        memory_region.end_address = start_addr + file_len;
+        memory_region.end_address = start_addr + current_offset;
     
         let mut regions = self.regions.write().unwrap();
         regions.push(memory_region);
     
+        // Keep regions sorted by start_address for efficient searching
         regions.sort_by_key(|region| region.start_address);
     
         Ok(())
