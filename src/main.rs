@@ -18,7 +18,7 @@ fn main() {
     let config = Config::new();
     let context = Context::new(&config);
     let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
-    let mut executor = ConcolicExecutor::new(&context, logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
+    let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
     
     log!(executor.state.logger, "Configuration and context have been initialized.");
 

@@ -313,7 +313,6 @@ impl<'ctx> CpuState<'ctx> {
                 }
             }
         }
-
         println!("No matching register found for {} with offset 0x{:X}", name, offset);
         false
     }

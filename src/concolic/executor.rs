@@ -10,7 +10,6 @@ use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::memory_x86_64::MemoryValue;
 use crate::state::state_manager::Logger;
 use crate::state::CpuState;
-use crate::state::MemoryX86_64;
 use crate::state::State;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::Ast;

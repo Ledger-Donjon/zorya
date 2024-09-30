@@ -9,6 +9,7 @@ use regex::Regex;
 use z3::{ast::BV, Context};
 
 use super::VirtualFileSystem;
+use crate::target_info::GLOBAL_TARGET_INFO;
 
 // Protection flags for memory regions
 const PROT_READ: i32 = 0x1;
@@ -130,9 +131,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     pub fn load_all_dumps(&self) -> Result<(), MemoryError> {
-        let dumps_dir = Path::new("dumps"); // Adjust the path to your dumps directory
+        let dumps_dir = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            info.memory_dumps.clone()
+        };
 
-        let entries = fs::read_dir(dumps_dir)?;
+        let dumps_dir_path = dumps_dir.join("dumps");
+
+        let entries = fs::read_dir(dumps_dir_path)?;
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
