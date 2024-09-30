@@ -1,10 +1,12 @@
 /// Focuses on implementing the execution of the CALLOTHER opcode, especially syscalls, from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::executor::ConcolicExecutor;
+use crate::{concolic::ConcreteVar, executor::ConcolicExecutor, state::{memory_x86_64::MemoryValue, state_manager}};
+use gdbstub::stub::state_machine::state;
+use goblin::elf::Sym;
 use nix::libc::{gettid, SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use z3::ast::BV;
-use std::{io::Write, process, time::Duration};
+use std::{io::Write, path, process, time::Duration};
 
 use super::{ConcolicVar, SymbolicVar};
 
@@ -61,86 +63,192 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
     match rax {
         0 => { // sys_read
             log!(executor.state.logger.clone(), "Syscall type: sys_read");
-            let fd_offset = 0x38; // RDI register offset for 'fd'
-            let fd = cpu_state_guard.get_register_by_offset(fd_offset, 64).unwrap().get_concrete_value()? as u32;
 
-            let buf_ptr_offset = 0x30; // RSI register offset for 'buf_ptr'
-            let buf_ptr = cpu_state_guard.get_register_by_offset(buf_ptr_offset, 64).unwrap().get_concrete_value()?;
+            // Retrieve file descriptor (FD) from RDI (offset 0x38)
+            let fd_offset = 0x38;
+            let fd_var = cpu_state_guard.get_register_by_offset(fd_offset, 64)
+                .ok_or("Failed to retrieve FD from RDI.")?;
+            let fd = fd_var.concrete.to_u64() as u32;
 
-            let count_offset = 0x10; // RDX register offset for 'count'
-            let count = cpu_state_guard.get_register_by_offset(count_offset, 64).unwrap().get_concrete_value()? as usize;
+            // Retrieve buffer pointer from RSI (offset 0x30)
+            let buf_ptr_offset = 0x30;
+            let buf_ptr_var = cpu_state_guard.get_register_by_offset(buf_ptr_offset, 64)
+                .ok_or("Failed to retrieve buffer pointer from RSI.")?;
+            let buf_ptr = buf_ptr_var.concrete.to_u64();
 
+            // Retrieve count from RDX (offset 0x10)
+            let count_offset = 0x10;
+            let count_var = cpu_state_guard.get_register_by_offset(count_offset, 64)
+                .ok_or("Failed to retrieve count from RDX.")?;
+            let count = count_var.concrete.to_u64() as usize;
+
+            log!(executor.state.logger.clone(), "FD: {}, buf_ptr: 0x{:x}, count: {}", fd, buf_ptr, count);
+
+            // Read from the virtual file system
             let mut buffer = vec![0u8; count];
-            let bytes_read = executor.state.vfs.read(fd, &mut buffer);
+            let bytes_read = {
+                let vfs = executor.state.vfs.read().unwrap();
+                vfs.read(fd, &mut buffer)
+            };
 
-            let _ = executor.state.memory.write_bytes(buf_ptr, &buffer);
+            // Write the buffer to memory using the new method
+            executor.state.memory.write_bytes(buf_ptr, &buffer[..bytes_read])
+                .map_err(|e| format!("Failed to write bytes to memory: {}", e))?;
 
-            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(bytes_read as u64, SymbolicVar::new_int(bytes_read as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
-            
+            // Update RAX with the number of bytes read
+            let bytes_read_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                bytes_read as u64,
+                BV::from_u64(executor.context, bytes_read as u64, 64),
+                executor.context,
+                64,
+            );
+            cpu_state_guard.set_register_value_by_offset(rax_offset, bytes_read_concolic, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+
             drop(cpu_state_guard);
 
-            // Create the concolic variables for the results
+            // Record the operation
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-read", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, bytes_read.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, bytes_read.try_into().unwrap(), 64)));
-
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                bytes_read as u64,
+                SymbolicVar::Int(BV::from_u64(executor.context, bytes_read as u64, 64)),    
+            );
         },
         1 => { // sys_write
             log!(executor.state.logger.clone(), "Syscall type: sys_write");
+
+            // Retrieve file descriptor (FD) from RDI (offset 0x38)
             let fd_offset = 0x38;
-            let fd = cpu_state_guard.get_register_by_offset(fd_offset, 64).unwrap().get_concrete_value()? as u32;
+            let fd_var = cpu_state_guard.get_register_by_offset(fd_offset, 64)
+                .ok_or("Failed to retrieve FD from RDI.")?;
+            let fd = fd_var.concrete.to_u64() as u32;
 
+            // Retrieve buffer pointer from RSI (offset 0x30)
             let buf_ptr_offset = 0x30;
-            let buf_ptr = cpu_state_guard.get_register_by_offset(buf_ptr_offset, 64).unwrap().get_concrete_value()?;
+            let buf_ptr_var = cpu_state_guard.get_register_by_offset(buf_ptr_offset, 64)
+                .ok_or("Failed to retrieve buffer pointer from RSI.")?;
+            let buf_ptr = buf_ptr_var.concrete.to_u64();
 
+            // Retrieve count from RDX (offset 0x10)
             let count_offset = 0x10;
-            let count = cpu_state_guard.get_register_by_offset(count_offset, 64).unwrap().get_concrete_value()? as usize;
+            let count_var = cpu_state_guard.get_register_by_offset(count_offset, 64)
+                .ok_or("Failed to retrieve count from RDX.")?;
+            let count = count_var.concrete.to_u64() as usize;
 
-            let data = executor.state.memory.read_bytes(buf_ptr, count).map_err(|e| e.to_string())?;
-            let bytes_written = executor.state.vfs.write(fd, &data);
+            log!(executor.state.logger.clone(), "FD: {}, buf_ptr: 0x{:x}, count: {}", fd, buf_ptr, count);
 
-            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(bytes_written as u64, SymbolicVar::new_int(bytes_written as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
-        
+            // Read data from memory using the new method
+            let data = executor.state.memory.read_bytes(buf_ptr, count)
+                .map_err(|e| format!("Failed to read bytes from memory: {}", e))?;
+
+            // Write data to the virtual file system
+            let bytes_written = {
+                let vfs = executor.state.vfs.read().unwrap();
+                vfs.write(fd, &data)
+            };
+
+            log!(executor.state.logger.clone(), "Bytes written: {}", bytes_written);
+
+            // Update RAX with the number of bytes written
+            let bytes_written_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                bytes_written as u64,
+                BV::from_u64(executor.context, bytes_written as u64, 64),
+                executor.context,
+                64,
+            );
+            cpu_state_guard.set_register_value_by_offset(rax_offset, bytes_written_concolic, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+
             drop(cpu_state_guard);
-            
-            // Create the concolic variables for the results
+
+            // Record the operation for tracing
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-write", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, bytes_written.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, bytes_written.try_into().unwrap(), 64)));
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                bytes_written as u64,
+                SymbolicVar::Int(BV::from_u64(executor.context, bytes_written as u64, 64)),
+            );
         },
         2 => { // sys_open
             log!(executor.state.logger.clone(), "Syscall type: sys_open");
+
+            // Retrieve filename pointer from RDI (offset 0x38)
             let filename_ptr_offset = 0x38;
-            let filename_ptr = cpu_state_guard.get_register_by_offset(filename_ptr_offset, 64).unwrap().get_concrete_value()?;
+            let filename_ptr_var = cpu_state_guard.get_register_by_offset(filename_ptr_offset, 64)
+                .ok_or("Failed to retrieve filename pointer from RDI.")?;
+            let filename_ptr = filename_ptr_var.concrete.to_u64();
 
-            let filename = executor.state.memory.read_string(filename_ptr).map_err(|e| e.to_string())?;
+            // Read the filename from memory using the new method
+            let filename = executor.state.memory.read_string(filename_ptr)
+                .map_err(|e| format!("Failed to read filename from memory: {}", e))?;
 
-            let fd = executor.state.vfs.open(&filename);
+            log!(executor.state.logger.clone(), "Filename: {}", filename);
 
-            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(fd as u64, SymbolicVar::new_int(fd as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
-        
+            // Open the file using the virtual file system
+            let fd = {
+                let mut vfs = executor.state.vfs.write().unwrap();
+                vfs.open(&filename)
+            };
+
+            // Update RAX with the file descriptor
+            let fd_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                fd as u64,
+                BV::from_u64(executor.context, fd as u64, 64),
+                executor.context,
+                64,
+            );
+            cpu_state_guard.set_register_value_by_offset(rax_offset, fd_concolic, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+
             drop(cpu_state_guard);
-            
-            // Create the concolic variables for the results
+
+            // Record the operation
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-open", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, fd.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, fd.try_into().unwrap(), 64)));
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                fd as u64,
+                SymbolicVar::Int(BV::from_u64(executor.context, fd as u64, 64)),
+            );
         },
         3 => { // sys_close
             log!(executor.state.logger.clone(), "Syscall type: sys_close");
+
+            // Retrieve file descriptor (FD) from RDI (offset 0x38)
             let fd_offset = 0x38;
-            let fd = cpu_state_guard.get_register_by_offset(fd_offset, 64).unwrap().get_concrete_value()? as u32;
+            let fd_var = cpu_state_guard.get_register_by_offset(fd_offset, 64)
+                .ok_or("Failed to retrieve FD from RDI.")?;
+            let fd = fd_var.concrete.to_u64() as u32;
 
-            executor.state.vfs.close(fd);
+            // Close the file using the virtual file system
+            {
+                let mut vfs = executor.state.vfs.write().unwrap();
+                vfs.close(fd);
+            }
 
-            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
-        
+            // Update RAX with 0 to indicate success
+            let success_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                0,
+                BV::from_u64(executor.context, 0, 64),
+                executor.context,
+                64,
+            );
+            cpu_state_guard.set_register_value_by_offset(rax_offset, success_concolic, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+
             drop(cpu_state_guard);
-            
-            // Create the concolic variables for the results
+
+            // Record the operation
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-close", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, fd.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, fd.try_into().unwrap(), 64)));
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                fd as u64,
+                SymbolicVar::Int(BV::from_u64(executor.context, fd as u64, 64)),
+            );
         },
         9 => { // sys_mmap
             log!(executor.state.logger.clone(), "Syscall type: sys_mmap");
@@ -187,7 +295,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             // Handle oldact_ptr (if not NULL)
             if oldact_ptr != 0 {
                 // Retrieve the current signal action for signum from the state
-                let current_action = executor.state.signal_handlers.get(&signum).cloned().unwrap_or_default();
+                let current_action = executor.state.signal_handlers.get(&signum).cloned().unwrap();
 
                 // Write the current_action into *oldact_ptr in memory
                 executor.state.memory.write_sigaction(oldact_ptr, &current_action)
@@ -219,52 +327,80 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         },
         14 => { // sys_rt_sigprocmask
             log!(executor.state.logger.clone(), "Syscall type: sys_rt_sigprocmask");
-            // Read the 'how' argument from the RDI register, which specifies the action on the signal mask.
-            let how = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as i32;
-
-            // Read the pointer to the new signal set from the RSI register.
-            let set_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
-
-            // Read the pointer to the old signal set from the RDX register.
-            let oldset_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
-
-            // If oldset_ptr is not NULL, store the current signal mask at that memory location.
-            if oldset_ptr != 0 {
-                let old_mask = executor.state.signal_mask;
-                let _ = executor.state.memory.write_quad(oldset_ptr, old_mask as u64);
+                    
+            // 1. Retrieve 'how' argument from RDI (offset 0x38)
+            let how_var = cpu_state_guard.get_register_by_offset(0x38, 64)
+                .ok_or("Failed to retrieve 'how' from RDI.")?;
+            let how = how_var.concrete.to_u64() as i32;
+            
+            // 2. Retrieve 'set_ptr' from RSI (offset 0x30)
+            let set_ptr_var = cpu_state_guard.get_register_by_offset(0x30, 64)
+                .ok_or("Failed to retrieve 'set_ptr' from RSI.")?;
+            let set_ptr = set_ptr_var.concrete;
+            
+            // 3. Retrieve 'oldset_ptr' from RDX (offset 0x28)
+            let oldset_ptr_var = cpu_state_guard.get_register_by_offset(0x28, 64)
+                .ok_or("Failed to retrieve 'oldset_ptr' from RDX.")?;
+            let oldset_ptr = oldset_ptr_var.concrete;
+            
+            // 4. If oldset_ptr is not NULL, store the current signal mask at that memory location.
+            if oldset_ptr.to_u64() != 0 {
+                let current_mask = executor.state.signal_mask;
+                let mem_value = MemoryValue {
+                    concrete: current_mask,
+                    symbolic: BV::from_u64(executor.context, current_mask, 64),
+                    size: 64,
+                };
+                // Attempt to write the current_mask to oldset_ptr
+                executor.state.memory.write_value(oldset_ptr.to_u64(), &mem_value)
+                    .map_err(|e| format!("Failed to write old signal mask to memory: {}", e))?;
             }
-
-            // If set_ptr is not NULL, apply the new mask to the current signal mask based on the 'how' directive.
-            if set_ptr != 0 {
-                let new_mask = executor.state.memory.read_quad(set_ptr).unwrap() as u32;
+            
+            // 5. If set_ptr is not NULL, apply the new mask based on 'how'
+            if set_ptr.to_u64() != 0 {
+                // Read the new mask from set_ptr
+                let new_mask_value = executor.state.memory.read_u64(set_ptr.to_u64())
+                    .map_err(|e| format!("Failed to read new signal mask from memory: {}", e))?;
+                let new_mask = new_mask_value.concrete as u64; // Assuming sigset_t is 64 bits
                 
+                // Apply 'how' directive to update the signal_mask
                 match how {
-                    // Add the signals from set to the current mask.
                     SIG_BLOCK => {
                         executor.state.signal_mask |= new_mask;
                     },
-                    // Remove the signals from set from the current mask.
                     SIG_UNBLOCK => {
                         executor.state.signal_mask &= !new_mask;
                     },
-                    // Set the current mask to the signals from set.
                     SIG_SETMASK => {
                         executor.state.signal_mask = new_mask;
                     },
-                    // Handle invalid 'how' arguments.
-                    _ => return Err("Invalid 'how' argument for sys_sigprocmask".to_string()),
+                    _ => {
+                        return Err(format!("Invalid 'how' argument for sys_rt_sigprocmask: {}", how));
+                    },
                 }
             }
-
-            // Update the RAX register to indicate successful operation.
-            cpu_state_guard.set_register_value_by_offset(0x0, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+            
+            // 6. Update RAX to 0 to indicate success
+            let rax_value = MemoryValue {
+                concrete: 0,
+                symbolic: BV::from_u64(executor.context, 0, 64),
+                size: 64,
+            };
+            let rax_concolic_var = ConcolicVar::new_from_memory_value(&rax_value);
+            cpu_state_guard.set_register_value_by_offset(0x0, rax_concolic_var, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+            
             drop(cpu_state_guard);
-
-            // Create the concolic variables for the results
+            
+            // 7. Record the operation in concolic variables (if applicable)
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-rt_sigprocmask", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, how.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, how.try_into().unwrap(), 64)));
-        },
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                how.try_into().unwrap(),
+                SymbolicVar::Int(BV::from_u64(executor.context, how.try_into().unwrap(), 64)),
+            );
+        },        
         24 => { // sys_sched_yield
             log!(executor.state.logger.clone(), "Syscall type: sys_sched_yield");
             // sys_sched_yield() causes the calling thread to relinquish the CPU
@@ -374,57 +510,92 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-madvise", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, addr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)));
         },
-        
         59 => { // sys_execve
             log!(executor.state.logger.clone(), "Syscall type: sys_execve");
-            let path_ptr = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
-            let argv_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
-            let envp_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
-        
-            // Read the file path from memory
-            let path = executor.state.memory.read_string(path_ptr).map_err(|e| e.to_string())?;
+            
+            // 1. Retrieve 'path_ptr' from RDI (offset 0x38)
+            let path_ptr_var = cpu_state_guard.get_register_by_offset(0x38, 64)
+                .ok_or("Failed to retrieve 'path_ptr' from RDI.")?;
+            let path_ptr = path_ptr_var.concrete.to_u64();
+            
+            // 2. Retrieve 'argv_ptr' from RSI (offset 0x30)
+            let argv_ptr_var = cpu_state_guard.get_register_by_offset(0x30, 64)
+                .ok_or("Failed to retrieve 'argv_ptr' from RSI.")?;
+            let argv_ptr = argv_ptr_var.concrete.to_u64();
+            
+            // 3. Retrieve 'envp_ptr' from RDX (offset 0x28)
+            let envp_ptr_var = cpu_state_guard.get_register_by_offset(0x28, 64)
+                .ok_or("Failed to retrieve 'envp_ptr' from RDX.")?;
+            let envp_ptr = envp_ptr_var.concrete.to_u64();
+            
+            // 4. Read the file path from memory
+            let path = executor.state.memory.read_string(path_ptr)
+                .map_err(|e| format!("Failed to read execve path: {}", e))?;
             log!(executor.state.logger.clone(), "Executing program at path: {}", path);
-        
-            // Retrieve and log the arguments
+            
+            // 5. Retrieve and log the arguments
             let mut argv = Vec::new();
             let mut i = 0;
             loop {
-                let arg_ptr = executor.state.memory.read_quad(argv_ptr + (i * 8)).map_err(|e| e.to_string())?;
+                let arg_ptr = executor.state.memory.read_u64(argv_ptr + (i * 8))
+                    .map_err(|e| format!("Failed to read argv_ptr at index {}: {}", i, e))?
+                    .concrete;
                 if arg_ptr == 0 {
                     break; // Null pointer indicates the end of the argv array
                 }
-                let arg = executor.state.memory.read_string(arg_ptr).map_err(|e| e.to_string())?;
+                let arg = executor.state.memory.read_string(arg_ptr)
+                    .map_err(|e| format!("Failed to read argv[{}]: {}", i, e))?;
                 argv.push(arg);
                 i += 1;
             }
             log!(executor.state.logger.clone(), "With arguments: {:?}", argv);
-        
-            // Retrieve and log the environment variables
+            
+            // 6. Retrieve and log the environment variables
             let mut envp = Vec::new();
             let mut j = 0;
             loop {
-                let env_ptr = executor.state.memory.read_quad(envp_ptr + (j * 8)).map_err(|e| e.to_string())?;
+                let env_ptr = executor.state.memory.read_u64(envp_ptr + (j * 8))
+                    .map_err(|e| format!("Failed to read envp_ptr at index {}: {}", j, e))?
+                    .concrete;
                 if env_ptr == 0 {
                     break; // Null pointer indicates the end of the envp array
                 }
-                let env = executor.state.memory.read_string(env_ptr).map_err(|e| e.to_string())?;
+                let env = executor.state.memory.read_string(env_ptr)
+                    .map_err(|e| format!("Failed to read envp[{}]: {}", j, e))?;
                 envp.push(env);
                 j += 1;
             }
             log!(executor.state.logger.clone(), "And environment: {:?}", envp);
-        
-            // Normally, execve replaces the current process with a new process specified by path.
-            // In a symbolic execution framework, this might entail loading the program for analysis,
-            // or simply logging that this would happen.
+            
+            // 7. Simulate execve operation by loading and executing the new program - TODO
             log!(executor.state.logger.clone(), "Simulated execve would now load and execute the new program.");
-
+            
+            // 8. Set RAX to 0 to indicate success
+            let rax_value = MemoryValue {
+                concrete: 0,
+                symbolic: BV::from_u64(executor.context, 0, 64),
+                size: 64,
+            };
+            let rax_concolic_var = ConcolicVar::new_from_memory_value(&rax_value);
+            cpu_state_guard.set_register_value_by_offset(0x0, rax_concolic_var, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+            
             drop(cpu_state_guard);
             
-            // Create the concolic variables for the results
-            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-sys-execve", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, path_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, path_ptr.try_into().unwrap(), 64)));
-        }
+            // 9. Record the operation in concolic variables (if applicable)
+            let current_addr_hex = executor.current_address
+                .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!(
+                "{}-{:02}-callother-sys-execve",
+                current_addr_hex,
+                executor.instruction_counter
+            );
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                path_ptr.try_into().unwrap(),
+                SymbolicVar::Int(BV::from_u64(executor.context, path_ptr.try_into().unwrap(), 64)),
+            );
+        },        
         60 => { // sys_exit
             log!(executor.state.logger.clone(), "Syscall type: sys_exit");
             let status = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
@@ -481,76 +652,76 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         
             if ss_ptr != 0 {
                 // If ss_ptr is not null, read the new signal stack structure from memory
-                let ss_sp = match executor.state.memory.read_quad(ss_ptr) {
-                    Ok(value) => value,
+                let ss_sp = match executor.state.memory.read_u64(ss_ptr) {
+                    Ok(value) => value.concrete,
                     Err(e) => {
-                        // Log an error if the stack pointer cannot be read from memory
                         log!(executor.state.logger.clone(), "Error reading ss_sp from memory: {:?}", e);
                         return Err("Failed to read ss_sp from memory".to_string());
                     },
                 };
                 log!(executor.state.logger.clone(), "Read ss_sp: 0x{:x}", ss_sp);
-        
-                let ss_flags = match executor.state.memory.read_word(ss_ptr + 8) {
-                    Ok(value) => value,
+            
+                let ss_flags = match executor.state.memory.read_u32(ss_ptr + 8) {
+                    Ok(value) => value.concrete as i32,
                     Err(e) => {
-                        // Log an error if the stack flags cannot be read from memory
                         log!(executor.state.logger.clone(), "Error reading ss_flags from memory: {:?}", e);
                         return Err("Failed to read ss_flags from memory".to_string());
                     },
                 };
                 log!(executor.state.logger.clone(), "Read ss_flags: 0x{:x}", ss_flags);
-        
-                let ss_size = match executor.state.memory.read_quad(ss_ptr + 16) {
-                    Ok(value) => value,
+            
+                let ss_size = match executor.state.memory.read_u64(ss_ptr + 16) {
+                    Ok(value) => value.concrete,
                     Err(e) => {
-                        // Log an error if the stack size cannot be read from memory
                         log!(executor.state.logger.clone(), "Error reading ss_size from memory: {:?}", e);
                         return Err("Failed to read ss_size from memory".to_string());
                     },
                 };
                 log!(executor.state.logger.clone(), "Read ss_size: 0x{:x}", ss_size);
-        
+            
                 // Validate the stack flags
-                if ss_flags != 0 && ss_flags != SS_DISABLE {
+                if ss_flags != 0 && ss_flags != SS_DISABLE.try_into().unwrap() {
                     log!(executor.state.logger.clone(), "Invalid ss_flags: 0x{:x}", ss_flags);
                     return Err("EINVAL: Invalid ss_flags".to_string());
                 }
-        
+            
                 // Validate the stack size
                 if ss_flags == 0 && ss_size < MINSIGSTKSZ as u64 {
                     log!(executor.state.logger.clone(), "Stack size too small: 0x{:x}", ss_size);
                     return Err("ENOMEM: Stack size too small".to_string());
                 }
-        
+            
                 // Update the alternate signal stack with the new values
                 executor.state.altstack.ss_sp = ss_sp;
                 executor.state.altstack.ss_flags = ss_flags as u64;
                 executor.state.altstack.ss_size = ss_size;
                 log!(executor.state.logger.clone(), "Updated altstack: ss_sp=0x{:x}, ss_flags=0x{:x}, ss_size=0x{:x}", ss_sp, ss_flags, ss_size);
             }
-        
+            
             if oss_ptr != 0 {
                 // If oss_ptr is not null, return the current alternate signal stack
                 let current_ss_sp = executor.state.altstack.ss_sp;
+                let current_ss_sp_symbolic = SymbolicVar::new_int(current_ss_sp as i32, executor.context, 64).to_bv(executor.context);
                 let current_ss_flags = executor.state.altstack.ss_flags;
+                let current_ss_flags_symbolic = SymbolicVar::new_int(current_ss_flags as i32, executor.context, 32).to_bv(executor.context);
                 let current_ss_size = executor.state.altstack.ss_size;
+                let current_ss_size_symbolic = SymbolicVar::new_int(current_ss_size as i32, executor.context, 64).to_bv(executor.context);
                 log!(executor.state.logger.clone(), "Returning current altstack: ss_sp=0x{:x}, ss_flags=0x{:x}, ss_size=0x{:x}", current_ss_sp, current_ss_flags, current_ss_size);
-        
+            
                 // Write the current alternate signal stack information to memory
-                if let Err(e) = executor.state.memory.write_quad(oss_ptr, current_ss_sp) {
+                if let Err(e) = executor.state.memory.write_u64(oss_ptr, &MemoryValue::new(current_ss_sp, current_ss_sp_symbolic, 64)) {
                     log!(executor.state.logger.clone(), "Error writing current_ss_sp to memory: {:?}", e);
                     return Err("Failed to write current_ss_sp to memory".to_string());
                 }
-                if let Err(e) = executor.state.memory.write_word(oss_ptr + 8, current_ss_flags.try_into().unwrap()) {
+                if let Err(e) = executor.state.memory.write_u32(oss_ptr + 8, &MemoryValue::new(current_ss_flags, current_ss_flags_symbolic, 32)) {
                     log!(executor.state.logger.clone(), "Error writing current_ss_flags to memory: {:?}", e);
                     return Err("Failed to write current_ss_flags to memory".to_string());
                 }
-                if let Err(e) = executor.state.memory.write_quad(oss_ptr + 16, current_ss_size) {
+                if let Err(e) = executor.state.memory.write_u64(oss_ptr + 16, &MemoryValue::new(current_ss_size, current_ss_size_symbolic, 64)) {
                     log!(executor.state.logger.clone(), "Error writing current_ss_size to memory: {:?}", e);
                     return Err("Failed to write current_ss_size to memory".to_string());
                 }
-            }
+            }            
         
             // Set the result of the syscall (0 for success) in the RAX register
             cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(0, SymbolicVar::new_int(0, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
@@ -560,7 +731,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-sigaltstack", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, oss_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, oss_ptr.try_into().unwrap(), 64)));
-        },        
+        },                     
         158 => { // sys_arch_prctl: set architecture-specific thread state
             log!(executor.state.logger.clone(), "Syscall invoked: sys_arch_prctl");
                 
@@ -710,28 +881,72 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         }        
         204 => { // sys_sched_getaffinity : gets the CPU affinity mask of a process
             log!(executor.state.logger.clone(), "Syscall type: sys_sched_getaffinity");
-            let pid = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as u32;
-            let cpusetsize = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()? as usize;
-            let mask_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
-        
+            
+            // 1. Retrieve 'pid' from RDI (offset 0x38)
+            let pid_var = cpu_state_guard.get_register_by_offset(0x38, 64)
+                .ok_or("Failed to retrieve 'pid' from RDI.")?;
+            let pid = pid_var.concrete.to_u64() as u32;
+            
+            // 2. Retrieve 'cpusetsize' from RSI (offset 0x30)
+            let cpusetsize_var = cpu_state_guard.get_register_by_offset(0x30, 64)
+                .ok_or("Failed to retrieve 'cpusetsize' from RSI.")?;
+            let cpusetsize = cpusetsize_var.concrete.to_u64() as usize;
+            
+            // 3. Retrieve 'mask_ptr' from RDX (offset 0x28)
+            let mask_ptr_var = cpu_state_guard.get_register_by_offset(0x28, 64)
+                .ok_or("Failed to retrieve 'mask_ptr' from RDX.")?;
+            let mask_ptr = mask_ptr_var.concrete.to_u64();
+            
+            // 4. Validate 'cpusetsize'
             if cpusetsize > 64 {
                 log!(executor.state.logger.clone(), "Error: cpusetsize of {} exceeds 64 bits, which is not supported.", cpusetsize);
                 return Err(format!("cpusetsize of {} is too large to handle", cpusetsize));
             }
-        
-            // Simulate getting the CPU affinity for the given pid and cpusetsize
-            let simulated_mask = (1u64.checked_shl(cpusetsize as u32).unwrap_or(0) - 1) & 0xFFFFFFFFFFFFFFFF; // Safe handling of shift and mask to avoid overflow
-            executor.state.memory.write_quad(mask_ptr, simulated_mask).map_err(|e| e.to_string())?;
-        
+            
+            // 5. Simulate getting the CPU affinity for the given pid and cpusetsize
+            let simulated_mask = if cpusetsize == 0 {
+                0u64
+            } else {
+                (1u64.checked_shl(cpusetsize as u32).unwrap_or(0) - 1) & 0xFFFFFFFFFFFFFFFF
+            };
+            
             log!(executor.state.logger.clone(), "Getting CPU affinity for PID {}, size {}", pid, cpusetsize);
-        
+            
+            // 6. Write the simulated mask to the memory location pointed to by mask_ptr
+            let mask_memory_value = MemoryValue {
+                concrete: simulated_mask,
+                symbolic: BV::from_u64(executor.context, simulated_mask, 64),
+                size: 64,
+            };
+            executor.state.memory.write_value(mask_ptr, &mask_memory_value)
+                .map_err(|e| format!("Failed to write CPU affinity mask to memory: {}", e))?;
+            
+            // 7. Set RAX to 0 to indicate success
+            let rax_value = MemoryValue {
+                concrete: 0,
+                symbolic: BV::from_u64(executor.context, 0, 64),
+                size: 64,
+            };
+            let rax_concolic_var = ConcolicVar::new_from_memory_value(&rax_value);
+            cpu_state_guard.set_register_value_by_offset(0x0, rax_concolic_var, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+            
             drop(cpu_state_guard);
             
-            // Create the concolic variables for the results
-            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-sys-sched_getaffinity", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, simulated_mask.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, simulated_mask.try_into().unwrap(), 64)));
-        },
+            // 8. Record the operation in concolic variables
+            let current_addr_hex = executor.current_address
+                .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!(
+                "{}-{:02}-callother-sys-sched_getaffinity",
+                current_addr_hex,
+                executor.instruction_counter
+            );
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                simulated_mask,
+                SymbolicVar::Int(BV::from_u64(executor.context, simulated_mask, 64)),
+            );
+        },        
         231 => { // sys_exit_group
             log!(executor.state.logger.clone(), "Syscall type: sys_exit_group");
             let status = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
@@ -749,23 +964,65 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         },      
         257 => { // sys_openat : open file relative to a directory file descriptor
             log!(executor.state.logger.clone(), "Syscall type: sys_openat");
-            let pathname_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
-            let flags = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()? as i32;
-            let mode = cpu_state_guard.get_register_by_offset(0x20, 64).unwrap().get_concrete_value()? as u32;
             
-            let pathname = executor.state.memory.read_string(pathname_ptr).map_err(|e| e.to_string())?;
-            let fd = executor.state.vfs.open(&pathname); // Simulate opening the file
-            log!(executor.state.logger.clone(), "Opened file at path: '{}' with flags: {}, mode: {}, returned FD: {}", pathname, flags, mode, fd);
-            
-            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(fd as u64, SymbolicVar::new_int(fd as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
-        
+            let pathname_ptr = {
+                // Lock the CPU state and retrieve the relevant register values
+                let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+                
+                // 1. Retrieve 'pathname_ptr' from RDI (offset 0x30)
+                let pathname_ptr_var = cpu_state_guard.get_register_by_offset(0x30, 64)
+                    .ok_or("Failed to retrieve 'pathname_ptr' from RDI.")?;
+                let pathname_ptr = pathname_ptr_var.concrete.to_u64();
+                
+                // 2. Retrieve 'flags' from RSI (offset 0x28)
+                let flags_var = cpu_state_guard.get_register_by_offset(0x28, 64)
+                    .ok_or("Failed to retrieve 'flags' from RSI.")?;
+                let flags = flags_var.concrete.to_u64() as i32;
+                
+                // 3. Retrieve 'mode' from RDX (offset 0x20)
+                let mode_var = cpu_state_guard.get_register_by_offset(0x20, 64)
+                    .ok_or("Failed to retrieve 'mode' from RDX.")?;
+                let mode = mode_var.concrete.to_u64() as u32;
+                
+                // 4. Read the pathname string from memory
+                let pathname = executor.state.memory.read_string(pathname_ptr)
+                    .map_err(|e| format!("Failed to read pathname string: {}", e))?;
+                
+                // 5. Simulate opening the file via the virtual file system
+                let fd = {
+                    let mut vfs_guard = executor.state.vfs.write().unwrap(); // Acquire mutable lock
+                    vfs_guard.open(&pathname)
+                };
+                
+                log!(executor.state.logger.clone(), "Opened file at path: '{}' with flags: {}, mode: {}, returned FD: {}", pathname, flags, mode, fd);
+                
+                // 6. Set the return value (FD) in the RAX register
+                let rax_memory_value = MemoryValue {
+                    concrete: fd as u64,
+                    symbolic: BV::from_u64(executor.context, fd as u64, 64),
+                    size: 64,
+                };
+                let rax_concolic_var = ConcolicVar::new_from_memory_value(&rax_memory_value);
+                cpu_state_guard.set_register_value_by_offset(0x0, rax_concolic_var, 64)
+                    .map_err(|e| format!("Failed to set RAX: {}", e))?;
+                pathname_ptr
+            };
             drop(cpu_state_guard);
-            
-            // Create the concolic variables for the results
-            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-sys-openat", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, pathname_ptr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, pathname_ptr.try_into().unwrap(), 64)));
-        },
+
+            // 7. Record the operation in concolic variables (now safe to mutably borrow executor.state)
+            let current_addr_hex = executor.current_address
+                .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!(
+                "{}-{:02}-callother-sys-openat",
+                current_addr_hex,
+                executor.instruction_counter
+            );
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                pathname_ptr,
+                SymbolicVar::Int(BV::from_u64(executor.context, pathname_ptr, 64)),
+            );
+        },              
         _ => {
             // if the syscall is not handled, stop the execution
             log!(executor.state.logger.clone(), "Unhandled syscall number: {}", rax);

@@ -7,7 +7,7 @@ use std::sync::MutexGuard;
 use std::process;
 
 use crate::state::cpu_state::CpuConcolicValue;
-use crate::state::memory_x86_64::MemoryConcolicValue;
+use crate::state::memory_x86_64::MemoryValue;
 use crate::state::state_manager::Logger;
 use crate::state::CpuState;
 use crate::state::MemoryX86_64;
@@ -212,15 +212,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     self.extract_and_create_concolic_value(&cpu_state_guard, *offset, bit_size)
                 }
             },
-            // Keep track of the unique variables defined inside one address execution
             Var::Unique(id) => {
                 log!(self.state.logger.clone(), "Varnode is of type 'unique' with ID: {:x}", id);
                 let unique_name = format!("Unique(0x{:x})", id);
-                let unique_symbolic = SymbolicVar::Int(BV::new_const(self.context, unique_name.clone(), bit_size));
+                let unique_symbolic = BV::new_const(self.context, unique_name.clone(), bit_size);
                 let var = self.unique_variables.entry(unique_name.clone())
                     .or_insert_with(|| {
                         log!(self.state.logger.clone(), "Creating new unique variable '{}' with initial value {:x} and size {:?}", unique_name, *id as u64, varnode.size);
-                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.to_bv(&self.context), self.context, bit_size)
+                        ConcolicVar::new_concrete_and_symbolic_int(*id as u64, unique_symbolic.clone(), self.context, bit_size)
                     })
                     .clone();
                 log!(self.state.logger.clone(), "Retrieved unique variable: {:?} with symbolic size: {:?}", var.concrete, var.symbolic.get_size());
@@ -236,94 +235,34 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
                 log!(self.state.logger.clone(), "Parsed value: {}", parsed_value);
                 let parsed_value_symbolic = BV::from_u64(self.context, parsed_value, bit_size);
-                let memory_var = MemoryConcolicValue::new( self.context, parsed_value, parsed_value_symbolic, bit_size);
-                log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {:?} with symbolic size {:?}", memory_var.concrete, memory_var.symbolic.get_size());
-                Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
+                let mem_value = MemoryValue {
+                    concrete: parsed_value,
+                    symbolic: parsed_value_symbolic,
+                    size: bit_size,
+                };
+                log!(self.state.logger.clone(), "Constant treated as memory value: {:?} with symbolic size {:?}", mem_value.concrete, mem_value.symbolic.get_size());
+                Ok(ConcolicEnum::MemoryValue(mem_value))
             },
-            // Handle MemoryRam case
             Var::MemoryRam => {
                 log!(self.state.logger.clone(), "Varnode is MemoryRam");
-                let memory_var = MemoryX86_64::get_memory_concolic_var(&self.state.memory, self.context, 0, bit_size); // Assume 0 is the base address for RAM
-                log!(self.state.logger.clone(), "MemoryRam treated as general memory space, created or retrieved: {:?}", memory_var.concrete);
-                Ok(ConcolicEnum::MemoryConcolicValue(memory_var))
+                // Assuming MemoryRam represents general memory starting at address 0
+                let mem_value = self.state.memory.read_value(0, bit_size)
+                    .map_err(|e| format!("Failed to read MemoryRam: {:?}", e))?;
+                log!(self.state.logger.clone(), "MemoryRam treated as general memory space, retrieved: {:?}", mem_value.concrete);
+                Ok(ConcolicEnum::MemoryValue(mem_value))
             },
-            // Handle specific memory addresses
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-
-                // Determine the number of bytes to read based on the bit size
-                let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
-                let byte_size = ((bit_size + 7) / 8) as usize; // Number of bytes to read
-
-                log!(self.state.logger.clone(), "Bit size: {}, Byte size: {}", bit_size, byte_size);
-
-                // Read from memory and assemble the value
-                let (concrete_value, symbolic_bv) = {
-                    // Lock the memory for reading/writing
-                    let mut memory = self.state.memory.memory.write().unwrap();
-
-                    let mut concrete_value = 0u128;
-                    let mut symbolic_bv = None; // Option<BV<'ctx>>
-
-                    for i in 0..byte_size {
-                        let current_addr = *addr + i as u64;
-
-                        // Retrieve or initialize the memory value at this address
-                        let mem_value = memory.entry(current_addr).or_insert_with(|| {
-                            // Initialize uninitialized memory with a fresh symbolic variable
-                            let symbolic_name = format!("mem_{:x}", current_addr);
-                            let symbolic_bv = BV::new_const(self.context, symbolic_name, 8);
-                            MemoryConcolicValue::new(self.context, 0, symbolic_bv, 8)
-                        }).clone();
-
-                        // Combine concrete values
-                        if let ConcreteVar::Int(val) = mem_value.concrete {
-                            concrete_value |= (val as u128) << (i * 8);
-                        } else {
-                            return Err(format!("Unsupported concrete value type at memory address 0x{:x}", current_addr));
-                        }
-
-                        // Combine symbolic values
-                        let mem_symbolic_bv = mem_value.symbolic.to_bv(self.context);
-                        symbolic_bv = Some(if let Some(existing_bv) = symbolic_bv {
-                            // For little-endian architecture, the least significant byte is at the lowest address
-                            mem_symbolic_bv.concat(&existing_bv)
-                        } else {
-                            mem_symbolic_bv
-                        });
-                    }
-
-                    // Ensure symbolic_bv is not None
-                    let symbolic_bv = symbolic_bv.ok_or_else(|| "Failed to assemble symbolic value from memory".to_string())?;
-
-                    // Adjust the size of the symbolic value
-                    let symbolic_bv = if symbolic_bv.get_size() > bit_size {
-                        symbolic_bv.extract(bit_size - 1, 0)
-                    } else if symbolic_bv.get_size() < bit_size {
-                        symbolic_bv.zero_ext(bit_size - symbolic_bv.get_size())
-                    } else {
-                        symbolic_bv
-                    };
-
-                    // Truncate concrete value to the required size
-                    let concrete_value = concrete_value & ((1u128 << bit_size) - 1);
-
-                    (concrete_value as u64, symbolic_bv)
-                };
-
-                // Create MemoryConcolicValue with the assembled values
-                let memory_concolic_value = MemoryConcolicValue::new(self.context, concrete_value, symbolic_bv, bit_size);
-
-                // Check if the symbolic variable is valid
-                if memory_concolic_value.symbolic.get_z3_ast().is_null() {
-                    return Err(format!("Memory symbolic variable at address 0x{:x} has a null AST", addr));
-                }
-
-                log!(self.state.logger.clone(), "Retrieved memory value: {:?} with symbolic size: {:?}", memory_concolic_value.concrete, memory_concolic_value.symbolic.get_size());
-                Ok(ConcolicEnum::MemoryConcolicValue(memory_concolic_value))
+    
+                // Read the value from memory
+                let mem_value = self.state.memory.read_value(*addr, bit_size)
+                    .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", addr, e))?;
+    
+                log!(self.state.logger.clone(), "Retrieved memory value: {:?} with symbolic size: {:?}", mem_value.concrete, mem_value.symbolic.get_size());
+                Ok(ConcolicEnum::MemoryValue(mem_value))
             },
         }
-    }
+    }     
 
     fn extract_and_create_concolic_value(&self, cpu_state_guard: &MutexGuard<'_, CpuState<'ctx>>, offset: u64, bit_size: u32) -> Result<ConcolicEnum<'ctx>, String> {
         let closest_register = cpu_state_guard
@@ -411,7 +350,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
             let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
-
+    
             match &varnode.var {
                 Var::Unique(id) => {
                     log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
@@ -440,59 +379,38 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 },
                 Var::Memory(addr) => {
                     log!(self.state.logger.clone(), "Output is a Memory type at address 0x{:x}", addr);
-                    let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
-                    let byte_size = ((bit_size + 7) / 8) as usize; // Number of bytes to write
-                    log!(self.state.logger.clone(), "Bit size: {}, Byte size: {}", bit_size, byte_size);
-                
+    
                     // Extract concrete value
-                    let concrete_value = result_value.get_concrete_value()?;
-                
+                    let concrete_value = result_value.concrete.to_u64();
+    
                     // Extract symbolic value
                     let symbolic_bv = result_value.symbolic.to_bv(self.context);
-                
+    
                     // Ensure symbolic value size matches bit_size
                     let symbolic_size = symbolic_bv.get_size();
                     if symbolic_size != bit_size {
                         return Err(format!("Symbolic size {} does not match bit size {}", symbolic_size, bit_size));
                     }
-                
-                    // Split the concrete value into bytes (little endian)
-                    let concrete_bytes = &concrete_value.to_le_bytes()[..byte_size];
-                
-                    // Split the symbolic value into bytes
-                    let mut symbolic_bytes = Vec::with_capacity(byte_size);
-                    for i in 0..byte_size {
-                        let low = (i * 8) as u32;
-                        let high = if low + 7 >= bit_size {
-                            bit_size - 1
-                        } else {
-                            low + 7
-                        };
-                        let byte_bv = symbolic_bv.extract(high, low);
-                        symbolic_bytes.push(byte_bv);
+    
+                    // Create a MemoryValue
+                    let mem_value = MemoryValue {
+                        concrete: concrete_value,
+                        symbolic: symbolic_bv,
+                        size: bit_size,
+                    };
+    
+                    // Write the MemoryValue to memory
+                    match self.state.memory.write_value(*addr, &mem_value) {
+                        Ok(_) => {
+                            log!(self.state.logger.clone(), "Wrote value 0x{:x} to memory at address 0x{:x}", concrete_value, addr);
+                            Ok(())
+                        },
+                        Err(e) => {
+                            let error_msg = format!("Failed to write to memory at address 0x{:x}: {:?}", addr, e);
+                            log!(self.state.logger.clone(), "{}", error_msg);
+                            Err(error_msg)
+                        }
                     }
-                
-                    // Now write each byte to memory
-                    let mut memory = self.state.memory.memory.write().unwrap(); // Acquire write lock on memory
-                
-                    // Now write each byte to memory
-                    for (i, (&concrete_byte, symbolic_byte)) in concrete_bytes.iter().zip(symbolic_bytes.into_iter()).enumerate() {
-                        let current_addr = *addr + i as u64;
-
-                        // Create a MemoryConcolicValue for this byte
-                        let mem_concolic_value = MemoryConcolicValue::new(
-                            self.context,
-                            concrete_byte as u64,
-                            symbolic_byte,
-                            8
-                        );
-
-                        // Write to memory
-                        memory.insert(current_addr, mem_concolic_value);
-                    } 
-                
-                    log!(self.state.logger.clone(), "Wrote value 0x{:x} to memory at address 0x{:x}", concrete_value, addr);
-                    Ok(())
                 },                
                 _ => {
                     let error_msg = "Output type is unsupported".to_string();
@@ -503,7 +421,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             Err("No output varnode specified".to_string())
         }
-    }                                          
+    }                                              
     
     // Handle branch operation
     pub fn handle_branch(&mut self, instruction: Inst) -> Result<(), String> {
@@ -670,7 +588,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let branch_condition_symbolic = match branch_condition_concolic {
                     ConcolicEnum::ConcolicVar(var) => var.symbolic,
                     ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
-                    ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+                    ConcolicEnum::MemoryValue(mem_var) => SymbolicVar::Int(mem_var.symbolic),
                 };
                 log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
 
@@ -719,7 +637,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let branch_condition_symbolic = match branch_condition_concolic {
                     ConcolicEnum::ConcolicVar(var) => var.symbolic,
                     ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
-                    ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+                    ConcolicEnum::MemoryValue(mem_var) => SymbolicVar::Int(mem_var.symbolic),
                 };
                 log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
             
@@ -849,7 +767,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let branch_target_symbolic = match branch_target_concolic {
             ConcolicEnum::ConcolicVar(var) => var.symbolic,
             ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
-            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic,
+            ConcolicEnum::MemoryValue(mem_var) => SymbolicVar::Int(mem_var.symbolic),
         };
         log!(self.state.logger.clone(), "Branch target concrete : 0x{:x}", branch_target_concrete);
 
@@ -882,88 +800,61 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset to be dereferenced : {:x}", pointer_offset_concrete);
-
+    
         if pointer_offset_concrete == 0 {
-                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-                log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
-                log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-                process::exit(1);
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+            log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+            process::exit(1);
         }
     
-        // Dereference the address from the CPU registers or memory
-        let (dereferenced_concrete_value, dereferenced_symbolic_value) = {
-            let cpu_state_guard = self.state.cpu_state.lock().unwrap();
-            // Get the size of the input in bits
-            let input_size_bits = instruction.inputs[1].size.to_bitvector_size() as u32;
-            log!(self.state.logger.clone(), "Input size in bits: {}", input_size_bits);
-            // Use the offset directly to retrieve register value
-            if let Some(value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, input_size_bits) {
-                let value_u64 = value.get_concrete_value()?;
-                let value_symbolic = value.get_symbolic_value().to_bv(&self.context);
-                log!(self.state.logger.clone(), "Dereferenced CPU register value for 0x{:x}: 0x{:x}", pointer_offset_concrete, value_u64);
-                (value_u64, value_symbolic)
-            } else {
-                // If not found in registers, dereference from memory and assemble the 64-bit value from 8 bytes
-                let memory_guard = self.state.memory.memory.read().unwrap();
-                let mut full_value = 0u64;
-
-                log!(self.state.logger.clone(), "Starting assembly of 64-bit value from memory starting at 0x{:x}", pointer_offset_concrete);
-
-                for i in 0..8 {
-                    // Calculate the address of each byte by adding the offset to the base address
-                    let byte_address = pointer_offset_concrete + i as u64;
-                    log!(self.state.logger.clone(), "Calculating byte address: 0x{:x} + {} = 0x{:x}", pointer_offset_concrete, i, byte_address);
-
-                    // Retrieve the byte value from the memory, or use 0 if the byte is not found
-                    let byte_value = memory_guard.get(&byte_address).map_or(0, |v| {
-                        let concrete_value = v.concrete.to_u64() as u64;
-                        log!(self.state.logger.clone(), "Retrieved byte value from address 0x{:x}: 0x{:x}", byte_address, concrete_value);
-                        concrete_value
-                    });
-
-                    // Assemble the 64-bit value by shifting each byte value to the appropriate position
-                    log!(self.state.logger.clone(), "Shifting byte value 0x{:x} left by {} bits", byte_value, 8 * i);
-                    full_value |= byte_value << (8 * i);
-                    log!(self.state.logger.clone(), "Intermediate 64-bit value: 0x{:x}", full_value);
-                }
-
-                // Log the assembled 64-bit value from memory
-                log!(self.state.logger.clone(), "Assembled 64-bit value from memory starting at 0x{:x}: 0x{:x}", pointer_offset_concrete, full_value);
-
-                let symbolic_value = BV::from_u64(self.context, full_value, 64);
-                (full_value, symbolic_value)
-
-            }
-        };
-
-        log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", dereferenced_concrete_value);
-        let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(dereferenced_concrete_value, dereferenced_symbolic_value, self.context, 64);
+        // Determine the size of the data to load
+        let load_size_bits = instruction.output.as_ref()
+            .map(|varnode| varnode.size.to_bitvector_size() as u32)
+            .unwrap_or(64); // Default to 64 bits if output size is not specified
+        log!(self.state.logger.clone(), "Load size in bits: {}", load_size_bits);
+    
+        // Dereference the address from memory
+        let mem_value = self.state.memory.read_value(pointer_offset_concrete, load_size_bits)
+            .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", pointer_offset_concrete, e))?;
+    
+        log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", mem_value.concrete);
+    
+        // Create a concolic variable for the dereferenced value
+        let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+            mem_value.concrete,
+            mem_value.symbolic.clone(),
+            self.context,
+            load_size_bits,
+        );
     
         // Determine the output variable and update it with the loaded data
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
                 Var::Unique(id) => {
                     log!(self.state.logger.clone(), "Output is a Unique type with ID: 0x{:x}", id);
-                    let unique_symbolic = SymbolicVar::Int(BV::from_u64(self.context, *id, output_varnode.size.to_bitvector_size()));
-                    let concolic_var = ConcolicVar::new_concrete_and_symbolic_int(
-                        dereferenced_concrete_value,
-                        unique_symbolic.to_bv(&self.context),
-                        self.context,
-                        output_varnode.size.to_bitvector_size(),
-                    );
                     let unique_name = format!("Unique(0x{:x})", id);
-                    self.unique_variables.insert(unique_name.clone(), concolic_var.clone());
+                    self.unique_variables.insert(unique_name.clone(), dereferenced_concolic.clone());
+                    log!(self.state.logger.clone(), "Updated unique variable: {} with concrete value 0x{:x}", unique_name, dereferenced_concolic.concrete.to_u64());
                 },
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    // Use offset directly to set the register value
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, dereferenced_concolic, output_varnode.size.to_bitvector_size());
-                    log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", offset, dereferenced_concrete_value);
+                    match cpu_state_guard.set_register_value_by_offset(*offset, dereferenced_concolic.clone(), load_size_bits) {
+                        Ok(_) => {
+                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", offset, dereferenced_concolic.concrete.to_u64());
+                        },
+                        Err(e) => {
+                            let error_msg = format!("Failed to update register at offset 0x{:x}: {}", offset, e);
+                            log!(self.state.logger.clone(), "{}", error_msg);
+                            return Err(error_msg);
+                        }
+                    }
                 },
                 _ => {
-                    log!(self.state.logger.clone(), "Output type is unsupported");
-                    return Err("Output type not supported".to_string());
+                    let error_msg = "Output type is unsupported".to_string();
+                    log!(self.state.logger.clone(), "{}", error_msg);
+                    return Err(error_msg);
                 }
             }
         } else {
@@ -973,7 +864,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Create a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-load", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, dereferenced_concrete_value, SymbolicVar::Int(BV::from_u64(self.context, dereferenced_concrete_value, 64)));
+        self.state.create_or_update_concolic_variable_int(&result_var_name, mem_value.concrete, SymbolicVar::Int(mem_value.symbolic.clone()));
         
         Ok(())
     }
@@ -1002,53 +893,62 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Fetch the data to be stored
         log!(self.state.logger.clone(), "* Fetching data to store from instruction.input[2]");
         let data_to_store_var = &instruction.inputs[2];
-        let data_to_store_concrete = match &data_to_store_var.var {
-            Var::Const(value) => {
-                let parsed_value = u128::from_str_radix(&value.trim_start_matches("0x"), 16).map_err(|e| e.to_string())?;
-                log!(self.state.logger.clone(), "Data to store is a constant with value: 0x{:x}", parsed_value);
-                parsed_value
-            },
-            _ => {
-                let data_var = self.varnode_to_concolic(data_to_store_var).map_err(|e| e.to_string())?;
-                data_var.get_concrete_value() as u128
-            }
+        let data_to_store_concolic = self.varnode_to_concolic(data_to_store_var).map_err(|e| e.to_string())?;
+        let data_to_store_concrete = data_to_store_concolic.get_concrete_value();
+        let data_to_store_symbolic = data_to_store_concolic.get_symbolic_value_bv(self.context);
+    
+        // Determine the size of the data to store
+        let data_size_bits = data_to_store_var.size.to_bitvector_size() as u32;
+        log!(self.state.logger.clone(), "Data size in bits: {}", data_size_bits);
+    
+        // Ensure symbolic value size matches data size
+        let symbolic_size = data_to_store_symbolic.get_size();
+        if symbolic_size != data_size_bits {
+            return Err(format!("Symbolic size {} does not match data size {}", symbolic_size, data_size_bits));
+        }
+    
+        // Create a MemoryValue
+        let mem_value = MemoryValue {
+            concrete: data_to_store_concrete,
+            symbolic: data_to_store_symbolic.clone(),
+            size: data_size_bits,
         };
     
-        // Convert data to symbolic form and create concolic value
-        let data_size_bits = data_to_store_var.size.to_bitvector_size() as u32;
-        let data_to_store_symbolic = BV::from_u64(self.context, data_to_store_concrete as u64, data_size_bits);
-        let data_to_store_concolic = ConcolicVar::new_concrete_and_symbolic_int(data_to_store_concrete as u64, data_to_store_symbolic, self.context, data_size_bits);
-    
-        log!(self.state.logger.clone(), "Data to store concrete: {:x}", data_to_store_concrete);
-    
-        // Store the data in memory, handling each byte
-        let mut memory_guard = self.state.memory.memory.write().unwrap();
-        let total_bytes = (data_size_bits / 8) as u64;
-        for i in 0..total_bytes {
-            let byte_address = pointer_offset_concrete.checked_add(i).ok_or_else(|| "Address calculation overflow".to_string())?;
-            let byte_value = ((data_to_store_concrete >> (8 * i)) & 0xFF) as u8; // Extract each byte
-            let byte_value_symbolic = BV::from_u64(self.context, byte_value as u64, 8);
-            memory_guard.insert(byte_address, MemoryConcolicValue::new(self.context, byte_value as u64, byte_value_symbolic, 8));
-            log!(self.state.logger.clone(), "Stored byte 0x{:x} at offset 0x{:x}", byte_value, byte_address);
+        // Write the MemoryValue to memory
+        match self.state.memory.write_value(pointer_offset_concrete, &mem_value) {
+            Ok(_) => {
+                log!(self.state.logger.clone(), "Stored value 0x{:x} to memory at address 0x{:x}", data_to_store_concrete, pointer_offset_concrete);
+            },
+            Err(e) => {
+                let error_msg = format!("Failed to write to memory at address 0x{:x}: {:?}", pointer_offset_concrete, e);
+                log!(self.state.logger.clone(), "{}", error_msg);
+                return Err(error_msg);
+            }
         }
     
-        // Optionally update CPU register if the address maps to one
+        // update CPU register if the address maps to one
         let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
         if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, data_size_bits) {
-            cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic, data_size_bits)?;
-            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
+            match cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic.to_concolic_var().unwrap(), data_size_bits) {
+                Ok(_) => {
+                    log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
+                },
+                Err(e) => {
+                    let error_msg = format!("Failed to update register at offset 0x{:x}: {}", pointer_offset_concrete, e);
+                    log!(self.state.logger.clone(), "{}", error_msg);
+                    return Err(error_msg);
+                }
+            }
         }
-        drop(memory_guard);
         drop(cpu_state_guard);
-
-        // Record the operation for traceability
+    
+        // Record the operation for traceability (if needed in your context)
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-store", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete as u64, SymbolicVar::Int(BV::from_u64(self.context, data_to_store_concrete as u64, data_size_bits)));
+        self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(data_to_store_symbolic.clone()));
     
         Ok(())
-    }
-    
+    }        
 
     pub fn handle_copy(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Copy || instruction.inputs.len() != 1 {
@@ -1057,7 +957,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         let cpu_state_guard = self.state.cpu_state.lock().unwrap();
         let bit_size = instruction.inputs[0].size.to_bitvector_size() as u32; // size in bits
-        let byte_count = (bit_size / 8) as usize;
 
         let (source_concrete_value, source_symbolic_value) = match &instruction.inputs[0].var {
             Var::Register(offset, _) => {
@@ -1093,7 +992,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 (var.concrete.to_u64(), var.symbolic.to_bv(&self.context))
             },
             Var::Const(value) => {
-                log!(self.state.logger.clone(), "Varnode is a constant with value: {}", value);
                 let parsed_value = if value.starts_with("0x") {
                     u64::from_str_radix(&value[2..], 16)
                 } else {
@@ -1101,19 +999,22 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
                 log!(self.state.logger.clone(), "Parsed value: {}", parsed_value);
                 let parsed_value_symbolic = BV::from_u64(self.context, parsed_value, bit_size);
-                let memory_var = MemoryConcolicValue::new(self.context, parsed_value, parsed_value_symbolic, bit_size);
-                log!(self.state.logger.clone(), "Constant treated as memory address, created or retrieved: {} with symbolic size {:?}", memory_var, memory_var.symbolic.get_size());
-                (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
+                let mem_value = MemoryValue {
+                    concrete: parsed_value,
+                    symbolic: parsed_value_symbolic,
+                    size: bit_size,
+                };
+                (mem_value.concrete, mem_value.symbolic)
             },
             Var::MemoryRam => {
                 log!(self.state.logger.clone(), "Varnode is MemoryRam");
-                let memory_var = MemoryX86_64::get_memory_concolic_var(&self.state.memory, self.context, 0, bit_size); // Assume 0 is the base address for RAM
-                log!(self.state.logger.clone(), "MemoryRam treated as general memory space, created or retrieved: {}", memory_var);
-                (memory_var.concrete.to_u64(), memory_var.symbolic.to_bv(&self.context))
+                let mem_value = self.state.memory.read_value(0, bit_size)
+                .map_err(|e| format!("Failed to read MemoryRam: {:?}", e))?;
+                log!(self.state.logger.clone(), "MemoryRam treated as general memory space, retrieved: {:?}", mem_value.concrete);
+                (mem_value.concrete, mem_value.symbolic)
             },
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
-                
                 let symbolic_value = BV::from_u64(self.context, *addr, bit_size);
                 (*addr, symbolic_value)
             },
@@ -1150,12 +1051,40 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     drop(cpu_state_guard);
                 },
                 Var::Memory(addr) => {
-                    log!(self.state.logger.clone(), "Output is a Memory type");
-                    let mut memory_guard = self.state.memory.memory.write().unwrap();
-                    let memory_var = MemoryConcolicValue::new(self.context, source_concrete_value, source_symbolic_value.clone(), output_size_bits);
-                    memory_guard.insert(*addr, memory_var);
-                    log!(self.state.logger.clone(), "Updated memory at address 0x{:x}", addr);
-                },
+                    log!(self.state.logger.clone(), "Output is a Memory type at address 0x{:x}", addr);
+    
+                    // Extract concrete value
+                    let concrete_value = source_concolic.concrete.to_u64();
+    
+                    // Extract symbolic value
+                    let symbolic_bv = source_concolic.symbolic.to_bv(self.context);
+    
+                    // Ensure symbolic value size matches bit_size
+                    let symbolic_size = symbolic_bv.get_size();
+                    if symbolic_size != bit_size {
+                        return Err(format!("Symbolic size {} does not match bit size {}", symbolic_size, bit_size));
+                    }
+    
+                    // Create a MemoryValue
+                    let mem_value = MemoryValue {
+                        concrete: concrete_value,
+                        symbolic: symbolic_bv,
+                        size: bit_size,
+                    };
+    
+                    // Write the MemoryValue to memory
+                    match self.state.memory.write_value(*addr, &mem_value) {
+                        Ok(_) => {
+                            log!(self.state.logger.clone(), "Wrote value 0x{:x} to memory at address 0x{:x}", concrete_value, addr);
+                            return Ok(());
+                        },
+                        Err(e) => {
+                            let error_msg = format!("Failed to write to memory at address 0x{:x}: {:?}", addr, e);
+                            log!(self.state.logger.clone(), "{}", error_msg);
+                            return Err(error_msg);
+                        }
+                    }
+                },            
                 _ => {
                     log!(self.state.logger.clone(), "Output type is unsupported for COPY");
                     return Err("Output type not supported".to_string());

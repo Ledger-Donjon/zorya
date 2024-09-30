@@ -1,45 +1,22 @@
-use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryConcolicValue};
-use z3::{ast::{Bool, BV}, Context};
-use super::ConcolicVar;
+use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryValue};
+use z3::{ast::{Ast, Bool, BV}, Context};
+use super::{ConcolicVar, ConcreteVar, SymbolicVar};
 
 
 #[derive(Clone, Debug)]
 pub enum ConcolicEnum<'ctx> {
     ConcolicVar(ConcolicVar<'ctx>),
     CpuConcolicValue(CpuConcolicValue<'ctx>),
-    MemoryConcolicValue(MemoryConcolicValue<'ctx>),
+    MemoryValue(MemoryValue<'ctx>),
 }
 
 impl<'ctx> ConcolicEnum<'ctx> {
-
-    // Method to perform concolic subpiece operation
-    pub fn concolic_subpiece(self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<ConcolicEnum<'ctx>, &'static str> {
-        match self {
-            ConcolicEnum::ConcolicVar(var) => {
-                var.truncate(offset, new_size, ctx).map(ConcolicEnum::ConcolicVar)
-            },
-            ConcolicEnum::CpuConcolicValue(cpu_var) => {
-                cpu_var.truncate(offset, new_size, ctx).map(ConcolicEnum::CpuConcolicValue)
-            },
-            ConcolicEnum::MemoryConcolicValue(mem_var) => {
-                mem_var.truncate(offset, new_size, ctx).map(ConcolicEnum::MemoryConcolicValue)
-            },
-        }
-    }
-    
-    pub fn is_same_context(&self, other: &Self) -> bool {
-        match (self, other) {
-            (ConcolicEnum::ConcolicVar(a), ConcolicEnum::ConcolicVar(b)) => a.ctx == b.ctx,
-            (ConcolicEnum::MemoryConcolicValue(a), ConcolicEnum::MemoryConcolicValue(b)) => a.ctx == b.ctx,
-            _ => false,
-        }
-    }
 
     pub fn is_bool(&self) -> bool {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.concrete.is_bool(),
             ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.concrete.is_bool(),
-            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.concrete.is_bool(),
+            ConcolicEnum::MemoryValue(mem_value) => mem_value.size == 1,
         }
     }
 
@@ -48,7 +25,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.concrete.to_u64(),
             ConcolicEnum::CpuConcolicValue(cpu) => cpu.concrete.to_u64(), 
-            ConcolicEnum::MemoryConcolicValue(mem) => mem.concrete.to_u64(), 
+            ConcolicEnum::MemoryValue(mem) => mem.concrete, 
         }
     }
 
@@ -57,7 +34,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.symbolic.to_bv(ctx),
             ConcolicEnum::CpuConcolicValue(cpu) => cpu.symbolic.to_bv(ctx),
-            ConcolicEnum::MemoryConcolicValue(mem) => mem.symbolic.to_bv(ctx),
+            ConcolicEnum::MemoryValue(mem) => mem.symbolic.clone(),
         }
     }
 
@@ -65,7 +42,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.symbolic.to_bool(),
             ConcolicEnum::CpuConcolicValue(cpu) => cpu.symbolic.to_bool(),
-            ConcolicEnum::MemoryConcolicValue(mem) => mem.symbolic.to_bool(),
+            ConcolicEnum::MemoryValue(mem_value) => mem_value.symbolic._eq(&BV::from_u64(mem_value.symbolic.get_ctx(), 1, 1)),
         }
     }
 
@@ -74,16 +51,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.concrete.get_size(),
             ConcolicEnum::CpuConcolicValue(cpu) => cpu.concrete.get_size(),
-            ConcolicEnum::MemoryConcolicValue(mem) => mem.concrete.get_size(),
-        }
-    }
-
-    // Retrieve the size of the concolic variable
-    pub fn get_context_id(&self) -> Option<u64> {
-        match self {
-            ConcolicEnum::ConcolicVar(var) => Some(var.get_context_id().parse().unwrap()),
-            ConcolicEnum::CpuConcolicValue(cpu_var) => Some(cpu_var.get_context_id().parse().unwrap()),
-            _ => None,
+            ConcolicEnum::MemoryValue(mem_value) => mem_value.size,
         }
     }
 
@@ -96,12 +64,11 @@ impl<'ctx> ConcolicEnum<'ctx> {
                 symbolic: cpu_var.symbolic.clone(),
                 ctx: cpu_var.ctx,
             }),
-            ConcolicEnum::MemoryConcolicValue(mem_var) => Some(ConcolicVar {
-                concrete: mem_var.concrete.clone(),
-                symbolic: mem_var.symbolic.clone(),
-                ctx: mem_var.ctx,
+            ConcolicEnum::MemoryValue(mem_value) => Some(ConcolicVar {
+                concrete: ConcreteVar::Int(mem_value.concrete),
+                symbolic: SymbolicVar::Int(mem_value.symbolic.clone()),
+                ctx: mem_value.symbolic.get_ctx(),
             }),
-            _ => None,
         }
     }
 
@@ -109,7 +76,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.concrete.to_u64(),
             ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.concrete.to_u64(),
-            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.concrete.to_u64(),
+            ConcolicEnum::MemoryValue(mem_var) => mem_var.concrete,
         }
     }
 
@@ -117,7 +84,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.concrete.to_bool(),
             ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.concrete.to_bool(),
-            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.concrete.to_bool(),
+            ConcolicEnum::MemoryValue(mem_var) => mem_var.concrete == 1,
         }
     }
 
@@ -125,7 +92,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
         match self {
             ConcolicEnum::ConcolicVar(var) => var.symbolic.to_bv(ctx),
             ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic.to_bv(ctx),
-            ConcolicEnum::MemoryConcolicValue(mem_var) => mem_var.symbolic.to_bv(ctx),
+            ConcolicEnum::MemoryValue(mem_var) => mem_var.symbolic.clone(),
         }
     }
 }

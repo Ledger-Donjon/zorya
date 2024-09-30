@@ -1,6 +1,8 @@
 use std::fmt;
 use z3::{ast::{Ast, Bool, Float, BV}, Context, SatResult, Solver};
 
+use crate::state::memory_x86_64::MemoryValue;
+
 use super::{ConcreteVar, SymbolicVar};
 
 #[derive(Clone, Debug)]
@@ -40,6 +42,14 @@ impl<'ctx> ConcolicVar<'ctx> {
             ctx,
         };
         var
+    }
+
+    pub fn new_from_memory_value(value: &MemoryValue<'ctx>) -> Self {
+        ConcolicVar {
+            concrete: ConcreteVar::Int(value.concrete),
+            symbolic: SymbolicVar::Int(value.symbolic.clone()),
+            ctx: value.symbolic.get_ctx(),
+        }
     }
 
     pub fn truncate(&self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<Self, &'static str> {

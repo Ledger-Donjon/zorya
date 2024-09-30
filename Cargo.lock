@@ -11,7 +11,7 @@ dependencies = [
  "cpp_demangle",
  "fallible-iterator",
  "gimli",
- "memmap2",
+ "memmap2 0.5.10",
  "object",
  "rustc-demangle",
  "smallvec",
@@ -659,6 +659,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memmap2"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd3f7eed9d3848f8b98834af67102b720745c4ec028fcd0aa0239277e7de374f"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "memoffset"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1269,6 +1278,7 @@ dependencies = [
  "lazy_static",
  "log",
  "memmap",
+ "memmap2 0.9.5",
  "nix",
  "once_cell",
  "parser",

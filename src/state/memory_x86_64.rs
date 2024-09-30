@@ -1,41 +1,48 @@
-use nix::libc::MAP_FIXED;
-/// Memory model for x86-64 binaries
+use std::error::Error;
+use std::fmt;
+use std::fs::{self, File};
+use std::io::{self, BufReader, Read, SeekFrom};
+use std::path::Path;
+use std::sync::{Arc, RwLock};
 
 use regex::Regex;
 use z3::{ast::BV, Context};
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::fs::{self, File};
-use std::io::{BufReader, Read};
-use std::sync::{Arc, RwLock};
-use std::{fmt, io};
-use std::path::Path;
 
+use super::VirtualFileSystem;
 
-use crate::concolic::{ConcreteVar, SymbolicVar};
-use crate::target_info::GLOBAL_TARGET_INFO;
-
-// // Value fixed according to current usage
-// const MAP_FIXED: i32 = 0x10;
+// Protection flags for memory regions
+const PROT_READ: i32 = 0x1;
+const PROT_WRITE: i32 = 0x2;
+const PROT_EXEC: i32 = 0x4;
 
 #[derive(Debug)]
 pub enum MemoryError {
     OutOfBounds(u64, usize),
-    IncorrectSliceLength,
     WriteOutOfBounds,
-    SymbolicAccessError,
-    UninitializedAccess(u64),
-    NullDereference(u64),
+    ReadOutOfBounds,
+    IncorrectSliceLength,
     IoError(io::Error),
     RegexError(regex::Error),
     ParseIntError(std::num::ParseIntError),
+    InvalidString,
+    InvalidFileDescriptor,
 }
 
 impl Error for MemoryError {}
 
 impl fmt::Display for MemoryError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Memory error occurred")
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryError::OutOfBounds(addr, size) => write!(f, "Out of bounds access at address 0x{:x} with size {}", addr, size),
+            MemoryError::WriteOutOfBounds => write!(f, "Write out of bounds"),
+            MemoryError::ReadOutOfBounds => write!(f, "Read out of bounds"),
+            MemoryError::IncorrectSliceLength => write!(f, "Incorrect slice length"),
+            MemoryError::IoError(err) => write!(f, "IO error: {}", err),
+            MemoryError::RegexError(err) => write!(f, "Regex error: {}", err),
+            MemoryError::ParseIntError(err) => write!(f, "ParseInt error: {}", err),
+            MemoryError::InvalidString => write!(f, "Invalid string"),
+            MemoryError::InvalidFileDescriptor => write!(f, "Invalid file descriptor"),
+        }
     }
 }
 
@@ -58,235 +65,74 @@ impl From<std::num::ParseIntError> for MemoryError {
 }
 
 #[derive(Clone, Debug)]
-pub struct MemoryConcolicValue<'ctx> {
-    pub concrete: ConcreteVar, 
-    pub symbolic: SymbolicVar<'ctx>,
-    pub ctx: &'ctx Context,
+pub struct MemoryValue<'ctx> {
+    pub concrete: u64,
+    pub symbolic: BV<'ctx>,
+    pub size: u32, // in bits
 }
 
-impl<'ctx> MemoryConcolicValue<'ctx> {
-    pub fn new(ctx: &'ctx Context, concrete_value: u64, symbolic_value: BV<'ctx>, size: u32) -> Self {
-        MemoryConcolicValue {
-            concrete: ConcreteVar::Int(concrete_value),
-            symbolic: SymbolicVar::Int(symbolic_value),
-            ctx,
-        }
-    }
-
-    // Creates a default memory value zero-initialized.
-    pub fn default(ctx: &'ctx Context, size: u32) -> Self {
-        MemoryConcolicValue {
-            concrete: ConcreteVar::Int(0),
-            symbolic: SymbolicVar::Int(BV::from_u64(ctx, 0, size)),
-            ctx,
-        }
-    }
-
-    pub fn concolic_zero_extend(&self, new_size: u32) -> Result<Self, &'static str> {
-        let current_size = self.symbolic.get_size() as u32;
-        if new_size <= current_size {
-            return Err("New size must be greater than current size.");
-        }
-        
-        let extension_size = new_size - current_size;
-        let zero_extended_symbolic = match &self.symbolic {
-            SymbolicVar::Int(bv) => SymbolicVar::Int(bv.zero_ext(extension_size)),
-            _ => return Err("Zero extension is only applicable to integer bit vectors."),
-        };
-
-        Ok(Self {
-            concrete: ConcreteVar::Int(self.concrete.to_u64()),  // Concrete value remains unchanged
-            symbolic: zero_extended_symbolic,
-            ctx: self.ctx,
-        })
-    }
-
-    // Truncate both concrete and symbolic values
-    pub fn truncate(&self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        // Check if the new size and offset are valid
-        if offset + new_size as usize > self.symbolic.get_size() as usize {
-            return Err("Truncation range out of bounds");
-        }
-
-        // Adjust the symbolic extraction
-        let high = (offset + new_size as usize - 1) as u32;
-        let low = offset as u32;
-        let new_symbolic = self.symbolic.extract(high, low)
-            .map_err(|_| "Failed to extract symbolic part")?;  // Properly handle the Result from extract
-
-        // Adjust the concrete value: mask the bits after shifting right
-        let mask = (1u64 << new_size) - 1;
-        let new_concrete = match self.concrete {
-            ConcreteVar::Int(value) => (value >> offset) & mask,
-            _ => return Err("Unsupported operation for this concrete type"),
-        };
-
-        Ok(MemoryConcolicValue {
-            concrete: ConcreteVar::Int(new_concrete),
-            symbolic: new_symbolic,
-            ctx,
-        })
-    }
-    
-
-    // Method to retrieve the concrete u64 value
-    pub fn get_concrete_value(&self) -> Result<u64, String> {
-        match self.concrete {
-            ConcreteVar::Int(value) => Ok(value),
-            ConcreteVar::Float(value) => Ok(value as u64),  // Simplistic conversion
-            ConcreteVar::Str(ref s) => u64::from_str_radix(s.trim_start_matches("0x"), 16)
-                .map_err(|_| format!("Failed to parse '{}' as a hexadecimal number", s)),
-            ConcreteVar::Bool(value) => Ok(value as u64),
-            ConcreteVar::LargeInt(ref values) => Ok(values[0]), // Return the lower 64 bits
-        }
-    }     
-
-    pub fn get_size(&self) -> u32 {
-        match &self.concrete {
-            ConcreteVar::Int(_) => 64,  // all integers are u64
-            ConcreteVar::Float(_) => 64, // double precision floats
-            ConcreteVar::Str(s) => (s.len() * 8) as u32,  // ?
-            ConcreteVar::Bool(_) => 1,
-            ConcreteVar::LargeInt(values) => (values.len() * 64) as u32, // Size in bits
-        }
-    }
-
-    pub fn get_context_id(&self) -> String {
-        format!("{:p}", self.ctx)
-    }
-
-    pub fn is_bool(&self) -> bool {
-        match &self.concrete {
-            ConcreteVar::Bool(_) => true,
-            _ => false,
+impl<'ctx> MemoryValue<'ctx> {
+    pub fn new(concrete: u64, symbolic: BV<'ctx>, size: u32) -> Self {
+        MemoryValue {
+            concrete,
+            symbolic,
+            size,
         }
     }
 }
 
-impl<'ctx> fmt::Display for MemoryConcolicValue<'ctx> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Concrete: Int(0x{:x}), Symbolic: {:?}", self.concrete, self.symbolic)
+#[derive(Clone, Debug)]
+pub struct MemoryCell<'ctx> {
+    pub concrete: u8,
+    pub symbolic: BV<'ctx>,
+}
+
+impl<'ctx> MemoryCell<'ctx> {
+    pub fn new(concrete: u8, symbolic: BV<'ctx>) -> Self {
+        MemoryCell { concrete, symbolic }
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Sigaction {
-    pub handler: u64,   // sa_handler or sa_sigaction (union)
-    pub flags: u64,     // sa_flags
-    pub restorer: u64,  // sa_restorer (deprecated)
-    pub mask: u64,      // sa_mask
+#[derive(Debug)]
+pub struct MemoryRegion<'ctx> {
+    pub start_address: u64,
+    pub end_address: u64,
+    pub data: Vec<MemoryCell<'ctx>>, // Holds both concrete and symbolic data
+    pub prot: i32, // Protection flags (e.g., PROT_READ, PROT_WRITE)
 }
 
-#[allow(dead_code)] // for not used memory_size var for Debug
+impl<'ctx> MemoryRegion<'ctx> {
+    pub fn contains(&self, address: u64, size: usize) -> bool {
+        address >= self.start_address && (address + size as u64) <= self.end_address
+    }
+
+    pub fn offset(&self, address: u64) -> usize {
+        (address - self.start_address) as usize
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
-    pub memory: Arc<RwLock<BTreeMap<u64, MemoryConcolicValue<'ctx>>>>,
+    pub regions: Arc<RwLock<Vec<MemoryRegion<'ctx>>>>,
     pub ctx: &'ctx Context,
     pub memory_size: u64,
+    pub vfs: Arc<RwLock<VirtualFileSystem>>,
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
-    pub fn new(ctx: &'ctx Context, memory_size: u64) -> Result<Self, MemoryError> {
+    pub fn new(ctx: &'ctx Context, memory_size: u64, vfs: Arc<RwLock<VirtualFileSystem>>) -> Result<Self, MemoryError> {
         Ok(MemoryX86_64 {
-            memory: Arc::new(RwLock::new(BTreeMap::new())),
+            regions: Arc::new(RwLock::new(Vec::new())),
             ctx,
             memory_size,
+            vfs,
         })
     }
 
-    pub fn get_memory_concolic_var(&self, ctx: &'ctx Context, value: u64, size: u32) -> MemoryConcolicValue<'ctx> {
-        println!("Inside get_or_create_memory_concolic_var function");
-
-        let memory_read = self.memory.read().unwrap();
-        let memory_value = memory_read.get(&value) // Check if the value exists in memory
-            .unwrap(); 
-
-        let memory_concolic_value = MemoryConcolicValue::new(ctx, memory_value.concrete.to_u64(), memory_value.symbolic.to_bv(ctx), size);
-        memory_concolic_value
-    }
-
-    pub fn read_memory(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
-        let memory = self.memory.read().unwrap();
-        let mut result = Vec::with_capacity(size);
-        for offset in 0..size as u64 {
-            let current_address = address + offset;
-            if let Some(memory_value) = memory.get(&current_address) {
-                match memory_value.concrete {
-                    ConcreteVar::Int(val) => result.push(val as u8),
-                    _ => return Err(MemoryError::IncorrectSliceLength),
-                }
-            } else {
-                println!("Uninitialized memory at address 0x{:x}! Set to 0x0.", current_address);
-                result.push(0);
-            }
-        }
-        if result.len() == size {
-            Ok(result)
-        } else {
-            Err(MemoryError::IncorrectSliceLength)
-        }
-    }
-    
-    pub fn write_memory(&mut self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
-        let mut memory = self.memory.write().unwrap(); // Acquire write lock
-        let end_address = address.checked_add(bytes.len() as u64).ok_or(MemoryError::WriteOutOfBounds)?;
-
-        for (offset, &byte) in bytes.iter().enumerate() {
-            let current_address = address + offset as u64;
-            if current_address >= end_address {
-                return Err(MemoryError::WriteOutOfBounds);
-            }
-            let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
-            memory.insert(current_address, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
-        }
-
-        Ok(())
-    }
-
-    pub fn read_sigaction(&self, address: u64) -> Result<Sigaction, MemoryError> {
-        // Read the sigaction structure from memory
-        let handler = self.read_u64(address)?;
-        let flags = self.read_u64(address + 8)?;
-        let restorer = self.read_u64(address + 16)?;
-        let mask = self.read_u64(address + 24)?;
-        Ok(Sigaction { handler, flags, restorer, mask })
-    }
-
-    pub fn write_sigaction(&mut self, address: u64, sigaction: &Sigaction) -> Result<(), MemoryError> {
-        // Write the sigaction structure to memory
-        self.write_u64(address, sigaction.handler)?;
-        self.write_u64(address + 8, sigaction.flags)?;
-        self.write_u64(address + 16, sigaction.restorer)?;
-        self.write_u64(address + 24, sigaction.mask)?;
-        Ok(())
-    }
-
-    // Helper methods to read and write u64 values
-    pub fn read_u64(&self, address: u64) -> Result<u64, MemoryError> {
-        let bytes = self.read_memory(address, 8)?;
-        if bytes.len() == 8 {
-            Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
-        } else {
-            Err(MemoryError::IncorrectSliceLength)
-        }
-    }
-
-    pub fn write_u64(&mut self, address: u64, value: u64) -> Result<(), MemoryError> {
-        let bytes = value.to_le_bytes(); // Convert u64 to 8 bytes in little-endian order
-        self.write_memory(address, &bytes)
-    }
-
     pub fn load_all_dumps(&self) -> Result<(), MemoryError> {
-        let dumps_dir = {
-            let info = GLOBAL_TARGET_INFO.lock().unwrap();
-            info.memory_dumps.clone()
-        };
+        let dumps_dir = Path::new("dumps"); // Adjust the path to your dumps directory
 
-        let dumps_dir_path = dumps_dir.join("dumps");
-
-        // let dumps_dir_path = PathBuf::from("/home/kgorna/Documents/zorya/src/state/working_files/additiongo_all-u-need");
-
-        let entries = fs::read_dir(dumps_dir_path)?;
+        let entries = fs::read_dir(dumps_dir)?;
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
@@ -298,255 +144,348 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(())
     }
 
-    fn load_memory_dump(&self, file_path: &Path) -> Result<(), MemoryError> {
+    pub fn load_memory_dump(&self, file_path: &Path) -> Result<(), MemoryError> {
         let start_addr = self.parse_start_address_from_path(file_path)?;
-    
+
+        // Read the file into a Vec<u8> using buffered reading
         let file = File::open(file_path)?;
         let mut reader = BufReader::new(file);
-    
-        let mut buffer = [0u8; 4096]; // Adjust the buffer size as needed
-        let mut offset = 0u64;
-    
-        let mut memory = self.memory.write().unwrap(); // Lock memory for writing
-    
-        loop {
-            let bytes_read = reader.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-    
-            for i in 0..bytes_read {
-                let address = start_addr + offset + i as u64;
-                let byte = buffer[i];
-                let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
-                memory.insert(address, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
-            }
-    
-            offset += bytes_read as u64;
-        }
-    
+        let mut concrete_data = Vec::new();
+        reader.read_to_end(&mut concrete_data)?;
+
+        // Initialize symbolic data for each byte
+        let data_cells = concrete_data
+            .iter()
+            .map(|&byte| {
+                let symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+                MemoryCell::new(byte, symbolic)
+            })
+            .collect::<Vec<_>>();
+
+        let end_addr = start_addr + data_cells.len() as u64;
+
+        // Assign default protection flags (e.g., PROT_READ | PROT_WRITE)
+        let default_prot = PROT_READ | PROT_WRITE;
+
+        let memory_region = MemoryRegion {
+            start_address: start_addr,
+            end_address: end_addr,
+            data: data_cells,
+            prot: default_prot, // Set protection flags
+        };
+
+        let mut regions = self.regions.write().unwrap();
+        regions.push(memory_region);
+
+        // Keep regions sorted by start_address for efficient searching
+        regions.sort_by_key(|region| region.start_address);
+
         Ok(())
-    }    
+    }
 
     fn parse_start_address_from_path(&self, path: &Path) -> Result<u64, MemoryError> {
         let file_name = path.file_name().ok_or(io::Error::new(io::ErrorKind::NotFound, "File name not found"))?;
         let file_str = file_name.to_str().ok_or(io::Error::new(io::ErrorKind::InvalidData, "Invalid file name"))?;
-        let re = Regex::new(r"^(0x[a-fA-F0-9]+)")?;
+        let re = Regex::new(r"^(0x[[:xdigit:]]+)-")?;
         let caps = re.captures(file_str).ok_or(io::Error::new(io::ErrorKind::InvalidData, "Regex capture failed"))?;
         let start_str = caps.get(1).ok_or(io::Error::new(io::ErrorKind::InvalidData, "Capture group empty"))?.as_str();
         let start_addr = u64::from_str_radix(&start_str[2..], 16)?;
         Ok(start_addr)
     }
 
-    // Memory regions for storing temporary values of subregisters used by CPUID instruction (see executor_callother.rs)
-    pub fn initialize_cpuid_memory_variables(&mut self) -> Result<(), MemoryError> {
-        // Initial values for EAX, EBX, ECX, EDX (you can set these values as per your requirements)
-        let values = [0x0000000, 0x0000000, 0x0000000, 0x0000000];
-    
-        // Start address for the variables
-        let start_address = 0x300000;
-    
-        for (i, &value) in values.iter().enumerate() {
-            let address = start_address + (i as u64) * 4; // Calculate address for each variable
-            self.write_word(address, value)?;
+    /// Reads a sequence of MemoryCells (both concrete and symbolic) from memory.
+    pub fn read_memory(&self, address: u64, size: usize) -> Result<Vec<MemoryCell<'ctx>>, MemoryError> {
+        let regions = self.regions.read().unwrap();
+
+        // Binary search for the region containing the address
+        match regions.binary_search_by(|region| {
+            if region.contains(address, size) {
+                std::cmp::Ordering::Equal
+            } else if address < region.start_address {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
+        }) {
+            Ok(idx) => {
+                let region = &regions[idx];
+                let offset = region.offset(address);
+                let data = &region.data;
+                if offset + size <= data.len() {
+                    let cells = data[offset..offset + size].to_vec();
+                    Ok(cells)
+                } else {
+                    Err(MemoryError::ReadOutOfBounds)
+                }
+            }
+            Err(_) => Err(MemoryError::ReadOutOfBounds),
         }
-    
-        Ok(())
     }
 
-    // Read a 64-bit (quad) value from memory
-    pub fn read_quad(&mut self, offset: u64) -> Result<u64, MemoryError> {
-        self.read_memory(offset, 8).and_then(|bytes| {
-            if bytes.len() == 8 {
-                Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
-            } else {
-                Err(MemoryError::IncorrectSliceLength)
-            }
-        })
+    /// Reads a sequence of bytes from memory.
+    pub fn read_bytes(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
+        let cells = self.read_memory(address, size)?;
+        Ok(cells.iter().map(|cell| cell.concrete).collect())
     }
 
-    // Read a 32-bit (word) value from memory
-    pub fn read_word(&mut self, offset: u64) -> Result<u32, MemoryError> {
-        self.read_memory(offset, 4).and_then(|bytes| {
-            if bytes.len() == 4 {
-                Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
-            } else {
-                Err(MemoryError::IncorrectSliceLength)
-            }
-        })
-    }
-
-    // Read a 16-bit (half) value from memory
-    pub fn read_half(&mut self, offset: u64) -> Result<u16, MemoryError> {
-        self.read_memory(offset, 2).and_then(|bytes| {
-            if bytes.len() == 2 {
-                Ok(u16::from_le_bytes(bytes.try_into().unwrap()))
-            } else {
-                Err(MemoryError::IncorrectSliceLength)
-            }
-        })
-    }
-
-    // Read an 8-bit (byte) value from memory
-    pub fn read_byte(&mut self, offset: u64) -> Result<u8, MemoryError> {
-        self.read_memory(offset, 1).and_then(|bytes| {
-            if bytes.len() == 1 {
-                Ok(bytes[0])
-            } else {
-                Err(MemoryError::IncorrectSliceLength)
-            }
-        })
-    }
-
-    pub fn read_bytes(&mut self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
-        let mut bytes = Vec::new();
-        for i in 0..size {
-            let byte = self.read_byte(address + i as u64)?;
-            bytes.push(byte);
-        }
-        Ok(bytes)
-    }
-
-    /// Reads a null-terminated string starting from the specified memory address.
-    ///
-    /// This method dynamically determines the length of the string by reading each byte until
-    /// a null terminator (0x00) is encountered. It constructs a `String` from the bytes read
-    /// from memory, assuming they are valid UTF-8 encoded characters. This approach is commonly
-    /// used for C-style strings.
-    pub fn read_string(&mut self, address: u64) -> Result<String, MemoryError> {
-        let mut bytes = Vec::new(); // Vector to hold the bytes that make up the string.
-        let mut offset = 0; // Offset from the starting address, used to read each successive byte.
+    /// Reads a null-terminated string from memory.
+    pub fn read_string(&self, address: u64) -> Result<String, MemoryError> {
+        let mut result = Vec::new();
+        let mut addr = address;
 
         loop {
-            // Read a single byte from memory at the current address+offset.
-            let byte = self.read_byte(address + offset)?;
-            // Check if the byte is the null terminator (0x00), indicating the end of the string.
+            let cell = self.read_memory(addr, 1)?;
+            let byte = cell[0].concrete;
             if byte == 0 {
-                break; // Exit the loop if we've reached the end of the string.
+                break;
             }
-            bytes.push(byte); // Add the byte to the vector if it's not the null terminator.
-            offset += 1; // Increment the offset to move to the next byte in memory.
+            result.push(byte);
+            addr += 1;
         }
 
-        // Attempt to convert the bytes vector into a UTF-8 string.
-        // This may fail if the bytes do not form valid UTF-8 encoded text.
-        Ok(String::from_utf8(bytes).map_err(|_| MemoryError::IncorrectSliceLength)?)
+        String::from_utf8(result).map_err(|_| MemoryError::InvalidString)
     }
 
-    // Write a 64-bit (quad) value to memory
-    pub fn write_quad(&mut self, offset: u64, value: u64) -> Result<(), MemoryError> {
-        let bytes = value.to_le_bytes(); // Convert the u64 value into an array of 8 bytes
-        self.write_memory(offset, &bytes)
-    }
+    /// Reads a MemoryValue (both concrete and symbolic) from memory.
+    pub fn read_value(&self, address: u64, size: u32) -> Result<MemoryValue<'ctx>, MemoryError> {
+        let byte_size = ((size + 7) / 8) as usize;
+        let cells = self.read_memory(address, byte_size)?;
 
-    // Write a 32-bit (word) value to memory
-    pub fn write_word(&mut self, offset: u64, value: u32) -> Result<(), MemoryError> {
-        let bytes = value.to_le_bytes(); // Convert the u32 value into an array of 4 bytes
-        self.write_memory(offset, &bytes)
-    }
-
-    // Write a 16-bit (half) value to memory
-    pub fn write_half(&mut self, offset: u64, value: u16) -> Result<(), MemoryError> {
-        let bytes = value.to_le_bytes(); // Convert the u16 value into an array of 2 bytes
-        self.write_memory(offset, &bytes)
-    }
-
-    // Write an 8-bit (byte) value to memory
-    pub fn write_bytes(&self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
-        let mut memory = self.memory.write().unwrap();
-        for (i, &byte) in bytes.iter().enumerate() {
-            let byte_symbolic = BV::from_u64(self.ctx, byte as u64, 8);
-            memory.insert(address + i as u64, MemoryConcolicValue::new(self.ctx, byte.into(), byte_symbolic, 8));
-        }
-        Ok(())
-    } 
-
-    /// Simulates the mmap syscall with conflict checking for MAP_FIXED.
-    pub fn mmap(&mut self, addr: u64, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> Result<u64, MemoryError> {
-        let page_size = 4096;
-        let length_aligned = (length + page_size - 1) & !(page_size - 1);
-        let start_addr = if (addr == 0 || flags & MAP_FIXED == 0) && flags & MAP_FIXED == 0 {
-            self.find_free_region(length_aligned as u64)
-        } else {
-            Ok(addr)
+        // Assemble the concrete value
+        let concrete_bytes = cells.iter().map(|cell| cell.concrete).collect::<Vec<u8>>();
+        let concrete = {
+            let mut padded = concrete_bytes.clone();
+            while padded.len() < 8 {
+                padded.push(0);
+            }
+            u64::from_le_bytes(padded.as_slice().try_into().unwrap())
         };
 
-        let start_addr = start_addr?;
-
-        // Clear existing mapping if MAP_FIXED is used
-        if flags & MAP_FIXED != 0 {
-            for i in (start_addr..start_addr + length_aligned as u64).step_by(page_size) {
-                if self.memory.read().unwrap().contains_key(&i) {
-                    // Conflict: Address already occupied
-                    return Err(MemoryError::OutOfBounds(i, length));
-                }
-            }
-
-            for i in (start_addr..start_addr + length_aligned as u64).step_by(page_size) {
-                self.memory.write().unwrap().remove(&i);
-            }
+        // Assemble the symbolic value
+        let mut symbolic = cells[cells.len() - 1].symbolic.clone();
+        for cell in cells.iter().rev().skip(1) {
+            symbolic = cell.symbolic.concat(&symbolic);
         }
 
-        // Insert new mapping
-        for i in (start_addr..start_addr + length_aligned as u64).step_by(page_size) {
-            let memory_value = MemoryConcolicValue::default(self.ctx, 64);
-            self.memory.write().unwrap().insert(i, memory_value);
-        }
-
-        Ok(start_addr)
+        Ok(MemoryValue {
+            concrete,
+            symbolic,
+            size,
+        })
     }
 
-    /// Finds a free region in the virtual memory to map pages.
-    fn find_free_region(&self, length: u64) -> Result<u64, MemoryError> {
-        let mut base_address = 0x10000000; // Start from a base address (e.g., 256MB)
-        while base_address < 0x7fffffffffff { // Below the typical user-space limit for 64-bit
-            let mut occupied = false;
-            for i in (base_address..base_address + length).step_by(4096) {
-                if self.memory.read().unwrap().contains_key(&i) {
-                    occupied = true;
-                    break;
-                }
-            }
-            if !occupied {
-                return Ok(base_address);
-            }
-            base_address += length; // Increment by the length to find the next potential base address
-        }
-        Err(MemoryError::OutOfBounds(base_address, length as usize)) // No free region found
-    }
+    /// Writes a sequence of MemoryCells (both concrete and symbolic) to memory.
+    pub fn write_memory(&self, address: u64, values: &[MemoryCell<'ctx>]) -> Result<(), MemoryError> {
+        let mut regions = self.regions.write().unwrap();
 
-    // Display trait to visualize memory state (not for cloning)
-    pub fn display_memory(&self) -> fmt::Result {
-        let memory = self.memory.read().unwrap();
-        println!("Overview of the initialized memory:");
-        for (address, memory_value) in memory.iter().take(20) {
-            let concrete_value = match &memory_value.concrete {
-                ConcreteVar::Int(val) => val.to_string(),
-                ConcreteVar::Float(val) => val.to_string(),
-                ConcreteVar::Str(val) => val.clone(),
-                ConcreteVar::Bool(val) => val.to_string(),
-                ConcreteVar::LargeInt(values) => {
-                    let mut result = String::new();
-                    for &value in values.iter().rev() {
-                        result.push_str(&format!("{:016x}", value)); // Convert each u64 to a zero-padded hex string
+        // Find the region containing the address
+        match regions.binary_search_by(|region| {
+            if region.contains(address, values.len()) {
+                std::cmp::Ordering::Equal
+            } else if address < region.start_address {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
+        }) {
+            Ok(idx) => {
+                let region = &mut regions[idx];
+                let offset = region.offset(address);
+                let data = &mut region.data;
+                if offset + values.len() <= data.len() {
+                    for (i, cell) in values.iter().enumerate() {
+                        data[offset + i] = cell.clone();
                     }
-                    // Remove leading zeros if needed
-                    result.trim_start_matches('0').to_string()
-                },
-            };
-
-            let symbolic_value = match &memory_value.symbolic {
-                SymbolicVar::Int(bv) => format!("{}", bv),
-                SymbolicVar::Float(float) => format!("{}", float),
-                SymbolicVar::Bool(b) => format!("{}", b),
-                SymbolicVar::LargeInt(vec) => {
-                    vec.iter().map(|bv| bv.to_string()).collect::<Vec<_>>().join(" | ")
-                },
-            };
-
-            println!("  {:#x}: MemoryConcolicValue {{ concrete: {}, symbolic: {} }}",
-                     address, concrete_value, symbolic_value);
+                    Ok(())
+                } else {
+                    Err(MemoryError::WriteOutOfBounds)
+                }
+            }
+            Err(_) => Err(MemoryError::WriteOutOfBounds),
         }
+    }
+
+    /// Writes a sequence of bytes to memory.
+    pub fn write_bytes(&self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
+        let ctx = self.ctx;
+        let cells: Vec<MemoryCell<'ctx>> = bytes.iter().map(|&byte| {
+            let symbolic = BV::from_u64(ctx, byte as u64, 8);
+            MemoryCell::new(byte, symbolic)
+        }).collect();
+
+        self.write_memory(address, &cells)
+    }
+
+    /// Writes a MemoryValue (both concrete and symbolic) to memory.
+    pub fn write_value(&self, address: u64, value: &MemoryValue<'ctx>) -> Result<(), MemoryError> {
+        let byte_size = ((value.size + 7) / 8) as usize;
+        let concrete_bytes = &value.concrete.to_le_bytes()[..byte_size];
+
+        // Split symbolic value into bytes
+        let mut symbolic_bytes = Vec::with_capacity(byte_size);
+        for i in 0..byte_size {
+            let low = (i * 8) as u32;
+            let high = if low + 7 >= value.size {
+                value.size - 1
+            } else {
+                low + 7
+            };
+            let byte_bv = value.symbolic.extract(high, low);
+            symbolic_bytes.push(byte_bv);
+        }
+
+        // Create MemoryCell instances
+        let mut cells = Vec::with_capacity(byte_size);
+        for (concrete_byte, symbolic_byte) in concrete_bytes.iter().zip(symbolic_bytes.iter()) {
+            cells.push(MemoryCell {
+                concrete: *concrete_byte,
+                symbolic: symbolic_byte.clone(),
+            });
+        }
+
+        self.write_memory(address, &cells)
+    }
+
+    // Additional methods for reading and writing standard data types
+    pub fn read_u64(&self, address: u64) -> Result<MemoryValue<'ctx>, MemoryError> {
+        self.read_value(address, 64)
+    }
+
+    pub fn write_u64(&self, address: u64, value: &MemoryValue<'ctx>) -> Result<(), MemoryError> {
+        self.write_value(address, value)
+    }
+
+    pub fn read_u32(&self, address: u64) -> Result<MemoryValue<'ctx>, MemoryError> {
+        self.read_value(address, 32)
+    }
+
+    pub fn write_u32(&self, address: u64, value: &MemoryValue<'ctx>) -> Result<(), MemoryError> {
+        self.write_value(address, value)
+    }
+
+    pub fn initialize_cpuid_memory_variables(&self) -> Result<(), MemoryError> {
+        // Initial values for EAX, EBX, ECX, EDX (you can set these values as per your requirements)
+        let values = [0x00000000, 0x00000000, 0x00000000, 0x00000000];
+
+        // Start address for the variables
+        let start_address = 0x300000;
+
+        for (i, &concrete_value) in values.iter().enumerate() {
+            let address = start_address + (i as u64) * 4; // Calculate address for each variable
+            let symbolic_value = BV::from_u64(self.ctx, concrete_value as u64, 32);
+
+            let mem_value = MemoryValue {
+                concrete: concrete_value as u64,
+                symbolic: symbolic_value,
+                size: 32,
+            };
+            self.write_value(address, &mem_value)?;
+        }
+
         Ok(())
-    } 
+    }
+
+    pub fn read_sigaction(&self, address: u64) -> Result<Sigaction<'ctx>, MemoryError> {
+        // Read the sigaction structure from memory
+        let handler = self.read_u64(address)?;
+        let flags = self.read_u64(address + 8)?;
+        let restorer = self.read_u64(address + 16)?;
+        let mask = self.read_u64(address + 24)?;
+        Ok(Sigaction { handler, flags, restorer, mask })
+    }
+
+    pub fn write_sigaction(&self, address: u64, sigaction: &Sigaction<'ctx>) -> Result<(), MemoryError> {
+        // Write the sigaction structure to memory
+        self.write_u64(address, &sigaction.handler)?;
+        self.write_u64(address + 8, &sigaction.flags)?;
+        self.write_u64(address + 16, &sigaction.restorer)?;
+        self.write_u64(address + 24, &sigaction.mask)?;
+        Ok(())
+    }
+
+    /// Maps a memory region, either anonymous or file-backed.
+    pub fn mmap(&self, addr: u64, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> Result<u64, MemoryError> {
+        // Constants for flags (define as per your system)
+        const MAP_ANONYMOUS: i32 = 0x20;
+        const MAP_FIXED: i32 = 0x10;
+
+        let mut regions = self.regions.write().unwrap();
+
+        // Determine the starting address
+        let start_address = if addr != 0 && (flags & MAP_FIXED) != 0 {
+            addr
+        } else {
+            // Find a suitable address (simple implementation: find the highest address and add some padding)
+            regions
+                .last()
+                .map(|region| region.end_address + 0x1000) // Add a page size
+                .unwrap_or(0x1000_0000) // Start from a default address if no regions exist
+        };
+
+        // Create the memory cells
+        let mut data_cells = Vec::with_capacity(length);
+
+        if (flags & MAP_ANONYMOUS) != 0 {
+            // Anonymous mapping: initialize with zeros
+            for _ in 0..length {
+                let symbolic = BV::from_u64(self.ctx, 0, 8);
+                data_cells.push(MemoryCell::new(0, symbolic));
+            }
+        } else {
+            // File-backed mapping
+            if fd < 0 {
+                return Err(MemoryError::InvalidFileDescriptor);
+            }
+
+            // Access the virtual file system to read data
+            let vfs = self.vfs.read().unwrap();
+            let file = vfs.get_file(fd as u32).ok_or(MemoryError::InvalidFileDescriptor)?;
+
+            // Lock the FileDescriptor to perform operations
+            let mut file_guard = file.lock().unwrap();
+
+            // Seek to the specified offset
+            file_guard.seek(SeekFrom::Start(offset as u64))?;
+
+            // Read data from the file starting at the given offset
+            let mut buffer = vec![0u8; length];
+            let bytes_read = file_guard.read(&mut buffer)?;
+
+            // Initialize memory cells with the file data
+            for &byte in &buffer[..bytes_read] {
+                let symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+                data_cells.push(MemoryCell::new(byte, symbolic));
+            }
+
+            // If bytes_read < length, pad the rest with zeros
+            for _ in bytes_read..length {
+                let symbolic = BV::from_u64(self.ctx, 0, 8);
+                data_cells.push(MemoryCell::new(0, symbolic));
+            }
+        }
+
+        // Create and insert the new memory region
+        let end_address = start_address + length as u64;
+        let memory_region = MemoryRegion {
+            start_address,
+            end_address,
+            data: data_cells,
+            prot, // Set protection flags
+        };
+        regions.push(memory_region);
+
+        // Keep regions sorted
+        regions.sort_by_key(|region| region.start_address);
+
+        Ok(start_address)
+    }
+
+}
+
+#[derive(Clone, Debug)]
+pub struct Sigaction<'ctx> {
+    pub handler: MemoryValue<'ctx>,   // sa_handler or sa_sigaction (union)
+    pub flags: MemoryValue<'ctx>,     // sa_flags
+    pub restorer: MemoryValue<'ctx>,  // sa_restorer (deprecated)
+    pub mask: MemoryValue<'ctx>,      // sa_mask
 }

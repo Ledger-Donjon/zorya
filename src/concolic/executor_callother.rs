@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the CALLOTHER opcode from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::executor::ConcolicExecutor;
+use crate::{executor::ConcolicExecutor, state::memory_x86_64::MemoryValue};
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::BV;
 use std::{io::Write, process, time::{SystemTime, UNIX_EPOCH}};
@@ -229,15 +229,49 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Resul
         },
     }
 
-    // Write the results to memory instead of CPU registers
-    let _ = executor.state.memory.write_word(base_address, eax);
-    let _ = executor.state.memory.write_word(base_address + 4, ebx);
-    let _ = executor.state.memory.write_word(base_address + 8, ecx);
-    let _ = executor.state.memory.write_word(base_address + 12, edx);
-    log!(executor.state.logger.clone(), "Temporarly writing into memory the values of EAX: 0x{:x}, EBX: 0x{:x}, ECX: 0x{:x}, EDX: 0x{:x}", eax, ebx, ecx, edx);
-    
-    drop(cpu_state_guard);
+    // Write the results to memory using the new MemoryX86_64 methods
+    let ctx = executor.state.memory.ctx;
 
+    // Create MemoryValue for eax
+    let eax_value = MemoryValue {
+        concrete: eax as u64,
+        symbolic: BV::from_u64(ctx, eax as u64, 32),
+        size: 32,
+    };
+    executor.state.memory.write_value(base_address, &eax_value)
+        .map_err(|e| format!("Failed to write EAX to memory: {:?}", e))?;
+
+    // Create MemoryValue for ebx
+    let ebx_value = MemoryValue {
+        concrete: ebx as u64,
+        symbolic: BV::from_u64(ctx, ebx as u64, 32),
+        size: 32,
+    };
+    executor.state.memory.write_value(base_address + 4, &ebx_value)
+        .map_err(|e| format!("Failed to write EBX to memory: {:?}", e))?;
+
+    // Create MemoryValue for ecx
+    let ecx_value = MemoryValue {
+        concrete: ecx as u64,
+        symbolic: BV::from_u64(ctx, ecx as u64, 32),
+        size: 32,
+    };
+    executor.state.memory.write_value(base_address + 8, &ecx_value)
+        .map_err(|e| format!("Failed to write ECX to memory: {:?}", e))?;
+
+    // Create MemoryValue for edx
+    let edx_value = MemoryValue {
+        concrete: edx as u64,
+        symbolic: BV::from_u64(ctx, edx as u64, 32),
+        size: 32,
+    };
+    executor.state.memory.write_value(base_address + 12, &edx_value)
+        .map_err(|e| format!("Failed to write EDX to memory: {:?}", e))?;
+
+    log!(executor.state.logger.clone(), "Temporarily wrote into memory the values of EAX: 0x{:08x}, EBX: 0x{:08x}, ECX: 0x{:08x}, EDX: 0x{:08x}", eax, ebx, ecx, edx);
+
+    drop(cpu_state_guard);
+    
     // Set the result in the CPU state
     executor.handle_output(instruction.output.as_ref(), ConcolicVar::new_concrete_and_symbolic_int(base_address, SymbolicVar::new_int(base_address.try_into().unwrap(), executor.context, output_size).to_bv(executor.context), executor.context, 64))?;
 

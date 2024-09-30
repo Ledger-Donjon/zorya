@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex}};
+use std::{collections::{BTreeMap, HashMap}, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, RwLock}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use nix::libc::SS_DISABLE;
@@ -20,16 +20,16 @@ pub struct State<'a> {
     pub ctx: &'a Context,
     pub memory: MemoryX86_64<'a>,
     pub cpu_state: SharedCpuState<'a>,
-    pub vfs: VirtualFileSystem,
+    pub vfs: Arc<RwLock<VirtualFileSystem>>,
     pub fd_paths: BTreeMap<u64, PathBuf>, // Maps syscall file descriptors to file paths.
     pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
     pub logger: Logger,
-    pub signal_mask: u32,  // store the signal mask
+    pub signal_mask: u64,  // store the signal mask
     pub futex_manager: FutexManager,
     pub altstack: StackT, // structure used by the sigaltstack system call to define an alternate signal stack
     pub is_terminated: bool,     // Indicates if the process is terminated
     pub exit_status: Option<i32>, // Stores the exit status code of the process
-    pub signal_handlers: HashMap<i32, Sigaction>, // Stores the signal handlers
+    pub signal_handlers: HashMap<i32, Sigaction<'a>>, // Stores the signal handlers
 }
 
 impl<'a> State<'a> {
@@ -43,23 +43,22 @@ impl<'a> State<'a> {
         cpu_state.lock().unwrap().upload_dumps_to_cpu_registers()?;
         log!(logger.clone(), "CPU state initialized.\n : {:?}", cpu_state);
 
+        let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
+
         let memory_size: u64 = 1024 * 1024 * 1024; // 1 GiB memory size because dumps are 730 MB
         log!(logger.clone(), "Initializing memory...\n");
-        let mut memory = MemoryX86_64::new(&ctx, memory_size)?;
+        let memory = MemoryX86_64::new(&ctx, memory_size, vfs.clone())?;
         memory.load_all_dumps()?;
-        memory.initialize_cpuid_memory_variables()?;
-	
-	    // Virtual file system initialization
-        log!(logger.clone(), "Initializing virtual file system...\n");
+        memory.initialize_cpuid_memory_variables()?; 
 	
         let state = State {
             concolic_vars: BTreeMap::new(),
             ctx,
             memory,
             cpu_state,
+            vfs,
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
-            vfs: VirtualFileSystem::new(),
             logger,
             signal_mask: 0,  // Initialize with no signals blocked
             futex_manager: FutexManager::new(),
@@ -73,29 +72,19 @@ impl<'a> State<'a> {
         Ok(state)
     }
 
-    pub fn print_memory_content(&self, start_address: u64, range: u64) {
-        let memory_guard = self.memory.memory.read().unwrap();
-        for addr in start_address..=start_address + range {
-            if let Some(mem_val) = memory_guard.get(&addr) {
-                log!(self.logger.clone(), "Address 0x{:x}: {:?}", addr, mem_val);
-            } else {
-                log!(self.logger.clone(), "Address 0x{:x}: Uninitialized", addr);
-            }
-        }
-    }
-
     // Function only used in tests to avoid the loading of all memory section and CPU registers
     pub fn default_for_tests(ctx: &'a Context, logger: Logger) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize CPU state in a shared and thread-safe manner
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         let memory_size: u64 = 0x100000; // 1GB memory size because dumps are 730 MB
-        let memory = MemoryX86_64::new(&ctx, memory_size)?;
+        let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
+        let memory = MemoryX86_64::new(&ctx, memory_size, vfs.clone())?;
         Ok(State {
             concolic_vars: BTreeMap::new(),
             ctx,
             memory,
             cpu_state,
-            vfs: VirtualFileSystem::new(),
+            vfs,
             fd_paths: BTreeMap::new(),
             fd_counter: 0,
             logger,
