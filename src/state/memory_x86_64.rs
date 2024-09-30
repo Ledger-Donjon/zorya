@@ -5,6 +5,7 @@ use std::io::{self, BufReader, Read, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use memmap2::Mmap;
 use regex::Regex;
 use z3::{ast::BV, Context};
 
@@ -144,50 +145,37 @@ impl<'ctx> MemoryX86_64<'ctx> {
             let path = entry.path();
             if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
                 println!("Initializing memory section from file: {:?}", path);
-                self.load_memory_dump(&path)?;
+                self.load_memory_dump_with_mmap(&path)?;
             }
         }
         Ok(())
     }
 
-    pub fn load_memory_dump(&self, file_path: &Path) -> Result<(), MemoryError> {
+    pub fn load_memory_dump_with_mmap(&self, file_path: &Path) -> Result<(), MemoryError> {
         let start_addr = self.parse_start_address_from_path(file_path)?;
-
-        // Read the file into a Vec<u8> using buffered reading
+    
+        // Open the file and create a memory map
         let file = File::open(file_path)?;
-        let mut reader = BufReader::new(file);
-        let mut concrete_data = Vec::new();
-        reader.read_to_end(&mut concrete_data)?;
-
-        let symbolic  = BV::new_const(self.ctx, 0, 8);
-
-        // Initialize symbolic data for each byte
-        let data_cells = concrete_data
-            .iter()
-            .map(|&byte| {
-                //let symbolic = BV::from_u64(self.ctx, byte as u64, 8);
-                MemoryCell::new(byte, symbolic.clone())
-            })
-            .collect::<Vec<_>>();
-
-        let end_addr = start_addr + data_cells.len() as u64;
-
-        // Assign default protection flags (e.g., PROT_READ | PROT_WRITE)
-        let default_prot = PROT_READ | PROT_WRITE;
-
-        let memory_region = MemoryRegion {
+        let mmap = unsafe { Mmap::map(&file)? };
+    
+        let symbolic = BV::new_const(self.ctx, 0, 8);
+    
+        let mut memory_region = MemoryRegion {
             start_address: start_addr,
-            end_address: end_addr,
-            data: data_cells,
-            prot: default_prot, // Set protection flags
+            end_address: start_addr + mmap.len() as u64,
+            data: Vec::new(),
+            prot: PROT_READ | PROT_WRITE,
         };
-
+    
+        for &byte in mmap.iter() {
+            memory_region.data.push(MemoryCell::new(byte, symbolic.clone()));
+        }
+    
         let mut regions = self.regions.write().unwrap();
         regions.push(memory_region);
-
-        // Keep regions sorted by start_address for efficient searching
+    
         regions.sort_by_key(|region| region.start_address);
-
+    
         Ok(())
     }
 
