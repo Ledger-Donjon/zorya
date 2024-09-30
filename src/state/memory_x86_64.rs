@@ -163,7 +163,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let data_cells = concrete_data
             .iter()
             .map(|&byte| {
-                let symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+                //let symbolic = BV::from_u64(self.ctx, byte as u64, 8);
+                let symbolic  = BV::new_const(self.ctx, 0, 8);
                 MemoryCell::new(byte, symbolic)
             })
             .collect::<Vec<_>>();
