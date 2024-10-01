@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
@@ -81,24 +82,13 @@ impl<'ctx> MemoryValue<'ctx> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct MemoryCell<'ctx> {
-    pub concrete: u8,
-    pub symbolic: Option<Arc<BV<'ctx>>>,  // Only store symbolic if necessary
-}
-
-impl<'ctx> MemoryCell<'ctx> {
-    pub fn new(concrete: u8, symbolic: Option<Arc<BV<'ctx>>>) -> Self {
-        MemoryCell { concrete, symbolic }
-    }
-}
-
 #[derive(Debug)]
 pub struct MemoryRegion<'ctx> {
     pub start_address: u64,
     pub end_address: u64,
-    pub data: Vec<MemoryCell<'ctx>>, // Holds both concrete and symbolic data
-    pub prot: i32, // Protection flags (e.g., PROT_READ, PROT_WRITE)
+    pub concrete_data: Vec<u8>,  // Holds only the concrete data (compact, 1 byte per memory cell)
+    pub symbolic_data: BTreeMap<usize, Arc<BV<'ctx>>>, // Holds symbolic data for only some addresses, sorted by offset
+    pub prot: i32,  // Protection flags (e.g., PROT_READ, PROT_WRITE)
 }
 
 impl<'ctx> MemoryRegion<'ctx> {
@@ -108,6 +98,27 @@ impl<'ctx> MemoryRegion<'ctx> {
 
     pub fn offset(&self, address: u64) -> usize {
         (address - self.start_address) as usize
+    }
+
+    /// Initialize a new `MemoryRegion` with the given size and protection flags.
+    pub fn new(start_address: u64, size: usize, prot: i32) -> Self {
+        Self {
+            start_address,
+            end_address: start_address + size as u64,
+            concrete_data: vec![0; size], // Initialize the concrete data with zeros
+            symbolic_data: BTreeMap::new(),  // Initially, no symbolic values
+            prot,
+        }
+    }
+
+    /// Write a symbolic value to a given offset.
+    pub fn write_symbolic(&mut self, offset: usize, symbolic: Arc<BV<'ctx>>) {
+        self.symbolic_data.insert(offset, symbolic);
+    }
+
+    /// Read a symbolic value from a given offset (if it exists).
+    pub fn read_symbolic(&self, offset: usize) -> Option<Arc<BV<'ctx>>> {
+        self.symbolic_data.get(&offset).cloned()
     }
 }
 
@@ -147,63 +158,50 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(())
     }
 
+    /// Load memory dump with dynamic chunk size and handle symbolic values separately.
     pub fn load_memory_dump_with_dynamic_chunk_size(&self, file_path: &Path) -> Result<(), MemoryError> {
         let start_addr = self.parse_start_address_from_path(file_path)?;
         let file = File::open(file_path)?;
         let file_len = file.metadata()?.len();
     
-        // Dynamically set chunk size based on the file size
         let chunk_size = match file_len {
-            0..=100_000_000 => 64 * 1024,        // For files smaller than 100 MB, use 64 KB chunks
-            100_000_001..=1_000_000_000 => 256 * 1024, // For files between 100 MB and 1 GB, use 256 KB chunks
-            _ => 1 * 1024 * 1024,                // For files larger than 1 GB, use 1 MB chunks
+            0..=100_000_000 => 64 * 1024, // 64 KB chunks for small files
+            100_000_001..=1_000_000_000 => 256 * 1024, // 256 KB chunks for medium files
+            _ => 1 * 1024 * 1024, // 1 MB chunks for large files
         };
     
-        println!("Using chunk size: {} bytes", chunk_size);
-        let memory_cell_size = std::mem::size_of::<MemoryCell>();
-        println!("Size of a single MemoryCell: {} bytes", memory_cell_size);
-        let memory_cell_size_full = std::mem::size_of::<[MemoryCell; 1]>();
-        print!("Size of a full MemoryCell array: {} bytes", memory_cell_size_full);
+        let mut memory_region = MemoryRegion::new(start_addr, file_len as usize, PROT_READ | PROT_WRITE);
     
-        let symbolic = BV::new_const(self.ctx, 0, 8);
-        let mut memory_region = MemoryRegion {
-            start_address: start_addr,
-            end_address: start_addr,
-            data: Vec::new(),
-            prot: PROT_READ | PROT_WRITE,
-        };
-    
-        let mut current_offset = 0;
+        let mut current_offset = 0usize;
         let mut reader = BufReader::new(file);
-        let mut buffer = vec![0; chunk_size];  // Create a buffer for reading chunks
+        let mut buffer = vec![0; chunk_size]; // Buffer for reading chunks
     
-        // Read the file in chunks using BufReader
-        while current_offset < file_len {
-            // Read a chunk of data into the buffer
+        while current_offset < file_len as usize {
             let bytes_read = reader.read(&mut buffer)?;
-    
             if bytes_read == 0 {
-                break;  // EOF reached
+                break; // EOF reached
             }
     
-            // Process each byte in the chunk
-            for &byte in &buffer[..bytes_read] {
-                memory_region.data.push(MemoryCell::new(byte, Some(symbolic.clone().into())));
+            // Process concrete and symbolic data
+            for (i, &byte) in buffer[..bytes_read].iter().enumerate() {
+                memory_region.concrete_data[current_offset + i] = byte;
+    
+                // Example symbolic condition (assigning symbolic values for even bytes)
+                if byte % 2 == 0 {
+                    let symbolic = Arc::new(BV::from_u64(self.ctx, byte as u64, 8));
+                    memory_region.write_symbolic(current_offset + i, symbolic);
+                }
             }
     
-            current_offset += bytes_read as u64;
+            current_offset += bytes_read;
         }
-    
-        memory_region.end_address = start_addr + current_offset;
     
         let mut regions = self.regions.write().unwrap();
         regions.push(memory_region);
-    
-        // Keep regions sorted by start_address for efficient searching
         regions.sort_by_key(|region| region.start_address);
     
         Ok(())
-    }
+    }    
 
     fn parse_start_address_from_path(&self, path: &Path) -> Result<u64, MemoryError> {
         let file_name = path.file_name().ok_or(io::Error::new(io::ErrorKind::NotFound, "File name not found"))?;
@@ -215,49 +213,66 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(start_addr)
     }
 
-    /// Reads a sequence of MemoryCells (both concrete and symbolic) from memory.
-    pub fn read_memory(&self, address: u64, size: usize) -> Result<Vec<MemoryCell<'ctx>>, MemoryError> {
+    /// Reads a concrete value from memory.
+    pub fn read_concrete(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
+        let regions = self.regions.read().unwrap();
+        for region in regions.iter() {
+            if region.contains(address, size) {
+                let offset = region.offset(address);
+                return Ok(region.concrete_data[offset..offset + size].to_vec());
+            }
+        }
+        Err(MemoryError::ReadOutOfBounds)
+    }
+
+    /// Reads a symbolic value from memory (if it exists).
+    pub fn read_symbolic(&self, address: u64) -> Result<Option<Arc<BV<'ctx>>>, MemoryError> {
+        let regions = self.regions.read().unwrap();
+        for region in regions.iter() {
+            if region.contains(address, 1) {
+                let offset = region.offset(address);
+                return Ok(region.read_symbolic(offset));
+            }
+        }
+        Err(MemoryError::ReadOutOfBounds)
+    }
+
+    /// Reads concrete and symbolic memory from a given address range.
+    pub fn read_memory(&self, address: u64, size: usize) -> Result<(Vec<u8>, Vec<Option<Arc<BV<'ctx>>>>), MemoryError> {
         let regions = self.regions.read().unwrap();
 
-        // Binary search for the region containing the address
-        match regions.binary_search_by(|region| {
+        for region in regions.iter() {
             if region.contains(address, size) {
-                std::cmp::Ordering::Equal
-            } else if address < region.start_address {
-                std::cmp::Ordering::Greater
-            } else {
-                std::cmp::Ordering::Less
-            }
-        }) {
-            Ok(idx) => {
-                let region = &regions[idx];
                 let offset = region.offset(address);
-                let data = &region.data;
-                if offset + size <= data.len() {
-                    let cells = data[offset..offset + size].to_vec();
-                    Ok(cells)
-                } else {
-                    Err(MemoryError::ReadOutOfBounds)
-                }
+
+                // Collect concrete data
+                let concrete = region.concrete_data[offset..offset + size].to_vec();
+
+                // Collect symbolic data (where it exists)
+                let symbolic: Vec<Option<Arc<BV<'ctx>>>> = (0..size)
+                    .map(|i| region.symbolic_data.get(&(offset + i)).cloned())
+                    .collect();
+
+                return Ok((concrete, symbolic));
             }
-            Err(_) => Err(MemoryError::ReadOutOfBounds),
         }
+
+        Err(MemoryError::ReadOutOfBounds)
     }
 
     /// Reads a sequence of bytes from memory.
     pub fn read_bytes(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
-        let cells = self.read_memory(address, size)?;
-        Ok(cells.iter().map(|cell| cell.concrete).collect())
+        let (concrete, _symbolic) = self.read_memory(address, size)?;  // Only use the concrete part
+        Ok(concrete)
     }
-
     /// Reads a null-terminated string from memory.
     pub fn read_string(&self, address: u64) -> Result<String, MemoryError> {
         let mut result = Vec::new();
         let mut addr = address;
 
         loop {
-            let cell = self.read_memory(addr, 1)?;
-            let byte = cell[0].concrete;
+            let (concrete, _symbolic) = self.read_memory(addr, 1)?;  // Only use the concrete part
+            let byte = concrete[0];  // Access the first byte
             if byte == 0 {
                 break;
             }
@@ -271,68 +286,71 @@ impl<'ctx> MemoryX86_64<'ctx> {
     /// Reads a MemoryValue (both concrete and symbolic) from memory.
     pub fn read_value(&self, address: u64, size: u32) -> Result<MemoryValue<'ctx>, MemoryError> {
         let byte_size = ((size + 7) / 8) as usize;
-        let cells = self.read_memory(address, byte_size)?;
-    
-        let concrete_bytes = cells.iter().map(|cell| cell.concrete).collect::<Vec<u8>>();
-        let concrete = {
-            let mut padded = concrete_bytes.clone();
+        let (concrete, symbolic) = self.read_memory(address, byte_size)?;  // Get both parts
+        
+        // Build the concrete value
+        let concrete_value = {
+            let mut padded = concrete.clone();
             while padded.len() < 8 {
                 padded.push(0);
             }
             u64::from_le_bytes(padded.as_slice().try_into().unwrap())
         };
-    
-        // Start with the symbolic value of the last cell
-        let mut symbolic = Arc::clone(cells.last().unwrap().symbolic.as_ref().unwrap());  // Clone the Arc
-        for cell in cells.iter().rev().skip(1) {
-            symbolic = Arc::new(cell.symbolic.as_ref().unwrap().concat(&symbolic));  // Concatenate symbolic values and re-wrap in Arc
+
+        // Build the symbolic value
+        let mut symbolic_value = symbolic.last().unwrap().clone().unwrap();  // Start with the last symbolic byte
+        for symb in symbolic.iter().rev().skip(1) {
+            if let Some(symb) = symb {
+                symbolic_value = Arc::new(symb.concat(&symbolic_value));
+            }
         }
-    
+
         Ok(MemoryValue {
-            concrete,
-            symbolic: (*symbolic).clone(),  // dereference the Arc to get BV<'ctx>
+            concrete: concrete_value,
+            symbolic: (*symbolic_value).clone(),
             size,
         })
     }    
 
-    /// Writes a sequence of MemoryCells (both concrete and symbolic) to memory.
-    pub fn write_memory(&self, address: u64, values: &[MemoryCell<'ctx>]) -> Result<(), MemoryError> {
-        let mut regions = self.regions.write().unwrap();
-
-        // Find the region containing the address
-        match regions.binary_search_by(|region| {
-            if region.contains(address, values.len()) {
-                std::cmp::Ordering::Equal
-            } else if address < region.start_address {
-                std::cmp::Ordering::Greater
-            } else {
-                std::cmp::Ordering::Less
-            }
-        }) {
-            Ok(idx) => {
-                let region = &mut regions[idx];
-                let offset = region.offset(address);
-                let data = &mut region.data;
-                if offset + values.len() <= data.len() {
-                    for (i, cell) in values.iter().enumerate() {
-                        data[offset + i] = cell.clone();
-                    }
-                    Ok(())
-                } else {
-                    Err(MemoryError::WriteOutOfBounds)
-                }
-            }
-            Err(_) => Err(MemoryError::WriteOutOfBounds),
+    /// Writes concrete and symbolic memory to a given address range.
+    pub fn write_memory(&self, address: u64, concrete: &[u8], symbolic: &[Option<Arc<BV<'ctx>>>]) -> Result<(), MemoryError> {
+        if concrete.len() != symbolic.len() {
+            return Err(MemoryError::IncorrectSliceLength);
         }
+    
+        let mut regions = self.regions.write().unwrap();
+    
+        for region in regions.iter_mut() {
+            if region.contains(address, concrete.len()) {
+                let offset = region.offset(address);
+    
+                // Write concrete data
+                for (i, &byte) in concrete.iter().enumerate() {
+                    region.concrete_data[offset + i] = byte;
+                }
+    
+                // Write symbolic data
+                for (i, symb) in symbolic.iter().enumerate() {
+                    if let Some(symb) = symb {
+                        region.symbolic_data.insert(offset + i, symb.clone());
+                    } else {
+                        region.symbolic_data.remove(&(offset + i));
+                    }
+                }
+    
+                return Ok(());
+            }
+        }
+    
+        Err(MemoryError::WriteOutOfBounds)
     }
 
     /// Writes a sequence of bytes to memory.
     pub fn write_bytes(&self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
-        let ctx = self.ctx;
-        let symbolic = Arc::new(BV::new_const(ctx, 0, 8));  // Default symbolic value
-        let cells: Vec<MemoryCell<'ctx>> = bytes.iter().map(|&byte| MemoryCell::new(byte, Some(symbolic.clone()))).collect();
+        // Create a vector of `None` for symbolic values as we're only dealing with concrete data
+        let symbolic: Vec<Option<Arc<BV<'ctx>>>> = vec![None; bytes.len()];
 
-        self.write_memory(address, &cells)
+        self.write_memory(address, bytes, &symbolic)
     }
 
     /// Writes a MemoryValue (both concrete and symbolic) to memory.
@@ -352,15 +370,13 @@ impl<'ctx> MemoryX86_64<'ctx> {
             symbolic_bytes.push(byte_bv);
         }
 
-        let mut cells = Vec::with_capacity(byte_size);
-        for (concrete_byte, symbolic_byte) in concrete_bytes.iter().zip(symbolic_bytes.iter()) {
-            cells.push(MemoryCell {
-                concrete: *concrete_byte,
-                symbolic: Some(Arc::new(symbolic_byte.clone())),
-            });
-        }
+        // Write concrete and symbolic parts separately
+        let symbolic: Vec<Option<Arc<BV<'ctx>>>> = symbolic_bytes
+            .into_iter()
+            .map(|bv| Some(Arc::new(bv)))
+            .collect();
 
-        self.write_memory(address, &cells)
+        self.write_memory(address, concrete_bytes, &symbolic)
     }
 
     // Additional methods for reading and writing standard data types
@@ -422,7 +438,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     /// Maps a memory region, either anonymous or file-backed.
     pub fn mmap(&self, addr: u64, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> Result<u64, MemoryError> {
-        // Constants for flags (define as per your system)
         const MAP_ANONYMOUS: i32 = 0x20;
         const MAP_FIXED: i32 = 0x10;
 
@@ -432,22 +447,18 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let start_address = if addr != 0 && (flags & MAP_FIXED) != 0 {
             addr
         } else {
-            // Find a suitable address (simple implementation: find the highest address and add some padding)
             regions
                 .last()
-                .map(|region| region.end_address + 0x1000) // Add a page size
-                .unwrap_or(0x1000_0000) // Start from a default address if no regions exist
+                .map(|region| region.end_address + 0x1000)  // Add a page size
+                .unwrap_or(0x1000_0000)  // Start from a default address if no regions exist
         };
 
-        // Create the memory cells
-        let mut data_cells = Vec::with_capacity(length);
+        // Create a new memory region
+        let mut concrete_data = vec![0; length];
+        let symbolic_data = BTreeMap::new();
 
         if (flags & MAP_ANONYMOUS) != 0 {
-            // Anonymous mapping: initialize with zeros
-            for _ in 0..length {
-                let symbolic = Arc::new(BV::from_u64(self.ctx, 0, 8));
-                data_cells.push(MemoryCell::new(0, Some(symbolic)));
-            }
+            // Anonymous mapping: leave the concrete data as zeros and no symbolic values
         } else {
             // File-backed mapping
             if fd < 0 {
@@ -458,44 +469,31 @@ impl<'ctx> MemoryX86_64<'ctx> {
             let vfs = self.vfs.read().unwrap();
             let file = vfs.get_file(fd as u32).ok_or(MemoryError::InvalidFileDescriptor)?;
 
-            // Lock the FileDescriptor to perform operations
+            // Lock the file descriptor to perform operations
             let mut file_guard = file.lock().unwrap();
 
             // Seek to the specified offset
             file_guard.seek(SeekFrom::Start(offset as u64))?;
 
-            // Read data from the file starting at the given offset
-            let mut buffer = vec![0u8; length];
-            let bytes_read = file_guard.read(&mut buffer)?;
-
-            // Initialize memory cells with the file data
-            for &byte in &buffer[..bytes_read] {
-                let symbolic = Arc::new(BV::from_u64(self.ctx, byte as u64, 8));
-                data_cells.push(MemoryCell::new(byte, Some(symbolic)));
-            }
-
-            // If bytes_read < length, pad the rest with zeros
-            for _ in bytes_read..length {
-                let symbolic = Arc::new(BV::from_u64(self.ctx, 0, 8));
-                data_cells.push(MemoryCell::new(0, Some(symbolic)));
-            }
+            // Read the data from the file into the concrete_data vector
+            file_guard.read(&mut concrete_data)?;
         }
 
         // Create and insert the new memory region
-        let end_address = start_address + length as u64;
         let memory_region = MemoryRegion {
             start_address,
-            end_address,
-            data: data_cells,
-            prot, // Set protection flags
+            end_address: start_address + length as u64,
+            concrete_data,
+            symbolic_data,
+            prot,
         };
-        regions.push(memory_region);
 
-        // Keep regions sorted
+        regions.push(memory_region);
         regions.sort_by_key(|region| region.start_address);
 
         Ok(start_address)
     }
+
 
 }
 
