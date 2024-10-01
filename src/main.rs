@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
+use std::process::Command;
 
 use parser::parser::Inst;
 use z3::{Config, Context};
@@ -22,13 +23,15 @@ fn main() {
     
     log!(executor.state.logger, "Configuration and context have been initialized.");
 
-    let (pcode_file_path, main_program_addr) = {
+    let (binary_path, pcode_file_path, main_program_addr) = {
         let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
         log!(executor.state.logger, "Acquired target information.");
-        (target_info.pcode_file_path.clone(), target_info.main_program_addr.clone())
+        (target_info.binary_path.clone(), target_info.pcode_file_path.clone(), target_info.main_program_addr.clone())
     };
 
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
+
+    extract_symbols(&binary_path, &mut executor);
 
     let instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut executor.clone())
         .expect("Failed to preprocess the p-code file.");
@@ -39,6 +42,32 @@ fn main() {
     execute_instructions_from(&mut executor, start_address, &instructions_map);
 
     log!(executor.state.logger, "The concolic execution has completed successfully.");
+}
+
+/// Extract symbols using `objdump` and populate the symbol table
+fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) {
+    // Run the `objdump -t` command to get the symbol table of the binary
+    let objdump_output = Command::new("objdump")
+        .arg("-t")
+        .arg(binary_path)
+        .output()
+        .expect("Failed to execute objdump");
+
+    // Capture stdout from the objdump command
+    let output_str = String::from_utf8_lossy(&objdump_output.stdout);
+
+    // Parse the objdump output and fill the symbol table
+    for line in output_str.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 6 {
+            if let Ok(address) = u64::from_str_radix(parts[0], 16) {
+                let symbol_name = parts[5].to_string();
+                executor.symbol_table.insert(address, symbol_name);
+            }
+        }
+    }
+
+    println!("Loaded symbol table: {:?}", executor.symbol_table);
 }
 
 fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
@@ -71,7 +100,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
             }
         }
     }
-    log!(executor.state.logger, "Symbol table : {:?}", executor.symbol_table);
+    
     log!(executor.state.logger, "Completed preprocessing.");
 
     Ok(instructions_map)
