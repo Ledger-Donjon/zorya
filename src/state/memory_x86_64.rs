@@ -360,9 +360,24 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     /// Writes a MemoryValue (both concrete and symbolic) to memory.
     pub fn write_value(&self, address: u64, value: &MemoryValue<'ctx>) -> Result<(), MemoryError> {
-        let byte_size = ((value.size + 7) / 8) as usize;
-        let concrete_bytes = &value.concrete.to_le_bytes()[..byte_size];
+        let byte_size = ((value.size + 7) / 8) as usize; // Calculate the byte size from the bit size
+        
+        // Prepare concrete bytes for storage, padded as needed
+        let mut concrete_bytes = Vec::with_capacity(byte_size);
+        
+        if byte_size > 8 {
+            // If the size exceeds 8 bytes (e.g., 128 bits), split the value into parts
+            let mut remaining_value = value.concrete;
+            for _ in 0..byte_size {
+                concrete_bytes.push((remaining_value & 0xFF) as u8); // Extract 1 byte at a time
+                remaining_value >>= 8; // Shift the remaining bits
+            }
+        } else {
+            // If the size is 8 bytes or less, use `u64::to_le_bytes()`
+            concrete_bytes.extend_from_slice(&value.concrete.to_le_bytes()[..byte_size]);
+        }
 
+        // Prepare symbolic bytes
         let mut symbolic_bytes = Vec::with_capacity(byte_size);
         for i in 0..byte_size {
             let low = (i * 8) as u32;
@@ -381,7 +396,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
             .map(|bv| Some(Arc::new(bv)))
             .collect();
 
-        self.write_memory(address, concrete_bytes, &symbolic)
+        // Write to memory
+        self.write_memory(address, &concrete_bytes, &symbolic)
     }
 
     // Additional methods for reading and writing standard data types
