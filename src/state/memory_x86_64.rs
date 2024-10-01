@@ -120,6 +120,11 @@ impl<'ctx> MemoryRegion<'ctx> {
     pub fn read_symbolic(&self, offset: usize) -> Option<Arc<BV<'ctx>>> {
         self.symbolic_data.get(&offset).cloned()
     }
+
+    /// Remove a symbolic value from a given offset (if it exists).
+    pub fn remove_symbolic(&mut self, offset: usize) {
+        self.symbolic_data.remove(&offset);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -311,31 +316,33 @@ impl<'ctx> MemoryX86_64<'ctx> {
         if concrete.len() != symbolic.len() {
             return Err(MemoryError::IncorrectSliceLength);
         }
-    
+
         let mut regions = self.regions.write().unwrap();
-    
+        
+        // Check if the address falls within an existing memory region
         for region in regions.iter_mut() {
             if region.contains(address, concrete.len()) {
                 let offset = region.offset(address);
-    
+
                 // Write concrete data
                 for (i, &byte) in concrete.iter().enumerate() {
                     region.concrete_data[offset + i] = byte;
                 }
-    
-                // Write symbolic data
+
+                // Write or remove symbolic data
                 for (i, symb) in symbolic.iter().enumerate() {
                     if let Some(symb) = symb {
-                        region.symbolic_data.insert(offset + i, symb.clone());
+                        region.write_symbolic(offset + i, symb.clone());
                     } else {
-                        region.symbolic_data.remove(&(offset + i));
+                        region.remove_symbolic(offset + i);  // Remove symbolic data if `None`
                     }
                 }
-    
+
                 return Ok(());
             }
         }
-    
+
+        // If we reach here, the address is out of bounds of all current regions
         Err(MemoryError::WriteOutOfBounds)
     }
 
