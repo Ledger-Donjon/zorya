@@ -84,11 +84,11 @@ impl<'ctx> MemoryValue<'ctx> {
 #[derive(Clone, Debug)]
 pub struct MemoryCell<'ctx> {
     pub concrete: u8,
-    pub symbolic: BV<'ctx>,
+    pub symbolic: Option<Arc<BV<'ctx>>>,  // Only store symbolic if necessary
 }
 
 impl<'ctx> MemoryCell<'ctx> {
-    pub fn new(concrete: u8, symbolic: BV<'ctx>) -> Self {
+    pub fn new(concrete: u8, symbolic: Option<Arc<BV<'ctx>>>) -> Self {
         MemoryCell { concrete, symbolic }
     }
 }
@@ -188,7 +188,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
     
             // Process each byte in the chunk
             for &byte in &buffer[..bytes_read] {
-                memory_region.data.push(MemoryCell::new(byte, symbolic.clone()));
+                memory_region.data.push(MemoryCell::new(byte, Some(symbolic.clone().into())));
             }
     
             current_offset += bytes_read as u64;
@@ -272,8 +272,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn read_value(&self, address: u64, size: u32) -> Result<MemoryValue<'ctx>, MemoryError> {
         let byte_size = ((size + 7) / 8) as usize;
         let cells = self.read_memory(address, byte_size)?;
-
-        // Assemble the concrete value
+    
         let concrete_bytes = cells.iter().map(|cell| cell.concrete).collect::<Vec<u8>>();
         let concrete = {
             let mut padded = concrete_bytes.clone();
@@ -282,19 +281,19 @@ impl<'ctx> MemoryX86_64<'ctx> {
             }
             u64::from_le_bytes(padded.as_slice().try_into().unwrap())
         };
-
-        // Assemble the symbolic value
-        let mut symbolic = cells[cells.len() - 1].symbolic.clone();
+    
+        // Start with the symbolic value of the last cell
+        let mut symbolic = Arc::clone(cells.last().unwrap().symbolic.as_ref().unwrap());  // Clone the Arc
         for cell in cells.iter().rev().skip(1) {
-            symbolic = cell.symbolic.concat(&symbolic);
+            symbolic = Arc::new(cell.symbolic.as_ref().unwrap().concat(&symbolic));  // Concatenate symbolic values and re-wrap in Arc
         }
-
+    
         Ok(MemoryValue {
             concrete,
-            symbolic,
+            symbolic: (*symbolic).clone(),  // dereference the Arc to get BV<'ctx>
             size,
         })
-    }
+    }    
 
     /// Writes a sequence of MemoryCells (both concrete and symbolic) to memory.
     pub fn write_memory(&self, address: u64, values: &[MemoryCell<'ctx>]) -> Result<(), MemoryError> {
@@ -330,10 +329,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
     /// Writes a sequence of bytes to memory.
     pub fn write_bytes(&self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
         let ctx = self.ctx;
-        let cells: Vec<MemoryCell<'ctx>> = bytes.iter().map(|&byte| {
-            let symbolic = BV::from_u64(ctx, byte as u64, 8);
-            MemoryCell::new(byte, symbolic)
-        }).collect();
+        let symbolic = Arc::new(BV::new_const(ctx, 0, 8));  // Default symbolic value
+        let cells: Vec<MemoryCell<'ctx>> = bytes.iter().map(|&byte| MemoryCell::new(byte, Some(symbolic.clone()))).collect();
 
         self.write_memory(address, &cells)
     }
@@ -343,7 +340,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let byte_size = ((value.size + 7) / 8) as usize;
         let concrete_bytes = &value.concrete.to_le_bytes()[..byte_size];
 
-        // Split symbolic value into bytes
         let mut symbolic_bytes = Vec::with_capacity(byte_size);
         for i in 0..byte_size {
             let low = (i * 8) as u32;
@@ -356,12 +352,11 @@ impl<'ctx> MemoryX86_64<'ctx> {
             symbolic_bytes.push(byte_bv);
         }
 
-        // Create MemoryCell instances
         let mut cells = Vec::with_capacity(byte_size);
         for (concrete_byte, symbolic_byte) in concrete_bytes.iter().zip(symbolic_bytes.iter()) {
             cells.push(MemoryCell {
                 concrete: *concrete_byte,
-                symbolic: symbolic_byte.clone(),
+                symbolic: Some(Arc::new(symbolic_byte.clone())),
             });
         }
 
@@ -450,8 +445,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
         if (flags & MAP_ANONYMOUS) != 0 {
             // Anonymous mapping: initialize with zeros
             for _ in 0..length {
-                let symbolic = BV::from_u64(self.ctx, 0, 8);
-                data_cells.push(MemoryCell::new(0, symbolic));
+                let symbolic = Arc::new(BV::from_u64(self.ctx, 0, 8));
+                data_cells.push(MemoryCell::new(0, Some(symbolic)));
             }
         } else {
             // File-backed mapping
@@ -475,14 +470,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
             // Initialize memory cells with the file data
             for &byte in &buffer[..bytes_read] {
-                let symbolic = BV::from_u64(self.ctx, byte as u64, 8);
-                data_cells.push(MemoryCell::new(byte, symbolic));
+                let symbolic = Arc::new(BV::from_u64(self.ctx, byte as u64, 8));
+                data_cells.push(MemoryCell::new(byte, Some(symbolic)));
             }
 
             // If bytes_read < length, pad the rest with zeros
             for _ in bytes_read..length {
-                let symbolic = BV::from_u64(self.ctx, 0, 8);
-                data_cells.push(MemoryCell::new(0, symbolic));
+                let symbolic = Arc::new(BV::from_u64(self.ctx, 0, 8));
+                data_cells.push(MemoryCell::new(0, Some(symbolic)));
             }
         }
 
