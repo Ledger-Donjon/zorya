@@ -71,7 +71,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
             }
         }
     }
-
+    log!(executor.state.logger, "Symbol table : {:?}", executor.symbol_table);
     log!(executor.state.logger, "Completed preprocessing.");
 
     Ok(instructions_map)
