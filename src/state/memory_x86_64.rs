@@ -182,15 +182,9 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 break; // EOF reached
             }
     
-            // Process concrete and symbolic data
+            // Only process concrete data (no symbolic data yet)
             for (i, &byte) in buffer[..bytes_read].iter().enumerate() {
                 memory_region.concrete_data[current_offset + i] = byte;
-    
-                // Example symbolic condition (assigning symbolic values for even bytes)
-                if byte % 2 == 0 {
-                    let symbolic = Arc::new(BV::from_u64(self.ctx, byte as u64, 8));
-                    memory_region.write_symbolic(current_offset + i, symbolic);
-                }
             }
     
             current_offset += bytes_read;
