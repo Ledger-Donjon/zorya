@@ -318,9 +318,10 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
 
         let mut regions = self.regions.write().unwrap();
-        
+        println!("Attempting to write {} bytes at address 0x{:x}", concrete.len(), address);
         // Check if the address falls within an existing memory region
         for region in regions.iter_mut() {
+            println!("Checking region from 0x{:x} to 0x{:x}", region.start_address, region.end_address);
             if region.contains(address, concrete.len()) {
                 let offset = region.offset(address);
 
