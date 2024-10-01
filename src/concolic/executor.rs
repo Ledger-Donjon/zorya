@@ -73,33 +73,32 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             self.instruction_counter += 1;
         }
 
-        // Before handling the instruction, check if it's a CALL instruction
-        if instruction.opcode == Opcode::Call {
-            // Extract the target address from the instruction's input
-            if let Some(target_varnode) = instruction.inputs.get(0) {
-                let target_concolic_var = self.varnode_to_concolic(target_varnode)?;
-                let target_address = target_concolic_var.get_concrete_value();
+        
+        // Extract the target address from the instruction's input
+        if let Some(target_varnode) = instruction.inputs.get(0) {
+            let target_concolic_var = self.varnode_to_concolic(target_varnode)?;
+            let target_address = target_concolic_var.get_concrete_value();
 
-                // Resolve the target address to a symbol name
-                if let Some(symbol_name) = self.symbol_table.get(&target_address) {
-                    println!("CALL to function: {}", symbol_name);
+            // Resolve the target address to a symbol name
+            if let Some(symbol_name) = self.symbol_table.get(&target_address) {
+                println!("CALL to function: {}", symbol_name);
 
-                    // Check if the function is runtime.nilPanic
-                    if symbol_name == "runtime.nilPanic" {
-                        println!("Nil pointer dereference detected!");
-                        // Log a message to the terminal
-                        println!("Execution stopped due to nil pointer dereference at Instruction {:?}", instruction);
+                // Check if the function is runtime.nilPanic
+                if symbol_name == "runtime.nilPanic" {
+                    println!("Nil pointer dereference detected!");
+                    // Log a message to the terminal
+                    println!("Execution stopped due to nil pointer dereference at Instruction {:?}", instruction);
 
-                        // Stop execution by returning an error
-                        return Err("Nil pointer dereference detected".to_string());
-                    }
-                } else {
-                    println!("CALL to address: 0x{:x} (symbol not found)", target_address);
+                    // Stop execution by returning an error
+                    return Err("Nil pointer dereference detected".to_string());
                 }
             } else {
-                println!("CALL instruction has no input operands");
+                println!("CALL to address: 0x{:x} (symbol not found)", target_address);
             }
+        } else {
+            println!("CALL instruction has no input operands");
         }
+        
 
         match instruction.opcode {
             Opcode::Blank => panic!("Opcode Blank is not implemented yet"),
