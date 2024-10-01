@@ -67,7 +67,7 @@ fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) {
         }
     }
 
-    println!("Loaded symbol table: {:?}", executor.symbol_table);
+    log!(executor.state.logger, "Loaded symbol table: {:?}", executor.symbol_table);
 }
 
 fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
