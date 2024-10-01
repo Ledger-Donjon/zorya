@@ -401,24 +401,40 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn initialize_cpuid_memory_variables(&self) -> Result<(), MemoryError> {
         // Initial values for EAX, EBX, ECX, EDX (you can set these values as per your requirements)
         let values = [0x00000000, 0x00000000, 0x00000000, 0x00000000];
-
+    
         // Start address for the variables
         let start_address = 0x300000;
-
+    
+        // create a 4KB memory region that includes this start_address
+        let mut regions = self.regions.write().unwrap();
+    
+        // Check if any region already covers the address 0x300000
+        let region_exists = regions.iter().any(|region| region.contains(start_address, 4 * values.len()));
+    
+        // If no region covers the 0x300000 address, we create a new one
+        if !region_exists {
+            let new_region = MemoryRegion::new(start_address, 0x1000, PROT_READ | PROT_WRITE); // 4KB region
+            regions.push(new_region);
+            regions.sort_by_key(|region| region.start_address);
+        }
+    
+        drop(regions); // Drop the lock after modifying the regions
+    
+        // Now write the values to memory
         for (i, &concrete_value) in values.iter().enumerate() {
             let address = start_address + (i as u64) * 4; // Calculate address for each variable
             let symbolic_value = BV::from_u64(self.ctx, concrete_value as u64, 32);
-
+    
             let mem_value = MemoryValue {
                 concrete: concrete_value as u64,
                 symbolic: symbolic_value,
                 size: 32,
             };
-            self.write_value(address, &mem_value)?;
+            self.write_value(address, &mem_value)?; // Writing values to memory
         }
-
+    
         Ok(())
-    }
+    }    
 
     pub fn read_sigaction(&self, address: u64) -> Result<Sigaction<'ctx>, MemoryError> {
         // Read the sigaction structure from memory
