@@ -296,8 +296,13 @@ impl<'ctx> MemoryX86_64<'ctx> {
             u64::from_le_bytes(padded.as_slice().try_into().unwrap())
         };
 
-        // Build the symbolic value
-        let mut symbolic_value = symbolic.last().unwrap().clone().unwrap();  // Start with the last symbolic byte
+        // Start with a default symbolic value if the last symbolic is None
+        let mut symbolic_value = match symbolic.last().and_then(|s| s.clone()) {
+            Some(symb) => symb,  // Use the last symbolic value if it exists
+            None => Arc::new(BV::from_u64(self.ctx, concrete_value, size)),  // Default to a concrete-based symbolic value
+        };
+
+        // Iterate through the rest of the symbolic values and concatenate them
         for symb in symbolic.iter().rev().skip(1) {
             if let Some(symb) = symb {
                 symbolic_value = Arc::new(symb.concat(&symbolic_value));
@@ -309,7 +314,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
             symbolic: (*symbolic_value).clone(),
             size,
         })
-    }    
+    }   
 
     /// Writes concrete and symbolic memory to a given address range.
     pub fn write_memory(&self, address: u64, concrete: &[u8], symbolic: &[Option<Arc<BV<'ctx>>>]) -> Result<(), MemoryError> {
