@@ -244,10 +244,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::MemoryRam => {
                 log!(self.state.logger.clone(), "Varnode is MemoryRam");
                 // Assuming MemoryRam represents general memory starting at address 0
-                let mem_value = self.state.memory.read_value(0, bit_size)
-                    .map_err(|e| format!("Failed to read MemoryRam: {:?}", e))?;
-                log!(self.state.logger.clone(), "MemoryRam treated as general memory space, retrieved: {:?}", mem_value.concrete);
-                Ok(ConcolicEnum::MemoryValue(mem_value))
+                // let mem_value = self.state.memory.read_value(0, bit_size)
+                //     .map_err(|e| format!("Failed to read MemoryRam: {:?}", e))?;
+                //log!(self.state.logger.clone(), "MemoryRam treated as general memory space, retrieved: {:?}", mem_value.concrete);
+                Ok(ConcolicEnum::MemoryValue(MemoryValue {
+                    concrete: 0,
+                    symbolic: BV::new_const(self.context, "MemoryRam", bit_size),
+                    size: bit_size,
+                }))
             },
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Varnode is a specific memory address: 0x{:x}", addr);
