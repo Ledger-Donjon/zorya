@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::process::Command;
@@ -67,55 +67,8 @@ fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) {
         }
     }
 
-    // Adjust the symbol table addresses based on the binary's actual loaded base address (due to ASLR)
-    if let Some(base_address) = get_runtime_base_address(executor) {
-        log!(executor.state.logger, "Base address of the binary: 0x{:x}", base_address);
-        // Create a new HashMap to store the adjusted symbol table
-        let mut adjusted_symbol_table: HashMap<u64, String> = HashMap::new();
-
-        // Iterate over the original symbol table and update the addresses
-        for (addr, symbol_name) in &executor.symbol_table {
-            adjusted_symbol_table.insert(addr + base_address, symbol_name.clone());
-        }
-
-        // Replace the old symbol table with the adjusted one
-        executor.symbol_table = adjusted_symbol_table;
-    }
-
     log!(executor.state.logger, "Loaded symbol table: {:?}", executor.symbol_table);
 }
-
-/// Extract the base address by parsing `/proc/<pid>/maps`
-fn get_runtime_base_address(executor: &mut ConcolicExecutor) -> Option<u64> {
-    let pid = std::process::id(); // Get the current process ID
-    let maps_file_path = format!("/proc/{}/maps", pid);
-
-    if let Ok(content) = std::fs::read_to_string(&maps_file_path) {
-        // Log the entire content of the maps file for debugging
-        log!(executor.state.logger, "--- /proc/{}/maps content ---", pid);
-        for line in content.lines() {
-            log!(executor.state.logger, "{}", line);  // Log each line from the maps file
-        }
-
-        // Look for the binary's segment with "r-xp" and the binary path
-        for line in content.lines() {
-            if line.contains("r-xp") && line.contains("/your-binary-name") {
-                // Extract base address of the segment where the binary is loaded
-                if let Some((base_addr_str, _)) = line.split_once('-') {
-                    if let Ok(base_addr) = u64::from_str_radix(base_addr_str.trim(), 16) {
-                        log!(executor.state.logger, "Base address found: 0x{:x}", base_addr);
-                        return Some(base_addr);
-                    }
-                }
-            }
-        }
-    } else {
-        log!(executor.state.logger, "Failed to open /proc/{}/maps", pid);
-    }
-
-    None
-}
-
 
 fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
     let file = File::open(path)?;
