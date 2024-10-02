@@ -38,7 +38,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub solver: Solver<'ctx>,
     pub state: State<'ctx>,
     pub current_address: Option<u64>,
-    pub symbol_table: BTreeMap<u64, String>,
+    pub symbol_table: BTreeMap<String, String>,
     pub instruction_counter: usize,
     pub unique_variables: BTreeMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
     pub pcode_internal_lines_to_be_jumped: usize, // known line number of the current instruction in the pcode file, usefull for branch instructions
@@ -66,12 +66,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         for sym in &elf.syms {
             if elf::sym::st_type(sym.st_info) == STT_FUNC {
                 if let Some(name) = elf.strtab.get_at(sym.st_name) {
-                    self.symbol_table.insert(sym.st_value, name.to_string());
+                    // Convert address to hexadecimal string
+                    let address_hex = format!("{:x}", sym.st_value);
+                    // Insert the hexadecimal address and the name into the symbol_table
+                    self.symbol_table.insert(address_hex, name.to_string());
                 }
             }
         }
         Ok(())
-    }    
+    }      
 
     pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64) -> Result<(), String> {
         // Check if we are processing a new address block
@@ -93,23 +96,23 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             let target_concolic_var = self.varnode_to_concolic(target_varnode)?;
             let target_address = target_concolic_var.get_concrete_value();
 
-            // Log the target address
-            println!("Resolved target address: 0x{:x}", target_address);
+            // Convert target_address to hexadecimal string to match with symbol table keys
+            let target_address_hex = format!("{:x}", target_address);
 
-            // Attempt to match the address in the symbol table
-            if let Some(symbol_name) = self.symbol_table.iter()
-                .find(|(&addr, _)| (addr..addr + 8).contains(&target_address))
-                .map(|(_, name)| name) 
-            {
+            // Log the target address
+            println!("Resolved target address: 0x{}", target_address_hex);
+
+            // match the address in the symbol table
+            if let Some(symbol_name) = self.symbol_table.get(&target_address_hex) {
                 println!("CALL to function: {}", symbol_name);
 
                 // Handle specific function calls
                 if symbol_name == "runtime.nilPanic" {
                     log!(self.state.logger.clone(),"Nil pointer dereference detected!");
-                    process::exit(1);
+                    return Err("Nil pointer dereference detected!".into());
                 }
             } else {
-                println!("CALL to address: 0x{:x} (symbol not found)", target_address);
+                println!("CALL to address: 0x{} (symbol not found)", target_address_hex);
             }
         } else {
             println!("CALL instruction has no input operands");
