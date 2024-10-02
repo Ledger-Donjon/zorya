@@ -69,6 +69,7 @@ fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) {
 
     // Adjust the symbol table addresses based on the binary's actual loaded base address (due to ASLR)
     if let Some(base_address) = get_runtime_base_address() {
+        log!(executor.state.logger, "Base address of the binary: 0x{:x}", base_address);
         // Create a new HashMap to store the adjusted symbol table
         let mut adjusted_symbol_table: HashMap<u64, String> = HashMap::new();
 
@@ -84,16 +85,20 @@ fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) {
     log!(executor.state.logger, "Loaded symbol table: {:?}", executor.symbol_table);
 }
 
-/// Gets the base address of the binary at runtime using `/proc/<pid>/maps`
+/// Extract the base address by parsing `/proc/<pid>/maps`
+/// This function specifically looks for the address where the executable (or relevant segment) is loaded
 fn get_runtime_base_address() -> Option<u64> {
     let pid = std::process::id(); // Get the current process ID
     let maps_file_path = format!("/proc/{}/maps", pid);
 
     if let Ok(content) = std::fs::read_to_string(maps_file_path) {
         for line in content.lines() {
-            if let Some((base_addr_str, _)) = line.split_once('-') {
-                if let Ok(base_addr) = u64::from_str_radix(base_addr_str.trim(), 16) {
-                    return Some(base_addr);
+            if line.contains("r-xp") && line.contains("/your-binary-name") {
+                // Extract base address of the segment where the binary is loaded
+                if let Some((base_addr_str, _)) = line.split_once('-') {
+                    if let Ok(base_addr) = u64::from_str_radix(base_addr_str.trim(), 16) {
+                        return Some(base_addr);
+                    }
                 }
             }
         }
