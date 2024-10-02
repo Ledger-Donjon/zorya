@@ -46,7 +46,7 @@ fn main() {
 }
 
 /// Extract symbols using `objdump` and populate the symbol table
-fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) {
+fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) -> io::Result<()> {
     // Run the `objdump -t` command to get the symbol table of the binary
     let objdump_output = Command::new("objdump")
         .arg("-t")
@@ -54,21 +54,24 @@ fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) {
         .output()
         .expect("Failed to execute objdump");
 
-    // Capture stdout from the objdump command
-    let output_str = String::from_utf8_lossy(&objdump_output.stdout);
+    // Define the command to run objdump
+    let output = Command::new("objdump")
+        .arg("-t")
+        .arg(&binary_path) // Using the binary_path from GLOBAL_TARGET_INFO
+        .output()?;
 
-    // Parse the objdump output and fill the symbol table
-    for line in output_str.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 6 {
-            if let Ok(address) = u64::from_str_radix(parts[0], 16) {
-                let symbol_name = parts[5].to_string();
-                executor.symbol_table.insert(address, symbol_name);
-            }
-        }
+    // Check if the command was successful
+    if !output.status.success() {
+        eprintln!("Command executed with failing error code");
+        std::process::exit(1);
     }
 
-    log!(executor.state.logger, "Loaded symbol table: {:?}", executor.symbol_table);
+    // Write the output to symbols.txt
+    let mut file = File::create("symbols.txt")?;
+    file.write_all(&output.stdout)?;
+    log!(executor.state.logger, "Loaded symbol table: {:?}", output.stdout);
+    Ok(())
+
 }
 
 fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
