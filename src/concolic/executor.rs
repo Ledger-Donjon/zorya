@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
@@ -11,6 +10,9 @@ use crate::state::memory_x86_64::MemoryValue;
 use crate::state::state_manager::Logger;
 use crate::state::CpuState;
 use crate::state::State;
+use goblin::elf;
+use goblin::elf::sym::STT_FUNC;
+use goblin::elf::Elf;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::Ast;
 use z3::ast::BV;
@@ -36,7 +38,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub solver: Solver<'ctx>,
     pub state: State<'ctx>,
     pub current_address: Option<u64>,
-    pub symbol_table: HashMap<u64, String>,
+    pub symbol_table: BTreeMap<u64, String>,
     pub instruction_counter: usize,
     pub unique_variables: BTreeMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
     pub pcode_internal_lines_to_be_jumped: usize, // known line number of the current instruction in the pcode file, usefull for branch instructions
@@ -50,13 +52,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             context,
             solver,
             state,
-            symbol_table: HashMap::new(),
+            symbol_table: BTreeMap::new(),
             current_address: None,
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
             pcode_internal_lines_to_be_jumped: 0, // number of lines to skip in case of branch instructions
          })
     }
+
+    pub fn populate_symbol_table(&mut self, elf_data: &[u8]) -> Result<(), goblin::error::Error> {
+        let elf = Elf::parse(elf_data)?;
+        // Iterate over the symbol tables
+        for sym in &elf.syms {
+            if elf::sym::st_type(sym.st_info) == STT_FUNC {
+                // Use get_at() for better performance and simplified error handling
+                if let Some(name) = elf.strtab.get_at(sym.st_name) {
+                    self.symbol_table.insert(sym.st_value, name.to_string());
+                }
+            }
+        }
+        Ok(())
+    }    
 
     pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64) -> Result<(), String> {
         // Check if we are processing a new address block

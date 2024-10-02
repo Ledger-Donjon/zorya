@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
-use std::fs::File;
+use std::error::Error;
+use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
 use std::process::Command;
 
@@ -15,7 +16,7 @@ macro_rules! log {
     }};
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::new();
     let context = Context::new(&config);
     let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
@@ -32,7 +33,10 @@ fn main() {
 
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
-    extract_symbols(&binary_path, &mut executor);
+    // Populate the symbol table
+    let elf_data = fs::read(binary_path)?;
+    executor.populate_symbol_table(&elf_data)?;
+    log!(executor.state.logger, "Symbol table has been populated:{:?}", executor.symbol_table);
 
     let instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut executor.clone())
         .expect("Failed to preprocess the p-code file.");
@@ -43,35 +47,7 @@ fn main() {
     execute_instructions_from(&mut executor, start_address, &instructions_map);
 
     log!(executor.state.logger, "The concolic execution has completed successfully.");
-}
-
-/// Extract symbols using `objdump` and populate the symbol table
-fn extract_symbols(binary_path: &str, executor: &mut ConcolicExecutor) -> io::Result<()> {
-    // Run the `objdump -t` command to get the symbol table of the binary
-    let objdump_output = Command::new("objdump")
-        .arg("-t")
-        .arg(binary_path)
-        .output()
-        .expect("Failed to execute objdump");
-
-    // Define the command to run objdump
-    let output = Command::new("objdump")
-        .arg("-t")
-        .arg(&binary_path) // Using the binary_path from GLOBAL_TARGET_INFO
-        .output()?;
-
-    // Check if the command was successful
-    if !output.status.success() {
-        eprintln!("Command executed with failing error code");
-        std::process::exit(1);
-    }
-
-    // Write the output to symbols.txt
-    let mut file = File::create("symbols.txt")?;
-    file.write_all(&output.stdout)?;
-    log!(executor.state.logger, "Loaded symbol table: {:?}", output.stdout);
     Ok(())
-
 }
 
 fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
