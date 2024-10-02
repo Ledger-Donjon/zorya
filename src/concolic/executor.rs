@@ -93,7 +93,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // Check if the current address corresponds to the "runtime.nilPanic" function
             if let Some(symbol_name) = self.symbol_table.get(&current_addr_hex) {
                 if symbol_name == "runtime.nilPanic" {
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     log!(self.state.logger.clone(), "Attempt to execute 'runtime.nilPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     process::exit(0);
                 }
             }
