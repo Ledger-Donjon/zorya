@@ -77,6 +77,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }      
 
     pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64) -> Result<(), String> {
+        // Convert current_addr to hexadecimal string to match with symbol table keys
+        let current_addr_hex = format!("{:x}", current_addr);
+        
         // Check if we are processing a new address block
         if Some(current_addr) != self.current_address {
             // Reset the unique variables for the new address
@@ -86,36 +89,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             self.current_address = Some(current_addr);
             // Reset the instruction counter for the new address
             self.instruction_counter = 1; // Start counting from 1 for each address block
+
+            // Check if the current address corresponds to the "runtime.nilPanic" function
+            if let Some(symbol_name) = self.symbol_table.get(&current_addr_hex) {
+                if symbol_name == "runtime.nilPanic" {
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.nilPanic' detected at address 0x{}.", current_addr_hex);
+                    process::exit(0);
+                }
+            }
         } else {
             // Same address block, increment the instruction counter
             self.instruction_counter += 1;
-        }
-
-        // Fetch the target address from instruction input
-        if let Some(target_varnode) = instruction.inputs.get(0) {
-            let target_concolic_var = self.varnode_to_concolic(target_varnode)?;
-            let target_address = target_concolic_var.get_concrete_value();
-
-            // Convert target_address to hexadecimal string to match with symbol table keys
-            let target_address_hex = format!("{:x}", target_address);
-
-            // Log the target address
-            println!("Resolved target address: 0x{}", target_address_hex);
-
-            // match the address in the symbol table
-            if let Some(symbol_name) = self.symbol_table.get(&target_address_hex) {
-                println!("CALL to function: {}", symbol_name);
-
-                // Handle specific function calls
-                if symbol_name == "runtime.nilPanic" {
-                    log!(self.state.logger.clone(),"Nil pointer dereference detected!");
-                    return Err("Nil pointer dereference detected!".into());
-                }
-            } else {
-                println!("CALL to address: 0x{} (symbol not found)", target_address_hex);
-            }
-        } else {
-            println!("CALL instruction has no input operands");
         }
 
         match instruction.opcode {
