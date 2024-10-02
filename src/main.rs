@@ -28,6 +28,7 @@ fn main() {
         log!(executor.state.logger, "Acquired target information.");
         (target_info.binary_path.clone(), target_info.pcode_file_path.clone(), target_info.main_program_addr.clone())
     };
+    log!(executor.state.logger, "Binary path: {}", binary_path);
 
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
