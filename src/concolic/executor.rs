@@ -64,10 +64,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let elf = Elf::parse(elf_data)?;
         // Iterate over the symbol tables
         for sym in &elf.syms {
-            // Check if the symbol is a function (type `STT_FUNC`)
-            if elf::sym::st_type(sym.st_info) == elf::sym::STT_FUNC {
-                // The symbol's value is the address and its size is directly available
-                self.symbol_table.insert(sym.st_value, sym.st_name.to_string());
+            if elf::sym::st_type(sym.st_info) == STT_FUNC {
+                if let Some(name) = elf.strtab.get_at(sym.st_name) {
+                    self.symbol_table.insert(sym.st_value, name.to_string());
+                }
             }
         }
         Ok(())
