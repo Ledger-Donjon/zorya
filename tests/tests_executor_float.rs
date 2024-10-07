@@ -5,7 +5,7 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use parser::parser::Size;
     use z3::ast::Float;
     use zorya::concolic::{ConcolicVar, Logger};
@@ -23,7 +23,7 @@ mod tests {
             context: ctx,
             solver: Solver::new(ctx),
             state,
-            symbol_table: HashMap::new(),
+            symbol_table: BTreeMap::new(),
             current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),

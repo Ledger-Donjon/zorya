@@ -12,7 +12,7 @@ pub enum SymbolicVar<'ctx> {
 }
 
 impl<'ctx> SymbolicVar<'ctx> {
-    pub fn new_int(value: i32, ctx: &'ctx Context, size: u32) -> SymbolicVar<'ctx> {
+    pub fn new_int(value: i64, ctx: &'ctx Context, size: u32) -> SymbolicVar<'ctx> {
         let bv = BV::from_i64(ctx, value as i64, size);
         SymbolicVar::Int(bv)
     }

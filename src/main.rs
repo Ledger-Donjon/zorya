@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
-use std::process::Command;
 
 use parser::parser::Inst;
 use z3::{Config, Context};

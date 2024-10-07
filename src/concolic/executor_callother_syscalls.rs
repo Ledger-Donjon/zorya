@@ -265,7 +265,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             log!(executor.state.logger.clone(), "Mapped memory at addr: 0x{:x}, length: {}, prot: {}, flags: {}, fd: {}, offset: {}", result_addr, length, prot, flags, fd, offset);
         
             // Set return value (the address to which the file has been mapped)
-            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(result_addr, SymbolicVar::new_int(result_addr as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(result_addr, SymbolicVar::new_int(result_addr.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
             
             drop(cpu_state_guard);
 
@@ -701,11 +701,11 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             if oss_ptr != 0 {
                 // If oss_ptr is not null, return the current alternate signal stack
                 let current_ss_sp = executor.state.altstack.ss_sp;
-                let current_ss_sp_symbolic = SymbolicVar::new_int(current_ss_sp as i32, executor.context, 64).to_bv(executor.context);
+                let current_ss_sp_symbolic = SymbolicVar::new_int(current_ss_sp as i64, executor.context, 64).to_bv(executor.context);
                 let current_ss_flags = executor.state.altstack.ss_flags;
-                let current_ss_flags_symbolic = SymbolicVar::new_int(current_ss_flags as i32, executor.context, 32).to_bv(executor.context);
+                let current_ss_flags_symbolic = SymbolicVar::new_int(current_ss_flags as i64, executor.context, 32).to_bv(executor.context);
                 let current_ss_size = executor.state.altstack.ss_size;
-                let current_ss_size_symbolic = SymbolicVar::new_int(current_ss_size as i32, executor.context, 64).to_bv(executor.context);
+                let current_ss_size_symbolic = SymbolicVar::new_int(current_ss_size as i64, executor.context, 64).to_bv(executor.context);
                 log!(executor.state.logger.clone(), "Returning current altstack: ss_sp=0x{:x}, ss_flags=0x{:x}, ss_size=0x{:x}", current_ss_sp, current_ss_flags, current_ss_size);
             
                 // Write the current alternate signal stack information to memory
@@ -795,7 +795,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let tid = unsafe { gettid() } as u64;
 
             // Set the TID in RAX
-            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(tid, SymbolicVar::new_int(tid as i32, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
+            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(tid, SymbolicVar::new_int(tid as i64, executor.context, 64).to_bv(executor.context), executor.context, 64), 64)?;
 
             drop(cpu_state_guard);
 
