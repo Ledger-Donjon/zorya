@@ -1063,7 +1063,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Output is a Register type");
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let _ = cpu_state_guard.set_register_value_by_offset(*offset, source_concolic, output_size_bits);
+                    cpu_state_guard.set_register_value_by_offset(*offset, source_concolic, output_size_bits)?;
                     log!(self.state.logger.clone(), "Updated register at offset 0x{:x}", offset);
                     drop(cpu_state_guard);
                 },
