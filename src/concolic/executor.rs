@@ -98,6 +98,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     process::exit(0);
                 }
+                if symbol_name == "runtime.runtimePanicAt" {
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.runtimePanicAt' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    process::exit(0);
+                }
             }
         } else {
             // Same address block, increment the instruction counter
