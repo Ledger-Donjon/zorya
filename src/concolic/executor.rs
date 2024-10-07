@@ -967,12 +967,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("Invalid instruction format for COPY".to_string());
         }
     
-        let cpu_state_guard = self.state.cpu_state.lock().unwrap();
         let bit_size = instruction.inputs[0].size.to_bitvector_size() as u32; // size in bits
-        let byte_count = (bit_size / 8) as usize;
 
         let (source_concrete_value, source_symbolic_value) = match &instruction.inputs[0].var {
             Var::Register(offset, _) => {
+                let cpu_state_guard = self.state.cpu_state.lock().unwrap();
                 log!(self.state.logger.clone(), "Varnode is a CPU register with offset: 0x{:x} and requested bit size: {}", offset, bit_size);
     
                 if let Some(&(ref _name, reg_size)) = cpu_state_guard.register_map.get(offset) {
@@ -1110,7 +1109,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         } else {
             return Err("No output variable specified for COPY instruction".to_string());
         }
-        drop(cpu_state_guard);
     
         // Create or update a concolic variable for the result
         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
