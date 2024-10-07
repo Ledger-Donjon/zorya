@@ -96,7 +96,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
         {
             let mut cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-            let _ = cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(current_rip, SymbolicVar::new_int(current_rip.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64), 64).map_err(|e| e.to_string());
+            cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(current_rip, SymbolicVar::new_int(current_rip.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64), 64).map_err(|e| e.to_string()).unwrap();
         }
 
         let mut end_of_block = false;
