@@ -1,5 +1,5 @@
 extern crate z3;
-use z3::ast::{Ast, Bool, Float, BV};
+use z3::ast::{Ast, Bool, Float, Int, BV};
 use z3::Context;
 use z3_sys::Z3_ast;
 
@@ -223,5 +223,14 @@ impl<'ctx> SymbolicVar<'ctx> {
         !self.is_null()
     }
 
+    // Convert the symbolic variable to an integer
+    pub fn to_int(&self) -> Result<Int<'ctx>, &'static str> {
+        match self {
+            SymbolicVar::Int(bv) => Ok(Int::from_bv(bv, false)),
+            SymbolicVar::LargeInt(_) => Err("Conversion to integer is not supported for large integers symbolic variables"),
+            SymbolicVar::Float(_) => Err("Conversion to integer is not supported for floating-point symbolic variables"),
+            SymbolicVar::Bool(_) => Err("Conversion to integer is not supported for boolean symbolic variables"),
+        }
+    }
 
 }
