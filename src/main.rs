@@ -188,6 +188,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             match solver.check() {
                 z3::SatResult::Sat => {
                     println!("SATISFIABLE");
+               }
+                z3::SatResult::Unsat => {
+                    println!("UNSATISFIABLE");
                     let model = solver.get_model().unwrap();
         
                     let rax_val = model.eval(&rax_symbolic, true).unwrap().as_i64().unwrap();
@@ -198,9 +201,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     let rsi_val = model.eval(&rsi_symbolic, true).unwrap().as_i64().unwrap();
         
                     println!("Solution: RAX = 0x{:x}, RCX = 0x{:x}, RBX = 0x{:x}, RDX = 0x{:x}, RSI = 0x{:x}", rax_val, rcx_val, rbx_val, rdx_val, rsi_val);
-               }
-                z3::SatResult::Unsat => {
-                    println!("UNSATISFIABLE");
                 }
                 z3::SatResult::Unknown => {
                     println!("UNKNOWN");
