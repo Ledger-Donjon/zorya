@@ -55,16 +55,27 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
     let file = File::open(path)?;
     let reader = io::BufReader::new(file);
     let mut instructions_map = BTreeMap::new();
+    let mut current_address: Option<u64> = None;
 
     log!(executor.state.logger, "Preprocessing the p-code file...");
 
     for line in reader.lines().filter_map(Result::ok) {
         if line.trim_start().starts_with("0x") {
-            let current_address = u64::from_str_radix(&line.trim()[2..], 16).unwrap();
-            instructions_map.entry(current_address).or_insert_with(Vec::new);
-        } else if let Some(inst) = line.parse::<Inst>().ok() {
-            if let Some(current_address) = instructions_map.keys().last().copied() {
-                instructions_map.get_mut(&current_address).unwrap().push(inst);
+            current_address = Some(u64::from_str_radix(&line.trim()[2..], 16).unwrap());
+            instructions_map.entry(current_address.unwrap()).or_insert_with(Vec::new);
+        } else {
+            match line.parse::<Inst>() {
+                Ok(inst) => {
+                    if let Some(addr) = current_address {
+                        instructions_map.get_mut(&addr).unwrap().push(inst);
+                    } else {
+                        log!(executor.state.logger, "Instruction found without a preceding address: {}", line);
+                    }
+                },
+                Err(e) => {
+                    log!(executor.state.logger, "Error parsing line at address 0x{:x}: {}\nError: {}", current_address.unwrap_or(0), line, e);
+                    return Err(io::Error::new(io::ErrorKind::Other, format!("Error parsing line at address 0x{:x}: {}\nError: {}", current_address.unwrap_or(0), line, e)));
+                }
             }
         }
     }
@@ -72,7 +83,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
     log!(executor.state.logger, "Completed preprocessing.");
 
     Ok(instructions_map)
-} 
+}
 
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
     let mut current_rip = start_address;
