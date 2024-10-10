@@ -187,8 +187,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let rdx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.clone().to_int().unwrap();
             let rsi_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.clone().to_int().unwrap();
 
-            let error_type = Int::from_u64(executor.context, 0x1e29d60);
-            let error_data = Int::from_u64(executor.context, 0x1e29d68);
+            let error_type = Int::from_u64(executor.context, 0x5a3b40);
+            let error_data = Int::from_u64(executor.context, 0x5a3b48);
 
             let condition1 = Bool::from_bool(executor.context, rax_symbolic.ne(&error_type));
             let condition2 = Bool::from_bool(executor.context, rcx_symbolic.ne(&error_data));
