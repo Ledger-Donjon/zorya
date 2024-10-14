@@ -829,8 +829,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "Load size in bits: {}", mem_size);
     
         // Dereference the address from memory
-        let mem_value = self.state.memory.read_value(pointer_offset_concrete, mem_size)
+        let mut mem_value = self.state.memory.read_value(pointer_offset_concrete, mem_size)
             .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", pointer_offset_concrete, e))?;
+
+        if load_size_bits > mem_size {
+            mem_value.symbolic = mem_value.symbolic.zero_ext(load_size_bits - mem_size);
+        }
+        if load_size_bits < mem_size {
+            mem_value.symbolic = mem_value.symbolic.extract(load_size_bits - 1, 0);
+        }
     
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", mem_value.concrete);
     
