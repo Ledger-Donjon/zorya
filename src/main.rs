@@ -176,6 +176,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // log!(executor.state.logger,  "The value of register at offset 0x207 - SF is {:x}", register0x207.concrete);
             // let register0x20b = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20b, 64).unwrap();
             // log!(executor.state.logger,  "The value of register at offset 0x20b - OF is {:x}", register0x20b.concrete);
+            let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x110 - FS_OFFSET is {:x}", register0x110.concrete);
             
             // Symbolic checks
             let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
