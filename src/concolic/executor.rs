@@ -824,10 +824,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let load_size_bits = instruction.output.as_ref()
             .map(|varnode| varnode.size.to_bitvector_size() as u32)
             .unwrap_or(64); // Default to 64 bits if output size is not specified
-        log!(self.state.logger.clone(), "Load size in bits: {}", load_size_bits);
+        
+        let mem_size = pointer_offset_concolic.get_symbolic_value_bv(self.context).get_size();
+        log!(self.state.logger.clone(), "Load size in bits: {}", mem_size);
     
         // Dereference the address from memory
-        let mem_value = self.state.memory.read_value(pointer_offset_concrete, load_size_bits)
+        let mem_value = self.state.memory.read_value(pointer_offset_concrete, mem_size)
             .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", pointer_offset_concrete, e))?;
     
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", mem_value.concrete);
