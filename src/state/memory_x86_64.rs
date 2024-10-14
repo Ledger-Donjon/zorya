@@ -93,7 +93,14 @@ pub struct MemoryRegion<'ctx> {
 
 impl<'ctx> MemoryRegion<'ctx> {
     pub fn contains(&self, address: u64, size: usize) -> bool {
-        address >= self.start_address && (address + size as u64) <= self.end_address
+        let size_u64 = size as u64;
+        if address < self.start_address {
+            return false;
+        }
+        match address.checked_add(size_u64) {
+            Some(end_address) => end_address <= self.end_address,
+            None => false,
+        }
     }
 
     pub fn offset(&self, address: u64) -> usize {
