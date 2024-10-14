@@ -88,7 +88,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
-    let end_address: u64 = 0x60b660;
+    let end_address: u64 = 0x4bfb45;
 
     // For debugging
     //let address: u64 = 0x7fffffffe4b0;
