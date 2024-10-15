@@ -89,7 +89,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
     let end_address: u64 = 0x50132e;
-    //let mut symbolic_flag = 0;
+    let mut symbolic_flag = 0;
 
     // For debugging
     //let address: u64 = 0x7fffffffe4b0;
@@ -182,50 +182,52 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x110 - FS_OFFSET is {:x}", register0x110.concrete);
             
-            //if current_rip == 0x4b07c0 { // 0x4b07c0 is the address of the function that we want to analyze : DecodeBytes
-            //    symbolic_flag = 1;
-            //}
+            if current_rip == 0x4ee120 { // 0x4b07c0 is the address of the function that we want to analyze : DecodeBytes
+                symbolic_flag = 1;
+            }
 
-            // Symbolic checks
-            let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-            let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
-            let rcx = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
-            let rcx_symbolic = rcx.symbolic.clone().to_int().unwrap();
+            if symbolic_flag == 1 {
+                // Symbolic checks
+                let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
+                let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
+                let rcx = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
+                let rcx_symbolic = rcx.symbolic.clone().to_int().unwrap();
+                
+                let rbx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap().symbolic.clone().to_int().unwrap();
+                let rdx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.clone().to_int().unwrap();
+                let rsi_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.clone().to_int().unwrap();
+
+                let error_type = Int::from_u64(executor.context, 0x5d7940);
+                let error_data = Int::from_u64(executor.context, 0x5d7948);
+
+                let condition1 = Bool::from_bool(executor.context, rax_symbolic.ne(&error_type));
+                let condition2 = Bool::from_bool(executor.context, rcx_symbolic.ne(&error_data));
+
+                solver.assert(&condition1);
+                solver.assert(&condition2);
+
+                match solver.check() {
+                    z3::SatResult::Sat => {
+                        println!("SATISFIABLE");
+                }
+                    z3::SatResult::Unsat => {
+                        println!("UNSATISFIABLE");
+                        let model = solver.get_model().unwrap();
             
-            let rbx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap().symbolic.clone().to_int().unwrap();
-            let rdx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.clone().to_int().unwrap();
-            let rsi_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.clone().to_int().unwrap();
+                        let rax_val = model.eval(&rax_symbolic, true).unwrap().as_i64().unwrap();
+                        let rcx_val = model.eval(&rcx_symbolic, true).unwrap().as_i64().unwrap();
 
-            let error_type = Int::from_u64(executor.context, 0x5d7940);
-            let error_data = Int::from_u64(executor.context, 0x5d7948);
-
-            let condition1 = Bool::from_bool(executor.context, rax_symbolic.ne(&error_type));
-            let condition2 = Bool::from_bool(executor.context, rcx_symbolic.ne(&error_data));
-
-            solver.assert(&condition1);
-            solver.assert(&condition2);
-
-            match solver.check() {
-                z3::SatResult::Sat => {
-                    println!("SATISFIABLE");
+                        let rbx_val = model.eval(&rbx_symbolic, true).unwrap().as_i64().unwrap();
+                        let rdx_val = model.eval(&rdx_symbolic, true).unwrap().as_i64().unwrap();
+                        let rsi_val = model.eval(&rsi_symbolic, true).unwrap().as_i64().unwrap();
+            
+                        println!("Solution: RAX = 0x{:x}, RCX = 0x{:x}, RBX = 0x{:x}, RDX = 0x{:x}, RSI = 0x{:x}", rax_val, rcx_val, rbx_val, rdx_val, rsi_val);
+                    }
+                    z3::SatResult::Unknown => {
+                        println!("UNKNOWN");
                 }
-                z3::SatResult::Unsat => {
-                    println!("UNSATISFIABLE");
-                    let model = solver.get_model().unwrap();
-        
-                    let rax_val = model.eval(&rax_symbolic, true).unwrap().as_i64().unwrap();
-                    let rcx_val = model.eval(&rcx_symbolic, true).unwrap().as_i64().unwrap();
-
-                    let rbx_val = model.eval(&rbx_symbolic, true).unwrap().as_i64().unwrap();
-                    let rdx_val = model.eval(&rdx_symbolic, true).unwrap().as_i64().unwrap();
-                    let rsi_val = model.eval(&rsi_symbolic, true).unwrap().as_i64().unwrap();
-        
-                    println!("Solution: RAX = 0x{:x}, RCX = 0x{:x}, RBX = 0x{:x}, RDX = 0x{:x}, RSI = 0x{:x}", rax_val, rcx_val, rbx_val, rdx_val, rsi_val);
                 }
-                z3::SatResult::Unknown => {
-                    println!("UNKNOWN");
-                }
-            }  
+            }
 
             // Check if there's a requested jump within the current block
             if executor.pcode_internal_lines_to_be_jumped > 0 {
