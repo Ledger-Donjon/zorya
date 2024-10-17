@@ -1057,6 +1057,17 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
     
                         (tv_sec, tv_nsec)
                     },
+                    4 => { // CLOCK_MONOTONIC_RAW
+                        // Since Rust's standard library doesn't provide a direct equivalent for CLOCK_MONOTONIC_RAW,
+                        // we can use the same as CLOCK_MONOTONIC for simplicity.
+                        let now = Instant::now();
+                        let duration_since_start = now.elapsed();
+    
+                        let tv_sec = duration_since_start.as_secs() as i64;
+                        let tv_nsec = duration_since_start.subsec_nanos() as i64;
+    
+                        (tv_sec, tv_nsec)
+                    },
                     _ => {
                         // Unsupported clk_id
                         // Set RAX to -1 to indicate error

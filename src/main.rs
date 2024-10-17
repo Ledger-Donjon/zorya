@@ -198,18 +198,18 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 let rdx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.clone().to_int().unwrap();
                 let rsi_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.clone().to_int().unwrap();
 
-		let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
-                let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
+                let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
+                        let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
 
-		let lookupPanic = Int::from_u64(executor.context, 0x212041);
-		let slicePanic = Int::from_u64(executor.context, 0x212041);
-		let e_panic = Int::from_u64(executor.context, 0x2120a7);
-		let nilPanic = Int::from_u64(executor.context, 0x212054);
+                let lookup_panic = Int::from_u64(executor.context, 0x212041);
+                let slice_panic = Int::from_u64(executor.context, 0x212041);
+                let e_panic = Int::from_u64(executor.context, 0x2120a7);
+                let nil_panic = Int::from_u64(executor.context, 0x212054);
 
-		let condition1 = Bool::from_bool(executor.context, rip_symbolic.ne(&lookupPanic));
-		let condition2 = Bool::from_bool(executor.context, rip_symbolic.ne(&slicePanic));
-		let condition3 = Bool::from_bool(executor.context, rip_symbolic.ne(&e_panic));
-		let condition4 = Bool::from_bool(executor.context, rip_symbolic.ne(&nilPanic));
+                let condition1 = Bool::from_bool(executor.context, rip_symbolic.ne(&lookup_panic));
+                let condition2 = Bool::from_bool(executor.context, rip_symbolic.ne(&slice_panic));
+                let condition3 = Bool::from_bool(executor.context, rip_symbolic.ne(&e_panic));
+                let condition4 = Bool::from_bool(executor.context, rip_symbolic.ne(&nil_panic));
 
                 //let error_type = Int::from_u64(executor.context, 0x5d7940);
                 //let error_data = Int::from_u64(executor.context, 0x5d7948);
@@ -219,8 +219,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
                 solver.assert(&condition1);
                 solver.assert(&condition2);
-		solver.assert(&condition3);
-		solver.assert(&condition4);
+                solver.assert(&condition3);
+                solver.assert(&condition4);
 
                 match solver.check() {
                     z3::SatResult::Sat => {
