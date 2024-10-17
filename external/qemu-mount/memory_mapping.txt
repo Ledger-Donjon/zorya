@@ -1,11 +1,13 @@
-process 1260
+process 2232
 Mapped address spaces:
 
           Start Addr           End Addr       Size     Offset  Perms  objfile
-            0x400000           0x45e000    0x5e000        0x0  r-xp   /mnt/host/additiongo-1thread
-            0x45e000           0x4d6000    0x78000    0x5e000  r--p   /mnt/host/additiongo-1thread
-            0x4d6000           0x4da000     0x4000    0xd6000  rw-p   /mnt/host/additiongo-1thread
-            0x4da000           0x53e000    0x64000        0x0  rw-p   [heap]
+            0x200000           0x20d000     0xd000        0x0  r--p   /mnt/host/tinygo-compress
+            0x20d000           0x221000    0x14000     0xc000  r-xp   /mnt/host/tinygo-compress
+            0x221000           0x222000     0x1000    0x1f000  rw-p   /mnt/host/tinygo-compress
+            0x222000           0x223000     0x1000    0x1f000  rw-p   /mnt/host/tinygo-compress
+            0x223000           0x224000     0x1000        0x0  rw-p   [heap]
+      0x7fffb7ff9000     0x7ffff7ff9000 0x40000000        0x0  rw-p   
       0x7ffff7ff9000     0x7ffff7ffd000     0x4000        0x0  r--p   [vvar]
       0x7ffff7ffd000     0x7ffff7fff000     0x2000        0x0  r-xp   [vdso]
       0x7ffffffde000     0x7ffffffff000    0x21000        0x0  rw-p   [stack]

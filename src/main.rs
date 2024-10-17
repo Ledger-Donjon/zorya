@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
+use std::process;
 
 use parser::parser::Inst;
 use z3::ast::{Bool, Int, BV};
@@ -88,7 +89,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
-    let end_address: u64 = 0x50132e;
+    let end_address: u64 = 0x213afc;
     let mut symbolic_flag = 0;
 
     // For debugging
@@ -143,14 +144,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // For debugging
             //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
             //executor.state.print_memory_content(address, range);
-            let register0x0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x0 - RAX is {:x}", register0x0.concrete);
-            let register0x8 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x8 - RCX is {:x}", register0x8.concrete);
-            let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x10 - RDX is {:x}", register0x10.concrete);
-            let register0x18 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x18 is {:x}", register0x18.concrete);
+            //let register0x0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
+            //log!(executor.state.logger,  "The value of register at offset 0x0 - RAX is {:x}", register0x0.concrete);
+            //let register0x8 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
+            //log!(executor.state.logger,  "The value of register at offset 0x8 - RCX is {:x}", register0x8.concrete);
+            //let register0x10 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap();
+            //log!(executor.state.logger,  "The value of register at offset 0x10 - RDX is {:x}", register0x10.concrete);
+            //let register0x18 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap();
+            //log!(executor.state.logger,  "The value of register at offset 0x18 is {:x}", register0x18.concrete);
             // let register0x20 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap();
             // log!(executor.state.logger,  "The value of register at offset 0x20 is {:x}", register0x20.concrete);
             // let register0x28 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x28, 64).unwrap();
@@ -177,12 +178,12 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             // log!(executor.state.logger,  "The value of register at offset 0x207 - SF is {:x}", register0x207.concrete);
             // let register0x20b = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20b, 64).unwrap();
             // log!(executor.state.logger,  "The value of register at offset 0x20b - OF is {:x}", register0x20b.concrete);
-            let register0x98 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x98 is {:x}", register0x98.concrete);
-            let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x110 - FS_OFFSET is {:x}", register0x110.concrete);
+            //let register0x98 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap();
+            //log!(executor.state.logger,  "The value of register at offset 0x98 is {:x}", register0x98.concrete);
+            //let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
+            //log!(executor.state.logger,  "The value of register at offset 0x110 - FS_OFFSET is {:x}", register0x110.concrete);
             
-            if current_rip == 0x4ee120 { // 0x4b07c0 is the address of the function that we want to analyze : DecodeBytes
+            if current_rip == 0x2130d9 { // address of the functionnality to analyze
                 symbolic_flag = 1;
             }
 
@@ -197,21 +198,36 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 let rdx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.clone().to_int().unwrap();
                 let rsi_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.clone().to_int().unwrap();
 
-                let error_type = Int::from_u64(executor.context, 0x5d7940);
-                let error_data = Int::from_u64(executor.context, 0x5d7948);
+		let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
+                let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
 
-                let condition1 = Bool::from_bool(executor.context, rax_symbolic.ne(&error_type));
-                let condition2 = Bool::from_bool(executor.context, rcx_symbolic.ne(&error_data));
+		let lookupPanic = Int::from_u64(executor.context, 0x212041);
+		let slicePanic = Int::from_u64(executor.context, 0x212041);
+		let e_panic = Int::from_u64(executor.context, 0x2120a7);
+		let nilPanic = Int::from_u64(executor.context, 0x212054);
+
+		let condition1 = Bool::from_bool(executor.context, rip_symbolic.ne(&lookupPanic));
+		let condition2 = Bool::from_bool(executor.context, rip_symbolic.ne(&slicePanic));
+		let condition3 = Bool::from_bool(executor.context, rip_symbolic.ne(&e_panic));
+		let condition4 = Bool::from_bool(executor.context, rip_symbolic.ne(&nilPanic));
+
+                //let error_type = Int::from_u64(executor.context, 0x5d7940);
+                //let error_data = Int::from_u64(executor.context, 0x5d7948);
+
+                //let condition1 = Bool::from_bool(executor.context, rax_symbolic.ne(&error_type));
+                //let condition2 = Bool::from_bool(executor.context, rcx_symbolic.ne(&error_data));
 
                 solver.assert(&condition1);
                 solver.assert(&condition2);
+		solver.assert(&condition3);
+		solver.assert(&condition4);
 
                 match solver.check() {
                     z3::SatResult::Sat => {
-                        println!("SATISFIABLE");
+                        log!(executor.state.logger, "SATISFIABLE");
                 }
                     z3::SatResult::Unsat => {
-                        println!("UNSATISFIABLE");
+                        log!(executor.state.logger, "UNSATISFIABLE");
                         let model = solver.get_model().unwrap();
             
                         let rax_val = model.eval(&rax_symbolic, true).unwrap().as_i64().unwrap();
@@ -221,10 +237,11 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                         let rdx_val = model.eval(&rdx_symbolic, true).unwrap().as_i64().unwrap();
                         let rsi_val = model.eval(&rsi_symbolic, true).unwrap().as_i64().unwrap();
             
-                        println!("Solution: RAX = 0x{:x}, RCX = 0x{:x}, RBX = 0x{:x}, RDX = 0x{:x}, RSI = 0x{:x}", rax_val, rcx_val, rbx_val, rdx_val, rsi_val);
-                    }
+                        log!(executor.state.logger, "Solution: RAX = 0x{:x}, RCX = 0x{:x}, RBX = 0x{:x}, RDX = 0x{:x}, RSI = 0x{:x}", rax_val, rcx_val, rbx_val, rdx_val, rsi_val);
+                	process::exit(0);    
+		}
                     z3::SatResult::Unknown => {
-                        println!("UNKNOWN");
+                        log!(executor.state.logger, "UNKNOWN");
                 }
                 }
             }
