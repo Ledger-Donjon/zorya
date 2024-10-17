@@ -1272,6 +1272,7 @@ name = "zorya"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "byteorder",
  "ethnum",
  "gdbstub",
  "goblin",

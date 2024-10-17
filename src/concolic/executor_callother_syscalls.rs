@@ -7,6 +7,7 @@ use goblin::elf::Sym;
 use nix::libc::{gettid, SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use z3::ast::BV;
 use std::{io::Write, path, process, time::Duration};
+use byteorder::{LittleEndian, WriteBytesExt};
 
 use super::{ConcolicVar, SymbolicVar};
 
@@ -624,32 +625,20 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
     
             log!(executor.state.logger.clone(), "sys_getrlimit called with resource: {}, rlim_ptr: 0x{:x}", resource, rlim_ptr);
     
-            // For simplicity, create a default rlimit structure with RLIM_INFINITY
+            // For simplicity, set rlim_cur and rlim_max to RLIM_INFINITY
             const RLIM_INFINITY: u64 = 0xffff_ffff_ffff_ffff;
+        
+            // Create a buffer to hold the rlimit data
+            let mut rlimit_bytes = Vec::with_capacity(16); // 8 bytes for rlim_cur and 8 bytes for rlim_max
     
-            // Define the rlimit struct
-            #[repr(C)]
-            struct Rlimit {
-                rlim_cur: u64, // Soft limit
-                rlim_max: u64, // Hard limit
-            }
+            // Write rlim_cur and rlim_max to the buffer
+            rlimit_bytes.write_u64::<LittleEndian>(RLIM_INFINITY)
+                .map_err(|e| format!("Failed to write rlim_cur to buffer: {}", e))?;
+            rlimit_bytes.write_u64::<LittleEndian>(RLIM_INFINITY)
+                .map_err(|e| format!("Failed to write rlim_max to buffer: {}", e))?;
     
-            // Create a mock rlimit instance
-            let rlimit = Rlimit {
-                rlim_cur: RLIM_INFINITY,
-                rlim_max: RLIM_INFINITY,
-            };
-    
-            // Convert the rlimit struct to a byte slice
-            let rlimit_bytes = unsafe {
-                std::slice::from_raw_parts(
-                    &rlimit as *const Rlimit as *const u8,
-                    std::mem::size_of::<Rlimit>(),
-                )
-            };
-    
-            // Write the rlimit structure to the memory at rlim_ptr
-            executor.state.memory.write_bytes(rlim_ptr, rlimit_bytes)
+            // Write the rlimit data to memory at rlim_ptr
+            executor.state.memory.write_bytes(rlim_ptr, &rlimit_bytes)
                 .map_err(|e| format!("Failed to write rlimit to memory: {}", e))?;
     
             // Set return value to 0 (success)
@@ -1010,7 +999,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 simulated_mask,
                 SymbolicVar::Int(BV::from_u64(executor.context, simulated_mask, 64)),
             );
-        },        
+        },
+                
         231 => { // sys_exit_group
             log!(executor.state.logger.clone(), "Syscall type: sys_exit_group");
             let status = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()?;
@@ -1025,7 +1015,99 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-exit_group", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, status.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, status.try_into().unwrap(), 64)));
-        },      
+        },
+        228 => { // sys_clock_gettime
+            log!(executor.state.logger.clone(), "Syscall type: sys_clock_gettime");
+    
+            // Retrieve 'clk_id' from RDI
+            let clk_id_offset = 0x38; // RDI register offset
+            let clk_id_var = cpu_state_guard.get_register_by_offset(clk_id_offset, 64)
+                .ok_or("Failed to retrieve 'clk_id' from RDI.")?;
+            let clk_id = clk_id_var.concrete.to_u64() as i32;
+    
+            // Retrieve 'tp' pointer from RSI
+            let tp_ptr_offset = 0x30; // RSI register offset
+            let tp_ptr_var = cpu_state_guard.get_register_by_offset(tp_ptr_offset, 64)
+                .ok_or("Failed to retrieve 'tp' pointer from RSI.")?;
+            let tp_ptr = tp_ptr_var.concrete.to_u64();
+    
+            log!(executor.state.logger.clone(), "sys_clock_gettime called with clk_id: {}, tp_ptr: 0x{:x}", clk_id, tp_ptr);
+    
+            // Retrieve the current time based on clk_id
+            let (tv_sec, tv_nsec) = {
+                use std::time::{SystemTime, UNIX_EPOCH, Instant};
+    
+                match clk_id {
+                    0 => { // CLOCK_REALTIME
+                        let now = SystemTime::now();
+                        let duration_since_epoch = now.duration_since(UNIX_EPOCH)
+                            .map_err(|e| format!("Time error: {}", e))?;
+    
+                        let tv_sec = duration_since_epoch.as_secs() as i64;
+                        let tv_nsec = duration_since_epoch.subsec_nanos() as i64;
+    
+                        (tv_sec, tv_nsec)
+                    },
+                    1 => { // CLOCK_MONOTONIC
+                        let now = Instant::now();
+                        let duration_since_start = now.elapsed();
+    
+                        let tv_sec = duration_since_start.as_secs() as i64;
+                        let tv_nsec = duration_since_start.subsec_nanos() as i64;
+    
+                        (tv_sec, tv_nsec)
+                    },
+                    _ => {
+                        // Unsupported clk_id
+                        // Set RAX to -1 to indicate error
+                        let rax_value = ConcolicVar::new_concrete_and_symbolic_int(
+                            -1i64 as u64,
+                            BV::from_u64(executor.context, (-1i64) as u64, 64),
+                            executor.context,
+                            64,
+                        );
+                        cpu_state_guard.set_register_value_by_offset(rax_offset, rax_value, 64)
+                            .map_err(|e| format!("Failed to set RAX: {}", e))?;
+    
+                        drop(cpu_state_guard);
+    
+                        return Err(format!("Unsupported clk_id: {}", clk_id));
+                    },
+                }
+            };
+    
+            // Create a buffer to hold the timespec data
+            let mut timespec_bytes = Vec::with_capacity(16); // 8 bytes for tv_sec and 8 bytes for tv_nsec
+    
+            // Write tv_sec and tv_nsec to the buffer
+            timespec_bytes.write_i64::<LittleEndian>(tv_sec)
+                .map_err(|e| format!("Failed to write tv_sec to buffer: {}", e))?;
+            timespec_bytes.write_i64::<LittleEndian>(tv_nsec)
+                .map_err(|e| format!("Failed to write tv_nsec to buffer: {}", e))?;
+    
+            // Write the timespec data to memory at tp_ptr
+            executor.state.memory.write_bytes(tp_ptr, &timespec_bytes)
+                .map_err(|e| format!("Failed to write timespec to memory: {}", e))?;
+    
+            // Set return value to 0 (success)
+            let rax_value = ConcolicVar::new_concrete_and_symbolic_int(
+                0,
+                BV::from_u64(executor.context, 0, 64),
+                executor.context,
+                64,
+            );
+            cpu_state_guard.set_register_value_by_offset(rax_offset, rax_value, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+    
+            drop(cpu_state_guard);
+    
+            // Record the operation for tracing
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-clock_gettime", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name,0u64, SymbolicVar::Int(BV::from_u64(executor.context, 0u64, 64)));
+    
+            log!(executor.state.logger.clone(), "sys_clock_gettime executed successfully");
+        },     
         257 => { // sys_openat : open file relative to a directory file descriptor
             log!(executor.state.logger.clone(), "Syscall type: sys_openat");
             
