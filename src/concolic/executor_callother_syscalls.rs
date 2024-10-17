@@ -607,6 +607,70 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-exit", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, status.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, status.try_into().unwrap(), 64)));
         },
+        97 => { // sys_getrlimit
+            log!(executor.state.logger.clone(), "Syscall type: sys_getrlimit");
+    
+            // Retrieve 'resource' from RDI
+            let resource_offset = 0x38; // RDI register offset
+            let resource_var = cpu_state_guard.get_register_by_offset(resource_offset, 64)
+                .ok_or("Failed to retrieve 'resource' from RDI.")?;
+            let resource = resource_var.concrete.to_u64() as u32;
+    
+            // Retrieve 'rlim' pointer from RSI
+            let rlim_ptr_offset = 0x30; // RSI register offset
+            let rlim_ptr_var = cpu_state_guard.get_register_by_offset(rlim_ptr_offset, 64)
+                .ok_or("Failed to retrieve 'rlim' pointer from RSI.")?;
+            let rlim_ptr = rlim_ptr_var.concrete.to_u64();
+    
+            log!(executor.state.logger.clone(), "sys_getrlimit called with resource: {}, rlim_ptr: 0x{:x}", resource, rlim_ptr);
+    
+            // For simplicity, create a default rlimit structure with RLIM_INFINITY
+            const RLIM_INFINITY: u64 = 0xffff_ffff_ffff_ffff;
+    
+            // Define the rlimit struct
+            #[repr(C)]
+            struct Rlimit {
+                rlim_cur: u64, // Soft limit
+                rlim_max: u64, // Hard limit
+            }
+    
+            // Create a mock rlimit instance
+            let rlimit = Rlimit {
+                rlim_cur: RLIM_INFINITY,
+                rlim_max: RLIM_INFINITY,
+            };
+    
+            // Convert the rlimit struct to a byte slice
+            let rlimit_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &rlimit as *const Rlimit as *const u8,
+                    std::mem::size_of::<Rlimit>(),
+                )
+            };
+    
+            // Write the rlimit structure to the memory at rlim_ptr
+            executor.state.memory.write_bytes(rlim_ptr, rlimit_bytes)
+                .map_err(|e| format!("Failed to write rlimit to memory: {}", e))?;
+    
+            // Set return value to 0 (success)
+            let rax_value = ConcolicVar::new_concrete_and_symbolic_int(
+                0,
+                BV::from_u64(executor.context, 0, 64),
+                executor.context,
+                64,
+            );
+            cpu_state_guard.set_register_value_by_offset(rax_offset, rax_value, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+    
+            drop(cpu_state_guard);
+    
+            // Record the operation for tracing
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-getrlimit", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(&result_var_name, 0u64, SymbolicVar::Int(BV::from_u64(executor.context, 0u64, 64)));
+    
+            log!(executor.state.logger.clone(), "sys_getrlimit executed successfully");
+        },
         131 => { // sys_sigaltstack
             log!(executor.state.logger.clone(), "Syscall type: sys_sigaltstack");
         
