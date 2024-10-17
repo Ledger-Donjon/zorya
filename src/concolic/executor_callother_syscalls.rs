@@ -1,12 +1,10 @@
 /// Focuses on implementing the execution of the CALLOTHER opcode, especially syscalls, from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{concolic::ConcreteVar, executor::ConcolicExecutor, state::{memory_x86_64::MemoryValue, state_manager}};
-use gdbstub::stub::state_machine::state;
-use goblin::elf::Sym;
+use crate::{executor::ConcolicExecutor, state::{memory_x86_64::MemoryValue}};
 use nix::libc::{gettid, SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use z3::ast::BV;
-use std::{io::Write, path, process, time::Duration};
+use std::{io::Write, process, time::Duration};
 use byteorder::{LittleEndian, WriteBytesExt};
 
 use super::{ConcolicVar, SymbolicVar};
@@ -511,6 +509,38 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let result_var_name = format!("{}-{:02}-callother-sys-madvise", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(&result_var_name, addr.try_into().unwrap(), SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)));
         },
+        39 => { // sys_getpid
+            log!(executor.state.logger.clone(), "Syscall type: sys_getpid");
+    
+            // For simplicity, we'll return a fixed PID
+            let pid: u32 = 1000; // Choose an appropriate PID for your environment
+    
+            log!(executor.state.logger.clone(), "Returning PID: {}", pid);
+    
+            // Set return value to PID
+            let pid_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                pid as u64,
+                BV::from_u64(executor.context, pid as u64, 64),
+                executor.context,
+                64,
+            );
+            cpu_state_guard.set_register_value_by_offset(rax_offset, pid_concolic, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+    
+            drop(cpu_state_guard);
+    
+            // Record the operation for tracing
+            let current_addr_hex = executor.current_address
+                .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let result_var_name = format!("{}-{:02}-callother-sys-getpid", current_addr_hex, executor.instruction_counter);
+            executor.state.create_or_update_concolic_variable_int(
+                &result_var_name,
+                pid as u64,
+                SymbolicVar::Int(BV::from_u64(executor.context, pid as u64, 64)),
+            );
+    
+            log!(executor.state.logger.clone(), "sys_getpid executed successfully");
+        },    
         59 => { // sys_execve
             log!(executor.state.logger.clone(), "Syscall type: sys_execve");
             
