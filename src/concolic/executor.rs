@@ -1143,79 +1143,203 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }   
 
-    // pub fn handle_lzcount(&mut self, instruction: Inst) -> Result<(), String> {
-    //     if instruction.opcode != Opcode::LZCount || instruction.inputs.len() != 1 {
-    //         return Err("Invalid instruction format for LZCOUNT".to_string());
-    //     }
-    
-    //     let input_varnode = &instruction.inputs[0];
-    //     let input_var = self.initialize_var_if_absent(input_varnode)?;
-    
-    //     // Perform leading zero count on the concrete value
-    //     let lzcount = input_var.leading_zeros() as u64; // leading_zeros returns u32, convert to u64 for consistency
-    
-    //     if let Some(output_varnode) = &instruction.output {
-    //         let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    //         let result_var_name = format!("{}_{:02}_{}", current_addr_hex, self.instruction_counter, format!("{:?}", output_varnode.var));
-    //         let bitvector_size = output_varnode.size.to_bitvector_size();
-    
-    //         //self.state.create_concolic_var_int(&result_var_name, lzcount, bitvector_size);
-    //     }
-    
-    //     Ok(())
-    // }    
-
     // Handle the SUBPIECE operation
     pub fn handle_subpiece(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::SubPiece || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for SUBPIECE".to_string());
         }
     
-        log!(self.state.logger.clone(), "* Fetching source data from instruction.input[0] for SUBPIECE");
-        let source_concolic = self.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| format!("Failed to fetch source data: {}", e))?;
-        let source_value = source_concolic.get_concrete_value();
-        let source_symbolic = source_concolic.get_symbolic_value_bv(self.context);
+        log!(
+            self.state.logger.clone(),
+            "* Fetching source data from instruction.input[0] for SUBPIECE"
+        );
     
-        log!(self.state.logger.clone(), "* Fetching truncation offset from instruction.input[1] for SUBPIECE");
+        let source_concolic = self
+            .varnode_to_concolic(&instruction.inputs[0])
+            .map_err(|e| format!("Failed to fetch source data: {}", e))?
+            .to_concolic_var()
+            .unwrap();
+        let source_concrete = &source_concolic.concrete;
+        let source_symbolic = &source_concolic.symbolic;
+    
+        log!(
+            self.state.logger.clone(),
+            "* Fetching truncation offset from instruction.input[1] for SUBPIECE"
+        );
+    
         let offset_value = if let Var::Const(value) = &instruction.inputs[1].var {
-            value.trim_start_matches("0x").parse::<u32>().map_err(|e| format!("Failed to parse offset value: {}", e))?
+            u32::from_str_radix(value.trim_start_matches("0x"), 16)
+                .map_err(|e| format!("Failed to parse offset value: {}", e))?
         } else {
             return Err("SUBPIECE expects a constant for input1".to_string());
         };
     
         let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
-        let byte_offset = offset_value * 8;  // Offset is in bytes, convert to bits
+        let bit_offset = offset_value * 8; // Offset is in bytes, convert to bits
     
-        // Check for invalid operations
-        if byte_offset >= source_symbolic.get_size() {
-            log!(self.state.logger.clone(), "Offset exceeds the size of the source data.");
-            return Err("Offset exceeds the size of the source data".to_string());
-        }
-    
-        let truncated_symbolic = source_symbolic.bvlshr(&BV::from_u64(self.context, byte_offset as u64, source_symbolic.get_size()));
-        let truncated_concrete = if byte_offset >= 64 {
-            0  // If the offset is larger than the size of a u64, the result is zero
-        } else {
-            source_value >> byte_offset  // Shift right to truncate
+        // Handle concrete value
+        let truncated_concrete = match source_concrete {
+            ConcreteVar::Int(value) => {
+                let total_bits = 64;
+                let shifted = if bit_offset >= total_bits {
+                    0u64
+                } else {
+                    *value >> bit_offset
+                };
+                let mask = if output_size_bits >= 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << output_size_bits) - 1
+                };
+                ConcreteVar::Int(shifted & mask)
+            }
+            ConcreteVar::LargeInt(values) => {
+                // Perform logical shift right on Vec<u64>
+                let shifted_values = Self::lshr_largeint(values, bit_offset);
+                // Mask the lower output_size_bits bits
+                let masked_values = Self::mask_largeint(&shifted_values, output_size_bits);
+                ConcreteVar::LargeInt(masked_values)
+            }
+            _ => return Err("Unsupported concrete variable type in SUBPIECE".to_string()),
         };
     
-        log!(self.state.logger.clone(), "Truncated concrete value: 0x{:x}", truncated_concrete);
-        log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
+        // Handle symbolic value
+        let truncated_symbolic = match source_symbolic {
+            SymbolicVar::Int(bv) => {
+                let shifted_bv = bv.bvlshr(&BV::from_u64(self.context, bit_offset as u64, bv.get_size()));
+                let final_bv = shifted_bv.extract(output_size_bits - 1, 0);
+                SymbolicVar::Int(final_bv)
+            }
+            SymbolicVar::LargeInt(bv_vec) => {
+                let shifted_bv_vec = Self::bvlshr_largeint(self.context, bv_vec, bit_offset);
+                let masked_bv_vec = Self::mask_largeint_bv(self.context, &shifted_bv_vec, output_size_bits);
+                SymbolicVar::LargeInt(masked_bv_vec)
+            }
+            _ => return Err("Unsupported symbolic variable type in SUBPIECE".to_string()),
+        };
     
-        let result_value = ConcolicVar::new_concrete_and_symbolic_int(
-            truncated_concrete,
-            truncated_symbolic,
-            self.context,
-            output_size_bits
-        );
+        // Create the result ConcolicVar
+        let result_value = ConcolicVar {
+            concrete: truncated_concrete,
+            symbolic: truncated_symbolic,
+            ctx: self.context,
+        };
     
         self.handle_output(instruction.output.as_ref(), result_value)?;
     
-        let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+        let current_addr_hex = self
+            .current_address
+            .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
         let result_var_name = format!("{}-{:02}-subpiece", current_addr_hex, self.instruction_counter);
-        self.state.create_or_update_concolic_variable_int(&result_var_name, truncated_concrete, source_concolic.to_concolic_var().unwrap().symbolic);
+        self.state.create_or_update_concolic_variable_int(
+            &result_var_name,
+            source_concolic.concrete.to_u64(),
+            source_concolic.symbolic.clone(),
+        );
     
         Ok(())
+    }    
+
+    // Logical shift right on Vec<u64>
+    fn lshr_largeint(values: &Vec<u64>, shift: u32) -> Vec<u64> {
+        let total_bits = (values.len() * 64) as u32;
+        if shift >= total_bits {
+            return vec![0; values.len()];
+        }
+
+        let mut result = vec![0; values.len()];
+        let full_shifts = (shift / 64) as usize;
+        let bit_shift = shift % 64;
+
+        for i in 0..(values.len() - full_shifts) {
+            let src_index = i + full_shifts;
+            let lower = values[src_index] >> bit_shift;
+            let upper = if bit_shift > 0 && src_index + 1 < values.len() {
+                values[src_index + 1] << (64 - bit_shift)
+            } else {
+                0
+            };
+            result[i] = lower | upper;
+        }
+        result
+    }
+
+    // Logical shift right on Vec<BV<'ctx>>
+    fn bvlshr_largeint(ctx: &'ctx Context, bv_vec: &Vec<BV<'ctx>>, shift: u32) -> Vec<BV<'ctx>> {
+        let total_bits = (bv_vec.len() * 64) as u32;
+        if shift >= total_bits {
+            return vec![BV::from_u64(ctx, 0, 64); bv_vec.len()];
+        }
+
+        let mut result = vec![BV::from_u64(ctx, 0, 64); bv_vec.len()];
+        let full_shifts = (shift / 64) as usize;
+        let bit_shift = shift % 64;
+
+        for i in 0..(bv_vec.len() - full_shifts) {
+            let src_index = i + full_shifts;
+            let lower = bv_vec[src_index].bvlshr(&BV::from_u64(ctx, bit_shift as u64, 64));
+            let upper = if bit_shift > 0 && src_index + 1 < bv_vec.len() {
+                bv_vec[src_index + 1].bvshl(&BV::from_u64(ctx, (64 - bit_shift) as u64, 64))
+            } else {
+                BV::from_u64(ctx, 0, 64)
+            };
+            result[i] = lower.bvor(&upper);
+        }
+        result
+    }
+
+    // Mask the lower 'num_bits' bits of Vec<BV<'ctx>>
+    fn mask_largeint_bv(ctx: &'ctx Context, bv_vec: &Vec<BV<'ctx>>, num_bits: u32) -> Vec<BV<'ctx>> {
+        let total_bits = (bv_vec.len() * 64) as u32;
+        if num_bits >= total_bits {
+            return bv_vec.clone();
+        }
+
+        let mut result = bv_vec.clone();
+        let bits_to_clear = total_bits - num_bits;
+        let bits_in_partial_word = bits_to_clear % 64;
+
+        // Zero out the higher words
+        for i in ((num_bits / 64) as usize + 1)..bv_vec.len() {
+            result[i] = BV::from_u64(ctx, 0, 64);
+        }
+
+        // Mask the partial word
+        if bits_in_partial_word > 0 && ((num_bits / 64) as usize) < bv_vec.len() {
+            let idx = (num_bits / 64) as usize;
+            let mask = (1u64 << (64 - bits_in_partial_word)) - 1;
+            let mask_bv = BV::from_u64(ctx, mask, 64);
+            result[idx] = result[idx].bvand(&mask_bv);
+        }
+
+        result
+    }
+
+
+    // Mask the lower 'num_bits' bits of Vec<u64>
+    fn mask_largeint(values: &Vec<u64>, num_bits: u32) -> Vec<u64> {
+        let total_bits = (values.len() * 64) as u32;
+        if num_bits >= total_bits {
+            return values.clone();
+        }
+
+        let mut result = values.clone();
+        let bits_to_clear = total_bits - num_bits;
+        let bits_in_partial_word = bits_to_clear % 64;
+
+        // Zero out the higher words
+        for i in ((num_bits / 64) as usize + 1)..values.len() {
+            result[i] = 0;
+        }
+
+        // Mask the partial word
+        if bits_in_partial_word > 0 && ((num_bits / 64) as usize) < values.len() {
+            let idx = (num_bits / 64) as usize;
+            let mask = (1u64 << (64 - bits_in_partial_word)) - 1;
+            result[idx] &= mask;
+        }
+
+        result
     }
 
     // Helper function to extend the size of a Bool when there is an operation between a Bool (size 1) and an Integer (usually size 8)

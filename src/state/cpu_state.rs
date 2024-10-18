@@ -118,44 +118,6 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         })
     }
 
-    // Truncate both concrete and symbolic values
-    pub fn truncate(&self, offset: usize, new_size: u32, ctx: &'ctx Context) -> Result<Self, &'static str> {
-        // Check if the new size and offset are valid
-        if offset + new_size as usize > self.symbolic.get_size() as usize {
-            return Err("Truncation range out of bounds");
-        }
-
-        // Adjust the symbolic extraction
-        let high = (offset + new_size as usize - 1) as u32;
-        let low = offset as u32;
-        let new_symbolic = self.symbolic.to_bv(ctx).extract(high, low);
-
-        // Adjust the concrete value: mask the bits after shifting right
-        let mask = (1u64 << new_size) - 1;
-        let new_concrete = match &self.concrete {
-            ConcreteVar::Int(value) => (value >> offset) & mask,
-            ConcreteVar::LargeInt(values) => {
-                // Handle LargeInt truncation
-                let mut truncated_value = 0u64;
-                for (i, &chunk) in values.iter().enumerate().skip(offset / 64) {
-                    let shift = offset % 64;
-                    truncated_value |= chunk >> shift;
-                    if i < new_size as usize / 64 {
-                        truncated_value |= values[i + 1] << (64 - shift);
-                    }
-                }
-                truncated_value & mask
-            }
-            _ => return Err("Unsupported operation for this concrete type"),
-        };
-
-        Ok(CpuConcolicValue {
-            concrete: ConcreteVar::Int(new_concrete),
-            symbolic: SymbolicVar::Int(new_symbolic),
-            ctx,
-        })
-    }
-
     pub fn get_context_id(&self) -> String {
         format!("{:p}", self.ctx)
     } 
