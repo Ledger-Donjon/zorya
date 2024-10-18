@@ -552,7 +552,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             },
             Var::Unique(id) => {
                 log!(self.state.logger.clone(), "Branch target is a unique variable with id: 0x{:x}", id);
-                let unique_name = format!("{:x}", id);
+                let unique_name = format!("Unique(0x{:x}", id);
                 let unique_var = self.unique_variables.get(&unique_name)
                     .ok_or_else(|| format!("Failed to retrieve unique variable with id 0x{:x}", id))?;
                 
