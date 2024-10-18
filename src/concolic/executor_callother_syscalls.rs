@@ -530,14 +530,9 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             drop(cpu_state_guard);
     
             // Record the operation for tracing
-            let current_addr_hex = executor.current_address
-                .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
+            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-getpid", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(
-                &result_var_name,
-                pid as u64,
-                SymbolicVar::Int(BV::from_u64(executor.context, pid as u64, 64)),
-            );
+            executor.state.create_or_update_concolic_variable_int(&result_var_name,pid as u64, SymbolicVar::Int(BV::from_u64(executor.context, pid as u64, 64)));
     
             log!(executor.state.logger.clone(), "sys_getpid executed successfully");
         },    

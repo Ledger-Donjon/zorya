@@ -550,6 +550,41 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 
                 Ok(concrete_value)
             },
+            Var::Unique(id) => {
+                log!(self.state.logger.clone(), "Branch target is a unique variable with id: 0x{:x}", id);
+                let unique_name = format!("{:x}", id);
+                let unique_var = self.unique_variables.get(&unique_name)
+                    .ok_or_else(|| format!("Failed to retrieve unique variable with id 0x{:x}", id))?;
+                
+                let concrete_value = match unique_var.concrete {
+                    ConcreteVar::Int(val) => val,
+                    _ => return Err(format!("Unsupported concrete type for unique variable with id 0x{:x}", id)),
+                };
+                
+                let symbolic_value = match &unique_var.symbolic {
+                    SymbolicVar::Int(bv) => bv.clone(),
+                    _ => return Err(format!("Unsupported symbolic type for unique variable with id 0x{:x}", id)),
+                };
+                
+                // Update the RIP register with the branch target address
+                {
+                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                    cpu_state_guard.set_register_value_by_offset(
+                        0x288, 
+                        ConcolicVar::new_concrete_and_symbolic_int(
+                            concrete_value,
+                            symbolic_value.clone(),
+                            &self.context,
+                            64,
+                        ),
+                        64,
+                    )?;
+                }
+                
+                log!(self.state.logger.clone(), "Branching to address 0x{:x} from unique variable with id 0x{:x}", concrete_value, id);
+                
+                Ok(concrete_value)
+            }
             _ => {
                 Err(format!("Branch instruction does not support this variable type: {:?}", varnode.var))
             }
