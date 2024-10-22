@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     log!(executor.state.logger, "Binary path: {}", binary_path);
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
-    // Get the path to the python script and launch it
+    // Get the path to the python script and run it
     let zorya_dir = {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
         info.zorya_path.clone()
@@ -46,13 +46,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("Python script not found at {:?}", python_script_path);
     }
 
-    let output = Command::new("pyhidra")
-        .arg(&python_script_path)
+    let output = Command::new("python3")
+        .arg(python_script_path)
         .arg(&binary_path)
-        .current_dir(&binary_path)
         .output()
         .expect("Failed to execute Python script");
-    
+
     // Check if the script ran successfully
     if !output.status.success() {
         eprintln!("Python script error: {}", String::from_utf8_lossy(&output.stderr));
