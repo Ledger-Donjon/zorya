@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     log!(executor.state.logger, "Binary path: {}", binary_path);
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
-    let python_script_path = "find_panic_xrefs.py";
+    let python_script_path = "src/find_panic_xrefs.py";
     // Check if the Python script exists
     if !Path::new(python_script_path).exists() {
         panic!("Python script not found at {}", python_script_path);
