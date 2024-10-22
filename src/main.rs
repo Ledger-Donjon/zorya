@@ -169,6 +169,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         }
 
         let mut end_of_block = false;
+
+        // Read the panic addresses from the file once before the main loop
+        let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
+
+        // Convert panic addresses to Z3 Ints once
+        let panic_address_ints: Vec<Int> = panic_addresses.iter()
+            .map(|&addr| Int::from_u64(executor.context, addr))
+            .collect();
  
         while local_line_number < instructions.len() && !end_of_block {
             let inst = &instructions[local_line_number];
@@ -176,13 +184,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
             // Symbolic checks
             if inst.opcode == Opcode::CBranch || inst.opcode == Opcode::BranchInd || inst.opcode == Opcode::CallInd {
-                // Read the panic addresses from the file once before the main loop
-                let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
-
-                // Convert panic addresses to Z3 Ints once
-                let panic_address_ints: Vec<Int> = panic_addresses.iter()
-                    .map(|&addr| Int::from_u64(executor.context, addr))
-                    .collect();
 
                 // Get the symbolic representation of RIP
                 let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();

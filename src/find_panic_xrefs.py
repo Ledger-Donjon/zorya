@@ -30,8 +30,11 @@ def main():
             function = function_iterator.next()
             function_name = function.getName()
 
-            # Check if the function name contains "panic"
-            if "panic" in function_name:
+            # Convert function name to lowercase for case-insensitive comparison
+            function_name_lower = function_name.lower()
+
+            # Check if the function name contains "panic" (case-insensitive)
+            if "panic" in function_name_lower:
                 # Get references to this function
                 references = program.getReferenceManager().getReferencesTo(function.getEntryPoint())
 
