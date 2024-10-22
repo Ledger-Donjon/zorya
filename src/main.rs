@@ -151,6 +151,15 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     //let address: u64 = 0x7fffffffe4b0;
     //let range = 0x8; 
 
+    log!(executor.state.logger, "Logging the addresses of the XREFs of Panic functions...");
+    // Read the panic addresses from the file once before the main loop
+    let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
+
+    // Convert panic addresses to Z3 Ints once
+    let panic_address_ints: Vec<Int> = panic_addresses.iter()
+        .map(|&addr| Int::from_u64(executor.context, addr))
+        .collect();
+
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
@@ -169,14 +178,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         }
 
         let mut end_of_block = false;
-
-        // Read the panic addresses from the file once before the main loop
-        let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
-
-        // Convert panic addresses to Z3 Ints once
-        let panic_address_ints: Vec<Int> = panic_addresses.iter()
-            .map(|&addr| Int::from_u64(executor.context, addr))
-            .collect();
  
         while local_line_number < instructions.len() && !end_of_block {
             let inst = &instructions[local_line_number];
