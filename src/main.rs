@@ -287,8 +287,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     },
                 }
                 //solver.pop(1); // Pop context to clean up assertions
-            } else {
-                continue;
             }
 
             // Check if there's a requested jump within the current block
