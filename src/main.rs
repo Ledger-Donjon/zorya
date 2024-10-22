@@ -239,7 +239,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             //log!(executor.state.logger,  "The value of register at offset 0x110 - FS_OFFSET is {:x}", register0x110.concrete);
 
             // Symbolic checks
-            if inst.opcode != Opcode::CBranch && inst.opcode != Opcode::BranchInd && inst.opcode != Opcode::CallInd {
+            if inst.opcode == Opcode::CBranch && inst.opcode == Opcode::BranchInd && inst.opcode == Opcode::CallInd {
                 // Read the panic addresses from the file once before the main loop
                 let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
 
