@@ -35,10 +35,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     log!(executor.state.logger, "Binary path: {}", binary_path);
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
-    let python_script_path = "src/find_panic_xrefs.py";
+    // Get the current executable's path
+    let exe_path = std::env::current_exe()?;
+    let exe_dir = exe_path.parent().expect("Failed to get executable directory");
+    let python_script_path = exe_dir.join("src").join("find_panic_xrefs.py");
+
     // Check if the Python script exists
-    if !Path::new(python_script_path).exists() {
-        panic!("Python script not found at {}", python_script_path);
+    if !python_script_path.exists() {
+        panic!("Python script not found at {:?}", python_script_path);
     }
 
     // Invoke the Python script using std::process::Command
