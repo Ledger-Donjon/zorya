@@ -2,19 +2,24 @@
 import sys
 import pyhidra
 
-# Start Pyhidra
-pyhidra.start()
-
-def run():
+def main():
     if len(sys.argv) < 2:
-        print("Usage: python find_panic_xrefs.py /path/to/binary")
+        print("Usage: python3 find_panic_xrefs.py /path/to/binary")
         sys.exit(1)
     binary_path = sys.argv[1]
 
+    # Start Pyhidra
+    pyhidra.start()
+
+    from ghidra.program.model.symbol import RefType
+
     # Open the binary with Pyhidra
-    with pyhidra.open_program(binary_path, analyze=True) as current_program:
-        # Get the function manager
-        function_manager = current_program.getFunctionManager()
+    with pyhidra.open_program(binary_path, analyze=True) as flat_api:
+        # Get the Program object
+        program = flat_api.getCurrentProgram()
+
+        # Get the FunctionManager
+        function_manager = program.getFunctionManager()
 
         # List to store the addresses of xrefs to panic functions
         xref_addresses = []
@@ -28,7 +33,7 @@ def run():
             # Check if the function name contains "panic"
             if "panic" in function_name:
                 # Get references to this function
-                references = current_program.getReferenceManager().getReferencesTo(function.getEntryPoint())
+                references = program.getReferenceManager().getReferencesTo(function.getEntryPoint())
 
                 for ref in references:
                     # We are interested in code references that are calls
@@ -47,4 +52,4 @@ def run():
                 file.write("0x{}\n".format(addr.toString()))
 
 if __name__ == "__main__":
-    run()
+    main()
