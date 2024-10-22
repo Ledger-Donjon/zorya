@@ -169,15 +169,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         }
 
         let mut end_of_block = false;
-
-        // Read the panic addresses from the file once before the main loop
-        let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
-
-        // Convert panic addresses to Z3 Ints once
-        let panic_address_ints: Vec<Int> = panic_addresses.iter()
-            .map(|&addr| Int::from_u64(executor.context, addr))
-            .collect();
-
+ 
         while local_line_number < instructions.len() && !end_of_block {
             let inst = &instructions[local_line_number];
             log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}", local_line_number, inst);
@@ -248,6 +240,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
             // Symbolic checks
             if inst.opcode != Opcode::CBranch && inst.opcode != Opcode::BranchInd && inst.opcode != Opcode::CallInd {
+                // Read the panic addresses from the file once before the main loop
+                let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
+
+                // Convert panic addresses to Z3 Ints once
+                let panic_address_ints: Vec<Int> = panic_addresses.iter()
+                    .map(|&addr| Int::from_u64(executor.context, addr))
+                    .collect();
+
                 // Get the symbolic representation of RIP
                 let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
                 let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
@@ -286,7 +286,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                         log!(executor.state.logger, "UNKNOWN: Solver could not determine satisfiability.");
                     },
                 }
-                solver.pop(1); // Pop context to clean up assertions
+                //solver.pop(1); // Pop context to clean up assertions
+            } else {
+                continue;
             }
 
             // Check if there's a requested jump within the current block
