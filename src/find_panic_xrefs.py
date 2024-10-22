@@ -44,11 +44,6 @@ def main():
                         from_address = ref.getFromAddress()
                         xref_addresses.append(from_address)
 
-        # Output the addresses
-        print("Addresses of instructions calling panic functions:")
-        for addr in xref_addresses:
-            print("0x{}".format(addr.toString()))
-
         # Write the addresses to a file
         with open("xref_addresses.txt", "w") as file:
             for addr in xref_addresses:
