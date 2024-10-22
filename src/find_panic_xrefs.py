@@ -1,7 +1,9 @@
 # find_panic_xrefs.py
 import sys
 import pyhidra
-from ghidra.program.model.symbol import RefType
+
+# Start Pyhidra
+pyhidra.start()
 
 def run():
     if len(sys.argv) < 2:
