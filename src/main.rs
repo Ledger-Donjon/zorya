@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
 use parser::parser::{Inst, Opcode};
@@ -35,12 +35,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     log!(executor.state.logger, "Binary path: {}", binary_path);
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
-    // Get the current executable's path
-    let exe_path = std::env::current_exe()?;
-    let exe_dir = exe_path.parent().expect("Failed to get executable directory");
-    let python_script_path = exe_dir.join("src").join("find_panic_xrefs.py");
+    // Get the path to the python script
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let python_script_path = manifest_dir.join("src").join("find_panic_xrefs.py");
 
-    // Check if the Python script exists
     if !python_script_path.exists() {
         panic!("Python script not found at {:?}", python_script_path);
     }
