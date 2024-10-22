@@ -280,12 +280,12 @@ impl<'ctx> CpuState<'ctx> {
     }
 
     pub fn upload_dumps_to_cpu_registers(&mut self) -> Result<()> {  
-        let dumps_dir = {
-                let info = GLOBAL_TARGET_INFO.lock().unwrap();
-                info.memory_dumps.clone()
-            };
+        let zorya_dir = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            info.zorya_path.clone()
+        };
     
-        let cpu_output_path = dumps_dir.join("cpu_mapping.txt");    
+        let cpu_output_path = zorya_dir.join("external").join("qemu-mount").join("cpu_mapping.txt");    
         let cpu_output = fs::read_to_string(&cpu_output_path);    
         let result = Self::parse_and_update_cpu_state_from_gdb_output(self, &cpu_output.unwrap());
         if let Err(e) = result {

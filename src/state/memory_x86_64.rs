@@ -151,12 +151,12 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     pub fn load_all_dumps(&self) -> Result<(), MemoryError> {
-        let dumps_dir = {
+        let zorya_dir = {
             let info = GLOBAL_TARGET_INFO.lock().unwrap();
-            info.memory_dumps.clone()
+            info.zorya_path.clone()
         };
 
-        let dumps_dir_path = dumps_dir.join("dumps");
+        let dumps_dir_path = zorya_dir.join("external").join("qemu-mount").join("dumps");
 
         let entries = fs::read_dir(dumps_dir_path)?;
         for entry in entries {

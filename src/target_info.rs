@@ -8,19 +8,17 @@ pub struct TargetInfo {
     pub binary_path: String,
     pub main_program_addr: String,
     pub pcode_file_path: PathBuf,
-    pub working_files_dir: PathBuf,
-    pub memory_dumps: PathBuf,
+    pub zorya_path: PathBuf,
 }
 
 impl TargetInfo {
     // Define a new function for easily creating a new TargetInfo
-    pub fn new(binary_path: &str, main_program_addr: &str, pcode_file_path: PathBuf, working_files_dir: PathBuf, memory_dumps: PathBuf) -> Self {
+    pub fn new(binary_path: &str, main_program_addr: &str, pcode_file_path: PathBuf, zorya_path: PathBuf) -> Self {
         TargetInfo {
             binary_path: binary_path.to_string(),
             main_program_addr: main_program_addr.to_string(),
             pcode_file_path,
-            working_files_dir,
-            memory_dumps,
+            zorya_path,
         }
     }
 }
@@ -36,9 +34,7 @@ lazy_static::lazy_static! {
         // 3. Absolute path to the .txt file with the pcode commands of your binary generated with Pcode-generator
         PathBuf::from("/home/kgorna/Documents/tools/pcode-generator/results/tinygo-compress_low_pcode.txt"),
         // 4. Absolute path to the /src/state/working_files dir
-        PathBuf::from("/home/kgorna/Documents/zorya-compress/src/state/working_files"),
-        // 5. Absolute path to the memory dumps from qemu-mount dir
-        PathBuf::from("/home/kgorna/Documents/zorya-compress/external/qemu-mount"),
+        PathBuf::from("/home/kgorna/Documents/zorya-compress"),
         // *********************************
     ));
 }

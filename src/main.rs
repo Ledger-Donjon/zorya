@@ -36,8 +36,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
     // Get the path to the python script
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let python_script_path = manifest_dir.join("src").join("find_panic_xrefs.py");
+    let zorya_dir = {
+        let info = GLOBAL_TARGET_INFO.lock().unwrap();
+        info.zorya_path.clone()
+    };
+    let python_script_path = zorya_dir.join("src").join("find_panic_xrefs.py");
 
     if !python_script_path.exists() {
         panic!("Python script not found at {:?}", python_script_path);
