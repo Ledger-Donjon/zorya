@@ -204,8 +204,10 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
                 match solver.check() {
                     z3::SatResult::Sat => {
+                        log!(executor.state.logger, "~~~~~~~~~~~");
                         log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
                         let model = solver.get_model().unwrap();
+                        log!(executor.state.logger, "~~~~~~~~~~~\n");
 
                         // Retrieve concrete values of registers or variables as needed
                         // Example for RAX:
@@ -218,7 +220,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                         process::exit(0); // Exit if desired
                     },
                     z3::SatResult::Unsat => {
-                        log!(executor.state.logger, "UNSATISFIABLE: SYmbolic execution cannot reach any panic functions from current state. Continuing on the concrete execution...");
+                        log!(executor.state.logger, "~~~~~~~~~~~~~");
+                        log!(executor.state.logger, "UNSATISFIABLE: Symbolic execution cannot reach any panic functions from current state. Continuing on the concrete execution...");
+                        log!(executor.state.logger, "~~~~~~~~~~~~~\n");
                     },
                     z3::SatResult::Unknown => {
                         log!(executor.state.logger, "UNKNOWN: Solver could not determine satisfiability.");
