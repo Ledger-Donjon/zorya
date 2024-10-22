@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the CALLOTHER opcode, especially syscalls, from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{executor::ConcolicExecutor, state::{memory_x86_64::MemoryValue}};
+use crate::{executor::ConcolicExecutor, state::memory_x86_64::MemoryValue};
 use nix::libc::{gettid, SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use z3::ast::BV;
 use std::{io::Write, process, time::Duration};

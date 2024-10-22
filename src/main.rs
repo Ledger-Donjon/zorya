@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, File};
-use std::io::{self, BufRead, Write};
-use std::process;
+use std::io::{self, BufRead, BufReader, Write};
+use std::path::Path;
+use std::process::{self, Command};
 
-use parser::parser::Inst;
-use z3::ast::{Bool, Int, BV};
+use parser::parser::{Inst, Opcode};
+use z3::ast::{Ast, Bool, Int};
 use z3::{Config, Context, Solver};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
@@ -32,8 +33,35 @@ fn main() -> Result<(), Box<dyn Error>> {
         (target_info.binary_path.clone(), target_info.pcode_file_path.clone(), target_info.main_program_addr.clone())
     };
     log!(executor.state.logger, "Binary path: {}", binary_path);
-
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
+
+    let python_script_path = "find_panic_xrefs.py";
+    // Check if the Python script exists
+    if !Path::new(python_script_path).exists() {
+        panic!("Python script not found at {}", python_script_path);
+    }
+
+    // Invoke the Python script using std::process::Command
+    let output = Command::new("python")
+        .arg(python_script_path)
+        .arg(&binary_path)
+        .output()
+        .expect("Failed to execute Python script");
+
+    // Check if the script ran successfully
+    if !output.status.success() {
+        eprintln!("Python script error: {}", String::from_utf8_lossy(&output.stderr));
+        return Err(Box::from("Python script failed"));
+    } else {
+        log!(executor.state.logger, "Python script executed successfully");
+        // Optionally, print the script's stdout
+        log!(executor.state.logger, "Python script output:\n{}", String::from_utf8_lossy(&output.stdout));
+    }
+
+    // Ensure the file was created
+    if !Path::new("xref_addresses.txt").exists() {
+        panic!("xref_addresses.txt not found after running the Python script");
+    }
 
     // Populate the symbol table
     let elf_data = fs::read(binary_path)?;
@@ -46,6 +74,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
 
+    // CORE COMMAND
     execute_instructions_from(&mut executor, start_address, &instructions_map, &solver);
 
     log!(executor.state.logger, "The concolic execution has completed successfully.");
@@ -86,11 +115,33 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
     Ok(instructions_map)
 }
 
+// helper function
+fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::Result<Vec<u64>> {
+    let file = File::open(filename)?;
+    let reader = BufReader::new(file);
+    let mut addresses = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        let line = line.trim();
+        if line.starts_with("0x") {
+            match u64::from_str_radix(&line[2..], 16) {
+                Ok(addr) => {
+                    log!(executor.state.logger, "Read panic address: 0x{:x}", addr);
+                    addresses.push(addr);
+                },
+                Err(e) => {
+                    log!(executor.state.logger, "Failed to parse address {}: {}", line, e);
+                }
+            }
+        }
+    }
+    Ok(addresses)
+}
+
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
     let end_address: u64 = 0x213afc;
-    let mut symbolic_flag = 0;
 
     // For debugging
     //let address: u64 = 0x7fffffffe4b0;
@@ -114,6 +165,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         }
 
         let mut end_of_block = false;
+
+        // Read the panic addresses from the file once before the main loop
+        let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
+
+        // Convert panic addresses to Z3 Ints once
+        let panic_address_ints: Vec<Int> = panic_addresses.iter()
+            .map(|&addr| Int::from_u64(executor.context, addr))
+            .collect();
 
         while local_line_number < instructions.len() && !end_of_block {
             let inst = &instructions[local_line_number];
@@ -182,68 +241,48 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             //log!(executor.state.logger,  "The value of register at offset 0x98 is {:x}", register0x98.concrete);
             //let register0x110 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x110, 64).unwrap();
             //log!(executor.state.logger,  "The value of register at offset 0x110 - FS_OFFSET is {:x}", register0x110.concrete);
-            
-            if current_rip == 0x2130d9 { // address of the functionnality to analyze
-                symbolic_flag = 1;
-            }
 
-            if symbolic_flag == 1 {
-                // Symbolic checks
-                let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-                let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
-                let rcx = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
-                let rcx_symbolic = rcx.symbolic.clone().to_int().unwrap();
-                
-                let rbx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap().symbolic.clone().to_int().unwrap();
-                let rdx_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.clone().to_int().unwrap();
-                let rsi_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.clone().to_int().unwrap();
-
+            // Symbolic checks
+            if inst.opcode != Opcode::CBranch && inst.opcode != Opcode::BranchInd && inst.opcode != Opcode::CallInd {
+                // Get the symbolic representation of RIP
                 let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
-                        let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
+                let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
 
-                let lookup_panic = Int::from_u64(executor.context, 0x212041);
-                let slice_panic = Int::from_u64(executor.context, 0x212041);
-                let e_panic = Int::from_u64(executor.context, 0x2120a7);
-                let nil_panic = Int::from_u64(executor.context, 0x212054);
+                // Create conditions for each panic address
+                let conditions: Vec<Bool> = panic_address_ints.iter()
+                    .map(|panic_addr_int| rip_symbolic._eq(panic_addr_int))
+                    .collect();
 
-                let condition1 = Bool::from_bool(executor.context, rip_symbolic.ne(&lookup_panic));
-                let condition2 = Bool::from_bool(executor.context, rip_symbolic.ne(&slice_panic));
-                let condition3 = Bool::from_bool(executor.context, rip_symbolic.ne(&e_panic));
-                let condition4 = Bool::from_bool(executor.context, rip_symbolic.ne(&nil_panic));
+                // Collect references to the conditions
+                let condition_refs: Vec<&Bool> = conditions.iter().collect();
 
-                //let error_type = Int::from_u64(executor.context, 0x5d7940);
-                //let error_data = Int::from_u64(executor.context, 0x5d7948);
-
-                //let condition1 = Bool::from_bool(executor.context, rax_symbolic.ne(&error_type));
-                //let condition2 = Bool::from_bool(executor.context, rcx_symbolic.ne(&error_data));
-
-                solver.assert(&condition1);
-                solver.assert(&condition2);
-                solver.assert(&condition3);
-                solver.assert(&condition4);
+                // Assert that RIP can be any of the panic addresses
+                solver.push(); // Push context to prevent side effects
+                solver.assert(&Bool::or(executor.context, &condition_refs));
 
                 match solver.check() {
                     z3::SatResult::Sat => {
-                        log!(executor.state.logger, "SATISFIABLE");
-                }
-                    z3::SatResult::Unsat => {
-                        log!(executor.state.logger, "UNSATISFIABLE");
+                        log!(executor.state.logger, "SATISFIABLE: Execution can lead to a panic function.");
                         let model = solver.get_model().unwrap();
-            
-                        let rax_val = model.eval(&rax_symbolic, true).unwrap().as_i64().unwrap();
-                        let rcx_val = model.eval(&rcx_symbolic, true).unwrap().as_i64().unwrap();
 
-                        let rbx_val = model.eval(&rbx_symbolic, true).unwrap().as_i64().unwrap();
-                        let rdx_val = model.eval(&rdx_symbolic, true).unwrap().as_i64().unwrap();
-                        let rsi_val = model.eval(&rsi_symbolic, true).unwrap().as_i64().unwrap();
-            
-                        log!(executor.state.logger, "Solution: RAX = 0x{:x}, RCX = 0x{:x}, RBX = 0x{:x}, RDX = 0x{:x}, RSI = 0x{:x}", rax_val, rcx_val, rbx_val, rdx_val, rsi_val);
-                	process::exit(0);    
-		}
+                        // Retrieve concrete values of registers or variables as needed
+                        // Example for RAX:
+                        let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
+                        let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
+                        let rax_val = model.eval(&rax_symbolic, true).unwrap().as_u64().unwrap();
+
+                        // Log the values
+                        log!(executor.state.logger, "RIP can reach a panic function at 0x{:x}. RAX = 0x{:x}", model.eval(&rip_symbolic, true).unwrap().as_u64().unwrap(), rax_val);
+                        process::exit(0); // Exit if desired
+                    },
+                    z3::SatResult::Unsat => {
+                        log!(executor.state.logger, "UNSATISFIABLE: Execution cannot reach any panic functions from current state.");
+                    },
                     z3::SatResult::Unknown => {
-                        log!(executor.state.logger, "UNKNOWN");
+                        log!(executor.state.logger, "UNKNOWN: Solver could not determine satisfiability.");
+                    },
                 }
-                }
+                solver.pop(1); // Pop context to clean up assertions
             }
 
             // Check if there's a requested jump within the current block

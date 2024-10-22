@@ -75,7 +75,6 @@ impl<'a> State<'a> {
     pub fn default_for_tests(ctx: &'a Context, logger: Logger) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize CPU state in a shared and thread-safe manner
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
-        let memory_size: u64 = 0x100000; // 1GB memory size because dumps are 730 MB
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         Ok(State {
