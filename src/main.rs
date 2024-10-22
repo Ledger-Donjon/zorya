@@ -46,10 +46,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("Python script not found at {:?}", python_script_path);
     }
 
-    let python_interpreter = "python3";
-    let output = Command::new(python_interpreter)
+    let output = Command::new("pyhidra")
         .arg(&python_script_path)
         .arg(&binary_path)
+        .current_dir(&binary_path)
         .output()
         .expect("Failed to execute Python script");
     
