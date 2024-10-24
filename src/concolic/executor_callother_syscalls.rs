@@ -345,7 +345,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             // 4. Retrieve 'sigsetsize' from R10 (offset 0x20)
             let sigsetsize_var = cpu_state_guard.get_register_by_offset(0x20, 64)
                 .ok_or("Failed to retrieve 'sigsetsize' from R10.")?;
-            let sigsetsize = sigsetsize_var.concrete.to_u64();
+            let sigsetsize = sigsetsize_var.concrete.to_u64() as usize;
         
             // 5. Validate sigsetsize (typically should be 8 bytes)
             if sigsetsize != 8 {
