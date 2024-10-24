@@ -145,7 +145,7 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
-    let end_address: u64 = 0x213afc;
+    let end_address: u64 = 0x0; //no specific end address
 
     // For debugging
     //let address: u64 = 0x7fffffffe4b0;

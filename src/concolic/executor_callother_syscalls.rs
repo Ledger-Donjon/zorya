@@ -326,23 +326,33 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         },
         14 => { // sys_rt_sigprocmask
             log!(executor.state.logger.clone(), "Syscall type: sys_rt_sigprocmask");
-
+        
             // 1. Retrieve 'how' argument from RDI (offset 0x38)
             let how_var = cpu_state_guard.get_register_by_offset(0x38, 64)
                 .ok_or("Failed to retrieve 'how' from RDI.")?;
             let how = how_var.concrete.to_u64() as i32;
-
+        
             // 2. Retrieve 'set_ptr' from RSI (offset 0x30)
             let set_ptr_var = cpu_state_guard.get_register_by_offset(0x30, 64)
                 .ok_or("Failed to retrieve 'set_ptr' from RSI.")?;
             let set_ptr = set_ptr_var.concrete;
-
+        
             // 3. Retrieve 'oldset_ptr' from RDX (offset 0x28)
             let oldset_ptr_var = cpu_state_guard.get_register_by_offset(0x28, 64)
                 .ok_or("Failed to retrieve 'oldset_ptr' from RDX.")?;
             let oldset_ptr = oldset_ptr_var.concrete;
-
-            // 4. Check 'oldset_ptr' and write the current signal mask if it's not NULL
+        
+            // 4. Retrieve 'sigsetsize' from R10 (offset 0x20)
+            let sigsetsize_var = cpu_state_guard.get_register_by_offset(0x20, 64)
+                .ok_or("Failed to retrieve 'sigsetsize' from R10.")?;
+            let sigsetsize = sigsetsize_var.concrete.to_u64();
+        
+            // 5. Validate sigsetsize (typically should be 8 bytes)
+            if sigsetsize != 8 {
+                return Err("Invalid sigsetsize for sys_rt_sigprocmask.".to_string());
+            }
+        
+            // 6. Handle oldset_ptr (save current signal mask if not NULL)
             if oldset_ptr.to_u64() != 0 {
                 let current_mask = executor.state.signal_mask;
                 let mem_value = MemoryValue {
@@ -350,7 +360,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     symbolic: BV::from_u64(executor.context, current_mask, 64),
                     size: 64,
                 };
-
+        
                 // Check if the memory address is valid before writing
                 if executor.state.memory.is_valid_address(oldset_ptr.to_u64()) {
                     executor.state.memory.write_value(oldset_ptr.to_u64(), &mem_value)
@@ -359,14 +369,14 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     return Err(format!("Invalid memory address for old signal mask: 0x{:x}", oldset_ptr.to_u64()));
                 }
             }
-
-            // 5. Check 'set_ptr' and apply the new signal mask if it's not NULL
+        
+            // 7. Handle set_ptr (apply new mask if not NULL)
             if set_ptr.to_u64() != 0 {
                 // Read the new mask from memory at 'set_ptr'
                 let new_mask_value = executor.state.memory.read_u64(set_ptr.to_u64())
                     .map_err(|e| format!("Failed to read new signal mask from memory: {}", e))?;
                 let new_mask = new_mask_value.concrete as u64; // Assuming sigset_t is 64 bits
-
+        
                 // Apply 'how' directive to update the signal_mask
                 match how {
                     SIG_BLOCK => {
@@ -383,8 +393,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     },
                 }
             }
-
-            // 6. Update RAX to 0 to indicate success
+        
+            // 8. Update RAX to 0 to indicate success
             let rax_value = MemoryValue {
                 concrete: 0,
                 symbolic: BV::from_u64(executor.context, 0, 64),
@@ -393,10 +403,10 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let rax_concolic_var = ConcolicVar::new_from_memory_value(&rax_value);
             cpu_state_guard.set_register_value_by_offset(0x0, rax_concolic_var, 64)
                 .map_err(|e| format!("Failed to set RAX: {}", e))?;
-
+        
             drop(cpu_state_guard);
-
-            // 7. Record the operation in concolic variables
+        
+            // 9. Record the operation in concolic variables
             let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
             let result_var_name = format!("{}-{:02}-callother-sys-rt_sigprocmask", current_addr_hex, executor.instruction_counter);
             executor.state.create_or_update_concolic_variable_int(
@@ -404,7 +414,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 how.try_into().unwrap(),
                 SymbolicVar::Int(BV::from_u64(executor.context, how.try_into().unwrap(), 64)),
             );
-        } 
+        }        
         24 => { // sys_sched_yield
             log!(executor.state.logger.clone(), "Syscall type: sys_sched_yield");
             // sys_sched_yield() causes the calling thread to relinquish the CPU
