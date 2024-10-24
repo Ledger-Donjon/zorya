@@ -539,7 +539,16 @@ impl<'ctx> MemoryX86_64<'ctx> {
         Ok(start_address)
     }
 
-
+    /// Check if a given address is within any of the memory regions.
+    pub fn is_valid_address(&self, address: u64) -> bool {
+        let regions = self.regions.read().unwrap();
+        for region in regions.iter() {
+            if address >= region.start_address && address < region.end_address {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[derive(Clone, Debug)]

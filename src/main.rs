@@ -210,14 +210,14 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                         log!(executor.state.logger, "~~~~~~~~~~~\n");
 
                         // Retrieve concrete values of registers or variables as needed
-                        // Example for RAX:
+                        // RAX:
                         let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
                         let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
                         let rax_val = model.eval(&rax_symbolic, true).unwrap().as_u64().unwrap();
 
                         // Log the values
                         log!(executor.state.logger, "RIP can reach a panic function at 0x{:x}. RAX = 0x{:x}", model.eval(&rip_symbolic, true).unwrap().as_u64().unwrap(), rax_val);
-                        process::exit(0); // Exit if desired
+                        process::exit(0); 
                     },
                     z3::SatResult::Unsat => {
                         log!(executor.state.logger, "~~~~~~~~~~~~~");
