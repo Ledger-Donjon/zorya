@@ -15,6 +15,8 @@ use goblin::elf::sym::STT_FUNC;
 use goblin::elf::Elf;
 use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::Ast;
+use z3::ast::Bool;
+use z3::ast::Int;
 use z3::ast::BV;
 use z3::{Context, Solver};
 use crate::concolic::ConcolicVar;
@@ -76,7 +78,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }      
 
-    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64) -> Result<(), String> {
+    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64, next_inst_in_map: u64) -> Result<(), String> {
         // Convert current_addr to hexadecimal string to match with symbol table keys
         let current_addr_hex = format!("{:x}", current_addr);
         
@@ -142,7 +144,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::Call => self.handle_call(instruction), // function call, semantically similar to a branch but represents execution flow transferring to a subroutine
             Opcode::CallInd => self.handle_callind(instruction), // indirect call to a dynamically determined address
             Opcode::Ceil => panic!("Opcode Ceil is not implemented yet"),
-            Opcode::CBranch => self.handle_cbranch(instruction), // adds a condition to the jump
+            Opcode::CBranch => self.handle_cbranch(instruction, next_inst_in_map), // adds a condition to the jump
             Opcode::Copy => self.handle_copy(instruction),
             Opcode::CPoolRef => panic!("Opcode CPoolRef is not implemented yet"), // returns runtime-dependent values from the constant pool
             Opcode::CrossBuild => panic!("Opcode CrossBuild is not implemented yet"),
@@ -637,7 +639,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }    
 
     // Handle conditional branch operation
-    pub fn handle_cbranch(&mut self, instruction: Inst) -> Result<(), String> {
+    pub fn handle_cbranch(&mut self, instruction: Inst, next_inst_in_map: u64) -> Result<(), String> {
         if instruction.opcode != Opcode::CBranch || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for CBRANCH".to_string());
         }
@@ -650,35 +652,38 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         match &branch_target_varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
-                let branch_target_varnode_symbolic = SymbolicVar::from_u64(&self.context, *addr, 64).to_bv(&self.context);
 
                 // Fetch the branch condition (input1)
                 log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
-                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-                let branch_condition_concrete = branch_condition_concolic.get_concrete_value();
-                let branch_condition_symbolic = match branch_condition_concolic {
-                    ConcolicEnum::ConcolicVar(var) => var.symbolic,
-                    ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
-                    ConcolicEnum::MemoryValue(mem_var) => SymbolicVar::Int(mem_var.symbolic),
-                };
+                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?.to_concolic_var().unwrap();
+                let branch_condition_concrete = Bool::from_bool(self.context, branch_condition_concolic.concrete.to_bool());
                 log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
-
-                let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_target_varnode_symbolic, self.context, 64);
-            
+                
+                // Create a symbolic variable for the branch condition with an "if then else" function : ZF.ite(RIP0, RIP1)
+                let rip0 = BV::from_u64(self.context, next_inst_in_map, 64); // if the condition is false, the next instruction is executed
+                let rip1 = BV::from_u64(self.context, *addr, 64); // if the condition is true, the branch target is executed
+                let branch_condition_symbolic = branch_condition_concrete.ite(&rip0, &rip1);
+                
                 // Check the branch condition
-                if branch_condition_concrete != 0 {
+                let zero = Bool::new_const(self.context, 0);
+                let branch_target_concolic = if branch_condition_concrete.ne(&zero) {
                     log!(self.state.logger.clone(), "Branch condition is true, branching to address {:x}", *addr);
                     // Update the RIP register to the branch target address
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic, 64).map_err(|e| e.to_string())?;
+                    let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_condition_symbolic, self.context, 64);
+                    cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic.clone(), 64).map_err(|e| e.to_string())?;
+                    branch_target_concolic
                 } else {
+                    // continue to the next instruction
                     log!(self.state.logger.clone(), "Branch condition is false, continuing to next instruction");
-                }
+                    let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(next_inst_in_map, branch_condition_symbolic, self.context, 64);
+                    branch_target_concolic
+                };
 
                 // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
                 let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
                 let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
-                self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
+                self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concolic.concrete.to_u64(), branch_target_concolic.symbolic);
             }
             Var::Const(value) => {
                 // Log the value to be parsed
@@ -703,27 +708,33 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
                 // Fetch the branch condition (input1)
                 log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
-                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-                let branch_condition_concrete = branch_condition_concolic.get_concrete_value();
-                let branch_condition_symbolic = match branch_condition_concolic {
-                    ConcolicEnum::ConcolicVar(var) => var.symbolic,
-                    ConcolicEnum::CpuConcolicValue(cpu_var) => cpu_var.symbolic,
-                    ConcolicEnum::MemoryValue(mem_var) => SymbolicVar::Int(mem_var.symbolic),
-                };
+                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?.to_concolic_var().unwrap();
+                let branch_condition_concrete = Bool::from_bool(self.context, branch_condition_concolic.concrete.to_bool());
                 log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
-            
+                
+                // Create a symbolic variable for the branch condition with an "if then else" function : ZF.ite(RIP0, RIP1)
+                let rip0 = BV::from_u64(self.context, next_inst_in_map, 64); // if the condition is false, the next instruction is executed
+                let rip1 = BV::from_u64(self.context, value_u64, 64); // if the condition is true, the branch target is executed
+                let branch_condition_symbolic = branch_condition_concrete.ite(&rip0, &rip1);
+
                 // Check the branch condition
-                if branch_condition_concrete != 0 {
+                let zero = Bool::new_const(self.context, 0);
+                let branch_target_concolic = if branch_condition_concrete.ne(&zero) {
                     log!(self.state.logger.clone(), "Branch condition is true, and because it is a sub-instruction, the execution jumps of {:x} lines.", value_u64);
                     self.pcode_internal_lines_to_be_jumped = value_u64 as usize;  // setting the number of lines to skip
+                    let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(value_u64, branch_condition_symbolic, self.context, 64);
+                    branch_target_concolic
                 } else {
+                    // continue to the next instruction
                     log!(self.state.logger.clone(), "Branch condition is false, continuing to the next instruction.");
-                }
+                    let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(next_inst_in_map, branch_condition_symbolic, self.context, 64);
+                    branch_target_concolic
+                };
 
                 // Create or update a concolic variable for the result (CBRANCH doesn't produce a result, but we log the branch decision)
                 let current_addr_hex = self.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
                 let result_var_name = format!("{}-{:02}-cbranch", current_addr_hex, self.instruction_counter);
-                self.state.create_or_update_concolic_variable_int(&result_var_name, branch_condition_concrete, branch_condition_symbolic);
+                self.state.create_or_update_concolic_variable_int(&result_var_name, branch_target_concolic.concrete.to_u64(), branch_condition_concolic.symbolic);
             }                
             _ => {
                 // Fetch the concolic variable if it's not a memory address

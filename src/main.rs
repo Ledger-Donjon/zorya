@@ -231,8 +231,12 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 //solver.pop(1); // Pop context to clean up assertions
             }
 
+            // Calculate the potential next inst for the purpose of updating the symbolic part of CBRANCH
+            let (next_inst_in_map, _ ) = instructions_map.range((current_rip + 1)..).next().unwrap();
+
+            // MAIN PART OF THE CODE
             // Execute the instruction and handle errors
-            match executor.execute_instruction(inst.clone(), current_rip) {
+            match executor.execute_instruction(inst.clone(), current_rip, *next_inst_in_map) {
                 Ok(_) => {
                     // Check if the process has terminated
                     if executor.state.is_terminated {
