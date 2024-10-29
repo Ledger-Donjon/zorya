@@ -183,6 +183,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let inst = &instructions[local_line_number];
             log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}", local_line_number, inst);
 
+            // next_inst is used for updating the symbolic part during LOAD operation, to know if the next instruction is a BRANCHIND or CALLIND
+            let next_inst = &instructions[local_line_number + 1];
+
             // Symbolic checks
             if inst.opcode == Opcode::CBranch || inst.opcode == Opcode::BranchInd || inst.opcode == Opcode::CallInd {
 
@@ -231,12 +234,12 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 //solver.pop(1); // Pop context to clean up assertions
             }
 
-            // Calculate the potential next inst for the purpose of updating the symbolic part of CBRANCH
-            let (next_inst_in_map, _ ) = instructions_map.range((current_rip + 1)..).next().unwrap();
+            // Calculate the potential next address taken by RIP, for the purpose of updating the symbolic part of CBRANCH
+            let (next_addr_in_map, _ ) = instructions_map.range((current_rip + 1)..).next().unwrap();
 
             // MAIN PART OF THE CODE
             // Execute the instruction and handle errors
-            match executor.execute_instruction(inst.clone(), current_rip, *next_inst_in_map) {
+            match executor.execute_instruction(inst.clone(), current_rip, *next_addr_in_map, next_inst) {
                 Ok(_) => {
                     // Check if the process has terminated
                     if executor.state.is_terminated {

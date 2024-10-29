@@ -1,7 +1,9 @@
+use core::str;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
+use std::process::Command;
 use std::sync::MutexGuard;
 use std::process;
 
@@ -14,6 +16,7 @@ use goblin::elf;
 use goblin::elf::sym::STT_FUNC;
 use goblin::elf::Elf;
 use parser::parser::{Inst, Opcode, Var, Varnode};
+use serde::Deserialize;
 use z3::ast::Ast;
 use z3::ast::Bool;
 use z3::ast::Int;
@@ -27,6 +30,8 @@ use super::executor_int;
 use super::ConcolicEnum;
 pub use super::ConcreteVar;
 pub use super::SymbolicVar;
+use crate::target_info::GLOBAL_TARGET_INFO;
+
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -78,7 +83,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }      
 
-    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64, next_inst_in_map: u64) -> Result<(), String> {
+    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64, next_addr_in_map: u64, next_inst: &Inst) -> Result<(), String> {
         // Convert current_addr to hexadecimal string to match with symbol table keys
         let current_addr_hex = format!("{:x}", current_addr);
         
@@ -144,13 +149,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::Call => self.handle_call(instruction), // function call, semantically similar to a branch but represents execution flow transferring to a subroutine
             Opcode::CallInd => self.handle_callind(instruction), // indirect call to a dynamically determined address
             Opcode::Ceil => panic!("Opcode Ceil is not implemented yet"),
-            Opcode::CBranch => self.handle_cbranch(instruction, next_inst_in_map), // adds a condition to the jump
+            Opcode::CBranch => self.handle_cbranch(instruction, next_addr_in_map), // adds a condition to the jump
             Opcode::Copy => self.handle_copy(instruction),
             Opcode::CPoolRef => panic!("Opcode CPoolRef is not implemented yet"), // returns runtime-dependent values from the constant pool
             Opcode::CrossBuild => panic!("Opcode CrossBuild is not implemented yet"),
             Opcode::DelaySlot => panic!("Opcode DelaySlot is not implemented yet"),
             Opcode::Label => panic!("Opcode Label is not implemented yet"),
-            Opcode::Load => self.handle_load(instruction),
+            Opcode::Load => self.handle_load(instruction, next_inst),
             Opcode::LZCount => panic!("Opcode LZCount is not implemented yet"), //self.handle_lzcount(instruction),
             Opcode::New => panic!("Opcode New is not implemented yet"), // allocates memory for an object and returns a pointer to that memory
             Opcode::Piece => panic!("Opcode Piece is not implemented yet"), // concatenation operation that combines two inputs
@@ -652,26 +657,40 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         match &branch_target_varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
-
+        
                 // Fetch the branch condition (input1)
                 log!(self.state.logger.clone(), "* Fetching branch condition from instruction.input[1]");
-                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?.to_concolic_var().unwrap();
+                let branch_condition_concolic = self.varnode_to_concolic(&instruction.inputs[1])
+                    .map_err(|e| e.to_string())?
+                    .to_concolic_var()
+                    .unwrap();
+                
                 let branch_condition_concrete = Bool::from_bool(self.context, branch_condition_concolic.concrete.to_bool());
                 log!(self.state.logger.clone(), "Branch condition concrete : {}", branch_condition_concrete);
-                
-                // Create a symbolic variable for the branch condition with an "if then else" function : ZF.ite(RIP0, RIP1)
-                let rip0 = BV::from_u64(self.context, next_inst_in_map, 64); // if the condition is false, the next instruction is executed
-                let rip1 = BV::from_u64(self.context, *addr, 64); // if the condition is true, the branch target is executed
-                let branch_condition_symbolic = branch_condition_concrete.ite(&rip0, &rip1);
-                
+        
+                // Create symbolic variables for RIP values based on the condition
+                let rip0 = BV::from_u64(self.context, next_inst_in_map, 64); // next instruction if condition is false
+                let rip1 = BV::from_u64(self.context, *addr, 64);            // branch target if condition is true
+        
+                // Create the ITE expression for the branch target address
+                let branch_condition_symbolic = branch_condition_concrete.ite(&rip1, &rip0);
+        
                 // Check the branch condition
-                let zero = Bool::new_const(self.context, 0);
-                let branch_target_concolic = if branch_condition_concrete.ne(&zero) {
+                let branch_target_concolic = if branch_condition_concrete == Bool::from_bool(self.context, true) {
                     log!(self.state.logger.clone(), "Branch condition is true, branching to address {:x}", *addr);
+        
                     // Update the RIP register to the branch target address
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(*addr, branch_condition_symbolic, self.context, 64);
-                    cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic.clone(), 64).map_err(|e| e.to_string())?;
+                    let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                        *addr,
+                        branch_condition_symbolic,
+                        self.context,
+                        64
+                    );
+        
+                    cpu_state_guard.set_register_value_by_offset(0x288, branch_target_concolic.clone(), 64)
+                        .map_err(|e| e.to_string())?;
+        
                     branch_target_concolic
                 } else {
                     // continue to the next instruction
@@ -871,7 +890,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }    
 
-    pub fn handle_load(&mut self, instruction: Inst) -> Result<(), String> {
+    pub fn handle_load(&mut self, instruction: Inst, next_inst: &Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Load || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for LOAD".to_string());
         }
@@ -889,15 +908,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
             process::exit(1);
         }
-    
+
         // Determine the size of the data to load
         let load_size_bits = instruction.output.as_ref()
             .map(|varnode| varnode.size.to_bitvector_size() as u32)
             .unwrap_or(64); // Default to 64 bits if output size is not specified
-        
+            
         let mem_size = pointer_offset_concolic.get_symbolic_value_bv(self.context).get_size();
         log!(self.state.logger.clone(), "Load size in bits: {}", mem_size);
-    
+
         // Dereference the address from memory
         let mut mem_value = self.state.memory.read_value(pointer_offset_concrete, mem_size)
             .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", pointer_offset_concrete, e))?;
@@ -908,16 +927,109 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if load_size_bits < mem_size {
             mem_value.symbolic = mem_value.symbolic.extract(load_size_bits - 1, 0);
         }
-    
+
         log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}", mem_value.concrete);
-    
-        // Create a concolic variable for the dereferenced value
-        let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(
-            mem_value.concrete,
-            mem_value.symbolic.clone(),
-            self.context,
-            load_size_bits,
-        );
+
+        // Check if the next instruction is a branch or call instruction to know if the LOAD operation is dealing with a switch/jump table, 
+        // to be able to update the symbolic part correctly given all the possible destinations
+        let dereferenced_concolic = if next_inst.opcode == Opcode::BranchInd || next_inst.opcode == Opcode::CallInd { 
+            log!(self.state.logger.clone(), "Inside the case where there is a switch table.");
+        
+            // Structure and function only needed here
+            #[derive(Debug, Deserialize)]
+            struct JumpTableEntry {
+                label: String,
+                destination: String,
+            }
+        
+            fn get_jump_table_destinations(binary_path: &str, jmp_addr: &str) -> Result<Vec<JumpTableEntry>, Box<dyn std::error::Error>> {
+                let output = Command::new("python3")
+                    .arg("get_jump_table_destinations.py")
+                    .arg(binary_path)
+                    .arg(jmp_addr)
+                    .output()?;
+        
+                if !output.status.success() {
+                    eprintln!("Error: {}", str::from_utf8(&output.stderr)?);
+                    return Err("Failed to retrieve jump table destinations".into());
+                }
+        
+                // Parse the JSON output
+                let json_output = str::from_utf8(&output.stdout)?;
+                let entries: Vec<JumpTableEntry> = serde_json::from_str(json_output)?;
+        
+                Ok(entries)
+            }
+        
+            let binary_path = {
+                let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
+                target_info.binary_path.clone()
+            };
+        
+            let symbolic_when_jump_table = match get_jump_table_destinations(&binary_path, self.current_address.unwrap().to_string().as_str()) {
+                Ok(entries) => {
+                    println!("Jump Table Destinations:");
+                    for entry in &entries {
+                        println!("Label: {}, Destination: {}", entry.label, entry.destination);
+                    }
+        
+                    // Retrieve the current value of RCX from the CPU state
+                    let rcx_value = self.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap();
+        
+                    // Convert RCX symbolic value to an integer for comparison in the `ite` chain
+                    let rcx = rcx_value.symbolic.to_bv(self.context);
+        
+                    // Process the entries to build the ite structure
+                    let mut destinations = Vec::new();
+                    for entry in entries {
+                        // Extract case ID from label (e.g., "caseD_1" -> 1)
+                        let case_id: u64 = entry.label.split('_').last()
+                            .and_then(|s| s.parse().ok())
+                            .expect("Failed to parse case ID from label");
+        
+                        // Convert destination address to a Z3 bit-vector node
+                        let destination_address = u64::from_str_radix(&entry.destination, 16).unwrap();
+                        let dest_node = BV::from_u64(self.context, destination_address, 64);
+        
+                        // Append to destinations vector as a tuple of (case_id, dest_node)
+                        destinations.push((case_id, dest_node));
+                    }
+        
+                    // Create the cascading ite structure
+                    let mut result = destinations[0].1.clone(); // Default case if no conditions match
+                    for (case_id, dest_node) in destinations.iter().skip(1) {
+                        // Create the condition `rcx == case_id`
+                        let condition = rcx._eq(&BV::from_u64(self.context, *case_id, 64));
+        
+                        // Apply `ite`, selecting `dest_node` if `rcx == case_id`, otherwise continue with `result`
+                        // Reproducing this structure : if(rcx==1, TABLE[0]) | if (rcx==2, TABLE[1]) …
+                        result = condition.ite(dest_node, &result);
+                    }        
+                    result
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    BV::from_u64(self.context, 0, 64) // Return a default BV
+                },
+            };
+            // Create a concolic variable for the dereferenced value taking into account the switch table
+            let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                mem_value.concrete,
+                symbolic_when_jump_table,
+                self.context,
+                load_size_bits,
+            );
+            dereferenced_concolic
+        } else { // regular LOAD operation from memory
+            // Create a concolic variable for the dereferenced value
+            let dereferenced_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                mem_value.concrete,
+                mem_value.symbolic.clone(),
+                self.context,
+                load_size_bits,
+            );
+            dereferenced_concolic
+        };  
     
         // Determine the output variable and update it with the loaded data
         if let Some(output_varnode) = instruction.output.as_ref() {
