@@ -349,7 +349,19 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             if let Some((&next_rip, _)) = instructions_map.range((current_rip + 1)..).next() {
                 current_rip = next_rip;
                 local_line_number = 0;  // Reset for new block
-                executor.current_address = Some(next_rip);
+
+                let current_rip_symbolic = executor.state.cpu_state.lock().unwrap()
+                    .get_register_by_offset(0x288, 64)
+                    .unwrap()
+                    .symbolic
+                    .to_bv(executor.context)
+                    .clone();
+
+                let next_rip_concolic = ConcolicVar::new_concrete_and_symbolic_int(next_rip, current_rip_symbolic, executor.context, 64);
+                executor.state.cpu_state.lock().unwrap()
+                    .set_register_value_by_offset(0x288, next_rip_concolic, 64)
+                    .expect("Failed to set register value by offset");
+
                 log!(executor.state.logger, "Moving to next address block: 0x{:x}", next_rip);
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
