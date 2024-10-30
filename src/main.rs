@@ -332,7 +332,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 .get_concrete_value()
                 .unwrap();
 
-            if possible_new_rip != current_rip {
+            // Check if there is a new RIP to set, beeing aware that all the instructions in the block have been executed
+            if possible_new_rip != current_rip && local_line_number >= instructions.len() - 1 {
                 // Manage the case where the RIP update points beyond the current block
                 current_rip = possible_new_rip;
                 local_line_number = 0;  // Reset instruction index for new RIP
