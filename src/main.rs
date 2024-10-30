@@ -332,7 +332,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 .get_concrete_value()
                 .unwrap();
 
-            // **Modified Condition**: Removed `&& local_line_number >= instructions.len() - 1`
             if possible_new_rip != current_rip {
                 // Manage the case where the RIP update points beyond the current block
                 current_rip = possible_new_rip;
@@ -350,6 +349,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             if let Some((&next_rip, _)) = instructions_map.range((current_rip + 1)..).next() {
                 current_rip = next_rip;
                 local_line_number = 0;  // Reset for new block
+                executor.current_address = Some(next_rip);
                 log!(executor.state.logger, "Moving to next address block: 0x{:x}", next_rip);
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
