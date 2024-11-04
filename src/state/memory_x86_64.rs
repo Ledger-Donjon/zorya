@@ -494,8 +494,8 @@ impl<'ctx> MemoryX86_64<'ctx> {
         } else {
             regions
                 .last()
-                .map(|region| region.end_address + 0x1000)  // Add a page size
-                .unwrap_or(0x1000_0000)  // Start from a default address if no regions exist
+                .map(|region| region.end_address + 0x1000) // Add a page size
+                .unwrap_or(0x1000_0000) // Start from a default address if no regions exist
         };
 
         // Create a new memory region
@@ -504,6 +504,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         if (flags & MAP_ANONYMOUS) != 0 {
             // Anonymous mapping: leave the concrete data as zeros and no symbolic values
+            // No need to check `fd`
         } else {
             // File-backed mapping
             if fd < 0 {
@@ -521,7 +522,11 @@ impl<'ctx> MemoryX86_64<'ctx> {
             file_guard.seek(SeekFrom::Start(offset as u64))?;
 
             // Read the data from the file into the concrete_data vector
-            file_guard.read(&mut concrete_data)?;
+            let bytes_read = file_guard.read(&mut concrete_data)?;
+            // If the file is shorter than `length`, fill the rest with zeros
+            if bytes_read < length {
+                concrete_data[bytes_read..].fill(0);
+            }
         }
 
         // Create and insert the new memory region
@@ -538,7 +543,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         Ok(start_address)
     }
-
+    
     /// Check if a given address is within any of the memory regions.
     pub fn is_valid_address(&self, address: u64) -> bool {
         let regions = self.regions.read().unwrap();

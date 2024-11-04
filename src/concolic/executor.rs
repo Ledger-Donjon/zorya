@@ -890,6 +890,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }    
 
+    
     pub fn handle_load(&mut self, instruction: Inst, next_inst: &Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Load || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for LOAD".to_string());
@@ -934,32 +935,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // to be able to update the symbolic part correctly given all the possible destinations
         let dereferenced_concolic = if next_inst.opcode == Opcode::BranchInd || next_inst.opcode == Opcode::CallInd { 
             log!(self.state.logger.clone(), "Inside the case where there is a switch table.");
-        
-            // Structure and function only needed here
-            #[derive(Debug, Deserialize)]
-            struct JumpTableEntry {
-                label: String,
-                destination: String,
-            }
-        
-            fn get_jump_table_destinations(binary_path: &str, jmp_addr: &str) -> Result<Vec<JumpTableEntry>, Box<dyn std::error::Error>> {
-                let output = Command::new("python3")
-                    .arg("get_jump_table_destinations.py")
-                    .arg(binary_path)
-                    .arg(jmp_addr)
-                    .output()?;
-        
-                if !output.status.success() {
-                    eprintln!("Error: {}", str::from_utf8(&output.stderr)?);
-                    return Err("Failed to retrieve jump table destinations".into());
-                }
-        
-                // Parse the JSON output
-                let json_output = str::from_utf8(&output.stdout)?;
-                let entries: Vec<JumpTableEntry> = serde_json::from_str(json_output)?;
-        
-                Ok(entries)
-            }
         
             let binary_path = {
                 let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
@@ -1554,6 +1529,31 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 }             
 
+// Structure and function only needed here
+#[derive(Debug, Deserialize)]
+struct JumpTableEntry {
+    label: String,
+    destination: String,
+}
+
+fn get_jump_table_destinations(binary_path: &str, jmp_addr: &str) -> Result<Vec<JumpTableEntry>, Box<dyn std::error::Error>> {
+    let output = Command::new("python3")
+        .arg("get_jump_table_destinations.py")
+        .arg(binary_path)
+        .arg(jmp_addr)
+        .output()?;
+
+    if !output.status.success() {
+        eprintln!("Error: {}", str::from_utf8(&output.stderr)?);
+        return Err("Failed to retrieve jump table destinations".into());
+    }
+
+    // Parse the JSON output
+    let json_output = str::from_utf8(&output.stdout)?;
+    let entries: Vec<JumpTableEntry> = serde_json::from_str(json_output)?;
+
+    Ok(entries)
+}
 
 impl<'ctx> fmt::Display for ConcolicExecutor<'ctx> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
