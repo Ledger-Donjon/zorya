@@ -504,7 +504,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         if (flags & MAP_ANONYMOUS) != 0 {
             // Anonymous mapping: leave the concrete data as zeros and no symbolic values
-            // No need to check `fd`
         } else {
             // File-backed mapping
             if fd < 0 {
@@ -543,7 +542,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         Ok(start_address)
     }
-    
+
     /// Check if a given address is within any of the memory regions.
     pub fn is_valid_address(&self, address: u64) -> bool {
         let regions = self.regions.read().unwrap();
