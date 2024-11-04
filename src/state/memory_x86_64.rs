@@ -490,6 +490,11 @@ impl<'ctx> MemoryX86_64<'ctx> {
     
         let mut regions = self.regions.write().unwrap();
     
+        // Log existing regions
+        for region in &*regions {
+            println!("Existing region: start=0x{:x}, end=0x{:x}", region.start_address, region.end_address);
+        }
+    
         // Determine the starting address
         let start_address = if addr != 0 && (flags & MAP_FIXED) != 0 {
             addr
@@ -498,12 +503,17 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 .last()
                 .map(|region| region.end_address.checked_add(0x1000)) // Add a page size
                 .unwrap_or(Some(0x1000_0000))
-                .ok_or(MemoryError::AddressOverflow)? // Handle potential overflow
+                .ok_or(MemoryError::AddressOverflow)?
         };
+    
+        println!("Calculated start_address: 0x{:x}", start_address);
+        println!("Length: {}", length);
     
         // Use checked_add to prevent overflow
         let end_address = start_address.checked_add(length as u64).ok_or(MemoryError::AddressOverflow)?;
     
+        println!("Calculated end_address: 0x{:x}", end_address);
+        
         // Create a new memory region
         let mut concrete_data = vec![0; length];
         let symbolic_data = BTreeMap::new();
