@@ -487,37 +487,67 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn mmap(&self, addr: u64, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> Result<u64, MemoryError> {
         const MAP_ANONYMOUS: i32 = 0x20;
         const MAP_FIXED: i32 = 0x10;
-    
+        const MAX_USER_ADDRESS: u64 = 0x0000_7FFF_FFFF_FFFF; // Highest user space address
+
         let mut regions = self.regions.write().unwrap();
-    
-        // Log existing regions
-        for region in &*regions {
-            println!("Existing region: start=0x{:x}, end=0x{:x}", region.start_address, region.end_address);
-        }
-    
+
         // Determine the starting address
         let start_address = if addr != 0 && (flags & MAP_FIXED) != 0 {
             addr
         } else {
-            regions
-                .last()
-                .map(|region| region.end_address.checked_add(0x1000)) // Add a page size
-                .unwrap_or(Some(0x1000_0000))
-                .ok_or(MemoryError::AddressOverflow)?
+            // Start from a default base address
+            let mut proposed_address = 0x1000_0000; // Adjust as needed for your application
+
+            // Loop to find a suitable address
+            loop {
+                // Ensure proposed_address is within user space
+                if proposed_address > MAX_USER_ADDRESS {
+                    return Err(MemoryError::AddressOverflow);
+                }
+
+                let end_address = proposed_address.checked_add(length as u64)
+                    .ok_or(MemoryError::AddressOverflow)?;
+                if end_address > MAX_USER_ADDRESS {
+                    return Err(MemoryError::AddressOverflow);
+                }
+
+                // Check for overlaps with existing regions within user space
+                let overlap = regions.iter().any(|region| {
+                    // Skip regions outside user space
+                    if region.end_address > MAX_USER_ADDRESS {
+                        return false;
+                    }
+
+                    (proposed_address >= region.start_address && proposed_address < region.end_address) ||
+                    (end_address > region.start_address && end_address <= region.end_address)
+                });
+
+                if !overlap {
+                    break; // Found a suitable address
+                }
+
+                // Move proposed_address forward
+                proposed_address = proposed_address.checked_add(0x10000)
+                    .ok_or(MemoryError::AddressOverflow)?; // Increment by 64 KiB
+            }
+
+            proposed_address
         };
-    
+
         println!("Calculated start_address: 0x{:x}", start_address);
         println!("Length: {}", length);
-    
-        // Use checked_add to prevent overflow
-        let end_address = start_address.checked_add(length as u64).ok_or(MemoryError::AddressOverflow)?;
-    
-        println!("Calculated end_address: 0x{:x}", end_address);
-        
+
+        // Ensure end_address does not exceed MAX_USER_ADDRESS
+        let end_address = start_address.checked_add(length as u64)
+            .ok_or(MemoryError::AddressOverflow)?;
+        if end_address > MAX_USER_ADDRESS {
+            return Err(MemoryError::AddressOverflow);
+        }
+
         // Create a new memory region
         let mut concrete_data = vec![0; length];
         let symbolic_data = BTreeMap::new();
-    
+
         if (flags & MAP_ANONYMOUS) != 0 {
             // Anonymous mapping: leave the concrete data as zeros and no symbolic values
         } else {
@@ -525,17 +555,17 @@ impl<'ctx> MemoryX86_64<'ctx> {
             if fd < 0 {
                 return Err(MemoryError::InvalidFileDescriptor);
             }
-    
+
             // Access the virtual file system to read data
             let vfs = self.vfs.read().unwrap();
             let file = vfs.get_file(fd as u32).ok_or(MemoryError::InvalidFileDescriptor)?;
-    
+
             // Lock the file descriptor to perform operations
             let mut file_guard = file.lock().unwrap();
-    
+
             // Seek to the specified offset
             file_guard.seek(SeekFrom::Start(offset as u64))?;
-    
+
             // Read the data from the file into the concrete_data vector
             let bytes_read = file_guard.read(&mut concrete_data)?;
             // If the file is shorter than `length`, fill the rest with zeros
@@ -543,7 +573,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 concrete_data[bytes_read..].fill(0);
             }
         }
-    
+
         // Create and insert the new memory region
         let memory_region = MemoryRegion {
             start_address,
@@ -552,12 +582,12 @@ impl<'ctx> MemoryX86_64<'ctx> {
             symbolic_data,
             prot,
         };
-    
+
         regions.push(memory_region);
         regions.sort_by_key(|region| region.start_address);
-    
+
         Ok(start_address)
-    }    
+    }
 
     /// Check if a given address is within any of the memory regions.
     pub fn is_valid_address(&self, address: u64) -> bool {
