@@ -257,7 +257,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let flags = cpu_state_guard.get_register_by_offset(0x90, 64).unwrap().get_concrete_value()? as i32;
             let fd = cpu_state_guard.get_register_by_offset(0x80, 64).unwrap().get_concrete_value()? as i64 as i32;
             let offset = cpu_state_guard.get_register_by_offset(0x88, 64).unwrap().get_concrete_value()? as usize;
-            
+            log!(executor.state.logger.clone(), "addr: 0x{:x}, length: {}, prot: {}, flags: 0x{:x}, fd: {}, offset: {}", addr, length, prot, flags, fd, offset);
             // Handle mmap logic
             let result_addr = executor.state.memory.mmap(addr, length, prot, flags, fd, offset).map_err(|e| e.to_string())?;
             
