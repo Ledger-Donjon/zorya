@@ -27,6 +27,7 @@ pub enum MemoryError {
     ParseIntError(std::num::ParseIntError),
     InvalidString,
     InvalidFileDescriptor,
+    AddressOverflow,
 }
 
 impl Error for MemoryError {}
@@ -43,6 +44,7 @@ impl fmt::Display for MemoryError {
             MemoryError::ParseIntError(err) => write!(f, "ParseInt error: {}", err),
             MemoryError::InvalidString => write!(f, "Invalid string"),
             MemoryError::InvalidFileDescriptor => write!(f, "Invalid file descriptor"),
+            MemoryError::AddressOverflow => write!(f, "Address overflow"),
         }
     }
 }
@@ -485,23 +487,27 @@ impl<'ctx> MemoryX86_64<'ctx> {
     pub fn mmap(&self, addr: u64, length: usize, prot: i32, flags: i32, fd: i32, offset: usize) -> Result<u64, MemoryError> {
         const MAP_ANONYMOUS: i32 = 0x20;
         const MAP_FIXED: i32 = 0x10;
-
+    
         let mut regions = self.regions.write().unwrap();
-
+    
         // Determine the starting address
         let start_address = if addr != 0 && (flags & MAP_FIXED) != 0 {
             addr
         } else {
             regions
                 .last()
-                .map(|region| region.end_address + 0x1000) // Add a page size
-                .unwrap_or(0x1000_0000) // Start from a default address if no regions exist
+                .map(|region| region.end_address.checked_add(0x1000)) // Add a page size
+                .unwrap_or(Some(0x1000_0000))
+                .ok_or(MemoryError::AddressOverflow)? // Handle potential overflow
         };
-
+    
+        // Use checked_add to prevent overflow
+        let end_address = start_address.checked_add(length as u64).ok_or(MemoryError::AddressOverflow)?;
+    
         // Create a new memory region
         let mut concrete_data = vec![0; length];
         let symbolic_data = BTreeMap::new();
-
+    
         if (flags & MAP_ANONYMOUS) != 0 {
             // Anonymous mapping: leave the concrete data as zeros and no symbolic values
         } else {
@@ -509,17 +515,17 @@ impl<'ctx> MemoryX86_64<'ctx> {
             if fd < 0 {
                 return Err(MemoryError::InvalidFileDescriptor);
             }
-
+    
             // Access the virtual file system to read data
             let vfs = self.vfs.read().unwrap();
             let file = vfs.get_file(fd as u32).ok_or(MemoryError::InvalidFileDescriptor)?;
-
+    
             // Lock the file descriptor to perform operations
             let mut file_guard = file.lock().unwrap();
-
+    
             // Seek to the specified offset
             file_guard.seek(SeekFrom::Start(offset as u64))?;
-
+    
             // Read the data from the file into the concrete_data vector
             let bytes_read = file_guard.read(&mut concrete_data)?;
             // If the file is shorter than `length`, fill the rest with zeros
@@ -527,21 +533,21 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 concrete_data[bytes_read..].fill(0);
             }
         }
-
+    
         // Create and insert the new memory region
         let memory_region = MemoryRegion {
             start_address,
-            end_address: start_address + length as u64,
+            end_address,
             concrete_data,
             symbolic_data,
             prot,
         };
-
+    
         regions.push(memory_region);
         regions.sort_by_key(|region| region.start_address);
-
+    
         Ok(start_address)
-    }
+    }    
 
     /// Check if a given address is within any of the memory regions.
     pub fn is_valid_address(&self, address: u64) -> bool {
