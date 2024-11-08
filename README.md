@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="doc/logo.png" alt="Logo" width="200"/>
+</div>
+
 # Zorya
 Zorya implements a concolic execution methodology to find vulnerabilities in application binaries. It uses Ghidra's Pcode to handle most of languages, including Go lang.
 
