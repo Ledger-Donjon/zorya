@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="doc/zorya_logo.png" alt="Logo" width="400"/>
+  <img src="doc/zorya_logo.png" alt="Logo" width="500"/>
 </div>
 
 # Zorya
