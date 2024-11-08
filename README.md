@@ -55,25 +55,50 @@ Zorya is using Qemu AMD Opteron as CPU model to emulate and execute concolically
 zorya/
 │
 ├── Cargo.toml                
-├── src/
-│   ├── main.rs                
-|   |── lib.rs
-│   ├── target_info.rs        # Information about the target of the concolic execution
-│   ├── concolic/
-│   │   ├── mod.rs            # Module declaration for concolic execution logic
-│   │   ├── concolic_var.rs   # Concolic variables implementation
-│   │   ├── executor.rs       # Concolic executor implementation
-│   │   └── z3_integration.rs # Integration with Z3 SMT solver
-│   │
-│   └── state/
-│       ├── mod.rs            # Module declaration for state management
-│       ├── state_manager.rs  # State management of concolic/symbolic execution 
-|       ├── memory_model.rs   # Memory model implementation
-│       └── flags.rs          # Memory flags implementation
-│   
-├── external/                 # External dependencies as submodules
-│   └── pcode-parser/         # External Pcode parser repository
+├── src
+│   ├── concolic
+│   │   ├── concolic_enum.rs                # Type that is a mix of ConcolicVar, CpuConcolicVar and MemoryVar to
+│   │   │                                   # mutualize operation that are common to all these types
+│   │   ├── concolic_var.rs                 # Implementation of the 'concolic variable' type
+│   │   ├── concrete_var.rs                 # Implementation of the 'concrete variable' type
+│   │   ├── executor_bool.rs                # Implementation of concolic BOOL instructions
+│   │   ├── executor_callother.rs           # Implementation of concolic CPU specific instructions
+│   │   ├── executor_callother_syscalls.rs  # Implementation of concolic syscalls
+│   │   ├── executor_float.rs               # Implementation of concolic FLOAT instructions
+│   │   ├── executor_int.rs                 # Implementation of concolic INT instructions
+│   │   ├── executor.rs                     # Orchestrator of concolic instruction implementation
+│   │   ├── get_jump_table_destinations.py  # Python script to update correctly the symbolic 
+│   │   │                                   # part when there is a switch table                                        
+│   │   ├── mod.rs
+│   │   ├── specfiles                       # Files used to work with Ghidra headless
+│   │   │   ├── callother-database.txt
+│   │   │   ├── ia.sinc
+│   │   │   └── x86-64.sla
+│   │   └── symbolic_var.rs                 # Implementation of the 'symbolic variable' type
+│   ├── find_panic_xrefs.py                 # Python script to find the addresses of the 
+│   │                                       # references to panic functions
+│   ├── lib.rs
+│   ├── main.rs                             # Main program
+│   ├── state
+│   │   ├── cpu_state.rs                    # Model of x86-64 CPU registers based on Ghidra spec
+│   │   ├── futex_manager.rs                # Simple implementation of the futex system call
+│   │   ├── memory_x86_64.rs                # Model of a x86-64 memory based on Ghidra spec
+│   │   ├── mod.rs
+│   │   ├── state_manager.rs                # Orchestrator of the concolic execution state
+│   │   └── virtual_file_system.rs          # Model of the emulated virtual file system
+│   └── target_info.rs                      # Information about the target of the concolic execution
+│  
+├── external/                               # External dependencies as submodules
+│   ├── pcode-parser/                       # External Pcode parser repository
+│   ├── qemu-cloudimg
+│   │   ├── cidata.iso                      # Files necessary for start a Qemu AMD64 Opteron instance
+│   │   ├── meta-data
+│   │   └── user-data
+│   └── qemu-mount
+│       ├── execute_commands.py             # Python script to create memory dumps from commands
+│       ├── parse_and_generate.py           # Python script to parse the memory info and generate dumps commands
+│       └── README.md
 │
-└── tests/                    # Integration tests and unit tests
+└── tests/                                  # Integration tests and unit tests
     └── ...
 ```

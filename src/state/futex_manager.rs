@@ -1,3 +1,6 @@
+// FutexManager is a simple implementation of the futex system call
+// It is used to implement the futex system call in the kernel
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, Condvar};
