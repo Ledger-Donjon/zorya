@@ -1,11 +1,11 @@
-process 943
+process 949
 Mapped address spaces:
 
           Start Addr           End Addr       Size     Offset  Perms  objfile
-            0x200000           0x202000     0x2000        0x0  r--p   /mnt/host/additiongo-tinygo_ptr-deref
-            0x202000           0x205000     0x3000     0x1000  r-xp   /mnt/host/additiongo-tinygo_ptr-deref
-            0x205000           0x206000     0x1000     0x3000  rw-p   /mnt/host/additiongo-tinygo_ptr-deref
-            0x206000           0x207000     0x1000     0x3000  rw-p   /mnt/host/additiongo-tinygo_ptr-deref
+            0x200000           0x201000     0x1000        0x0  r--p   /mnt/host/tinygo_negative-shift
+            0x201000           0x204000     0x3000        0x0  r-xp   /mnt/host/tinygo_negative-shift
+            0x204000           0x205000     0x1000     0x2000  rw-p   /mnt/host/tinygo_negative-shift
+            0x205000           0x206000     0x1000     0x2000  rw-p   /mnt/host/tinygo_negative-shift
       0x7fffb7ff9000     0x7ffff7ff9000 0x40000000        0x0  rw-p   
       0x7ffff7ff9000     0x7ffff7ffd000     0x4000        0x0  r--p   [vvar]
       0x7ffff7ffd000     0x7ffff7fff000     0x2000        0x0  r-xp   [vdso]

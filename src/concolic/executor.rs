@@ -102,6 +102,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 if symbol_name == "runtime.nilPanic" {
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     log!(self.state.logger.clone(), "Attempt to execute 'runtime.nilPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "You are trying to dereference a nil pointer.");
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    process::exit(0);
+                }
+                if symbol_name == "runtime.nilMapPanic" {
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.nilMapPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "You are trying to add an entry to a nil map.");
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     process::exit(0);
                 }
@@ -119,19 +127,34 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }
                 if symbol_name == "runtime.slicePanic" {
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.recordForPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.slicePanic' detected at address 0x{}.", current_addr_hex);
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     process::exit(0);
                 }
                 if symbol_name == "runtime.lookupPanic" {
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.recordForPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.lookupPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "You are trying to access an array or slice out of bounds.");
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     process::exit(0);
                 }
                 if symbol_name == "runtime.runtimePanic" {
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.recordForPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.runtimePanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    process::exit(0);
+                }
+                if symbol_name == "runtime.chanMakePanic" {
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.chanMakePanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "You are trying to create a new channel that is too big.");
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    process::exit(0);
+                }
+                if symbol_name == "runtime.negativeShiftPanic" {
+                    log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+                    log!(self.state.logger.clone(), "Attempt to execute 'runtime.negativeShiftPanic' detected at address 0x{}.", current_addr_hex);
+                    log!(self.state.logger.clone(), "The shift value is negative.");
                     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
                     process::exit(0);
                 }
