@@ -279,22 +279,38 @@ impl<'ctx> CpuState<'ctx> {
         false
     }
 
-    pub fn upload_dumps_to_cpu_registers(&mut self) -> Result<()> {  
+    pub fn upload_dumps_to_cpu_registers(&mut self) -> Result<()> {
         let zorya_dir = {
             let info = GLOBAL_TARGET_INFO.lock().unwrap();
             info.zorya_path.clone()
         };
-    
-        let cpu_output_path = zorya_dir.join("external").join("qemu-mount").join("cpu_mapping.txt");    
-        let cpu_output = fs::read_to_string(&cpu_output_path);    
-        let result = Self::parse_and_update_cpu_state_from_gdb_output(self, &cpu_output.unwrap());
-        if let Err(e) = result {
-            println!("Error during CPU state update: {}", e);
-            return Err(e);
-        } 
-    
+
+        let cpu_output_path = zorya_dir.join("external").join("qemu-mount").join("cpu_mapping.txt");
+        
+        // Attempt to read the file and print the file path if it fails
+        let cpu_output = fs::read_to_string(&cpu_output_path);
+        match cpu_output {
+            Ok(content) => {
+                // Proceed if the file was read successfully
+                let result = Self::parse_and_update_cpu_state_from_gdb_output(self, &content);
+                if let Err(e) = result {
+                    println!("Error during CPU state update: {}", e);
+                    return Err(anyhow::Error::from(e));
+                }
+            }
+            Err(e) => {
+                // Print an error message showing the path and error if the file could not be read
+                println!(
+                    "Failed to read cpu_mapping.txt at path: {}. Error: {}",
+                    cpu_output_path.display(),
+                    e
+                );
+                return Err(e.into());
+            }
+        }
+
         Ok(())
-    }
+    } 
     
     // Function to parse GDB output and update CPU state
     fn parse_and_update_cpu_state_from_gdb_output(&mut self, gdb_output: &str) -> Result<()> {

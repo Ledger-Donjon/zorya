@@ -9,10 +9,10 @@ Zorya implements a concolic execution methodology to find vulnerabilities in app
 Make sure to have Rust, Golang and Python properly installed.
 
 ```
-sudo apt install qemu-kvm qemu virt-manager virt-viewer libvirt-daemon-system libvirt-clients bridge-utils
-sudo apt install build-essential libclang-dev clang binutils-dev
-
 git clone --recursive https://github.com/kajaaz/zorya.git
+cd zorya
+make setup
+make install
 ```
 When building the project, if you have issues related to C++, it might be necessary to also specify the path to ```libclang.so```:
 ```
@@ -21,31 +21,14 @@ export LIBCLANG_PATH=/path/to/lib/libclang.so
 ```
 
 ## Usage
-
-1. **Specify the target binary** \
-First, you need to adjust the information about your target binary in ```/src/target_info.rs``` in the following section:
+To use Zorya, you will need the absolute path to the binary you want to analyze ```path```, and the hexadecimal address where to start the execution ```addr```:
 ```
-// MODIFY INFO HERE
-// 1. Path to the target ELF binary
-"/absolute/path/to/bin",
-
-// 2. Absolute path to the /zorya/src/state/working_files dir
-PathBuf::from("/absolute/path/to/zorya/src/state/working_files"),
-
-// 3. Address of the main (C) or main.main (Golang) function in your binary (check Ghidra or readelf)
-"0x...",
-
-// 4. Absolute path to the .txt file with the pcode commands of your binary generated with Pcode-generator
-PathBuf::from("/absolute/path/to/bin_low_pcode.txt"),
-
-// 5. Absolute path to the memory dumps from qemu-mount dir
-PathBuf::from("/absolute/path/to/zorya/external/qemu-mount"),
+zorya <path> <addr>
 ```
-2. **Dump the memory and CPU registers for Zorya initialization** \
-Follow all the steps listed [HERE](external/qemu-mount/README.md).
+When asked for a "ubuntu" password, enter "ubuntu".
 
-3. **Let's go!** \
-Launch the command ```cargo run``` and see the result of the concolic execution on your binary.
+## Invariant writing
+Currently, A
 
 ### Remarks
 Zorya is using Qemu AMD Opteron as CPU model to emulate and execute concolically the target program. For the initialization, a fixed seed '12345' is used while launching Qemu to make the execution deterministic and reproductible.

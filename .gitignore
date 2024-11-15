@@ -4,3 +4,5 @@
 /external/qemu-mount/dumps
 /external/qemu-cloudimg/jammy-server-cloudimg-amd64.img
 /execution_log.txt
+/qemu_output.log
+/xref_addresses.txt 

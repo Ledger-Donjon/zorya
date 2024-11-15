@@ -1,13 +1,14 @@
 #cloud-config
 users:
   - name: ubuntu
-    sudo: ['ALL=(ALL) NOPASSWD:ALL']
-    groups: sudo
+    gecos: Ubuntu
+    primary_group: ubuntu
+    groups: users, admin, sudo
+    sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
-    passwd: $6$saltsalt$hashedpasswordhash
     lock_passwd: false
-chpasswd:
-  list: |
-    ubuntu:ubuntu
-  expire: False
+    passwd: $6$y4RHKgZF$T1WfdIFlqJ3VFdqz0ROFCPMbsO4RJLZpu6B0FXGR4Puk9ru/jujBIlRf0eZXi9rhx6g5YSmBSL1yI1/qBr5pj1
 ssh_pwauth: True
+disable_root: false
+chpasswd:
+  expire: false

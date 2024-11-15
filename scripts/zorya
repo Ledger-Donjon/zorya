@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# zorya command script
+
+# ZORYA_DIR will be replaced during installation
+ZORYA_DIR="__ZORYA_DIR__"
+
+if [ "$ZORYA_DIR" == "__ZORYA_DIR__" ]; then
+    echo "Error: ZORYA_DIR is not set. Please reinstall the zorya command."
+    exit 1
+fi
+
+PCODE_GENERATOR_DIR="$ZORYA_DIR/external/pcode-generator"
+QEMU_MOUNT_DIR="$ZORYA_DIR/external/qemu-mount"
+TARGET_INFO_RS="$ZORYA_DIR/src/target_info.rs"
+
+# Check if BIN_PATH is provided
+if [ -z "$1" ]; then
+    echo "Usage: zorya /path/to/bin [start_point]"
+    exit 1
+fi
+
+BIN_PATH="$1"
+START_POINT="${2:-main}"  # Default to 'main' if not provided
+
+# Set environment variables for Rust script
+export ZORYA_DIR="$ZORYA_DIR"
+export BIN_PATH="$BIN_PATH"
+export START_POINT="$START_POINT"
+
+# Generate Pcode
+echo "Generating Pcode for $BIN_PATH..."
+cd "$PCODE_GENERATOR_DIR" || exit
+cargo run -- "$BIN_PATH" --low-pcode
+
+# Construct the dynamic path for the Pcode file
+PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
+if [ ! -f "$PCODE_FILE" ]; then
+    echo "Failed to generate Pcode."
+    exit 1
+fi
+
+# Automate memory dump generation
+echo "Generating memory and CPU register dumps..."
+chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
+"$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$START_POINT"
+
+# Ensure the non-root user can access files in the qemu-mount directory
+echo "Setting permissions for /external/qemu-mount directory..."
+sudo chown -R $(whoami):$(whoami) "$QEMU_MOUNT_DIR"
+sudo chmod -R 755 "$QEMU_MOUNT_DIR"
+
+# Run Zorya
+echo "Running Zorya..."
+cd "$ZORYA_DIR" || exit
+cargo run

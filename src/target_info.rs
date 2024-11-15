@@ -1,6 +1,6 @@
 /// File containing all the information regarding the binary file to be analyzed by zorya
 
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 use std::sync::Mutex;
 
 #[derive(Debug, Clone)]
@@ -24,19 +24,27 @@ impl TargetInfo {
 }
 
 lazy_static::lazy_static! {
-    pub static ref GLOBAL_TARGET_INFO: Mutex<TargetInfo> = Mutex::new(TargetInfo::new(
-        // *********************************
-        // MODIFY INFO HERE
-        // 1. Path to target binary
-        "/home/kgorna/Documents/tools/pcode-generator/tests/tinygo-compress/tinygo-compress",
-        // 2. Address of the main or main.main function in your binary (check Ghidra or readelf)
-        "0x2130d9",
-        // 3. Absolute path to the .txt file with the pcode commands of your binary generated with Pcode-generator
-        PathBuf::from("/home/kgorna/Documents/tools/pcode-generator/results/tinygo-compress_low_pcode.txt"),
-        // 4. Absolute path to the /src/state/working_files dir
-        PathBuf::from("/home/kgorna/Documents/zorya-compress"),
-        // *********************************
-    ));
+    pub static ref GLOBAL_TARGET_INFO: Mutex<TargetInfo> = Mutex::new({
+        // Get ZORYA_DIR and BIN_PATH from environment
+        let zorya_path = PathBuf::from(env::var("ZORYA_DIR").expect("ZORYA_DIR environment variable is not set"));
+        let bin_path = PathBuf::from(env::var("BIN_PATH").expect("BIN_PATH environment variable is not set"));
+        
+        // Extract binary name from BIN_PATH and construct the pcode file path
+        let binary_name = bin_path.file_name()
+            .expect("Failed to extract binary name from BIN_PATH")
+            .to_str()
+            .expect("Binary name contains invalid UTF-8 characters");
+        
+        let pcode_file_name = format!("{}_low_pcode.txt", binary_name);
+        let pcode_file_path = zorya_path.join("external/pcode-generator/results").join(pcode_file_name);
+
+        TargetInfo::new(
+            &bin_path.to_string_lossy().to_string(),
+            &env::var("START_POINT").expect("START_POINT environment variable is not set"),
+            pcode_file_path,
+            zorya_path,
+        )
+    });
 }
 
 // From pcode-generator/tests :
