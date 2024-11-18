@@ -58,7 +58,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err(Box::from("Python script failed"));
     } else {
         log!(executor.state.logger, "Python script executed successfully");
-        // Optionally, print the script's stdout
         log!(executor.state.logger, "Python script output:\n{}", String::from_utf8_lossy(&output.stdout));
     }
 

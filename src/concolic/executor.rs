@@ -937,6 +937,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let load_size_bits = instruction.output.as_ref()
             .map(|varnode| varnode.size.to_bitvector_size() as u32)
             .unwrap_or(64); // Default to 64 bits if output size is not specified
+        let load_size_bytes = (load_size_bits / 8) as u64; // Size in bytes
+        log!(self.state.logger.clone(), "Load size in bits: {}", load_size_bits);
+
+        // Misalignment check
+        if pointer_offset_concrete % load_size_bytes != 0 {
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+            log!(self.state.logger.clone(), "VULN: Zorya detected a misaligned memory access at address 0x{:x}, load size: {} bytes", pointer_offset_concrete, load_size_bytes);
+            log!(self.state.logger.clone(), "Execution stopped due to misaligned access!");
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+            process::exit(1);
+        }
             
         let mem_size = pointer_offset_concolic.get_symbolic_value_bv(self.context).get_size();
         log!(self.state.logger.clone(), "Load size in bits: {}", mem_size);
