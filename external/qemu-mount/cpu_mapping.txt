@@ -1,21 +1,21 @@
 rax            0x0                 0
 rbx            0x0                 0
-rcx            0x202469            2106473
+rcx            0x0                 0
 rdx            0x0                 0
-rsi            0x7fffb8008f08      140736280432392
-rdi            0x2                 2
-rbp            0x0                 0x0
-rsp            0x7fffb8008ef8      0x7fffb8008ef8
+rsi            0x0                 0
+rdi            0x0                 0
+rbp            0x7fffffffeb48      0x7fffffffeb48
+rsp            0x7fffffffeb30      0x7fffffffeb30
 r8             0x0                 0
 r9             0x0                 0
-r10            0x8                 8
-r11            0x246               582
-r12            0x20358c            2110860
+r10            0x0                 0
+r11            0x0                 0
+r12            0x0                 0
 r13            0x0                 0
-r14            0x7fffb8008f08      140736280432392
-r15            0x2036e9            2111209
-rip            0x202469            0x202469 <__restore_sigs+17>
-eflags         0x246               [ PF ZF IF ]
+r14            0x0                 0
+r15            0x0                 0
+rip            0x40128a            0x40128a <main>
+eflags         0x202               [ IF ]
 cs             0x33                51
 ss             0x2b                43
 ds             0x0                 0

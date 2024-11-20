@@ -49,6 +49,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub instruction_counter: usize,
     pub unique_variables: BTreeMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
     pub pcode_internal_lines_to_be_jumped: usize, // known line number of the current instruction in the pcode file, usefull for branch instructions
+    pub initialiazed_var : BTreeMap<String, u64>, // check if the variable has been initialized before using it
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -64,6 +65,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
             pcode_internal_lines_to_be_jumped: 0, // number of lines to skip in case of branch instructions
+            initialiazed_var: BTreeMap::new(),
          })
     }
 
@@ -926,11 +928,22 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_concolic.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset to be dereferenced : {:x}", pointer_offset_concrete);
     
+        // Check if the pointer offset is NULL
         if pointer_offset_concrete == 0 {
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
             log!(self.state.logger.clone(), "VULN: Zorya caught the dereferencing of a NULL pointer, execution stopped!");
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
             process::exit(1);
+        }
+
+        // TODO: For cases like 'void a(void) { b(); c(); }', need to 'reinitialize' variables used by b() when b() finishes.
+        // Check if the memory address has been initialized
+        if !self.initialiazed_var.contains_key(&format!("{:x}", pointer_offset_concrete)) {
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+            log!(self.state.logger.clone(), "VULN: Zorya detected uninitialized memory access at address 0x{:x}", pointer_offset_concrete);
+            log!(self.state.logger.clone(), "Execution halted due to uninitialized memory access!");
+            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+            return Err(format!("Uninitialized memory access at address 0x{:x}", pointer_offset_concrete));
         }
 
         // Determine the size of the data to load
@@ -1094,6 +1107,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let pointer_offset_concrete = pointer_offset_var.get_concrete_value();
         log!(self.state.logger.clone(), "Pointer offset concrete: {:x}", pointer_offset_concrete);
     
+        // Mark the memory address as initialized
+        self.initialiazed_var.insert(format!("{:x}", pointer_offset_concrete), self.current_address.unwrap_or(0));
+        log!(self.state.logger.clone(), "Marked address 0x{:x} as initialized", pointer_offset_concrete);
+
         // Validate pointer to prevent null dereference
         if pointer_offset_concrete == 0 {
             log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");

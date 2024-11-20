@@ -27,7 +27,8 @@ mod tests {
             current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
-            pcode_internal_lines_to_be_jumped: current_lines_number        
+            pcode_internal_lines_to_be_jumped: current_lines_number,
+            initialiazed_var: BTreeMap::new(),        
         }
     }
 

@@ -112,7 +112,7 @@ EOF
 if ! $SSH_COMMAND << EOF
 cd /mnt/host
 sudo gdb ./$BIN_NAME -batch \
-    -ex "break $START_POINT" \
+    -ex "break *$START_POINT" \
     -ex "run < /dev/null" \
     -ex "set logging file /mnt/host/cpu_mapping.txt" \
     -ex "set logging on" \
