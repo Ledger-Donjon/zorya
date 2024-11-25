@@ -1,20 +1,20 @@
-rax            0x0                 0
+rax            0x347               839
 rbx            0x0                 0
-rcx            0x0                 0
+rcx            0x203f2b            2113323
 rdx            0x0                 0
 rsi            0x0                 0
 rdi            0x0                 0
-rbp            0x7fffffffeb48      0x7fffffffeb48
-rsp            0x7fffffffeb30      0x7fffffffeb30
+rbp            0x0                 0x0
+rsp            0x7fffb8009028      0x7fffb8009028
 r8             0x0                 0
-r9             0x0                 0
-r10            0x0                 0
-r11            0x0                 0
-r12            0x0                 0
+r9             0x7ffff7ffd300      140737354126080
+r10            0x7ffff7ff9170      140737354109296
+r11            0x246               582
+r12            0x203c8a            2112650
 r13            0x0                 0
 r14            0x0                 0
 r15            0x0                 0
-rip            0x40128a            0x40128a <main>
+rip            0x2040d4            0x2040d4 <main.main>
 eflags         0x202               [ IF ]
 cs             0x33                51
 ss             0x2b                43

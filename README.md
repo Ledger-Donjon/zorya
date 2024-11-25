@@ -25,7 +25,6 @@ To use Zorya, you will need the absolute path to the binary you want to analyze 
 ```
 zorya <path> <addr>
 ```
-When asked for a "ubuntu" password, enter "ubuntu".
 
 ## Invariant writing
 Currently, A

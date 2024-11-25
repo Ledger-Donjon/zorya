@@ -1,0 +1,12 @@
+#cloud-config
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDbXsoKxfK+kLm25oyXvmZhRy/JJrx7+lK+WRlBRnDIbVDKf1UzHqp9Zv4/X/GlR0E+1GXoBhLIJibvtHljb7lYtsOf69LOwsWM4cZX1mwd+jnDH4wMxYumk9Ox3lEEaqjtKdeoH9NlnEt4MFNFRm0RySEg0NheHfBHnnGWAl80UCeEqFEaFXOf8sbMNqz0Y18Ku6m66dnyUG4+R2493s9Ka8DLsZ6EZ8RgxZLCaYFN3q9l/jev8Kuz1hlAc6cBvwoIVHhb/I1CfbVnLFyJtdeuBMjs7LoojZFeHmh6TtynUFzE56pxPttZJNAx3zwgLROJMqT7ybOlBu/q/5lNJGzb kgorna@LPFR0151
+package_update: true
+packages:
+  - gdb
+runcmd:
+  - sudo mkdir -p /mnt/host
+  - sudo mount -t 9p -o trans=virtio,version=9p2000.L,msize=262144,access=any hostshare /mnt/host
