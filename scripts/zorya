@@ -29,7 +29,7 @@ export BIN_PATH="$BIN_PATH"
 export START_POINT="$START_POINT"
 
 # Generate Pcode
-echo "Generating Pcode for $BIN_PATH..."
+echo -e "\rGenerating Pcode for $BIN_PATH..."
 cd "$PCODE_GENERATOR_DIR" || exit
 cargo run -- "$BIN_PATH" --low-pcode
 
@@ -41,16 +41,15 @@ if [ ! -f "$PCODE_FILE" ]; then
 fi
 
 # Automate memory dump generation
-echo "Generating memory and CPU register dumps..."
+echo -e "\rGenerating memory and CPU register dumps..."
 chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
 "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$START_POINT"
 
 # Ensure the non-root user can access files in the qemu-mount directory
-echo "Setting permissions for /external/qemu-mount directory..."
 sudo chown -R $(whoami):$(whoami) "$QEMU_MOUNT_DIR"
 sudo chmod -R 755 "$QEMU_MOUNT_DIR"
 
 # Run Zorya
-echo "Running Zorya..."
 cd "$ZORYA_DIR" || exit
-cargo run
+RUSTFLAGS="-Awarnings" cargo run
+

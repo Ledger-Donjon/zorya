@@ -41,11 +41,10 @@ impl<'a> State<'a> {
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         log!(logger.clone(), "Uploading dumps to CPU registers...\n");
         cpu_state.lock().unwrap().upload_dumps_to_cpu_registers()?;
-        log!(logger.clone(), "CPU state initialized.\n : {:?}", cpu_state);
 
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
 
-        log!(logger.clone(), "Initializing memory...\n");
+        log!(logger.clone(), "\nInitializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory.load_all_dumps()?;
         memory.initialize_cpuid_memory_variables()?; 

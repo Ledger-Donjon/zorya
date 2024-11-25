@@ -53,7 +53,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             SymbolicVar::Int(BV::from_u64(ctx, initial_value, size))
         };
 
-        println!("Created new CpuConcolicValue with concrete: {:?}, symbolic: {:?}", concrete, symbolic);
+        //println!("Created new CpuConcolicValue with concrete: {:?}, symbolic: {:?}", concrete, symbolic);
 
         CpuConcolicValue {
             concrete,
@@ -318,10 +318,10 @@ impl<'ctx> CpuState<'ctx> {
         let re_flags = Regex::new(r"^\s*eflags\s+0x[0-9a-f]+\s+\[(.*?)\]").unwrap();
     
         // Display current state of flag registrations for debugging
-        println!("Flag Registrations:");
-        for (offset, (name, size)) in self.register_map.iter() {
-            println!("{}: offset = 0x{:x}, size = {}", name, offset, size);
-        }
+        //println!("Flag Registrations:");
+        //for (offset, (name, size)) in self.register_map.iter() {
+        //    println!("{}: offset = 0x{:x}, size = {}", name, offset, size);
+        //}
     
         // Parse general registers
         for line in gdb_output.lines() {
@@ -334,7 +334,6 @@ impl<'ctx> CpuState<'ctx> {
                     let value_symbolic = BV::from_u64(&self.ctx, value_concrete, *size);
                     let value_concolic = ConcolicVar::new_concrete_and_symbolic_int(value_concrete, value_symbolic, &self.ctx, *size);
                     let _ = self.set_register_value_by_offset(offset, value_concolic, *size);
-                    println!("Updated register {} with value {}", register_name, value_concrete);
                 }
             }
         }
@@ -350,26 +349,16 @@ impl<'ctx> CpuState<'ctx> {
                 for &flag in flag_list.iter() {
                     let flag_concrete = if flags_line.contains(flag) { 1 } else { 0 };
                     if let Some((offset, size)) = self.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
-                        println!("Setting flag {} to {}", flag, flag_concrete);  // Debug statement
                         let flag_symbolic = BV::from_u64(&self.ctx, flag_concrete, *size);
                         let flag_concolic = ConcolicVar::new_concrete_and_symbolic_int(flag_concrete, flag_symbolic, &self.ctx, *size);
                         let _ = self.set_register_value_by_offset(offset, flag_concolic, *size);
                         
                         // Verify update
                         let updated_value = self.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
-                        println!("Verification: {} is now set to {:?}", flag, updated_value);
                     } else {
                         println!("Flag {} not found in register_map", flag);
                     }
                 }
-            }
-        }
-    
-        // Verify final state of specific flags
-        for &flag in ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"].iter() {
-            if let Some((offset, size)) = self.register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
-                let flag_value = self.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64()).unwrap_or(0);
-                println!("{} flag value: {}", flag, flag_value);  // Debug statement
             }
         }
     

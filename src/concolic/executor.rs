@@ -914,8 +914,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         Ok(())
     }    
-
-    
+ 
     pub fn handle_load(&mut self, instruction: Inst, next_inst: &Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Load || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for LOAD".to_string());

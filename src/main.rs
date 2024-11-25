@@ -35,6 +35,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     log!(executor.state.logger, "Binary path: {}", binary_path);
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
+    // Populate the symbol table
+    let elf_data = fs::read(binary_path.clone())?;
+    executor.populate_symbol_table(&elf_data)?;
+    log!(executor.state.logger, "Symbol table has been populated:{:?}", executor.symbol_table);
+
+    let instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut executor.clone())
+        .expect("Failed to preprocess the p-code file.");
+
     // Get the path to the python script and run it
     let zorya_dir = {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
@@ -57,8 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("Python script error: {}", String::from_utf8_lossy(&output.stderr));
         return Err(Box::from("Python script failed"));
     } else {
-        log!(executor.state.logger, "Python script executed successfully");
-        log!(executor.state.logger, "Python script output:\n{}", String::from_utf8_lossy(&output.stdout));
+        log!(executor.state.logger, "Finding panic references script executed successfully.");
     }
 
     // Ensure the file was created
@@ -66,13 +73,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("xref_addresses.txt not found after running the Python script");
     }
 
-    // Populate the symbol table
-    let elf_data = fs::read(binary_path)?;
-    executor.populate_symbol_table(&elf_data)?;
-    log!(executor.state.logger, "Symbol table has been populated:{:?}", executor.symbol_table);
-
-    let instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut executor.clone())
-        .expect("Failed to preprocess the p-code file.");
 
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
