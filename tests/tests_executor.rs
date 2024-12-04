@@ -5,7 +5,7 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
     use parser::parser::Size;
     use z3::ast::BV;
     use zorya::{concolic::{ConcolicVar, Logger}, executor::{ConcreteVar, SymbolicVar}};
@@ -22,11 +22,13 @@ mod tests {
             context: ctx,
             solver: Solver::new(ctx),
             state,
-            symbol_table: HashMap::new(),
+            symbol_table: BTreeMap::new(),
             current_address: Some(0x123),
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
             pcode_internal_lines_to_be_jumped: current_lines_number,
+            initialiazed_var: BTreeMap::new(),
+            inside_jump_table: false,
         }
     }
 
@@ -72,7 +74,7 @@ mod tests {
             ],
         };
 
-        let result = executor.handle_cbranch(cbranch_inst);
+        let result = executor.handle_cbranch(cbranch_inst, 0x124);
         assert!(result.is_ok());
 
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
@@ -159,12 +161,8 @@ mod tests {
         assert!(result.is_ok());
 
         // Check memory state to ensure data is stored at the correct address
-        let memory_guard = executor.state.memory.memory.read().unwrap();
-        if let Some(stored_value) = memory_guard.get(&0x1000) {
-            assert_eq!(stored_value.concrete, ConcreteVar::Int(0xDEADBEEF));
-        } else {
-            panic!("Memory not updated correctly");
-        }
+        let stored_value = executor.state.memory.read_u32(0x1000).expect("Failed to read memory value");
+        assert_eq!(stored_value.concrete, ConcreteVar::Int(0xDEADBEEF).to_u64());
 
         // Check CPU state to ensure data is also stored in the register if applicable
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
@@ -329,6 +327,125 @@ mod tests {
             println!("Result of SUBPIECE operation: {:#?}", result_var);
         } else {
             panic!("Resulting variable from SUBPIECE operation not found");
+        }
+    }
+
+    #[test]
+    fn test_variable_scope_management() {
+        let mut executor = setup_executor();
+
+        // Simulate entering a function via a call instruction
+        let call_instruction = Inst {
+            opcode: Opcode::Call,
+            output: None,
+            inputs: vec![
+                Varnode {
+                    var: Var::Const("0x1000".to_string()), // Assume function at address 0x1000
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        // Handle the call instruction
+        let result = executor.handle_call(call_instruction);
+        assert!(result.is_ok(), "Function call should succeed.");
+
+        // Now, within the function, perform a STORE operation to initialize a variable at address 0x2000
+        let store_instruction = Inst {
+            opcode: Opcode::Store,
+            output: None,
+            inputs: vec![
+                Varnode {
+                    var: Var::Const(0.to_string()), // Space ID, not used
+                    size: Size::Byte,
+                },
+                Varnode {
+                    var: Var::Const(0x2000.to_string()), // Address to store at
+                    size: Size::Quad,
+                },
+                Varnode {
+                    var: Var::Const(42.to_string()), // Data to store
+                    size: Size::Byte,
+                },
+            ],
+        };
+
+        // Handle the STORE instruction
+        let result = executor.handle_store(store_instruction);
+        assert!(result.is_ok(), "Store operation should succeed.");
+
+        // Check that the variable is initialized and accessible
+        let addr_str = format!("{:x}", 0x2000);
+        assert!(
+            executor.initialiazed_var.contains_key(&addr_str),
+            "Variable at address 0x2000 should be initialized."
+        );
+
+        // Now, simulate returning from the function
+        let return_instruction = Inst {
+            opcode: Opcode::Return,
+            output: None,
+            inputs: vec![],
+        };
+
+        // Handle the return instruction
+        let result = executor.handle_return(return_instruction);
+        assert!(result.is_ok(), "Function return should succeed.");
+
+        // After the function returns, attempt to access the variable via a LOAD instruction
+        let load_instruction = Inst {
+            opcode: Opcode::Load,
+            output: Some(Varnode {
+                var: Var::Unique(0x3000), // Destination unique variable
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Const(0.to_string()), // Space ID, not used
+                    size: Size::Byte,
+                },
+                Varnode {
+                    var: Var::Const(0x2000.to_string()), // Address to load from
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        // Since the next_inst parameter is required, and is used to detect switch tables, we can pass a default instruction
+        let next_inst = Inst {
+            opcode: Opcode::IntAdd,
+            output: Some(Varnode {
+                var: Var::Unique(0x3001), // Destination unique variable
+                size: Size::Byte,
+            }),
+            inputs: vec![
+                Varnode {
+                    var: Var::Const(1.to_string()), 
+                    size: Size::Byte,
+                },
+                Varnode {
+                    var: Var::Const(1.to_string()), 
+                    size: Size::Quad,
+                },
+            ],
+        };
+
+        // Handle the LOAD instruction
+        let instruction_map = BTreeMap::new();
+        let result = executor.handle_load(load_instruction, &next_inst, &instruction_map);
+
+        // Since the variable should have been cleaned up, we expect an error
+        assert!(
+            result.is_err(),
+            "Load operation should fail due to uninitialized memory access."
+        );
+
+        // Optionally, you can check the error message
+        if let Err(err_msg) = result {
+            assert!(
+                err_msg.contains("Uninitialized memory access"),
+                "Error message should indicate uninitialized memory access."
+            );
         }
     }
 }

@@ -2,9 +2,8 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{self, Command};
-
 use parser::parser::{Inst, Opcode};
 use z3::ast::{Ast, Bool, Int};
 use z3::{Config, Context, Solver};
@@ -40,10 +39,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     executor.populate_symbol_table(&elf_data)?;
     log!(executor.state.logger, "Symbol table has been populated:{:?}", executor.symbol_table);
 
+    // Preprocess the p-code file to get a map of addresses to instructions
     let instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut executor.clone())
         .expect("Failed to preprocess the p-code file.");
 
-    // Get the path to the python script and run it
+    // Get the tables of cross references of potential panics in the programs (for bug detetcion)
+    get_cross_references(&binary_path)?;
+
+    // CORE COMMAND
+    let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
+        .expect("The format of the main program address is invalid.");
+    execute_instructions_from(&mut executor, start_address, &instructions_map, &solver);
+
+    log!(executor.state.logger, "The concolic execution has finished.");
+    Ok(())
+}
+
+/// Function to execute the Python script to get the cross references of potential panics in the programs (for bug detetcion)
+fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
     let zorya_dir = {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
         info.zorya_path.clone()
@@ -56,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let output = Command::new("python3")
         .arg(python_script_path)
-        .arg(&binary_path)
+        .arg(binary_path)
         .output()
         .expect("Failed to execute Python script");
 
@@ -65,7 +78,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("Python script error: {}", String::from_utf8_lossy(&output.stderr));
         return Err(Box::from("Python script failed"));
     } else {
-        log!(executor.state.logger, "Finding panic references script executed successfully.");
+        println!("Python script executed successfully:");
+        println!("{}", String::from_utf8_lossy(&output.stdout));
     }
 
     // Ensure the file was created
@@ -73,17 +87,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("xref_addresses.txt not found after running the Python script");
     }
 
-
-    let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
-        .expect("The format of the main program address is invalid.");
-
-    // CORE COMMAND
-    execute_instructions_from(&mut executor, start_address, &instructions_map, &solver);
-
-    log!(executor.state.logger, "The concolic execution has completed successfully.");
     Ok(())
 }
 
+// Function to preprocess the p-code file and return a map of addresses to instructions
 fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Result<BTreeMap<u64, Vec<Inst>>> {
     let file = File::open(path)?;
     let reader = io::BufReader::new(file);
@@ -118,7 +125,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
     Ok(instructions_map)
 }
 
-// helper function
+// Function to read the panic addresses from the file
 fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::Result<Vec<u64>> {
     let file = File::open(filename)?;
     let reader = BufReader::new(file);
@@ -141,6 +148,7 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
     Ok(addresses)
 }
 
+// Function to execute the instructions from the map of addresses to instructions
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
@@ -247,7 +255,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
             // MAIN PART OF THE CODE
             // Execute the instruction and handle errors
-            match executor.execute_instruction(inst.clone(), current_rip, *next_addr_in_map, &next_inst) {
+            match executor.execute_instruction(inst.clone(), current_rip, *next_addr_in_map, &next_inst, instructions_map) {
                 Ok(_) => {
                     // Check if the process has terminated
                     if executor.state.is_terminated {

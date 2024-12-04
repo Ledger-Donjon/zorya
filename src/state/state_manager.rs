@@ -1,11 +1,13 @@
-use std::{collections::{BTreeMap, HashMap}, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, RwLock}};
+use std::{collections::{BTreeMap, BTreeSet, HashMap}, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, RwLock}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use nix::libc::SS_DISABLE;
 use parser::parser::Varnode;
+use serde::Deserialize;
 use z3::Context;
 use std::fmt;
 use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::{MemoryX86_64, Sigaction}, CpuState, VirtualFileSystem};
+use crate::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -13,6 +15,26 @@ macro_rules! log {
     }};
 }
 
+// Used in the handle_store to check if the variables have been initialized (C code vulnerability)
+#[derive(Clone, Debug)]
+pub struct FunctionFrame {
+    pub local_variables: BTreeSet<String>, // Addresses of local variables (as hex strings)
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct JumpTableEntry {
+    pub label: String,
+    pub destination: u64,
+    pub input_address: u64,
+}
+
+// Reproduce the structure of a jump table
+#[derive(Clone, Debug, Deserialize)]
+pub struct JumpTable {
+    pub switch_id: String,
+    pub table_address: u64,
+    pub cases: Vec<JumpTableEntry>,
+}
 
 #[derive(Clone, Debug)]
 pub struct State<'a> {
@@ -20,16 +42,18 @@ pub struct State<'a> {
     pub ctx: &'a Context,
     pub memory: MemoryX86_64<'a>,
     pub cpu_state: SharedCpuState<'a>,
-    pub vfs: Arc<RwLock<VirtualFileSystem>>,
+    pub vfs: Arc<RwLock<VirtualFileSystem>>, // Virtual file system
     pub fd_paths: BTreeMap<u64, PathBuf>, // Maps syscall file descriptors to file paths.
     pub fd_counter: u64, // Counter to generate unique file descriptor IDs.
-    pub logger: Logger,
+    pub logger: Logger,  // Logger for debugging
     pub signal_mask: u64,  // store the signal mask
     pub futex_manager: FutexManager,
     pub altstack: StackT, // structure used by the sigaltstack system call to define an alternate signal stack
     pub is_terminated: bool,     // Indicates if the process is terminated
     pub exit_status: Option<i32>, // Stores the exit status code of the process
     pub signal_handlers: HashMap<i32, Sigaction<'a>>, // Stores the signal handlers
+    pub call_stack: Vec<FunctionFrame>, // Stack of function frames to track local variables
+    pub jump_tables: BTreeMap<u64, JumpTable>, // Maps base addresses to jump table metadata
 }
 
 impl<'a> State<'a> {
@@ -39,17 +63,20 @@ impl<'a> State<'a> {
         // Initialize CPU state in a shared and thread-safe manner
         log!(logger.clone(), "Initializing mock CPU state...\n");
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
+
         log!(logger.clone(), "Uploading dumps to CPU registers...\n");
         cpu_state.lock().unwrap().upload_dumps_to_cpu_registers()?;
 
+        log!(logger.clone(), "Initializing virtual file system...\n");
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
 
-        log!(logger.clone(), "\nInitializing memory...\n");
+        log!(logger.clone(), "Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory.load_all_dumps()?;
         memory.initialize_cpuid_memory_variables()?; 
 	
-        let state = State {
+        log!(logger.clone(), "Initializing the State, including jump tables...\n");
+        let mut state = State {
             concolic_vars: BTreeMap::new(),
             ctx,
             memory,
@@ -64,7 +91,10 @@ impl<'a> State<'a> {
             is_terminated: false,
             exit_status: None,
             signal_handlers: HashMap::new(),
+            call_stack: Vec::new(),
+            jump_tables: BTreeMap::new(),
         };
+        state.initialize_jump_tables()?;
         //state.print_memory_content(address, range);
 
         Ok(state)
@@ -91,6 +121,8 @@ impl<'a> State<'a> {
             is_terminated: false,
             exit_status: None,
             signal_handlers: HashMap::new(),
+            call_stack: Vec::new(),
+            jump_tables: BTreeMap::new(),
         })
     }
 
@@ -105,9 +137,45 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn next_fd_id(&mut self) -> u64 {
-        self.fd_counter += 1;
-        self.fd_counter
+    // Method to initialize the jump tables from a JSON file
+    pub fn initialize_jump_tables(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        log!(self.logger, "Initializing jump tables...");
+
+        let binary_path = {
+            let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
+            target_info.binary_path.clone()
+        };
+
+        // Path to the Python script
+        let python_script = "src/state/get_jump_tables.py";
+
+        // Temporary JSON file to store the output
+        let json_output = "jump_tables.json";
+
+        // Call the Python program to generate the JSON file
+        let output = std::process::Command::new("python3")
+            .arg(python_script)
+            .arg(binary_path)
+            .output()
+            .expect("Failed to execute Python script");
+
+        // Check if the script ran successfully
+        if !output.status.success() {
+            log!(self.logger, "Python script failed: {:?}", String::from_utf8_lossy(&output.stderr));
+            return Err("Failed to generate jump table data".into());
+        }
+
+        log!(self.logger, "Python script executed successfully: {:?}", String::from_utf8_lossy(&output.stdout));
+
+        // Read and parse the generated JSON file
+        let json_data = std::fs::read_to_string(json_output)?;
+        let tables: Vec<JumpTable> = serde_json::from_str(&json_data)?; // Deserializes with `input_address`
+        for table in tables {
+            self.jump_tables.insert(table.table_address, table);
+        }
+
+        log!(self.logger, "Jump tables initialized successfully: {:?}", self.jump_tables);
+        Ok(())
     }
 
     // Add a file descriptor and its path to the mappings.
@@ -123,12 +191,7 @@ impl<'a> State<'a> {
     }
 
     // Method to create or update a concolic variable while preserving the symbolic history
-    pub fn create_or_update_concolic_variable_int(
-        &mut self,
-        var_name: &str,
-        concrete_value: u64,
-        symbolic_var: SymbolicVar<'a>,
-    ) -> &ConcolicVar<'a> {
+    pub fn create_or_update_concolic_variable_int(&mut self, var_name: &str, concrete_value: u64, symbolic_var: SymbolicVar<'a>) -> &ConcolicVar<'a> {
         // Create a new ConcolicVar with the provided symbolic variable
         let new_var = ConcolicVar {
             concrete: ConcreteVar::Int(concrete_value),
@@ -140,12 +203,7 @@ impl<'a> State<'a> {
     }
 
     // Method to create or update a concolic variable with a boolean concrete value and symbolic value
-    pub fn create_or_update_concolic_variable_bool(
-        &mut self,
-        var_name: &str,
-        concrete_value: bool,
-        symbolic_var: SymbolicVar<'a>,
-    ) -> &ConcolicVar<'a> {
+    pub fn create_or_update_concolic_variable_bool(&mut self, var_name: &str, concrete_value: bool, symbolic_var: SymbolicVar<'a>) -> &ConcolicVar<'a> {
         // Create a new ConcolicVar with the provided symbolic variable
         let new_var = ConcolicVar {
             concrete: ConcreteVar::Bool(concrete_value),
