@@ -48,8 +48,6 @@ setup:
 	git submodule update --init --recursive
 	@echo "Building Zorya..."
 	cargo build
-	@echo "Building Pcode Generator..."
-	$(MAKE) -C $(PCODE_GENERATOR_DIR) build
 
 install:
 	@echo "Installing zorya command..."
