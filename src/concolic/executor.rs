@@ -948,14 +948,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Clean up variables from functions that have finished
         self.cleanup_finished_function_variables(&instruction);
 
-        // Check if the memory address has been initialized in the current scope
-        if !self.is_address_initialized_in_current_scope(pointer_offset_concrete) {
-            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-            log!(self.state.logger.clone(), "VULN: Zorya detected uninitialized memory access at address 0x{:x}", pointer_offset_concrete);
-            log!(self.state.logger.clone(), "Execution halted due to uninitialized memory access!");
-            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-            return Err(format!("Uninitialized memory access at address 0x{:x}", pointer_offset_concrete));
-        }
+        // Check if the memory address has been initialized in the current scope (mainly working for C code)
+        // if !self.is_address_initialized_in_current_scope(pointer_offset_concrete) {
+        //     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+        //     log!(self.state.logger.clone(), "VULN: Zorya detected uninitialized memory access at address 0x{:x}", pointer_offset_concrete);
+        //     log!(self.state.logger.clone(), "Execution halted due to uninitialized memory access!");
+        //     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        //     return Err(format!("Uninitialized memory access at address 0x{:x}", pointer_offset_concrete));
+        // }
 
         // Determine the size of the data to load
         let load_size_bits = instruction.output.as_ref()
@@ -998,7 +998,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             let jump_table = {
                 let tables = &self.state.jump_tables; // Immutable borrow for lookup
                 tables.values()
-                    .find(|table| table.table_address == pointer_offset_concrete)
+                    .find(|table| table.table_address == pointer_offset_concrete)                
                     .cloned() // Clone the jump table to break the immutable borrow
                     .ok_or_else(|| "Pointer offset does not match any known jump table.".to_string())?
             };
@@ -1018,8 +1018,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 result = condition.ite(&destination_bv, &result);
             }
 
-            
-        
             self.inside_jump_table = false; // Reset flag after handling the jump table
         
             // Create a concolic variable representing the dereferenced value

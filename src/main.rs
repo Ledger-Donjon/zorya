@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     executor.populate_symbol_table(&elf_data)?;
     log!(executor.state.logger, "Symbol table has been populated:{:?}", executor.symbol_table);
 
+    log!(executor.state.logger, "Path to the p-code file: {}", pcode_file_path_str);
     // Preprocess the p-code file to get a map of addresses to instructions
     let instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut executor.clone())
         .expect("Failed to preprocess the p-code file.");
@@ -152,7 +153,7 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
-    let end_address: u64 = 0x0; //no specific end address
+    let end_address: u64 = 0x22c54e; //no specific end address
 
     // For debugging
     //let address: u64 = 0x7fffffffe4b0;

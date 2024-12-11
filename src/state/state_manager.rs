@@ -1,13 +1,13 @@
-use std::{collections::{BTreeMap, BTreeSet, HashMap}, fs::File, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, RwLock}};
+use std::{collections::{BTreeMap, BTreeSet, HashMap}, error::Error, fs::{self, File}, io::{self, Read, Write}, path::{Path, PathBuf}, process::Command, sync::{Arc, Mutex, RwLock}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use nix::libc::SS_DISABLE;
 use parser::parser::Varnode;
-use serde::Deserialize;
 use z3::Context;
 use std::fmt;
 use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::{MemoryX86_64, Sigaction}, CpuState, VirtualFileSystem};
 use crate::target_info::GLOBAL_TARGET_INFO;
+use serde::Deserialize;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -21,7 +21,7 @@ pub struct FunctionFrame {
     pub local_variables: BTreeSet<String>, // Addresses of local variables (as hex strings)
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct JumpTableEntry {
     pub label: String,
     pub destination: u64,
@@ -29,7 +29,7 @@ pub struct JumpTableEntry {
 }
 
 // Reproduce the structure of a jump table
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct JumpTable {
     pub switch_id: String,
     pub table_address: u64,
@@ -138,42 +138,103 @@ impl<'a> State<'a> {
     }
 
     // Method to initialize the jump tables from a JSON file
-    pub fn initialize_jump_tables(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn initialize_jump_tables(&mut self) -> Result<(), Box<dyn Error>> {
         log!(self.logger, "Initializing jump tables...");
-
-        let binary_path = {
+    
+        let (binary_path, zorya_path) = {
             let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
-            target_info.binary_path.clone()
+            (
+                PathBuf::from(&target_info.binary_path),
+                PathBuf::from(&target_info.zorya_path),
+            )
         };
-
-        // Path to the Python script
-        let python_script = "src/state/get_jump_tables.py";
-
-        // Temporary JSON file to store the output
-        let json_output = "jump_tables.json";
-
-        // Call the Python program to generate the JSON file
+    
+        let python_script = zorya_path.join("src").join("state").join("get_jump_tables.py");
+        if !python_script.exists() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Python script not found at path: {:?}", python_script),
+            )));
+        }
+    
+        let json_output = PathBuf::from("jump_tables.json");
+    
         let output = std::process::Command::new("python3")
-            .arg(python_script)
-            .arg(binary_path)
+            .arg("-m")
+            .arg("pyhidra")
+            .arg(&python_script)
+            .arg(&binary_path)
             .output()
             .expect("Failed to execute Python script");
-
-        // Check if the script ran successfully
+    
         if !output.status.success() {
-            log!(self.logger, "Python script failed: {:?}", String::from_utf8_lossy(&output.stderr));
+            log!(
+                self.logger,
+                "Python script failed: {:?}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return Err("Failed to generate jump table data".into());
         }
-
-        log!(self.logger, "Python script executed successfully: {:?}", String::from_utf8_lossy(&output.stdout));
-
-        // Read and parse the generated JSON file
+    
+        log!(
+            self.logger,
+            "Python script executed successfully: {:?}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    
         let json_data = std::fs::read_to_string(json_output)?;
-        let tables: Vec<JumpTable> = serde_json::from_str(&json_data)?; // Deserializes with `input_address`
-        for table in tables {
-            self.jump_tables.insert(table.table_address, table);
+        let raw_tables: Vec<serde_json::Value> = serde_json::from_str(&json_data)?;
+    
+        for raw_table in raw_tables {
+            let table_address = u64::from_str_radix(
+                raw_table["table_address"]
+                    .as_str()
+                    .ok_or("Invalid table_address format")?,
+                16,
+            )?;
+    
+            let cases = raw_table["cases"]
+                .as_array()
+                .ok_or("Invalid cases format")?
+                .iter()
+                .map(|case| {
+                    let destination = u64::from_str_radix(
+                        case["destination"]
+                            .as_str()
+                            .ok_or("Invalid destination format")?,
+                        16,
+                    )?;
+                    let input_address = u64::from_str_radix(
+                        case["input_address"]
+                            .as_str()
+                            .ok_or("Invalid input_address format")?,
+                        16,
+                    )?;
+    
+                    Ok(JumpTableEntry {
+                        label: case["label"]
+                            .as_str()
+                            .ok_or("Invalid label format")?
+                            .to_string(),
+                        destination,
+                        input_address,
+                    })
+                })
+                .collect::<Result<Vec<JumpTableEntry>, Box<dyn Error>>>()?;
+    
+            self.jump_tables.insert(
+                table_address,
+                JumpTable {
+                    switch_id: raw_table["switch_id"]
+                        .as_str()
+                        .ok_or("Invalid switch_id format")?
+                        .to_string(),
+                    table_address,
+                    cases,
+                },
+            );
         }
-
+    
         log!(self.logger, "Jump tables initialized successfully: {:?}", self.jump_tables);
         Ok(())
     }

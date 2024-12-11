@@ -31,7 +31,13 @@ export START_POINT="$START_POINT"
 # Generate Pcode
 echo -e "\rGenerating Pcode for $BIN_PATH..."
 cd "$PCODE_GENERATOR_DIR" || exit
-cargo run -- "$BIN_PATH" --low-pcode
+cargo run "$BIN_PATH" --low-pcode
+
+# if [ ! -f "$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt" ]; then
+#     cargo run -- "$BIN_PATH" --low-pcode
+# else
+#     echo "Pcode already generated. Skipping..."
+# fi
 
 # Construct the dynamic path for the Pcode file
 PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"

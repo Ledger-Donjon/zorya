@@ -1,8 +1,88 @@
-# Program to get the jump tables in a binary
-
 import sys
 import json
 import pyhidra
+
+pyhidra.start()
+
+from ghidra.program.model.symbol import SymbolType
+from ghidra.program.model.address import Address
+from ghidra.program.model.listing import Instruction
+
+def is_code_address(program, addr):
+    """
+    Checks if the given address points to code by verifying if there is an instruction
+    or a function starting at that address.
+    """
+    listing = program.getListing()
+    code_unit = listing.getCodeUnitAt(addr)
+    if code_unit and isinstance(code_unit, Instruction):
+        return True
+
+    fm = program.getFunctionManager()
+    func = fm.getFunctionAt(addr)
+    if func is not None:
+        return True
+
+    return False
+
+def extract_jump_tables(program):
+    """
+    Extract jump tables by looking for likely switch data symbols and verifying 
+    that they point to code.
+    """
+    symbol_table = program.getSymbolTable()
+    listing = program.getListing()
+
+    jump_tables = []
+    visited = set()
+
+    # Adjust these indicators if Ghidra uses different naming
+    switch_name_indicators = ["switchD_", "switchdata", "switch__"]
+
+    for symbol in symbol_table.getAllSymbols(True):
+        if symbol.getSymbolType() == SymbolType.LABEL:
+            symbol_name = symbol.getName().lower()
+            if any(indicator in symbol_name for indicator in switch_name_indicators):
+                base_address = symbol.getAddress()
+                
+                if base_address in visited:
+                    continue
+                visited.add(base_address)
+
+                table_entries = []
+                current_addr = base_address
+                max_table_entries = 256
+
+                for _ in range(max_table_entries):
+                    data = listing.getDataAt(current_addr)
+                    if data is None:
+                        break
+                    
+                    destination = data.getValue()
+                    if not destination:
+                        break
+
+                    if isinstance(destination, Address) and is_code_address(program, destination):
+                        dest_symbol = symbol_table.getPrimarySymbol(destination)
+                        label_name = dest_symbol.getName() if dest_symbol else "Unknown"
+                        table_entries.append({
+                            "label": label_name,
+                            "destination": f"{destination.getOffset():08x}",
+                            "input_address": f"{current_addr.getOffset():08x}"
+                        })
+                        current_addr = current_addr.add(data.getLength())
+                    else:
+                        break
+
+                if len(table_entries) > 1:
+                    jump_table = {
+                        "switch_id": symbol.getName(),
+                        "table_address": f"{base_address.getOffset():08x}",
+                        "cases": table_entries
+                    }
+                    jump_tables.append(jump_table)
+
+    return jump_tables
 
 def main():
     if len(sys.argv) < 2:
@@ -11,58 +91,22 @@ def main():
 
     binary_path = sys.argv[1]
 
-    # Start Pyhidra
-    pyhidra.start()
+    try:
+        with pyhidra.open_program(binary_path, analyze=True) as flat_api:
+            program = flat_api.getCurrentProgram()
+            jump_tables = extract_jump_tables(program)
 
-    # Open the binary with Pyhidra
-    with pyhidra.open_program(binary_path, analyze=True) as flat_api:
-        program = flat_api.getCurrentProgram()
-        symbol_table = program.getSymbolTable()
-        listing = program.getListing()
+            output_file = "jump_tables.json"
+            with open(output_file, "w") as f:
+                json.dump(jump_tables, f, indent=4)
 
-        jump_tables = []
+            print(f"Jump tables saved to {output_file}")
+            print(f"Total jump tables found: {len(jump_tables)}")
 
-        # Analyze switch tables in the binary
-        for symbol in symbol_table.getAllSymbols(False):
-            if "switchdata" in symbol.getName():
-                switch_id = symbol.getName()
-                base_address = symbol.getAddress()
-
-                table_entry = {
-                    "switch_id": switch_id,
-                    "table_address": str(base_address),
-                    "cases": []
-                }
-
-                # Parse individual entries in the table
-                data = listing.getDataAt(base_address)
-                while data:
-                    destination = data.getValue()
-                    if not destination:
-                        break  # No more valid entries
-
-                    label = symbol_table.getPrimarySymbol(destination)
-                    label_name = label.getName() if label else ""
-
-                    # Check if label still belongs to the current switch table
-                    if not label_name.startswith(f"switchD_{switch_id.split('_')[1]}::"):
-                        break  # Exit when label doesn't match the expected prefix
-
-                    # Record the input address (current table entry)
-                    input_address = data.getAddress()
-
-                    table_entry["cases"].append({
-                        "label": label_name if label else "No Label",
-                        "destination": str(destination),
-                        "input_address": str(input_address) 
-                    })
-
-                    data = data.getNext()
-
-                jump_tables.append(table_entry)
-
-        # Output as JSON
-        print(json.dumps(jump_tables, indent=4))
+    except Exception as e:
+        print(f"Error processing binary: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()

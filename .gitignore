@@ -11,3 +11,5 @@
 /external/qemu-mount/memory_mapping.txt
 /external/qemu-mount/dumps/
 /qemu_log.txt
+/src/state/__pycache__
+jump_tables.json
