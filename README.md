@@ -14,11 +14,7 @@ cd zorya
 make setup
 make install
 ```
-When building the project, if you have issues related to C++, it might be necessary to also specify the path to ```libclang.so```:
-```
-sudo locate libclang.so
-export LIBCLANG_PATH=/path/to/lib/libclang.so
-```
+
 
 ## Usage
 To use Zorya, you will need the absolute path to the binary you want to analyze ```path```, and the hexadecimal address where to start the execution ```addr```:
@@ -26,61 +22,32 @@ To use Zorya, you will need the absolute path to the binary you want to analyze 
 zorya <path> <addr>
 ```
 
-## Invariant writing
-Currently, A
+## Deep dive inside
 
-### Remarks
-Zorya is using Qemu AMD Opteron as CPU model to emulate and execute concolically the target program. For the initialization, a fixed seed '12345' is used while launching Qemu to make the execution deterministic and reproductible.
+### Architecture
+- Implement a concolic execution engine (concrete and symbolic) written in Rust,
+- Uses Ghidra’s P-Code as Intermediate Representation (IR),
+- Has an internal structure based on an AMD64 CPU and a virtual file system.
 
-### Structure of the repository
+### Internal Structure
+- Implement concolically most of the P-Code opcodes (see ```executor_[int|float|bool].rs```),
+- Implement concolically common syscalls and CPU instructions (see ```executor_callother.rs``` and ```executor_callother_syscalls.rs```),
+- Has an integrated handling of the generation and parsing of P-Code (see ```pcode-generator``` and ```pcode-parser```),
+- Has a mechanism to get and set the value of AMD64 registers and sub-registers - i.e. for instance, get only the specific bytes of a full register (see ```cpu_state.rs```).
+
+### Functionnalities
+- Can generate a file with the detailed logs of the execution of each instruction (see ```execution_log.txt```),
+- Can generate a file with the names of the executed functions (see ```execution_trace.txt```),
+- Can analyse the concolic handling of the jump tables, a specific type of switch tables that replace binary search by more efficient jumping mechanism for close number labels (see ```jump_table.json```),
+- Can generate a file witht the cross-reference addresses leading to all the panic functions that are in the target binary (see ```xref_addresses.txt```),
+- Is able to translate the executable part of libc.so and ld-linux-x86-64.so as P-Code after its dynamic loading.
+
+### Invariants writing
+- Has integrated Z3 capabilities for writing invariants over the instructions and CPU registers, through the Rust crate.
+
+## Troubleshooting
+When building the project, if you have issues related to C++, it might be necessary to also specify the path to ```libclang.so```:
 ```
-zorya/
-│
-├── Cargo.toml                
-├── src
-│   ├── concolic
-│   │   ├── concolic_enum.rs                # Type that is a mix of ConcolicVar, CpuConcolicVar and MemoryVar to
-│   │   │                                   # mutualize operation that are common to all these types
-│   │   ├── concolic_var.rs                 # Implementation of the 'concolic variable' type
-│   │   ├── concrete_var.rs                 # Implementation of the 'concrete variable' type
-│   │   ├── executor_bool.rs                # Implementation of concolic BOOL instructions
-│   │   ├── executor_callother.rs           # Implementation of concolic CPU specific instructions
-│   │   ├── executor_callother_syscalls.rs  # Implementation of concolic syscalls
-│   │   ├── executor_float.rs               # Implementation of concolic FLOAT instructions
-│   │   ├── executor_int.rs                 # Implementation of concolic INT instructions
-│   │   ├── executor.rs                     # Orchestrator of concolic instruction implementation
-│   │   ├── get_jump_table_destinations.py  # Python script to update correctly the symbolic 
-│   │   │                                   # part when there is a switch table                                        
-│   │   ├── mod.rs
-│   │   ├── specfiles                       # Files used to work with Ghidra headless
-│   │   │   ├── callother-database.txt
-│   │   │   ├── ia.sinc
-│   │   │   └── x86-64.sla
-│   │   └── symbolic_var.rs                 # Implementation of the 'symbolic variable' type
-│   ├── find_panic_xrefs.py                 # Python script to find the addresses of the 
-│   │                                       # references to panic functions
-│   ├── lib.rs
-│   ├── main.rs                             # Main program
-│   ├── state
-│   │   ├── cpu_state.rs                    # Model of x86-64 CPU registers based on Ghidra spec
-│   │   ├── futex_manager.rs                # Simple implementation of the futex system call
-│   │   ├── memory_x86_64.rs                # Model of a x86-64 memory based on Ghidra spec
-│   │   ├── mod.rs
-│   │   ├── state_manager.rs                # Orchestrator of the concolic execution state
-│   │   └── virtual_file_system.rs          # Model of the emulated virtual file system
-│   └── target_info.rs                      # Information about the target of the concolic execution
-│  
-├── external/                               # External dependencies as submodules
-│   ├── pcode-parser/                       # External Pcode parser repository
-│   ├── qemu-cloudimg
-│   │   ├── cidata.iso                      # Files necessary for start a Qemu AMD64 Opteron instance
-│   │   ├── meta-data
-│   │   └── user-data
-│   └── qemu-mount
-│       ├── execute_commands.py             # Python script to create memory dumps from commands
-│       ├── parse_and_generate.py           # Python script to parse the memory info and generate dumps commands
-│       └── README.md
-│
-└── tests/                                  # Integration tests and unit tests
-    └── ...
+sudo locate libclang.so
+export LIBCLANG_PATH=/path/to/lib/libclang.so
 ```

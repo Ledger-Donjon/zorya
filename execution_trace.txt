@@ -1,0 +1,6 @@
+Address: 473cc0, Symbol: _rt0_amd64_linux
+Address: 470400, Symbol: _rt0_amd64
+Address: 470420, Symbol: runtime.rt0_go.abi0
+Address: 4014d0, Symbol: x_cgo_init
+Address: 515fb0, Symbol: plt_function_515fb0
+Address: 515e60, Symbol: plt_function_515e60

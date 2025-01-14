@@ -10,6 +10,7 @@ use regex::Regex;
 use z3::{ast::BV, Context};
 
 use super::VirtualFileSystem;
+use crate::concolic::ConcolicVar;
 use crate::target_info::GLOBAL_TARGET_INFO;
 
 // Protection flags for memory regions

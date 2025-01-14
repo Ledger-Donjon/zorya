@@ -529,7 +529,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             log!(executor.state.logger.clone(), "Syscall type: sys_getpid");
     
             // For simplicity, we'll return a fixed PID
-            let pid: u32 = 1000; // Choose an appropriate PID for your environment
+            let pid: u32 = 1000; // fix PID for this environment
     
             log!(executor.state.logger.clone(), "Returning PID: {}", pid);
     

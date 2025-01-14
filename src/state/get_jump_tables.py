@@ -1,12 +1,11 @@
 import sys
 import json
 import pyhidra
-
-pyhidra.start()
-
 from ghidra.program.model.symbol import SymbolType
 from ghidra.program.model.address import Address
 from ghidra.program.model.listing import Instruction
+from ghidra.program.model.data import PointerDataType
+
 
 def is_code_address(program, addr):
     """
@@ -25,6 +24,7 @@ def is_code_address(program, addr):
 
     return False
 
+
 def extract_jump_tables(program):
     """
     Extract jump tables by looking for likely switch data symbols and verifying 
@@ -36,7 +36,7 @@ def extract_jump_tables(program):
     jump_tables = []
     visited = set()
 
-    # Adjust these indicators if Ghidra uses different naming
+    # Adjust these indicators based on Ghidra conventions
     switch_name_indicators = ["switchD_", "switchdata", "switch__"]
 
     for symbol in symbol_table.getAllSymbols(True):
@@ -49,30 +49,46 @@ def extract_jump_tables(program):
                     continue
                 visited.add(base_address)
 
+                print(f"Processing jump table at {base_address}")
+
                 table_entries = []
                 current_addr = base_address
-                max_table_entries = 256
+                max_table_entries = 512  # Increased for larger tables
+                invalid_entries = 0
 
                 for _ in range(max_table_entries):
                     data = listing.getDataAt(current_addr)
                     if data is None:
                         break
-                    
+
+                    if not data.isPointer():
+                        # Non-pointer data indicates the end of the jump table
+                        invalid_entries += 1
+                        if invalid_entries > 3:  # Allow up to 3 invalid entries
+                            break
+                        current_addr = current_addr.add(8)  # Move to next potential entry
+                        continue
+
                     destination = data.getValue()
-                    if not destination:
+                    if not destination or not isinstance(destination, Address):
                         break
 
-                    if isinstance(destination, Address) and is_code_address(program, destination):
+                    if is_code_address(program, destination):
                         dest_symbol = symbol_table.getPrimarySymbol(destination)
                         label_name = dest_symbol.getName() if dest_symbol else "Unknown"
+
                         table_entries.append({
                             "label": label_name,
                             "destination": f"{destination.getOffset():08x}",
                             "input_address": f"{current_addr.getOffset():08x}"
                         })
-                        current_addr = current_addr.add(data.getLength())
+                        invalid_entries = 0  # Reset invalid entries counter
                     else:
-                        break
+                        invalid_entries += 1
+                        if invalid_entries > 3:
+                            break
+
+                    current_addr = current_addr.add(data.getLength())
 
                 if len(table_entries) > 1:
                     jump_table = {
@@ -84,12 +100,19 @@ def extract_jump_tables(program):
 
     return jump_tables
 
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python3 get_jump_tables.py /path/to/binary")
         sys.exit(1)
 
     binary_path = sys.argv[1]
+
+    try:
+        pyhidra.start()
+    except Exception as init_error:
+        print(f"Pyhidra initialization error: {init_error}")
+        sys.exit(1)
 
     try:
         with pyhidra.open_program(binary_path, analyze=True) as flat_api:
@@ -108,9 +131,9 @@ def main():
         import traceback
         traceback.print_exc()
 
+
 if __name__ == "__main__":
     main()
-
 
 # Example of expected output:
 # [

@@ -1,13 +1,13 @@
-use std::{collections::{BTreeMap, BTreeSet, HashMap}, error::Error, fs::{self, File}, io::{self, Read, Write}, path::{Path, PathBuf}, process::Command, sync::{Arc, Mutex, RwLock}};
+use std::{collections::{BTreeMap, BTreeSet, HashMap}, error::Error, fs::{self, File}, io::{self, Read, Write}, path::{Path, PathBuf}, sync::{Arc, Mutex, RwLock}};
 use crate::{concolic::{ConcreteVar, SymbolicVar}, concolic_var::ConcolicVar};
 use goblin::elf::Elf;
 use nix::libc::SS_DISABLE;
 use parser::parser::Varnode;
+use regex::Regex;
 use z3::Context;
 use std::fmt;
 use super::{cpu_state::SharedCpuState, futex_manager::FutexManager, memory_x86_64::{MemoryX86_64, Sigaction}, CpuState, VirtualFileSystem};
 use crate::target_info::GLOBAL_TARGET_INFO;
-use serde::Deserialize;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -73,9 +73,9 @@ impl<'a> State<'a> {
         log!(logger.clone(), "Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory.load_all_dumps()?;
-        memory.initialize_cpuid_memory_variables()?; 
+        memory.initialize_cpuid_memory_variables()?;         
 	
-        log!(logger.clone(), "Initializing the State, including jump tables...\n");
+        log!(logger.clone(), "Initializing the State...\n");
         let mut state = State {
             concolic_vars: BTreeMap::new(),
             ctx,
@@ -94,8 +94,13 @@ impl<'a> State<'a> {
             call_stack: Vec::new(),
             jump_tables: BTreeMap::new(),
         };
+
+        log!(state.logger.clone(), "Initializing jump tables...\n");
         state.initialize_jump_tables()?;
         //state.print_memory_content(address, range);
+
+        log!(state.logger.clone(), "Creating the P-Code for the executable sections of libc.so and ld-linux-x86-64.so...\n");
+        state.initialize_libc_and_ld_linux()?;
 
         Ok(state)
     }
@@ -138,9 +143,7 @@ impl<'a> State<'a> {
     }
 
     // Method to initialize the jump tables from a JSON file
-    pub fn initialize_jump_tables(&mut self) -> Result<(), Box<dyn Error>> {
-        log!(self.logger, "Initializing jump tables...");
-    
+    pub fn initialize_jump_tables(&mut self) -> Result<(), Box<dyn Error>> {    
         let (binary_path, zorya_path) = {
             let target_info = GLOBAL_TARGET_INFO.lock().unwrap();
             (
@@ -175,12 +178,6 @@ impl<'a> State<'a> {
             );
             return Err("Failed to generate jump table data".into());
         }
-    
-        log!(
-            self.logger,
-            "Python script executed successfully: {:?}",
-            String::from_utf8_lossy(&output.stdout)
-        );
     
         let json_data = std::fs::read_to_string(json_output)?;
         let raw_tables: Vec<serde_json::Value> = serde_json::from_str(&json_data)?;
@@ -235,7 +232,163 @@ impl<'a> State<'a> {
             );
         }
     
-        log!(self.logger, "Jump tables initialized successfully: {:?}", self.jump_tables);
+        Ok(())
+    }
+
+    // Method to initialize the P-Code for the libc.so and ld-linux-x86-64.so binaries
+    pub fn initialize_libc_and_ld_linux(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let memory_mapping_path = "external/qemu-mount/memory_mapping.txt";
+
+        // Grab the zorya & pcode path from your global
+        let (zorya_path, pcode_file_path) = {
+            let info = GLOBAL_TARGET_INFO.lock().unwrap();
+            (info.zorya_path.clone(), info.pcode_file_path.clone())
+        };
+
+        // Read the memory mapping file (this can fail if file is missing)
+        let memory_mapping = std::fs::read_to_string(memory_mapping_path)?;
+
+        // We still have to define the paths to the .so files on disk:
+        let libc_elf_path = PathBuf::from("/usr/lib/x86_64-linux-gnu/libc.so.6");
+        let ld_linux_elf_path = PathBuf::from("/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2");
+
+        // Parse out the base addresses, only if the corresponding entries exist in the memory map
+        let libc_base_address = if memory_mapping.contains("/usr/lib/x86_64-linux-gnu/libc.so.6") {
+            Self::parse_base_address(&memory_mapping, "/usr/lib/x86_64-linux-gnu/libc.so.6")
+        } else {
+            None
+        };
+
+        let ld_linux_base_address = if memory_mapping.contains("/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2") {
+            Self::parse_base_address(&memory_mapping, "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2")
+        } else {
+            None
+        };
+
+        // Generate & append P-code for libc if it actually exists on disk and in the memory map:
+        if libc_elf_path.exists() && libc_base_address.is_some() {
+            Self::generate_and_append_pcode(
+                zorya_path.to_string_lossy().as_ref(),
+                libc_elf_path.to_str().unwrap(),
+                pcode_file_path.to_string_lossy().as_ref(),
+                libc_base_address, 
+                self.logger.clone()
+            )?;
+        } else {
+            println!("libc ELF or its base address not found, skipping...");
+        }
+
+        // Generate & append P-code for ld-linux if it actually exists on disk and in the memory map:
+        if ld_linux_elf_path.exists() && ld_linux_base_address.is_some() {
+            Self::generate_and_append_pcode(
+                zorya_path.to_string_lossy().as_ref(),
+                ld_linux_elf_path.to_str().unwrap(),
+                pcode_file_path.to_string_lossy().as_ref(),
+                ld_linux_base_address, 
+                self.logger.clone()
+            )?;
+        } else {
+            println!("ld-linux ELF or its base address not found, skipping...");
+        }
+
+        Ok(())
+    }
+
+    /// Parse the `memory_mapping.txt` lines to extract the *first* start address
+    /// for the given `library_path` (e.g. "/usr/lib/x86_64-linux-gnu/libc.so.6").
+    /// Returns `Some(addr)` if found, or `None` if not found.
+    fn parse_base_address(mapping: &str, library_path: &str) -> Option<u64> {
+        // For example, lines look like:
+        //  0x7ffff7c00000     0x7ffff7c28000    0x28000        0x0  r--p   /usr/lib/x86_64-linux-gnu/libc.so.6
+        let re = Regex::new(
+            r"^\s*([0-9a-fA-Fx]+)\s+([0-9a-fA-Fx]+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$"
+        ).ok()?;
+
+        for line in mapping.lines() {
+            // Trim and skip empty lines or lines that obviously don't contain the library
+            let line = line.trim();
+            if line.is_empty() || !line.contains(library_path) {
+                continue;
+            }
+            if let Some(caps) = re.captures(line) {
+                // `caps[1]` is the start address string
+                // `caps[6]` is the object file path
+                let objfile_path = caps.get(6).map(|m| m.as_str()).unwrap_or("");
+                if objfile_path.contains(library_path) {
+                    // convert hex str "0x7ffff7c00000" => u64
+                    if let Some(start_hex) = caps.get(1).map(|m| m.as_str()) {
+                        if let Ok(addr) = u64::from_str_radix(start_hex.trim_start_matches("0x"), 16) {
+                            return Some(addr);
+                        }
+                    }
+                }
+            }
+        }
+        // If we never find a matching line, return None
+        None
+    }
+
+    fn generate_and_append_pcode(pcode_generator_dir: &str, elf_path: &str, output_file: &str, base_address: Option<u64>, logger: Logger) -> Result<(), Box<dyn std::error::Error>> {
+        println!("P-Code generation started for: {}", elf_path);
+
+        // 1) Confirm that the .elf actually exists
+        if !std::path::Path::new(elf_path).exists() {
+            return Err(format!("ELF file does not exist: {}", elf_path).into());
+        }
+        println!("Validated ELF file exists: {}", elf_path);
+
+        // 2) Run the pcode-generator tool with an optional --base-address argument
+        let mut cmd = std::process::Command::new("cargo");
+        cmd.current_dir(format!("{}/external/pcode-generator", pcode_generator_dir))
+            .arg("run")
+            .arg(elf_path)
+            .arg("--low-pcode");
+
+        // If we discovered a base address from the memory map, pass it along
+        if let Some(addr) = base_address {
+            // Example argument: "--base-addr 0x7ffff7c00000"
+            cmd.arg("--base-addr") 
+                .arg(format!("0x{:x}", addr)); 
+            log!(logger.clone(), "Using base address {:#x} for {}", addr, elf_path);
+        } else { 
+            log!(logger.clone(), "No base address found for {}, continuing without --base.", elf_path);
+        }
+
+        let status = cmd.status()?;
+        if !status.success() {
+            return Err(format!("P-Code generation failed for {}", elf_path).into());
+        }
+        println!("P-Code generation completed successfully for {}", elf_path);
+
+        // 3) The pcode instructions are in "results/<filename>_low_pcode.txt"
+        let elf_filename = std::path::Path::new(elf_path)
+            .file_name()
+            .ok_or("Missing ELF filename")?
+            .to_string_lossy();
+
+        let pcode_results_file = format!(
+            "{}/external/pcode-generator/results/{}_low_pcode.txt",
+            pcode_generator_dir, elf_filename
+        );
+
+        // 4) Read the P-code results
+        if !std::path::Path::new(&pcode_results_file).exists() {
+            return Err(format!("p-code results file not found: {}", pcode_results_file).into());
+        }
+        let pcode_content = fs::read_to_string(&pcode_results_file)?;
+        if pcode_content.trim().is_empty() {
+            return Err(format!("P-Code output is empty for {}", elf_path).into());
+        }
+
+        // 5) Append it to the general P-code file:
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(output_file)?;
+        file.write_all(pcode_content.as_bytes())?;
+
+        println!("Appended P-code from '{}' into '{}'", pcode_results_file, output_file);
+
         Ok(())
     }
 

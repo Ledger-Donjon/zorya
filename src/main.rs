@@ -21,8 +21,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::new();
     let context = Context::new(&config);
     let solver = Solver::new(&context);
-    let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
-    let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
+    let logger = Logger::new("execution_log.txt").expect("Failed to create logger"); // get the instruction handling detailed log
+    let mut trace_logger = Logger::new("execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
+    let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
     
     log!(executor.state.logger, "Configuration and context have been initialized.");
 
@@ -37,7 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Populate the symbol table
     let elf_data = fs::read(binary_path.clone())?;
     executor.populate_symbol_table(&elf_data)?;
-    log!(executor.state.logger, "Symbol table has been populated:{:?}", executor.symbol_table);
+    log!(executor.state.logger, "The symbols table has been populated.");
 
     log!(executor.state.logger, "Path to the p-code file: {}", pcode_file_path_str);
     // Preprocess the p-code file to get a map of addresses to instructions
@@ -50,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // CORE COMMAND
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
-    execute_instructions_from(&mut executor, start_address, &instructions_map, &solver);
+    execute_instructions_from(&mut executor, start_address, &instructions_map, &solver, &&mut trace_logger);
 
     log!(executor.state.logger, "The concolic execution has finished.");
     Ok(())
@@ -150,10 +151,10 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
 }
 
 // Function to execute the instructions from the map of addresses to instructions
-fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver) {
+fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver, trace_logger: &&mut Logger) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
-    let end_address: u64 = 0x22c54e; //no specific end address
+    let end_address: u64 = 0x0; //no specific end address
 
     // For debugging
     //let address: u64 = 0x7fffffffe4b0;
@@ -186,8 +187,12 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         log!(executor.state.logger, "EXECUTING INSTRUCTIONS AT ADDRESS: 0x{:x}", current_rip);
         log!(executor.state.logger, "*******************************************");
 
-        // Removed the RIP reset from here
+        let current_rip_hex = format!("{:x}", current_rip);
+        if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {
+            log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
+        }   
 
+        // Removed the RIP reset from here
         let mut end_of_block = false;
  
         while local_line_number < instructions.len() && !end_of_block {

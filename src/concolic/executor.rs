@@ -31,8 +31,6 @@ use super::executor_int;
 use super::ConcolicEnum;
 pub use super::ConcreteVar;
 pub use super::SymbolicVar;
-use crate::target_info::GLOBAL_TARGET_INFO;
-
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -52,10 +50,11 @@ pub struct ConcolicExecutor<'ctx> {
     pub pcode_internal_lines_to_be_jumped: usize, // known line number of the current instruction in the pcode file, usefull for branch instructions
     pub initialiazed_var : BTreeMap<String, u64>, // check if the variable has been initialized before using it
     pub inside_jump_table: bool, // check if the current instruction is handling a jump table
+    pub trace_logger: Logger,
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
-    pub fn new(context: &'ctx Context, logger: Logger) -> Result<Self, Box<dyn Error>> {
+    pub fn new(context: &'ctx Context, logger: Logger, trace_logger: Logger) -> Result<Self, Box<dyn Error>> {
         let solver = Solver::new(context);
         let state = State::new(context, logger)?;
         Ok(ConcolicExecutor {
@@ -69,25 +68,108 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             pcode_internal_lines_to_be_jumped: 0, // number of lines to skip in case of branch instructions
             initialiazed_var: BTreeMap::new(),
             inside_jump_table: false,
+            trace_logger,
          })
     }
 
     pub fn populate_symbol_table(&mut self, elf_data: &[u8]) -> Result<(), goblin::error::Error> {
         let elf = Elf::parse(elf_data)?;
-        // Iterate over the symbol tables
+    
+        // Populate static function symbols from the symbol table
         for sym in &elf.syms {
-            if elf::sym::st_type(sym.st_info) == STT_FUNC {
+            if goblin::elf::sym::st_type(sym.st_info) == goblin::elf::sym::STT_FUNC {
                 if let Some(name) = elf.strtab.get_at(sym.st_name) {
-                    // Convert address to hexadecimal string
                     let address_hex = format!("{:x}", sym.st_value);
-                    // Insert the hexadecimal address and the name into the symbol_table
                     self.symbol_table.insert(address_hex, name.to_string());
                 }
             }
         }
+    
+        // Populate dynamic function symbols from the dynamic symbol table
+        for dynsym in &elf.dynsyms {
+            if goblin::elf::sym::st_type(dynsym.st_info) == goblin::elf::sym::STT_FUNC {
+                if let Some(name) = elf.dynstrtab.get_at(dynsym.st_name) {
+                    let address_hex = format!("{:x}", dynsym.st_value);
+                    self.symbol_table.insert(address_hex, name.to_string());
+                }
+            }
+        }
+    
+        // Resolve .plt section entries if present
+        if let Some(plt_section) = elf.section_headers.iter().find(|section| {
+            if let Some(name) = elf.shdr_strtab.get_at(section.sh_name) {
+                name == ".plt"
+            } else {
+                false
+            }
+        }) {
+            let plt_start = plt_section.sh_addr;
+            let plt_size = plt_section.sh_size;
+            let plt_end = plt_start + plt_size;
+    
+            // Process each address in .plt section
+            for addr in (plt_start..plt_end).step_by(16) {
+                // Check if this address is already resolved
+                if let Some(symbol_name) = self.symbol_table.get(&format!("{:x}", addr)) {
+                    continue; // Skip if already resolved
+                }
+    
+                // Try resolving via GOT
+                if let Some(external_name) = self.resolve_got_function(&elf, addr) {
+                    self.symbol_table
+                        .insert(format!("{:x}", addr), format!("plt_{}", external_name));
+                } else {
+                    // Fallback to synthetic naming if unresolved
+                    self.symbol_table.insert(
+                        format!("{:x}", addr),
+                        format!("plt_function_{:x}", addr),
+                    );
+                }
+            }
+        }
+    
         Ok(())
-    }   
-
+    }
+    
+    // Helper function to resolve function names via GOT
+    fn resolve_got_function(&mut self, elf: &Elf, plt_addr: u64) -> Option<String> {
+        // Look for GOT entries that are referenced by the dynamic symbol table
+        for dynsym in &elf.dynsyms {
+            if let Some(name) = elf.dynstrtab.get_at(dynsym.st_name) {
+                if dynsym.st_value == plt_addr {
+                    return Some(name.to_string());
+                }
+            }
+        }
+    
+        // If no direct match is found, attempt to find corresponding GOT address
+        if let Some(got_section) = elf.section_headers.iter().find(|section| {
+            if let Some(name) = elf.shdr_strtab.get_at(section.sh_name) {
+                name == ".got.plt" || name == ".got"
+            } else {
+                false
+            }
+        }) {
+            let got_start = got_section.sh_addr;
+            let got_end = got_start + got_section.sh_size;
+    
+            for addr in (got_start..got_end).step_by(8) {
+                if addr == plt_addr {
+                    // Attempt to match the GOT entry with a dynamic symbol
+                    for dynsym in &elf.dynsyms {
+                        if dynsym.st_value == addr {
+                            if let Some(name) = elf.dynstrtab.get_at(dynsym.st_name) {
+                                return Some(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    
+        None // Could not resolve
+    }    
+    
     pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64, next_addr_in_map: u64, next_inst: &Inst, instructions_map: &BTreeMap<u64, Vec<Inst>>) -> Result<(), String> {
         // Convert current_addr to hexadecimal string to match with symbol table keys
         let current_addr_hex = format!("{:x}", current_addr);
@@ -502,7 +584,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         let branch_target_varnode = &instruction.inputs[0];
         log!(self.state.logger.clone(), "* Fetching branch target from instruction.input[0]");
-        let branch_target_address = self.extract_branch_target_address(branch_target_varnode)?;
+        let branch_target_address = self.extract_branch_target_address(branch_target_varnode, instruction.clone())?;
 
         // Create concolic variable for branch target and update RIP register
         let symbolic_var = SymbolicVar::from_u64(&self.context, branch_target_address, 64).to_bv(&self.context);
@@ -519,14 +601,29 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }
 
-    fn extract_branch_target_address(&mut self, varnode: &Varnode) -> Result<u64, String> {
+    fn extract_branch_target_address(&mut self, varnode: &Varnode, instruction: Inst) -> Result<u64, String> {
         match &varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
+
+                // Case when CALLIND * [ram]addr or BRANCHIND * [ram]addr (this is not documented in the doc...)
+                let dereferenced_value = if instruction.opcode == Opcode::BranchInd || instruction.opcode == Opcode::CallInd {
+                    // Dereference the memory address
+                    // Read the value from memory
+                    let mem_value = self.state.memory.read_value(*addr, varnode.size.to_bitvector_size())
+                        .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", addr, e))?;
+                    let dereferenced_value = ConcolicVar::new_from_memory_value(&mem_value);
+                    dereferenced_value
+                } else { // Case when BRANCH * [ram]addr (no need for a dereference)
+                    // Return the memory address as is
+                    let dereferenced_value = ConcolicVar::new_concrete_and_symbolic_int(*addr, SymbolicVar::from_u64(&self.context, *addr, 64).to_bv(&self.context), &self.context, 64);
+                    dereferenced_value
+                };
+                
                 // Update the RIP register to the new branch target address
                 {
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(*addr, SymbolicVar::from_u64(&self.context, *addr, 64).to_bv(&self.context), &self.context, 64), 64)?;
+                    cpu_state_guard.set_register_value_by_offset(0x288, dereferenced_value, 64)?;
                 }
                 log!(self.state.logger.clone(), "Branching to address 0x{:x}", addr);
 
@@ -652,8 +749,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     
         log!(self.state.logger.clone(), "* Fetching branch target from instruction.input[0]");
         let branch_target_varnode = &instruction.inputs[0];
-        let branch_target_address = self.extract_branch_target_address(branch_target_varnode)?;
-    
+        let branch_target_address = self.extract_branch_target_address(branch_target_varnode, instruction.clone())?;
+
         log!(self.state.logger.clone(), "Branching to address 0x{:x}", branch_target_address);
     
         // Create concolic variable for branch target and update RIP register
@@ -965,13 +1062,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         log!(self.state.logger.clone(), "Load size in bits: {}", load_size_bits);
 
         // Misalignment check
-        if pointer_offset_concrete % load_size_bytes != 0 {
-            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-            log!(self.state.logger.clone(), "VULN: Zorya detected a misaligned memory access at address 0x{:x}, load size: {} bytes", pointer_offset_concrete, load_size_bytes);
-            log!(self.state.logger.clone(), "Execution stopped due to misaligned access!");
-            log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-            process::exit(1);
-        }
+        // if pointer_offset_concrete % load_size_bytes != 0 {
+        //     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+        //     log!(self.state.logger.clone(), "VULN: Zorya detected a misaligned memory access at address 0x{:x}, load size: {} bytes", pointer_offset_concrete, load_size_bytes);
+        //     log!(self.state.logger.clone(), "Execution stopped due to misaligned access!");
+        //     log!(self.state.logger.clone(), "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        //     process::exit(1);
+        // }
             
         let mem_size = pointer_offset_concolic.get_symbolic_value_bv(self.context).get_size();
         log!(self.state.logger.clone(), "Load size in bits: {}", mem_size);
