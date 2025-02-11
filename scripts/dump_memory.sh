@@ -6,10 +6,12 @@ QEMU_MOUNT_DIR="$ZORYA_DIR/external/qemu-mount"
 DUMPS_DIR="$QEMU_MOUNT_DIR/dumps"
 
 BIN_PATH="$1"
-START_POINT="${2:-main}"  # Default to 'main' if not provided
+START_POINT="$2" 
+ENTRY_POINT="$3"
+ARGS="${@:4}" # arguments to pass to pass to the binary
 
-if [ -z "$BIN_PATH" ]; then
-    echo "Usage: ./scripts/dump_memory.sh /path/to/bin [start_point]"
+if [ -z "$BIN_PATH" ] || [ -z "$START_POINT" ]; then
+    echo "Usage: ./scripts/dump_memory.sh /path/to/bin <start_point> <arguments>"
     exit 1
 fi
 
@@ -47,21 +49,33 @@ fi
 
 echo "Running GDB locally to generate CPU and memory mappings..."
 cd "$QEMU_MOUNT_DIR"
-gdb "$BIN_NAME" -batch \
-    -ex "break *$START_POINT" \
-    -ex "run < /dev/null" \
-    -ex "set logging file cpu_mapping.txt" \
-    -ex "set logging on" \
-    -ex "info all-registers" \
-    -ex "set logging off" \
-    -ex "set logging file memory_mapping.txt" \
-    -ex "set logging on" \
-    -ex "info proc mappings" \
-    -ex "set logging off" \
-    -ex "quit"
 
+# Redirect GDB output to log files
+GDB_LOG="$QEMU_MOUNT_DIR/gdb_log.txt"
+
+gdb -batch \
+    -ex "set auto-load safe-path /" \
+    -ex "set pagination off" \
+    -ex "set confirm off" \
+    -ex "file $BIN_NAME" \
+    -ex "set args ${ARGS[@]}" \
+    -ex "break *$ENTRY_POINT" \
+    -ex "run" \
+    -ex "break *$START_POINT" \
+    -ex "continue" \
+    -ex "set logging file cpu_mapping.txt" \
+    -ex "set logging enabled on" \
+    -ex "info all-registers" \
+    -ex "set logging enabled off" \
+    -ex "set logging file memory_mapping.txt" \
+    -ex "set logging enabled on" \
+    -ex "info proc mappings" \
+    -ex "set logging enabled off" \
+    -ex "quit" &> "$GDB_LOG"
+
+# Check if CPU and memory mappings were successfully created
 if [ ! -s "cpu_mapping.txt" ] || [ ! -s "memory_mapping.txt" ]; then
-    echo "Error: Failed to generate cpu_mapping.txt or memory_mapping.txt."
+    echo "Error: Failed to generate cpu_mapping.txt or memory_mapping.txt. Check $GDB_LOG for details."
     exit 1
 fi
 
@@ -69,16 +83,29 @@ echo "Generating dump_commands.txt using parse_and_generate.py..."
 python3 parse_and_generate.py
 
 echo "Executing dump commands locally in GDB..."
-gdb "$BIN_NAME" -batch \
+gdb -batch \
+    -ex "set auto-load safe-path /" \
+    -ex "set pagination off" \
+    -ex "set confirm off" \
+    -ex "file $BIN_NAME" \
+    -ex "set args ${ARGS[@]}" \
+    -ex "break *$ENTRY_POINT" \
+    -ex "run" \
     -ex "break *$START_POINT" \
-    -ex "run < /dev/null" \
+    -ex "run" \
     -ex "source execute_commands.py" \
     -ex "exec dump_commands.txt" \
-    -ex "quit"
+    -ex "quit" &>> "$GDB_LOG"
 
-echo "Dump commands executed successfully in GDB."
+# Check if execution was successful
+if [ $? -ne 0 ]; then
+    echo "Error during GDB execution. Check $GDB_LOG for details."
+    exit 1
+fi
 
+echo "Dump commands executed successfully in GDB. Logs available in $GDB_LOG."
 echo "All tasks completed. Output available in $QEMU_MOUNT_DIR."
+
 
 # SCRIPT IF YOU WANT TO USE QEMU WITGH ANOTHER CPU MODEL 
 

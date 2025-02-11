@@ -17,9 +17,34 @@ make install
 
 
 ## Usage
-To use Zorya, you will need the absolute path to the binary you want to analyze ```path```, and the hexadecimal address where to start the execution ```addr```:
+
+### A. Interactive Usage (prefered)
+Zorya provides a guided mode, so you don't need to remember the options or flags. It prompts you with questions to outline three typical scenarios:
+
+- Standard Execution - Automatically detects the main function or entry point.
+- Function-Specific Execution - Allows selecting and providing arguments for a specific function.
+- Custom Execution - Lets you manually input an address and arguments for targeted analysis.
+
+Given the absolute path to the binary you want to analyze ```<path>```, simply run:
 ```
-zorya <path> <addr>
+zorya <path>
+```
+Zorya will then guide you through the execution setup.
+
+### B. Basic Usage
+To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or custom) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
+```
+zorya <path> --mode <mode> <addr> --arg <arg1> <arg2>
+
+FLAG:
+    --mode         Specifies the strategy mode to determine the starting address for binary analysis. Options include:
+                      start → Use the binary's entry point
+                      main → Analyze the main function (main.main preferred in Go binaries)
+                      function → Specify a function address manually
+                      custom → Define an arbitrary execution address
+
+OPTION:
+    --arg          Specifies arguments to pass to the binary, if any (default is 'none').
 ```
 
 ## Deep dive inside

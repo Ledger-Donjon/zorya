@@ -1,14 +1,17 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::{env, thread};
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command};
+use std::time::Duration;
 use parser::parser::{Inst, Opcode};
-use z3::ast::{Ast, Bool, Int};
+use z3::ast::{Ast, Bool, Int, BV};
 use z3::{Config, Context, Solver};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
+use zorya::state::memory_x86_64::MemoryValue;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
@@ -17,12 +20,22 @@ macro_rules! log {
     }};
 }
 
+/// Functions we want to completely ignore / skip execution in the TinyGo runtime.
+const IGNORED_TINYGO_FUNCS: &[&str] = &[
+    // "runtime.markRoots",
+    // "runtime.alloc",
+    // "runtime.markStack",
+    // "runtime.runGC",
+    // "runtime.markRoot",
+    // "runtime.findGlobals",
+];
+
 fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::new();
     let context = Context::new(&config);
     let solver = Solver::new(&context);
     let logger = Logger::new("execution_log.txt").expect("Failed to create logger"); // get the instruction handling detailed log
-    let mut trace_logger = Logger::new("execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
+    let trace_logger = Logger::new("execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
     let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
     
     log!(executor.state.logger, "Configuration and context have been initialized.");
@@ -48,10 +61,60 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the tables of cross references of potential panics in the programs (for bug detetcion)
     get_cross_references(&binary_path)?;
 
-    // CORE COMMAND
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
-    execute_instructions_from(&mut executor, start_address, &instructions_map, &solver, &&mut trace_logger);
+
+    // Adapt scenaris according to the chosen mode in the command
+    let mode = env::var("MODE").expect("MODE environment variable is not set");
+    let arguments = env::var("ARGS").expect("MODE environment variable is not set");
+    
+    if mode == "function" { 
+        log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
+        let start_address_hex = format!("{:x}", start_address);
+        log!(executor.state.logger, "Start address is {:?}", start_address_hex);
+        log!(executor.state.logger, "symbol table is {:?}", executor.symbol_table);
+
+        if let Some(function) = executor.symbol_table.get(&start_address_hex) {
+            log!(executor.state.logger, "Located function: {:?}", function);
+    
+        } else {
+            log!(executor.state.logger, "Function not found in symbol table.");
+        }
+
+        // // Path to the Python script
+        // let python_script_path = "src/get_function_args.py";
+        // // Spawn the Python process
+        // let output = Command::new("python3")
+        //     .arg(python_script_path)
+        //     .arg(binary_path)
+        //     .arg(start_address_hex)
+        //     .output()
+        //     .expect("Failed to run python script");
+
+        // if !output.status.success() {
+        //     log!(executor.state.logger, "Python script returned an error code: {:?}", output.status);
+        //     log!(executor.state.logger, "--- stderr ---\n{}", String::from_utf8_lossy(&output.stderr));
+        // }
+
+        // // Capture and print stdout from the script
+        // let stdout = String::from_utf8_lossy(&output.stdout);
+        // log!(executor.state.logger, "=== Pyhidra Script Output ===\n{stdout}");
+
+    
+    } else if mode == "start" {
+        log!(executor.state.logger, "Updating argc and argv on the stack");
+        update_argc_argv(&mut executor, &arguments)?;
+        
+    } else { // when mode is main, start or custom, no additional modification has to be done
+        log!(executor.state.logger, "Continuing execution without modification.");
+    }
+
+    let osargslen = executor.state.memory.read_memory(0x235c50, 8);
+    let osargs = executor.state.memory.read_memory(0x235c60, 64);
+    log!(executor.state.logger, "os args are {:?}with lenght {:?}", osargs, osargslen);
+
+    // CORE COMMAND
+    execute_instructions_from(&mut executor, start_address, &instructions_map, &solver, &binary_path);
 
     log!(executor.state.logger, "The concolic execution has finished.");
     Ok(())
@@ -122,7 +185,7 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
         }
     }
 
-    log!(executor.state.logger, "Completed preprocessing.");
+    log!(executor.state.logger, "Completed preprocessing.\n");
 
     Ok(instructions_map)
 }
@@ -150,8 +213,24 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
     Ok(addresses)
 }
 
+fn clean_ghidra_project_dir(project_path: &str) {
+    if Path::new(project_path).exists() {
+        println!("Cleaning Ghidra project directory: {}", project_path);
+        for entry in fs::read_dir(project_path).expect("Failed to read Ghidra project directory") {
+            let entry = entry.expect("Failed to read directory entry");
+            let path = entry.path();
+
+            if path.is_file() {
+                fs::remove_file(&path).expect("Failed to remove Ghidra project file");
+            } else if path.is_dir() {
+                fs::remove_dir_all(&path).expect("Failed to remove Ghidra project subdirectory");
+            }
+        }
+    }
+}
+
 // Function to execute the instructions from the map of addresses to instructions
-fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver, trace_logger: &&mut Logger) {
+fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver, binary_path: &str) {
     let mut current_rip = start_address;
     let mut local_line_number = 0;  // Index of the current instruction within the block
     let end_address: u64 = 0x0; //no specific end address
@@ -188,9 +267,125 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         log!(executor.state.logger, "*******************************************");
 
         let current_rip_hex = format!("{:x}", current_rip);
+
         if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {
+            // Log the function call
             log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
-        }   
+
+            // FIND THE ARGUMENTS OF THE FUNCTION AND LOG THEM
+            let ghidra_path = match env::var("GHIDRA_INSTALL_DIR") {
+                Ok(path) => path,  // Use GHIDRA_INSTALL_DIR if set
+                Err(_) => String::from("~/ghidra_11.0.3_PUBLIC/"), // Fallback to default location
+            };
+            let project_path = "results/ghidra-project";
+            let post_script_path = "src/get_function_args.py";
+            let trace_file = "results/function_signature.txt";
+
+            // Remove all files inside the Ghidra project directory but keep the directory
+            clean_ghidra_project_dir(&project_path);
+
+            // Remove `function_signature.txt` before running Ghidra analysis
+            if Path::new(trace_file).exists() {
+                println!("Removing old function signature file.");
+                fs::remove_file(trace_file).expect("Failed to remove function signature file");
+            }
+
+            let zorya_path_buf = PathBuf::from(env::var("ZORYA_DIR").expect("ZORYA_DIR environment variable is not set"));
+            let zorya_path = zorya_path_buf.to_str().unwrap();
+
+            print!("Analyzing function arguments for symbol '{}' using Ghidra Headless...", symbol_name);
+            let analyze_headless_cmd = format!(
+                "{}support/analyzeHeadless {} {} -import {} -processor x86:LE:64:default -cspec golang -postScript {} {} {}",
+                ghidra_path, project_path, "ghidra-project", binary_path, post_script_path, symbol_name, zorya_path
+            );
+
+            println!("🔹 Running Ghidra Headless command:\n{}", analyze_headless_cmd);
+        
+            // Run the Ghidra Headless command
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg(&analyze_headless_cmd)
+                .output()
+                .expect("Failed to execute Ghidra Headless");
+        
+            if !output.status.success() {
+                eprintln!("Ghidra Headless execution failed:\n{}", String::from_utf8_lossy(&output.stderr));
+                return;
+            }
+        
+            let file = File::open(trace_file).expect("Failed to open trace file");
+            let reader = BufReader::new(file);
+    
+            let mut function_args_map: HashMap<u64, (String, Vec<(String, u64)>)> = HashMap::new();
+    
+            // Read the function signature file and parse mappings
+            for line in reader.lines() {
+                let log_entry = line.expect("Failed to read line");
+
+                if log_entry.contains("NoArgs=None") {
+                    println!("No arguments found for function: {}", symbol_name);
+                    continue;
+                }
+    
+                let parts: Vec<&str> = log_entry.split(',').collect();
+    
+                if parts.len() < 3 {
+                    continue; // Ignore malformed lines
+                }
+    
+                let address = u64::from_str_radix(parts[0].trim(), 16).unwrap_or(0);
+                let function_name = parts[1].trim().to_string();
+                
+                let mut args: Vec<(String, u64)> = Vec::new();
+                for arg in &parts[2..] {
+                    let arg_parts: Vec<&str> = arg.split('=').collect();
+                    if arg_parts.len() == 2 {
+                        let arg_name = arg_parts[0].trim().to_string();
+                        let register_name = arg_parts[1].trim().to_string();
+                        let register_offset = match register_name.as_str() {
+                            "RAX" => 0x0,
+                            "RCX" => 0x8,
+                            "RDX" => 0x10,
+                            "RBX" => 0x18,
+                            "RSI" => 0x30,
+                            "RDI" => 0x38,
+                            "R8"  => 0x80,
+                            "R9"  => 0x88,
+                            "R10" => 0x90,
+                            "R11" => 0x98,
+                            "R12" => 0xa0,
+                            "R13" => 0xa8,
+                            "R14" => 0xb0,
+                            "R15" => 0xb8,
+                            _ => continue, // Ignore others mappings
+                        };
+                        args.push((arg_name, register_offset));
+                    }
+                }
+    
+                function_args_map.insert(address, (function_name, args));
+            }
+    
+            if let Some((_, args)) = function_args_map.get(&current_rip) {
+                let mut arg_values = Vec::new();
+            
+                for (arg_name, register_offset) in args {
+                    if let Some(value) = executor.state.cpu_state.lock().unwrap().get_register_by_offset(*register_offset, 64) {
+                        arg_values.push(format!("{}=0x{:x}", arg_name, value.concrete));
+                    }
+                }
+            
+                if !arg_values.is_empty() {
+                    // Log function **only once** if arguments are found
+                    let log_string = format!("Address: {:x}, Symbol: {} -> {}", current_rip, symbol_name, arg_values.join(", "));
+                    log!(executor.trace_logger, "{}", log_string);
+                } else {
+                    // Log function **only if it wasn’t already logged**
+                    log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
+                }
+            }
+            
+        }
 
         // Removed the RIP reset from here
         let mut end_of_block = false;
@@ -344,14 +539,45 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 .unwrap()
                 .get_concrete_value()
                 .unwrap();
+            let possible_new_rip_hex = format!("{:x}", possible_new_rip);
 
             // Check if there is a new RIP to set, beeing aware that all the instructions in the block have been executed
             if possible_new_rip != current_rip && local_line_number >= instructions.len() - 1 {
-                // Manage the case where the RIP update points beyond the current block
-                current_rip = possible_new_rip;
-                local_line_number = 0;  // Reset instruction index for new RIP
-                end_of_block = true; // Indicate end of current block execution
-                log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
+
+                if let Some(symbol_name_potential_new_rip) = executor.symbol_table.get(&possible_new_rip_hex) {
+                    // Found a symbol, check if it's blacklisted, etc.
+                    if IGNORED_TINYGO_FUNCS.contains(&symbol_name_potential_new_rip.as_str()) {
+                        log!(executor.state.logger, "Skipping function '{:?}' at 0x{:x} because it is blacklisted.", symbol_name_potential_new_rip, current_rip);
+
+                        // When skipping a function, we need to update the stack pointer i.e. add 8 to RSP
+                        let rsp_value_concrete = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().concrete.to_u64();
+                        let rsp_value_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.to_bv(executor.context).clone();
+                        let next_rsp_value_concrete = rsp_value_concrete + 8;
+                        let next_rsp_value_symbolic = rsp_value_symbolic.bvadd(&BV::from_u64(executor.context, 8, 64));
+                        let next_rsp_value = ConcolicVar::new_concrete_and_symbolic_int(next_rsp_value_concrete, next_rsp_value_symbolic, executor.context, 64);
+                        executor.state.cpu_state.lock().unwrap()
+                            .set_register_value_by_offset(0x20, next_rsp_value, 64)
+                            .expect("Failed to set register value by offset");
+
+                        let (next_addr_in_map, _ ) = instructions_map.range((current_rip + 1)..).next().unwrap();
+                        current_rip = *next_addr_in_map;
+                        local_line_number = 0;      // Reset instruction index
+                        end_of_block = true; // Indicate end of current block execution
+                        log!(executor.state.logger, "Jumping to 0x{:x}", next_addr_in_map);
+                    } else {
+                        // Manage the case where the RIP update points beyond the current block
+                        current_rip = possible_new_rip;
+                        local_line_number = 0;  // Reset instruction index for new RIP
+                        end_of_block = true; // Indicate end of current block execution
+                        log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
+                    }
+                } else {
+                    // Manage the case where the RIP update points beyond the current block
+                    current_rip = possible_new_rip;
+                    local_line_number = 0;  // Reset instruction index for new RIP
+                    end_of_block = true; // Indicate end of current block execution
+                    log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
+                }
             } else {
                 // Regular progression to the next instruction
                 local_line_number += 1;
@@ -361,26 +587,112 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         // Reset for new block or continue execution at new RIP if set within the block
         if !end_of_block {
             if let Some((&next_rip, _)) = instructions_map.range((current_rip + 1)..).next() {
-                current_rip = next_rip;
-                local_line_number = 0;  // Reset for new block
+                
+                let next_rip_hex = format!("{:x}", next_rip);
+                if let Some(symbol_name_new_rip) = executor.symbol_table.get(&next_rip_hex) {
+                    // Found a symbol, check if it's blacklisted
+                    if IGNORED_TINYGO_FUNCS.contains(&symbol_name_new_rip.as_str()) {
+                        log!(executor.state.logger, "Skipping function '{:?}' at 0x{:x} because it is blacklisted.", symbol_name_new_rip, current_rip);
 
-                let current_rip_symbolic = executor.state.cpu_state.lock().unwrap()
-                    .get_register_by_offset(0x288, 64)
-                    .unwrap()
-                    .symbolic
-                    .to_bv(executor.context)
-                    .clone();
+                        // When skipping a function, we need to update the stack pointer i.e. add 8 to RSP
+                        let rsp_value_concrete = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().concrete.to_u64();
+                        let rsp_value_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.to_bv(executor.context).clone();
+                        let next_rsp_value_concrete = rsp_value_concrete + 8;
+                        let next_rsp_value_symbolic = rsp_value_symbolic.bvadd(&BV::from_u64(executor.context, 8, 64));
+                        let next_rsp_value = ConcolicVar::new_concrete_and_symbolic_int(next_rsp_value_concrete, next_rsp_value_symbolic, executor.context, 64);
+                        executor.state.cpu_state.lock().unwrap()
+                            .set_register_value_by_offset(0x20, next_rsp_value, 64)
+                            .expect("Failed to set register value by offset");
 
-                let next_rip_concolic = ConcolicVar::new_concrete_and_symbolic_int(next_rip, current_rip_symbolic, executor.context, 64);
-                executor.state.cpu_state.lock().unwrap()
-                    .set_register_value_by_offset(0x288, next_rip_concolic, 64)
-                    .expect("Failed to set register value by offset");
+                        let (next_addr_in_map, _ ) = instructions_map.range((current_rip + 1)..).next().unwrap();
+                        current_rip = *next_addr_in_map;
+                        local_line_number = 0;      // Reset instruction index
+                        log!(executor.state.logger, "Jumping to 0x{:x}", next_addr_in_map);
+                    }
+                } else {
+                    current_rip = next_rip;
+                    local_line_number = 0;  // Reset for new block
 
-                log!(executor.state.logger, "Moving to next address block: 0x{:x}", next_rip);
+                    let current_rip_symbolic = executor.state.cpu_state.lock().unwrap()
+                        .get_register_by_offset(0x288, 64)
+                        .unwrap()
+                        .symbolic
+                        .to_bv(executor.context)
+                        .clone();
+
+                    let next_rip_concolic = ConcolicVar::new_concrete_and_symbolic_int(next_rip, current_rip_symbolic, executor.context, 64);
+                    executor.state.cpu_state.lock().unwrap()
+                        .set_register_value_by_offset(0x288, next_rip_concolic, 64)
+                        .expect("Failed to set register value by offset");
+
+                    log!(executor.state.logger, "Moving to next address block: 0x{:x}", next_rip);
+                }
             } else {
                 log!(executor.state.logger, "No further instructions. Execution completed.");
                 break;  // Exit the loop if there are no more instructions
             }
         }
     }
+}
+
+// Function to add the arguments of the target binary from the user's command 
+fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+
+    if arguments == "none" {
+        log!(executor.state.logger, "ARGS is 'none', skipping argument setup.");
+        return Ok(());
+    }
+
+    let args: Vec<String> = shell_words::split(arguments).expect("Failed to parse arguments");
+    let argc = args.len() as u64;
+
+    log!(executor.state.logger, "Extracted argc: {}", argc);
+    log!(executor.state.logger, "Extracted argv: {:?}", args);
+
+    let rsp_value = cpu_state_guard.get_register_by_offset(0x20, 64).unwrap().concrete.to_u64();
+    log!(executor.state.logger, "RSP value: 0x{:x}", rsp_value);
+
+    // Store argc at RSP
+    let argc_symbolic = SymbolicVar::new_int(argc as i64, executor.context, 64);
+    let argc_mem_value = MemoryValue::new(argc, argc_symbolic.to_bv(executor.context), 64);
+    executor.state.memory.write_value(rsp_value, &argc_mem_value)?;
+    log!(executor.state.logger, "Wrote argc at 0x{:x}: {}", rsp_value, argc);
+
+    let argv_base_addr = rsp_value + 16;
+    let mut string_memory_base = argv_base_addr + (args.len() as u64 * 8);
+
+    for (i, arg) in args.iter().enumerate() {
+        let arg_ptr_addr = argv_base_addr + (i as u64 * 8);
+        let arg_string_addr = string_memory_base;
+        string_memory_base += ((arg.len() as u64 + 8) / 8) * 8; // Ensure alignment
+
+        // Write pointer to argv[i]
+        let arg_ptr_symbolic = SymbolicVar::new_int(arg_string_addr as i64, executor.context, 64);
+        let arg_ptr_mem_value = MemoryValue::new(arg_string_addr, arg_ptr_symbolic.to_bv(executor.context), 64);
+        executor.state.memory.write_value(arg_ptr_addr, &arg_ptr_mem_value)?;
+        log!(executor.state.logger, "Wrote argv[{}] pointer at 0x{:x}: 0x{:x}", i, arg_ptr_addr, arg_string_addr);
+
+        // Convert argument string to ASCII bytes and store as u64 chunks
+        let mut arg_bytes = arg.clone().into_bytes();
+        arg_bytes.push(0); // NULL-terminate string
+
+        for chunk in arg_bytes.chunks(8) {
+            let mut chunk_data = [0u8; 8];
+            chunk_data[..chunk.len()].copy_from_slice(chunk);
+            let chunk_value = u64::from_le_bytes(chunk_data);
+
+            let chunk_mem_value = MemoryValue::new(chunk_value, SymbolicVar::new_int(chunk_value as i64, executor.context, 64).to_bv(executor.context), 64);
+            executor.state.memory.write_value(arg_string_addr + (chunk.as_ptr() as u64 - arg_bytes.as_ptr() as u64), &chunk_mem_value)?;
+        }
+    }
+
+    // Write NULL terminator for argv
+    let argv_null_addr = argv_base_addr + (args.len() as u64 * 8);
+    let null_ptr_symbolic = SymbolicVar::new_int(0, executor.context, 64);
+    let null_mem_value = MemoryValue::new(0, null_ptr_symbolic.to_bv(executor.context), 64);
+    executor.state.memory.write_value(argv_null_addr, &null_mem_value)?;
+    log!(executor.state.logger, "Wrote NULL terminator at 0x{:x}", argv_null_addr);
+
+    Ok(())
 }

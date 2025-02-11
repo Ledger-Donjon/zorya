@@ -73,7 +73,8 @@ impl<'a> State<'a> {
         log!(logger.clone(), "Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory.load_all_dumps()?;
-        memory.initialize_cpuid_memory_variables()?;         
+        memory.initialize_cpuid_memory_variables()?;     
+        memory.ensure_gdb_mappings_covered("external/qemu-mount/memory_mapping.txt")?;    
 	
         log!(logger.clone(), "Initializing the State...\n");
         let mut state = State {

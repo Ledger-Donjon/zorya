@@ -141,6 +141,20 @@ impl ConcreteVar {
         }
     }
 
+    /// Extracts the signed integer value with proper sign extension
+    pub fn get_concrete_value_signed(&self, bit_size: u32) -> Result<i64, VarError> {
+        let raw_value = self.to_u64(); // Get raw value as unsigned
+        let sign_extended = match bit_size {
+            8 => (raw_value as i8) as i64,  // Sign-extend from 8-bit
+            16 => (raw_value as i16) as i64, // Sign-extend from 16-bit
+            32 => (raw_value as i32) as i64, // Sign-extend from 32-bit
+            64 => raw_value as i64,         // Already correct
+            _ => return Err(VarError::ConversionError),
+        };
+
+        Ok(sign_extended)
+    }    
+
     // Method to perform a right shift operation safely
     pub fn right_shift(self, shift: usize) -> Self {
         match self {

@@ -1058,7 +1058,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let load_size_bits = instruction.output.as_ref()
             .map(|varnode| varnode.size.to_bitvector_size() as u32)
             .unwrap_or(64); // Default to 64 bits if output size is not specified
-        let load_size_bytes = (load_size_bits / 8) as u64; // Size in bytes
         log!(self.state.logger.clone(), "Load size in bits: {}", load_size_bits);
 
         // Misalignment check
@@ -1071,10 +1070,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // }
             
         let mem_size = pointer_offset_concolic.get_symbolic_value_bv(self.context).get_size();
-        log!(self.state.logger.clone(), "Load size in bits: {}", mem_size);
+        log!(self.state.logger.clone(), "Memory size in bits: {}", mem_size);
 
         // Dereference the address from memory
-        let mut mem_value = self.state.memory.read_value(pointer_offset_concrete, mem_size)
+        let mut mem_value = self.state.memory.read_value(pointer_offset_concrete, load_size_bits)
             .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", pointer_offset_concrete, e))?;
 
         if load_size_bits > mem_size {
@@ -1091,6 +1090,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let dereferenced_concolic = if self.inside_jump_table {
             log!(self.state.logger.clone(), "Handling jump table access.");
         
+            // Reset flag
+            self.inside_jump_table = false; 
+
             // Extract the jump table address and clone the necessary data to avoid lifetime conflicts
             let jump_table = {
                 let tables = &self.state.jump_tables; // Immutable borrow for lookup
@@ -1113,9 +1115,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let condition = index_bv._eq(&BV::from_u64(self.context, case_index as u64, 64));
                 let destination_bv = BV::from_u64(self.context, entry.destination, 64);
                 result = condition.ite(&destination_bv, &result);
-            }
-
-            self.inside_jump_table = false; // Reset flag after handling the jump table
+            }    
         
             // Create a concolic variable representing the dereferenced value
             ConcolicVar::new_concrete_and_symbolic_int(mem_value.concrete, result, self.context, load_size_bits)
@@ -1349,10 +1349,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .state
             .jump_tables
             .values()
-            .flat_map(|table| &table.cases) // Iterate over all cases in all jump tables
-            .any(|entry| entry.input_address == source_concrete) // Match against the input_address field
+            .any(|table| table.table_address == source_concrete)
         {
-            log!(self.state.logger.clone(), "The input matches a switch table input address. Setting inside_jump_table to true.");
+            log!(self.state.logger.clone(), "The input matches a switch table input address. Setting inside_jump_table to true : {:?}", source_concrete);
             self.inside_jump_table = true;
         }  
 
@@ -1787,7 +1786,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
         true
     }  
-
 }             
 
 impl<'ctx> fmt::Display for ConcolicExecutor<'ctx> {

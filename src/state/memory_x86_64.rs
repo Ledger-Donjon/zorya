@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -10,12 +10,12 @@ use regex::Regex;
 use z3::{ast::BV, Context};
 
 use super::VirtualFileSystem;
-use crate::concolic::ConcolicVar;
 use crate::target_info::GLOBAL_TARGET_INFO;
 
 // Protection flags for memory regions
 const PROT_READ: i32 = 0x1;
 const PROT_WRITE: i32 = 0x2;
+const PROT_EXEC: i32  = 0x4;
 
 #[derive(Debug)]
 pub enum MemoryError {
@@ -600,6 +600,96 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
         false
     }
+
+    // A small helper to parse 'r--p', 'r-xp', etc. into PROT_READ, PROT_WRITE, PROT_EXEC bits
+    fn parse_protection(perms: &str) -> i32 {
+        let mut prot_flags = 0;
+        let chars: Vec<char> = perms.chars().collect();
+
+        // Typically perms is something like 'r--p' or 'r-xp'
+        // e.g.  [0] = 'r', [1] = '-', [2] = 'x', [3] = 'p'
+        if chars.get(0) == Some(&'r') {
+            prot_flags |= PROT_READ;
+        }
+        if chars.get(1) == Some(&'w') {
+            prot_flags |= PROT_WRITE;
+        }
+        if chars.get(2) == Some(&'x') {
+            prot_flags |= PROT_EXEC;
+        }
+        // The 'p' or 's' typically indicates private vs. shared, we won't worry about that in PROT_ flags
+
+        prot_flags
+    }
+
+    /// Reads the gdb-style memory_mapping.txt and ensures each range is covered
+    /// by a MemoryRegion in `self.regions`. If not, create a zero-initialized
+    /// region with the appropriate permission flags.
+    pub fn ensure_gdb_mappings_covered<P: AsRef<Path>>(&self, mapping_file: P) -> Result<(), MemoryError> {
+        let file = fs::File::open(mapping_file)?;
+        let reader = io::BufReader::new(file);
+
+        // We'll parse lines that look like:
+        //  Start Addr    End Addr    Size    Offset   Perms  objfile
+        //  0x200000      0x20c000    0xc000  0x0      r--p   /path/to/binary
+        for line in reader.lines() {
+            let line = line?;
+            // Skip any blank or header lines
+            if line.trim().is_empty() || line.contains("Addr") || line.starts_with("process") {
+                continue;
+            }
+
+            // Split by whitespace
+            let parts: Vec<_> = line.split_whitespace().collect();
+            if parts.len() < 5 {
+                // At least: Start, End, Size, Offset, Perms
+                continue;
+            }
+
+            // Extract addresses & perms
+            let start_str = parts[0];
+            let end_str   = parts[1];
+            let perms_str = parts[4];
+
+            // Convert hex to u64
+            let start_addr = u64::from_str_radix(start_str.trim_start_matches("0x"), 16)?;
+            let end_addr   = u64::from_str_radix(end_str.trim_start_matches("0x"), 16)?;
+            if end_addr <= start_addr {
+                continue;
+            }
+            let size = (end_addr - start_addr) as usize;
+
+            // Parse the perms (e.g., 'r--p', 'r-xp', 'rw-p', etc.)
+            let prot_flags = Self::parse_protection(perms_str);
+
+            // Now ensure we have coverage for [start_addr, end_addr)
+            self.ensure_region_exists(start_addr, size, prot_flags)?;
+        }
+
+        Ok(())
+    }
+
+    // Checks if we already have a MemoryRegion covering `[start_addr, start_addr + size)`.
+    // If not, create one with zero-initialized data and the given `prot_flags`.
+    fn ensure_region_exists(&self, start_addr: u64, size: usize, prot_flags: i32) -> Result<(), MemoryError> {
+        let mut regions = self.regions.write().unwrap();
+
+        // See if any existing region fully covers this address range
+        let already_covered = regions.iter().any(|r| {
+            r.start_address <= start_addr
+                && r.end_address >= (start_addr + size as u64)
+        });
+
+        if !already_covered {
+            // Create a new region
+            let new_region = MemoryRegion::new(start_addr, size, prot_flags);
+            regions.push(new_region);
+            // Keep regions sorted by starting address
+            regions.sort_by_key(|r| r.start_address);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -608,4 +698,31 @@ pub struct Sigaction<'ctx> {
     pub flags: MemoryValue<'ctx>,     // sa_flags
     pub restorer: MemoryValue<'ctx>,  // sa_restorer (deprecated)
     pub mask: MemoryValue<'ctx>,      // sa_mask
+}
+
+impl<'ctx> Sigaction<'ctx> {
+    pub fn new_default(ctx: &'ctx Context) -> Self {
+        Sigaction {
+            handler: MemoryValue {
+                concrete: 0, // Default to SIG_DFL
+                symbolic: BV::from_u64(ctx, 0, 64),
+                size: 64,
+            },
+            flags: MemoryValue {
+                concrete: 0, // No special flags
+                symbolic: BV::from_u64(ctx, 0, 64),
+                size: 64,
+            },
+            restorer: MemoryValue {
+                concrete: 0, // Typically unused
+                symbolic: BV::from_u64(ctx, 0, 64),
+                size: 64,
+            },
+            mask: MemoryValue {
+                concrete: 0, // No signals blocked
+                symbolic: BV::from_u64(ctx, 0, 64),
+                size: 64,
+            },
+        }
+    }
 }

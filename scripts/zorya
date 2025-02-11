@@ -14,48 +14,181 @@ PCODE_GENERATOR_DIR="$ZORYA_DIR/external/pcode-generator"
 QEMU_MOUNT_DIR="$ZORYA_DIR/external/qemu-mount"
 TARGET_INFO_RS="$ZORYA_DIR/src/target_info.rs"
 
+# Verify directories exist
+if [ ! -d "$PCODE_GENERATOR_DIR" ]; then
+  echo "Error: Pcode generator directory not found at $PCODE_GENERATOR_DIR."
+  exit 1
+fi
+
+if [ ! -d "$QEMU_MOUNT_DIR" ]; then
+  echo "Error: QEMU mount directory not found at $QEMU_MOUNT_DIR."
+  exit 1
+fi
+
 # Check if BIN_PATH is provided
 if [ -z "$1" ]; then
-    echo "Usage: zorya /path/to/bin [start_point]"
+    echo "Usage: zorya /path/to/bin"
     exit 1
 fi
 
 BIN_PATH="$1"
-START_POINT="${2:-main}"  # Default to 'main' if not provided
 
 # Set environment variables for Rust script
 export ZORYA_DIR="$ZORYA_DIR"
 export BIN_PATH="$BIN_PATH"
-export START_POINT="$START_POINT"
 
-# Generate Pcode
-echo -e "\rGenerating Pcode for $BIN_PATH..."
+# Function to retrieve entry point address
+get_entry_point() {
+    local bin_file="$1"
+    readelf -h "$bin_file" | awk '/Entry point address:/ {print $NF}'
+}
+
+# Function to retrieve main function address using readelf (prioritize main.main over main)
+get_main_address() {
+    local bin_file="$1"
+    local main_addr=""
+    
+    while IFS= read -r line; do
+        symbol=$(echo "$line" | awk '{print $NF}')
+        address=$(echo "$line" | awk '{print "0x"$1}')
+        
+        if [[ "$symbol" == "main.main" ]]; then
+            echo "$address"  # Immediately return main.main if found
+            return
+        elif [[ "$symbol" == "main" ]]; then
+            main_addr="$address"  # Store main if found but don't print yet
+        fi
+    done < <(nm "$bin_file")
+    
+    if [[ -n "$main_addr" ]]; then
+        echo "$main_addr"  # Print main if main.main was not found
+    fi
+}
+
+# Function to prompt user for input
+ask_user() {
+  local prompt=$1
+  local default=$2
+  local result
+
+  echo "" # Add empty line for better readability
+  if [ -n "$default" ]; then
+    read -p "$prompt [$default]: " result
+    echo "${result:-$default}"
+  else
+    read -p "$prompt: " result
+    echo "$result"
+  fi
+}
+
+MODE=""
+ARGS=""
+ADDR=""
+ENTRY_POINT=$(get_entry_point "$BIN_PATH")
+
+# Step 1: Prompt user for mode
+echo ""
+echo "***********************************************************************"
+echo ""
+MODE=$(ask_user "Where to begin the analysis? (start / main / function / custom)" "main")
+MODE=$(echo "$MODE" | xargs)  # Trim spaces
+if [ -z "$MODE" ]; then
+  MODE="main"
+fi
+MODE=${MODE:-main}
+if [ -z "$MODE" ]; then
+  MODE="main"
+fi
+
+# Step 2: Determine address based on mode
+if [[ "$MODE" == "main" ]]; then
+  ADDR=$(get_main_address "$BIN_PATH")
+  if [ -z "$ADDR" ]; then
+    echo "Error: Could not find the main function address."
+    exit 1
+  fi
+  echo "Automatically detected main function address: $ADDR"
+  echo ""
+  echo "***********************************************************************"
+  echo ""
+  ARGS="none"
+elif [[ "$MODE" == "start" ]]; then
+  ADDR=$(get_entry_point "$BIN_PATH")
+  echo "Automatically detected entry point: $ADDR"
+  echo ""
+  echo "***********************************************************************"
+  echo ""
+elif [[ "$MODE" == "function" ]]; then
+  while true; do
+    ADDR=$(ask_user "What address does this correspond to? (hexadecimal format, e.g., 0x123)" "" | tr -d '[:space:]')
+    echo ""
+    echo "***********************************************************************"
+    echo ""
+    if [[ "$ADDR" =~ ^0x[0-9a-fA-F]+$ || "$ADDR" =~ ^[0-9]+$ ]]; then
+      break
+    else
+      echo "Invalid address. Please enter a valid address in hexadecimal (e.g. 0x123) or decimal format."
+    fi
+  done
+elif [[ "$MODE" == "custom" ]]; then
+  while true; do
+    ADDR=$(ask_user "What address does this correspond to? (hexadecimal format, e.g., 0x123)" "" | tr -d '[:space:]')
+    echo ""
+    echo "***********************************************************************"
+    echo ""
+    if [[ "$ADDR" =~ ^0x[0-9a-fA-F]+$ || "$ADDR" =~ ^[0-9]+$ ]]; then
+      break
+    else
+      echo "Invalid address. Please enter a valid address in hexadecimal (e.g. 0x123) or decimal format."
+    fi
+  done
+else
+  echo "Error: Unknown mode selected."
+  exit 1
+fi
+
+# Step 3: Ask for binary arguments
+ARGS=$(ask_user "Does the binary expect any arguments? (none / x y z etc.)" "none")
+echo ""
+echo "***********************************************************************"
+echo ""
+
+# Export variables for Rust script
+export MODE="$MODE"
+export ARGS="$ARGS"
+export START_POINT="$ADDR"
+
+# Execute analysis
+COMMAND="$ZORYA_DIR/zorya $BIN_PATH --mode $MODE $ADDR"
+if [ "$ARGS" != "none" ]; then
+  COMMAND="$COMMAND --arg $ARGS"
+fi
+
+echo ""
+echo "Running command: $COMMAND"
+
+echo ""
+echo "Generating Pcode for $BIN_PATH..."
 cd "$PCODE_GENERATOR_DIR" || exit
 cargo run "$BIN_PATH" --low-pcode
 
-# if [ ! -f "$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt" ]; then
-#     cargo run -- "$BIN_PATH" --low-pcode
-# else
-#     echo "Pcode already generated. Skipping..."
-# fi
-
-# Construct the dynamic path for the Pcode file
 PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
 if [ ! -f "$PCODE_FILE" ]; then
-    echo "Failed to generate Pcode."
-    exit 1
+  echo "Failed to generate Pcode."
+  exit 1
 fi
 
-# Automate memory dump generation
-echo -e "\rGenerating memory and CPU register dumps..."
+echo ""
+echo "Generating memory and CPU register dumps..."
 chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
-"$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$START_POINT"
+"$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS" 
 
-# Ensure the non-root user can access files in the qemu-mount directory
-sudo chown -R $(whoami):$(whoami) "$QEMU_MOUNT_DIR"
-sudo chmod -R 755 "$QEMU_MOUNT_DIR"
+if [ "$ARGS" != "none" ]; then
+  echo ""
+  echo "Writing argc and argv to memory..."
+  cd "$ZORYA_DIR" || exit
+  RUSTFLAGS="-Awarnings" cargo run -- --write-args "$ARGS"
+fi
 
-# Run Zorya
-cd "$ZORYA_DIR" || exit
-RUSTFLAGS="-Awarnings" cargo run
-
+echo ""
+echo "All tasks completed successfully."

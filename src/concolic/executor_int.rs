@@ -359,79 +359,43 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         return Err("Invalid instruction format for INT_SLESS".to_string());
     }
 
-    // Fetch concolic variables
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_SLESS");
-    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0])?;
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_SLESS");
-    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1])?;
 
     let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
     let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
-    // Adapt input types if necessary
-    let (adapted_input0_var, adapted_input1_var) = if input0_var.is_bool()
-        || input1_var.is_bool()
-        || input0_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits
-        || input1_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits
-    {
-        log!(executor.state.logger.clone(), "Adapting types for INT_SLESS");
-        executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
+    // Only sign-extend if the bit size is increasing
+    let input0_var = if input0_var.to_concolic_var().unwrap().concrete.get_size() < output_size_bits {
+        sign_extend_concolic_var(executor, input0_var.clone().to_concolic_var().unwrap(), output_size_bits)?
     } else {
-        (input0_var, input1_var)
+        input0_var.to_concolic_var().unwrap()
     };
 
-    // Convert ConcolicEnum back to ConcolicVar
-    let input0_var = adapted_input0_var.to_concolic_var().ok_or("Failed to convert input0_var")?;
-    let input1_var = adapted_input1_var.to_concolic_var().ok_or("Failed to convert input1_var")?;
+    let input1_var = if input1_var.to_concolic_var().unwrap().concrete.get_size() < output_size_bits {
+        sign_extend_concolic_var(executor, input1_var.clone().to_concolic_var().unwrap(), output_size_bits)?
+    } else {
+        input1_var.to_concolic_var().unwrap()
+    };
 
-    // Determine the bit size from the output
-    let bit_size = output_size_bits;
+    // Extract correctly sign-extended concrete values
+    let input0_concrete = input0_var.get_concrete_value_signed(output_size_bits).map_err(|e| e.to_string())?;
+    let input1_concrete = input1_var.get_concrete_value_signed(output_size_bits).map_err(|e| e.to_string())?;
+    let result_concrete = input0_concrete < input1_concrete;
 
-    // Perform signed comparison based on bit_size
-    let result_concrete: bool;
-    let result_symbolic: Bool;
-
-    match bit_size {
-        8 => {
-            // Cast to i8
-            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i8 as i64; // Sign-extend to i64
-            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i8 as i64; // Sign-extend to i64
-            result_concrete = input0_concrete < input1_concrete;
-            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
-        },
-        16 => {
-            // Cast to i16
-            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i16 as i64; // Sign-extend to i64
-            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i16 as i64; // Sign-extend to i64
-            result_concrete = input0_concrete < input1_concrete;
-            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
-        },
-        32 => {
-            // Cast to i32
-            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i32 as i64; // Sign-extend to i64
-            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i32 as i64; // Sign-extend to i64
-            result_concrete = input0_concrete < input1_concrete;
-            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
-        },
-        64 => {
-            // Cast to i64
-            let input0_concrete = input0_var.get_concrete_value().map_err(|e| e.to_string())? as i64; // Sign-extend to i64
-            let input1_concrete = input1_var.get_concrete_value().map_err(|e| e.to_string())? as i64; // Sign-extend to i64
-            result_concrete = input0_concrete < input1_concrete;
-            result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
-        },
-        _ => return Err(format!("Unsupported bit size for INT_SLESS: {}", bit_size)),
-    }
+    // Symbolic execution: ensure BV representation correctly reflects sign-extension
+    let result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
 
     log!(executor.state.logger.clone(), "*** The result of INT_SLESS is: {:?}", result_concrete);
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, bit_size);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(result_concrete, result_symbolic, executor.context, output_size_bits);
 
-    // Handle the result based on the output varnode
     executor.handle_output(Some(output_varnode), result_value.clone())?;
 
-    // Create or update a concolic variable for the result
+    // Create or update a concolic variable for tracking
     let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
     let result_var_name = format!("{}-{:02}-intsless", current_addr_hex, executor.instruction_counter);
     executor.state.create_or_update_concolic_variable_bool(&result_var_name, result_value.concrete.to_bool(), result_value.symbolic);
@@ -607,45 +571,86 @@ pub fn handle_int_sext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     Ok(())
 }
 
+pub fn sign_extend_concolic_var<'a, 'ctx>(executor: &'a mut ConcolicExecutor<'ctx>, var: ConcolicVar<'ctx>, target_bit_size: u32) -> Result<ConcolicVar<'ctx>, String> {
+    let current_bit_size = var.get_size_bits();
+
+    // If already at target size, return as-is
+    if current_bit_size == target_bit_size {
+        return Ok(var);
+    }
+
+    // Prevent invalid sign-extension (e.g., 64-bit -> 8-bit)
+    if current_bit_size > target_bit_size {
+        return Err(format!(
+            "Invalid sign extension: Cannot sign-extend from {} bits to {} bits",
+            current_bit_size, target_bit_size
+        ));
+    }
+
+    // Ensure proper two's complement sign extension
+    let concrete_value = var.get_concrete_value_signed(current_bit_size).map_err(|e| e.to_string())?;
+    let sign_extended_value = if concrete_value < 0 {
+        match target_bit_size {
+            8 => (concrete_value as i8) as i64,
+            16 => (concrete_value as i16) as i64,
+            32 => (concrete_value as i32) as i64,
+            64 => concrete_value as i64,
+            _ => return Err(format!("Unsupported bit size for sign extension: {}", target_bit_size)),
+        }
+    } else {
+        concrete_value // No change if already positive
+    };
+
+    // Sign-extend the symbolic value in Z3
+    let symbolic_extended = var.symbolic.to_bv(executor.context).sign_ext(target_bit_size - current_bit_size);
+
+    Ok(ConcolicVar::new_concrete_and_symbolic_int(
+        sign_extended_value as u64,
+        symbolic_extended,
+        executor.context,
+        target_bit_size,
+    ))
+}
+
 pub fn handle_int_sborrow(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntSBorrow || instruction.inputs.len() != 2 {
         return Err("Invalid instruction format for INT_SBORROW".to_string());
     }
 
-    log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for INT_SBORROW");
-    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-    log!(executor.state.logger.clone(), "The value of input0_var is: {:?}", input0_var.get_concrete_value());
-    log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_SBORROW");
-    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
-    log!(executor.state.logger.clone(), "The value of input1_var is: {:?}", input1_var.get_concrete_value());
-   
-    let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+    let input0_var = executor.varnode_to_concolic(&instruction.inputs[0])?;
+    let input1_var = executor.varnode_to_concolic(&instruction.inputs[1])?;
+    let output_varnode = instruction.output.as_ref().ok_or("Output varnode not specified")?;
+    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
 
-    // Convert values to i64 for correct signed arithmetic handling
-    let value0 = input0_var.get_concrete_value() as i64;
-    let value1 = input1_var.get_concrete_value() as i64;
-
-    // Check for underflow
-    let result = value0.checked_sub(value1);
-    let underflow_occurred = match result {
-        Some(_) => false,
-        None => true,
+    // Ensure correct sign extension for symbolic execution, but only if needed
+    let input0_var = if input0_var.to_concolic_var().unwrap().concrete.get_size() < output_size_bits {
+        sign_extend_concolic_var(executor, input0_var.clone().to_concolic_var().unwrap(), output_size_bits)?
+    } else {
+        input0_var.to_concolic_var().unwrap()
     };
-    log!(executor.state.logger.clone(), "Checked sub result is : {:?}", result);
 
-    let result_symbolic = z3::ast::Bool::from_bool(executor.context, underflow_occurred);
+    let input1_var = if input1_var.to_concolic_var().unwrap().concrete.get_size() < output_size_bits {
+        sign_extend_concolic_var(executor, input1_var.clone().to_concolic_var().unwrap(), output_size_bits)?
+    } else {
+        input1_var.to_concolic_var().unwrap()
+    };
 
-    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(underflow_occurred, result_symbolic, executor.context, output_size_bits);
+    let input0_concrete = input0_var.get_concrete_value_signed(output_size_bits).map_err(|e| e.to_string())?;
+    let input1_concrete = input1_var.get_concrete_value_signed(output_size_bits).map_err(|e| e.to_string())?;
 
-    log!(executor.state.logger.clone(), "*** The result of INT_SBORROW is underflow: {:?}\n", underflow_occurred);
+    let (sub_result, overflow) = input0_concrete.overflowing_sub(input1_concrete);
+    let underflow_occurred = overflow;
 
-    // Handle the result based on the output varnode
-    executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
+    let result_symbolic = input0_var.symbolic.to_bv(executor.context).bvslt(&input1_var.symbolic.to_bv(executor.context));
 
-    // Create or update a concolic variable for the result
-    let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-    let result_var_name = format!("{}-{:02}-intsborrow", current_addr_hex, executor.instruction_counter);
-    executor.state.create_or_update_concolic_variable_int(&result_var_name, result_value.concrete.to_u64(), result_value.symbolic);
+    let result_value = ConcolicVar::new_concrete_and_symbolic_bool(
+        underflow_occurred,
+        result_symbolic,
+        executor.context,
+        output_size_bits,
+    );
+
+    executor.handle_output(Some(output_varnode), result_value.clone())?;
 
     Ok(())
 }

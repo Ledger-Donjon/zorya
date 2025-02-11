@@ -3,7 +3,7 @@ use z3::{ast::{Ast, Bool, Float, BV}, Context};
 
 use crate::state::memory_x86_64::MemoryValue;
 
-use super::{ConcreteVar, SymbolicVar};
+use super::{concrete_var::VarError, ConcreteVar, SymbolicVar};
 
 #[derive(Clone, Debug)]
 pub struct ConcolicVar<'ctx> {
@@ -91,6 +91,15 @@ impl<'ctx> ConcolicVar<'ctx> {
     pub fn get_context_id(&self) -> String {
         format!("{:p}", self.ctx)
     }
+
+    pub fn get_concrete_value_signed(&self, bit_size: u32) -> Result<i64, VarError> {
+        self.concrete.get_concrete_value_signed(bit_size)
+    }
+
+    pub fn get_size_bits(&self) -> u32 {
+        64 // Default to 64-bit for now, modify if dynamic size is required
+    }
+
 }
 
 
