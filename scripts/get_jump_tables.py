@@ -1,6 +1,7 @@
 import sys
 import json
 import pyhidra
+import os
 from ghidra.program.model.symbol import SymbolType
 from ghidra.program.model.address import Address
 from ghidra.program.model.listing import Instruction
@@ -119,7 +120,13 @@ def main():
             program = flat_api.getCurrentProgram()
             jump_tables = extract_jump_tables(program)
 
-            output_file = "jump_tables.json"
+            # Ensure results directory exists
+            output_dir = "results"
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Set new output file path
+            output_file = os.path.join(output_dir, "jump_tables.json")
+
             with open(output_file, "w") as f:
                 json.dump(jump_tables, f, indent=4)
 

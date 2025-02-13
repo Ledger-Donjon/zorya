@@ -34,8 +34,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::new();
     let context = Context::new(&config);
     let solver = Solver::new(&context);
-    let logger = Logger::new("execution_log.txt").expect("Failed to create logger"); // get the instruction handling detailed log
-    let trace_logger = Logger::new("execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
+    let logger = Logger::new("results/execution_log.txt").expect("Failed to create logger"); // get the instruction handling detailed log
+    let trace_logger = Logger::new("results/execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
     let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
     
     log!(executor.state.logger, "Configuration and context have been initialized.");
@@ -126,7 +126,7 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
         info.zorya_path.clone()
     };
-    let python_script_path = zorya_dir.join("src").join("find_panic_xrefs.py");
+    let python_script_path = zorya_dir.join("scripts").join("find_panic_xrefs.py");
 
     if !python_script_path.exists() {
         panic!("Python script not found at {:?}", python_script_path);
@@ -148,7 +148,7 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
     }
 
     // Ensure the file was created
-    if !Path::new("xref_addresses.txt").exists() {
+    if !Path::new("results/xref_addresses.txt").exists() {
         panic!("xref_addresses.txt not found after running the Python script");
     }
 
@@ -192,9 +192,26 @@ fn preprocess_pcode_file(path: &str, executor: &mut ConcolicExecutor) -> io::Res
 
 // Function to read the panic addresses from the file
 fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::Result<Vec<u64>> {
-    let file = File::open(filename)?;
+    // Get the base path from the environment variable
+    let zorya_path_buf = PathBuf::from(
+        env::var("ZORYA_DIR").expect("ZORYA_DIR environment variable is not set")
+    );
+    let zorya_path = zorya_path_buf.to_str().unwrap();
+
+    // Construct the full path to the results directory
+    let results_dir = Path::new(zorya_path).join("results");
+    let full_path = results_dir.join(filename);
+
+    // Ensure the file exists before trying to read it
+    if !full_path.exists() {
+        log!(executor.state.logger, "Error: File {:?} does not exist.", full_path);
+        return Err(io::Error::new(io::ErrorKind::NotFound, "File not found"));
+    }
+
+    let file = File::open(&full_path)?;
     let reader = BufReader::new(file);
     let mut addresses = Vec::new();
+    
     for line in reader.lines() {
         let line = line?;
         let line = line.trim();
@@ -241,7 +258,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
     log!(executor.state.logger, "Logging the addresses of the XREFs of Panic functions...");
     // Read the panic addresses from the file once before the main loop
-    let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt").expect("Failed to read panic addresses");
+    let panic_addresses = read_panic_addresses(executor, "xref_addresses.txt")
+        .expect("Failed to read panic addresses from results directory");
 
     // Convert panic addresses to Z3 Ints once
     let panic_address_ints: Vec<Int> = panic_addresses.iter()
@@ -270,7 +288,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
         if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {
             // Log the function call
-            log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
+            // log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
 
             // FIND THE ARGUMENTS OF THE FUNCTION AND LOG THEM
             let ghidra_path = match env::var("GHIDRA_INSTALL_DIR") {
@@ -278,7 +296,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 Err(_) => String::from("~/ghidra_11.0.3_PUBLIC/"), // Fallback to default location
             };
             let project_path = "results/ghidra-project";
-            let post_script_path = "src/get_function_args.py";
+            let post_script_path = "scripts/get_function_args.py";
             let trace_file = "results/function_signature.txt";
 
             // Remove all files inside the Ghidra project directory but keep the directory
@@ -299,7 +317,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 ghidra_path, project_path, "ghidra-project", binary_path, post_script_path, symbol_name, zorya_path
             );
 
-            println!("🔹 Running Ghidra Headless command:\n{}", analyze_headless_cmd);
+            println!("Running Ghidra Headless command:\n{}", analyze_headless_cmd);
         
             // Run the Ghidra Headless command
             let output = Command::new("sh")
@@ -371,7 +389,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             
                 for (arg_name, register_offset) in args {
                     if let Some(value) = executor.state.cpu_state.lock().unwrap().get_register_by_offset(*register_offset, 64) {
-                        arg_values.push(format!("{}=0x{:x}", arg_name, value.concrete));
+                        arg_values.push(format!("{}=0x{:x} (reg={:x})", arg_name, value.concrete, register_offset));
                     }
                 }
             
@@ -379,10 +397,10 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     // Log function **only once** if arguments are found
                     let log_string = format!("Address: {:x}, Symbol: {} -> {}", current_rip, symbol_name, arg_values.join(", "));
                     log!(executor.trace_logger, "{}", log_string);
-                } else {
-                    // Log function **only if it wasn’t already logged**
-                    log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
                 }
+            } else {
+                // Log function **only if it wasn’t already logged**
+                log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
             }
             
         }

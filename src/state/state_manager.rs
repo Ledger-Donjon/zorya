@@ -153,7 +153,7 @@ impl<'a> State<'a> {
             )
         };
     
-        let python_script = zorya_path.join("src").join("state").join("get_jump_tables.py");
+        let python_script = zorya_path.join("scripts").join("get_jump_tables.py");
         if !python_script.exists() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
@@ -161,7 +161,7 @@ impl<'a> State<'a> {
             )));
         }
     
-        let json_output = PathBuf::from("jump_tables.json");
+        let json_output = PathBuf::from("results/jump_tables.json");
     
         let output = std::process::Command::new("python3")
             .arg("-m")

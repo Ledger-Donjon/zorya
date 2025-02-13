@@ -1,6 +1,8 @@
 # find_panic_xrefs.py
+# Used in main.rs by the get_cross_references function to find cross-references to panic functions.
 import sys
 import pyhidra
+import os
 
 def main():
     if len(sys.argv) < 2:
@@ -44,8 +46,13 @@ def main():
                         from_address = ref.getFromAddress()
                         xref_addresses.append(from_address)
 
-        # Write the addresses to a file
-        with open("xref_addresses.txt", "w") as file:
+        # Ensure results directory exists
+        results_dir = "results"
+        os.makedirs(results_dir, exist_ok=True)
+
+        # Write the addresses to a file in the results directory
+        output_file = os.path.join(results_dir, "xref_addresses.txt")
+        with open(output_file, "w") as file:
             for addr in xref_addresses:
                 file.write("0x{}\n".format(addr.toString()))
 
