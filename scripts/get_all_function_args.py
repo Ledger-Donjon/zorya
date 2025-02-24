@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Extracts function argument register mappings for runtime logging.
+Extracts function argument register mappings for all functions in the binary for runtime logging.
 """
 
 import os
@@ -10,15 +10,13 @@ from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 
 def main():
-    # Retrieve script arguments in headless mode.
+    # This version only requires one argument: the ZORYA directory.
     script_args = getScriptArgs()
-    if len(script_args) < 2:
-        print("Usage: <script> <function_name_or_address> <zorya_dir>")
+    if len(script_args) < 1:
+        print("Usage: <script> <zorya_dir>")
         exit(1)
 
-    function_id = script_args[0]
-    zorya_dir = script_args[1]
-
+    zorya_dir = script_args[0]
     if not os.path.exists(zorya_dir):
         print("ERROR: Provided ZORYA_DIR does not exist: {}".format(zorya_dir))
         exit(1)
@@ -26,76 +24,51 @@ def main():
     results_dir = os.path.join(zorya_dir, "results")
     trace_log_file = os.path.join(results_dir, "function_signature.txt")
 
-    # Ensure the results directory exists
+    # Ensure the results directory exists.
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
-
-    # Ensure function_signature.txt is created if missing
-    if not os.path.exists(trace_log_file):
-        open(trace_log_file, "w").close()
+    # (Re)create the output file.
+    open(trace_log_file, "w").close()
 
     print("Function signature file will be saved at: {}".format(trace_log_file))
 
     def log_to_file(log_entry):
-        """Writes the given log entry to the trace log file"""
         with open(trace_log_file, "a") as f:
             f.write(log_entry + "\n")
 
     if currentProgram is None:
         print("No program loaded!")
         exit(1)
-    
+
     listing = currentProgram.getListing()
     fm = currentProgram.getFunctionManager()
-    function = None
-
-    if function_id.startswith("0x"):
-        try:
-            addr_val = int(function_id, 16)
-        except ValueError:
-            print("Invalid address format: %s" % function_id)
-            exit(1)
-        addr = currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(addr_val)
-        function = fm.getFunctionContaining(addr)
-        if function is None:
-            print("No function found at address %s" % function_id)
-            exit(1)
-    else:
-        functions_iter = listing.getGlobalFunctions(function_id)
-        functions = [f for f in functions_iter]
-        if not functions:
-            print("No function found with name (or containing): %s" % function_id)
-            exit(1)
-        function = functions[0]
-
-    function_name = function.getName()
-    entry_point = function.getEntryPoint().toString()
-
-    params = function.getParameters()
-    arg_list = []
-    
-    for param in params:
-        name = param.getName()
-        dtype = param.getDataType()
-        storage = param.getVariableStorage()
-        
-        if storage.isRegisterStorage():
-            register_name = storage.getRegister().getName()
-            arg_list.append("{}={}".format(name, register_name))
-        elif storage.isStackStorage():
-            varnode = storage.getFirstVarnode()
-            stack_offset = varnode.getAddress().getOffset() if varnode else "Unknown"
-            arg_list.append("{}=Stack_0x{:x}".format(name, stack_offset))
-
-    if len(arg_list) == 0:
-        arg_list.append("NoArgs=None")
-
-    log_entry = "{},{},{}".format(entry_point, function_name, ",".join(arg_list))
-
-    log_to_file(log_entry)
-    print("Function signature written to {}: {}".format(trace_log_file, log_entry))
+    # Get all functions in the program.
+    functions = fm.getFunctions(True)
+    count = 0
+    for func in functions:
+        entry_point = func.getEntryPoint().toString()  # e.g., "00212710"
+        function_name = func.getName()
+        params = func.getParameters()
+        arg_list = []
+        for param in params:
+            name = param.getName()
+            storage = param.getVariableStorage()
+            if storage.isRegisterStorage():
+                register_name = storage.getRegister().getName()
+                arg_list.append("{}={}".format(name, register_name))
+            elif storage.isStackStorage():
+                varnode = storage.getFirstVarnode()
+                stack_offset = varnode.getAddress().getOffset() if varnode else "Unknown"
+                arg_list.append("{}=Stack_0x{:x}".format(name, stack_offset))
+        if len(arg_list) == 0:
+            arg_list.append("NoArgs=None")
+        log_entry = "{},{},{}".format(entry_point, function_name, ",".join(arg_list))
+        log_to_file(log_entry)
+        count += 1
+    print("Wrote {} function signatures to {}".format(count, trace_log_file))
 
 main()
+
 
 # #!/usr/bin/env python3
 # """

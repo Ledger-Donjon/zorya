@@ -60,6 +60,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the tables of cross references of potential panics in the programs (for bug detetcion)
     get_cross_references(&binary_path)?;
 
+    // Precompute all function signatures using Ghidra headless
+    log!(executor.state.logger, "Precomputing function signatures using Ghidra headless...");
+    precompute_function_signatures(&binary_path, &mut executor)?;
+
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
 
@@ -245,6 +249,124 @@ fn clean_ghidra_project_dir(project_path: &str) {
     }
 }
 
+// Precompute all function signatures using Ghidra headless once.
+fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExecutor) -> Result<(), Box<dyn Error>> {
+    // Read GHIDRA_INSTALL_DIR from environment (or use fallback).
+    let ghidra_path = env::var("GHIDRA_INSTALL_DIR")
+        .unwrap_or_else(|_| String::from("~/ghidra_11.0.3_PUBLIC/"));
+    let project_path = "results/ghidra-project";
+    let project_name = "ghidra-project"; // the project name you want to use
+    // Use the new script that processes all functions.
+    let post_script_path = "scripts/get_all_function_args.py";
+    let trace_file = "results/function_signature.txt";
+
+    // Clean the Ghidra project directory.
+    clean_ghidra_project_dir(project_path);
+    // Remove any existing signature file.
+    if Path::new(trace_file).exists() {
+        println!("Removing old function signature file.");
+        fs::remove_file(trace_file)?;
+    }
+
+    // Get the ZORYA directory.
+    let zorya_dir = env::var("ZORYA_DIR")
+        .expect("ZORYA_DIR environment variable is not set");
+
+    println!("Precomputing function signatures using Ghidra Headless...");
+
+    // Build the full path to the Ghidra headless executable.
+    let ghidra_executable = format!("{}support/analyzeHeadless", ghidra_path);
+    // Construct the arguments as a vector.
+    let args = vec![
+        project_path,           // Project path (e.g., "results/ghidra-project")
+        project_name,           // Project name
+        "-import",
+        binary_path,            // Binary to import
+        "-processor",
+        "x86:LE:64:default",
+        "-cspec",
+        "golang",
+        "-postScript",
+        post_script_path,       // Script to process all functions
+        &zorya_dir,             // ZORYA directory (used by the script)
+    ];
+
+    println!("Running Ghidra command: {} {:?}", ghidra_executable, args);
+
+    // Execute the command without invoking a shell.
+    let output = Command::new(ghidra_executable)
+        .args(&args)
+        .output()
+        .expect("Failed to execute Ghidra Headless");
+
+    if !output.status.success() {
+        eprintln!(
+            "Ghidra Headless execution failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Err(Box::from("Ghidra analysis failed"));
+    }
+    println!("Ghidra analysis complete. Function signatures written to {}", trace_file);
+    Ok(())
+}
+
+/// Load the function arguments map from the precomputed file.
+fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64)>)> {
+    let trace_file = "results/function_signature.txt";
+    let mut function_args_map: HashMap<u64, (String, Vec<(String, u64)>)> = HashMap::new();
+
+    if Path::new(trace_file).exists() {
+        let file = File::open(trace_file).expect("Failed to open function signature file");
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            let log_entry = line.expect("Failed to read line");
+            // Skip entries with no arguments.
+            if log_entry.contains("NoArgs=None") {
+                continue;
+            }
+            let parts: Vec<&str> = log_entry.split(',').collect();
+            if parts.len() < 3 {
+                continue; // Ignore malformed lines.
+            }
+            let address = u64::from_str_radix(parts[0].trim(), 16).unwrap_or(0);
+            let function_name = parts[1].trim().to_string();
+            let mut args: Vec<(String, u64)> = Vec::new();
+            for arg in &parts[2..] {
+                let arg_parts: Vec<&str> = arg.split('=').collect();
+                if arg_parts.len() == 2 {
+                    let arg_name = arg_parts[0].trim().to_string();
+                    let register_name = arg_parts[1].trim().to_string();
+                    let register_offset = match register_name.as_str() {
+                        "RAX" => 0x0,
+                        "RCX" => 0x8,
+                        "RDX" => 0x10,
+                        "RBX" => 0x18,
+                        "RSI" => 0x30,
+                        "RDI" => 0x38,
+                        "R8"  => 0x80,
+                        "R9"  => 0x88,
+                        "R10" => 0x90,
+                        "R11" => 0x98,
+                        "R12" => 0xa0,
+                        "R13" => 0xa8,
+                        "R14" => 0xb0,
+                        "R15" => 0xb8,
+                        _ => continue,
+                    };
+                    args.push((arg_name, register_offset));
+                }
+            }
+            function_args_map.insert(address, (function_name, args));
+        }
+    } else {
+        println!(
+            "Warning: {} not found. Please precompute the function signatures using Ghidra.",
+            trace_file
+        );
+    }
+    function_args_map
+}
+
 // Function to execute the instructions from the map of addresses to instructions
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver, binary_path: &str) {
     let mut current_rip = start_address;
@@ -273,6 +395,10 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         cpu_state_guard.set_register_value_by_offset(0x288, ConcolicVar::new_concrete_and_symbolic_int(current_rip, SymbolicVar::new_int(current_rip.try_into().unwrap(), executor.context, 64).to_bv(executor.context), executor.context, 64), 64).map_err(|e| e.to_string()).unwrap();
     }
 
+    // Load the function arguments map
+    log!(executor.state.logger, "Loading function arguments map...");
+    let function_args_map = load_function_args_map();
+
     while let Some(instructions) = instructions_map.get(&current_rip) {
         if current_rip == end_address {
             log!(executor.state.logger, "END ADDRESS 0x{:x} REACHED, STOP THE EXECUTION", end_address);
@@ -287,128 +413,20 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
         // This bloc is only to get data about the execution in results/execution_trace.txt
         if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {
-
-            // Log function 
-            log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
-            
-            // Skip functions that start with "(" like (runtime.gcBlock).state because not handled by analyzeHeadless
-            if symbol_name.starts_with('(') {
-                // Log function 
-                log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
+            if let Some((_, args)) = function_args_map.get(&current_rip) {
+                let mut arg_values = Vec::new();
+                for (arg_name, register_offset) in args {
+                    if let Some(value) = executor.state.cpu_state.lock().unwrap().get_register_by_offset(*register_offset, 64) {
+                        arg_values.push(format!("{}=0x{:x} (reg=0x{:x})", arg_name, value.concrete, register_offset));
+                    }
+                }
+                if !arg_values.is_empty() {
+                    let log_string = format!("Address: {:x}, Symbol: {} -> {}", current_rip, symbol_name, arg_values.join(", "));
+                    log!(executor.trace_logger, "{}", log_string);
+                }
             } else {
-                // FIND THE ARGUMENTS OF THE FUNCTION AND LOG THEM
-                let ghidra_path = match env::var("GHIDRA_INSTALL_DIR") {
-                    Ok(path) => path,  // Use GHIDRA_INSTALL_DIR if set
-                    Err(_) => String::from("~/ghidra_11.0.3_PUBLIC/"), // Fallback to default location
-                };
-                let project_path = "results/ghidra-project";
-                let post_script_path = "scripts/get_function_args.py";
-                let trace_file = "results/function_signature.txt";
-
-                // Remove all files inside the Ghidra project directory but keep the directory
-                clean_ghidra_project_dir(&project_path);
-
-                // Remove `function_signature.txt` before running Ghidra analysis
-                if Path::new(trace_file).exists() {
-                    println!("Removing old function signature file.");
-                    fs::remove_file(trace_file).expect("Failed to remove function signature file");
-                }
-
-                let zorya_path_buf = PathBuf::from(env::var("ZORYA_DIR").expect("ZORYA_DIR environment variable is not set"));
-                let zorya_path = zorya_path_buf.to_str().unwrap();
-
-                print!("Analyzing function arguments for symbol '{}' using Ghidra Headless...", symbol_name);
-                let analyze_headless_cmd = format!(
-                    "{}support/analyzeHeadless {} {} -import {} -processor x86:LE:64:default -cspec golang -postScript {} {} {}",
-                    ghidra_path, project_path, "ghidra-project", binary_path, post_script_path, symbol_name, zorya_path
-                );
-
-                println!("Running Ghidra Headless command:\n{}", analyze_headless_cmd);
-            
-                // Run the Ghidra Headless command
-                let output = Command::new("sh")
-                    .arg("-c")
-                    .arg(&analyze_headless_cmd)
-                    .output()
-                    .expect("Failed to execute Ghidra Headless");
-            
-                if !output.status.success() {
-                    eprintln!("Ghidra Headless execution failed:\n{}", String::from_utf8_lossy(&output.stderr));
-                    return;
-                }
-            
-                let file = File::open(trace_file).expect("Failed to open trace file");
-                let reader = BufReader::new(file);
-        
-                let mut function_args_map: HashMap<u64, (String, Vec<(String, u64)>)> = HashMap::new();
-        
-                // Read the function signature file and parse mappings
-                for line in reader.lines() {
-                    let log_entry = line.expect("Failed to read line");
-
-                    if log_entry.contains("NoArgs=None") {
-                        println!("No arguments found for function: {}", symbol_name);
-                        continue;
-                    }
-        
-                    let parts: Vec<&str> = log_entry.split(',').collect();
-        
-                    if parts.len() < 3 {
-                        continue; // Ignore malformed lines
-                    }
-        
-                    let address = u64::from_str_radix(parts[0].trim(), 16).unwrap_or(0);
-                    let function_name = parts[1].trim().to_string();
-                    
-                    let mut args: Vec<(String, u64)> = Vec::new();
-                    for arg in &parts[2..] {
-                        let arg_parts: Vec<&str> = arg.split('=').collect();
-                        if arg_parts.len() == 2 {
-                            let arg_name = arg_parts[0].trim().to_string();
-                            let register_name = arg_parts[1].trim().to_string();
-                            let register_offset = match register_name.as_str() {
-                                "RAX" => 0x0,
-                                "RCX" => 0x8,
-                                "RDX" => 0x10,
-                                "RBX" => 0x18,
-                                "RSI" => 0x30,
-                                "RDI" => 0x38,
-                                "R8"  => 0x80,
-                                "R9"  => 0x88,
-                                "R10" => 0x90,
-                                "R11" => 0x98,
-                                "R12" => 0xa0,
-                                "R13" => 0xa8,
-                                "R14" => 0xb0,
-                                "R15" => 0xb8,
-                                _ => continue, // Ignore others mappings
-                            };
-                            args.push((arg_name, register_offset));
-                        }
-                    }
-        
-                    function_args_map.insert(address, (function_name, args));
-                }
-        
-                if let Some((_, args)) = function_args_map.get(&current_rip) {
-                    let mut arg_values = Vec::new();
-                
-                    for (arg_name, register_offset) in args {
-                        if let Some(value) = executor.state.cpu_state.lock().unwrap().get_register_by_offset(*register_offset, 64) {
-                            arg_values.push(format!("{}=0x{:x} (reg={:x})", arg_name, value.concrete, register_offset));
-                        }
-                    }
-                
-                    if !arg_values.is_empty() {
-                        // Log function only once if arguments are found
-                        let log_string = format!("Address: {:x}, Symbol: {} -> {}", current_rip, symbol_name, arg_values.join(", "));
-                        log!(executor.trace_logger, "{}", log_string);
-                    }
-                } else {
-                    // Log function 
-                    log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
-                }
-            }    
+                log!(executor.trace_logger, "Address: {:x}, Symbol: {}", current_rip, symbol_name);
+            }
         }
 
         // Removed the RIP reset from here
