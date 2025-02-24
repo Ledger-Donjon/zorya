@@ -1,16 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Extracts function argument register mappings for all functions in the binary for runtime logging.
+Extracts function argument register mappings for all functions in the binary for runtime logging,
+and outputs a JSON file.
 """
 
 import os
 import sys
+import json
 from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 
 def main():
-    # This version only requires one argument: the ZORYA directory.
+    # This version requires one argument: the ZORYA directory.
     script_args = getScriptArgs()
     if len(script_args) < 1:
         print("Usage: <script> <zorya_dir>")
@@ -22,19 +24,17 @@ def main():
         exit(1)
 
     results_dir = os.path.join(zorya_dir, "results")
-    trace_log_file = os.path.join(results_dir, "function_signature.txt")
+    json_file = os.path.join(results_dir, "function_signature.json")
 
     # Ensure the results directory exists.
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
     # (Re)create the output file.
-    open(trace_log_file, "w").close()
+    open(json_file, "w").close()
 
-    print("Function signature file will be saved at: {}".format(trace_log_file))
+    print("Function signature JSON will be saved at: {}".format(json_file))
 
-    def log_to_file(log_entry):
-        with open(trace_log_file, "a") as f:
-            f.write(log_entry + "\n")
+    signatures = []
 
     if currentProgram is None:
         print("No program loaded!")
@@ -42,33 +42,40 @@ def main():
 
     listing = currentProgram.getListing()
     fm = currentProgram.getFunctionManager()
-    # Get all functions in the program.
     functions = fm.getFunctions(True)
     count = 0
     for func in functions:
         entry_point = func.getEntryPoint().toString()  # e.g., "00212710"
         function_name = func.getName()
         params = func.getParameters()
-        arg_list = []
+        arguments = []
         for param in params:
             name = param.getName()
             storage = param.getVariableStorage()
             if storage.isRegisterStorage():
                 register_name = storage.getRegister().getName()
-                arg_list.append("{}={}".format(name, register_name))
+                arguments.append({"name": name, "register": register_name})
             elif storage.isStackStorage():
                 varnode = storage.getFirstVarnode()
-                stack_offset = varnode.getAddress().getOffset() if varnode else "Unknown"
-                arg_list.append("{}=Stack_0x{:x}".format(name, stack_offset))
-        if len(arg_list) == 0:
-            arg_list.append("NoArgs=None")
-        log_entry = "{},{},{}".format(entry_point, function_name, ",".join(arg_list))
-        log_to_file(log_entry)
+                if varnode:
+                    offset = varnode.getAddress().getOffset()
+                    arguments.append({"name": name, "register": "Stack_0x{:x}".format(offset)})
+                else:
+                    arguments.append({"name": name, "register": "Stack_Unknown"})
+        if len(arguments) == 0:
+            arguments.append({"name": "NoArgs", "register": "None"})
+        signatures.append({
+            "address": entry_point,
+            "function_name": function_name,
+            "arguments": arguments
+        })
         count += 1
-    print("Wrote {} function signatures to {}".format(count, trace_log_file))
+
+    with open(json_file, "w") as f:
+        json.dump(signatures, f, indent=2)
+    print("Wrote {} function signatures to {}".format(count, json_file))
 
 main()
-
 
 # #!/usr/bin/env python3
 # """

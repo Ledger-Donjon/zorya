@@ -6,6 +6,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use parser::parser::{Inst, Opcode};
+use serde::Deserialize;
 use z3::ast::{Ast, Bool, Int, BV};
 use z3::{Config, Context, Solver};
 use zorya::concolic::{ConcolicVar, Logger};
@@ -63,6 +64,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Precompute all function signatures using Ghidra headless
     log!(executor.state.logger, "Precomputing function signatures using Ghidra headless...");
     precompute_function_signatures(&binary_path, &mut executor)?;
+
+    // Now load the JSON file with the function signatures
+    let function_args_map = load_function_args_map();
+    log!(executor.state.logger, "Loaded {} function signatures.", function_args_map.len());
 
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
@@ -312,56 +317,51 @@ fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExe
 
 /// Load the function arguments map from the precomputed file.
 fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64)>)> {
-    let trace_file = "results/function_signature.txt";
+    let json_file = "results/function_signature.json";
     let mut function_args_map: HashMap<u64, (String, Vec<(String, u64)>)> = HashMap::new();
 
-    if Path::new(trace_file).exists() {
-        let file = File::open(trace_file).expect("Failed to open function signature file");
+    if Path::new(json_file).exists() {
+        let file = File::open(json_file).expect("Failed to open function signature JSON file");
         let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let log_entry = line.expect("Failed to read line");
-            // Skip entries with no arguments.
-            if log_entry.contains("NoArgs=None") {
-                continue;
+        let signatures: Vec<FunctionSignature> = serde_json::from_reader(reader)
+            .expect("Failed to parse JSON file");
+
+        for sig in signatures {
+            // Parse the address as hexadecimal.
+            let address = u64::from_str_radix(sig.address.trim_start_matches("0x"), 16)
+                .unwrap_or(0);
+            let function_name = sig.function_name;
+            let mut args = Vec::new();
+            for arg in sig.arguments {
+                // Convert known register names to offsets.
+                let register_offset = match arg.register.as_str() {
+                    "RAX" => 0x0,
+                    "RCX" => 0x8,
+                    "RDX" => 0x10,
+                    "RBX" => 0x18,
+                    "RSI" => 0x30,
+                    "RDI" => 0x38,
+                    "R8"  => 0x80,
+                    "R9"  => 0x88,
+                    "R10" => 0x90,
+                    "R11" => 0x98,
+                    "R12" => 0xa0,
+                    "R13" => 0xa8,
+                    "R14" => 0xb0,
+                    "R15" => 0xb8,
+                    _ => continue, // Skip non-standard register names.
+                };
+                args.push((arg.name, register_offset));
             }
-            let parts: Vec<&str> = log_entry.split(',').collect();
-            if parts.len() < 3 {
-                continue; // Ignore malformed lines.
+            // Only insert if we found valid arguments.
+            if !args.is_empty() {
+                function_args_map.insert(address, (function_name, args));
             }
-            let address = u64::from_str_radix(parts[0].trim(), 16).unwrap_or(0);
-            let function_name = parts[1].trim().to_string();
-            let mut args: Vec<(String, u64)> = Vec::new();
-            for arg in &parts[2..] {
-                let arg_parts: Vec<&str> = arg.split('=').collect();
-                if arg_parts.len() == 2 {
-                    let arg_name = arg_parts[0].trim().to_string();
-                    let register_name = arg_parts[1].trim().to_string();
-                    let register_offset = match register_name.as_str() {
-                        "RAX" => 0x0,
-                        "RCX" => 0x8,
-                        "RDX" => 0x10,
-                        "RBX" => 0x18,
-                        "RSI" => 0x30,
-                        "RDI" => 0x38,
-                        "R8"  => 0x80,
-                        "R9"  => 0x88,
-                        "R10" => 0x90,
-                        "R11" => 0x98,
-                        "R12" => 0xa0,
-                        "R13" => 0xa8,
-                        "R14" => 0xb0,
-                        "R15" => 0xb8,
-                        _ => continue,
-                    };
-                    args.push((arg_name, register_offset));
-                }
-            }
-            function_args_map.insert(address, (function_name, args));
         }
     } else {
         println!(
             "Warning: {} not found. Please precompute the function signatures using Ghidra.",
-            trace_file
+            json_file
         );
     }
     function_args_map
@@ -739,4 +739,17 @@ fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<
     log!(executor.state.logger, "Wrote NULL terminator at 0x{:x}", argv_null_addr);
 
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct FunctionSignature {
+    address: String,
+    function_name: String,
+    arguments: Vec<FunctionArgument>,
+}
+
+#[derive(Deserialize)]
+struct FunctionArgument {
+    name: String,
+    register: String,
 }

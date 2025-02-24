@@ -1,0 +1,8388 @@
+[
+  {
+    "address": "0020c880", 
+    "function_name": "__init_array_start", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c89b", 
+    "function_name": "tinygo_longjmp", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c8a4", 
+    "function_name": "tinygo_startTask", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c8af", 
+    "function_name": "tinygo_swapTask", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c8cc", 
+    "function_name": "entry", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c8e2", 
+    "function_name": "_start_c", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c905", 
+    "function_name": "dummy", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c906", 
+    "function_name": "dummy1", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020c907", 
+    "function_name": "__init_libc", 
+    "arguments": [
+      {
+        "name": "envp", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "pn", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020ca76", 
+    "function_name": "libc_start_init", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020caa2", 
+    "function_name": "__libc_start_main", 
+    "arguments": [
+      {
+        "name": "main", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "argc", 
+        "register": "ESI"
+      }, 
+      {
+        "name": "argv", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "init_dummy", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "fini_dummy", 
+        "register": "R8"
+      }, 
+      {
+        "name": "ldso_dummy", 
+        "register": "R9"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cad7", 
+    "function_name": "libc_start_main_stage2", 
+    "arguments": [
+      {
+        "name": "main", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "argc", 
+        "register": "ESI"
+      }, 
+      {
+        "name": "argv", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cb08", 
+    "function_name": "__init_tp", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cb71", 
+    "function_name": "__copy_tls", 
+    "arguments": [
+      {
+        "name": "mem", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cbf2", 
+    "function_name": "static_init_tls", 
+    "arguments": [
+      {
+        "name": "aux", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cd5c", 
+    "function_name": "abort", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cdda", 
+    "function_name": "_Exit", 
+    "arguments": [
+      {
+        "name": "ec", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cdee", 
+    "function_name": "dummy", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cdef", 
+    "function_name": "libc_exit_fini", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020ce22", 
+    "function_name": "exit", 
+    "arguments": [
+      {
+        "name": "code", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020ce3d", 
+    "function_name": "dummy", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020ce3e", 
+    "function_name": "__mmap", 
+    "arguments": [
+      {
+        "name": "start", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "len", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "prot", 
+        "register": "EDX"
+      }, 
+      {
+        "name": "flags", 
+        "register": "ECX"
+      }, 
+      {
+        "name": "fd", 
+        "register": "R8D"
+      }, 
+      {
+        "name": "off", 
+        "register": "R9"
+      }
+    ]
+  }, 
+  {
+    "address": "0020ceec", 
+    "function_name": "__errno_location", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cefa", 
+    "function_name": "__syscall_ret", 
+    "arguments": [
+      {
+        "name": "r", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cf18", 
+    "function_name": "__block_all_sigs", 
+    "arguments": [
+      {
+        "name": "set", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cf2e", 
+    "function_name": "__block_app_sigs", 
+    "arguments": [
+      {
+        "name": "set", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cf44", 
+    "function_name": "__restore_sigs", 
+    "arguments": [
+      {
+        "name": "set", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cf56", 
+    "function_name": "raise", 
+    "arguments": [
+      {
+        "name": "sig", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020cfa6", 
+    "function_name": "__libc_sigaction", 
+    "arguments": [
+      {
+        "name": "sig", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "sa", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "old", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d0b7", 
+    "function_name": "__sigaction", 
+    "arguments": [
+      {
+        "name": "sig", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "sa", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "old", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d134", 
+    "function_name": "__restore_rt", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d135", 
+    "function_name": "memcpy", 
+    "arguments": [
+      {
+        "name": "dest", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "src", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d37f", 
+    "function_name": "memset", 
+    "arguments": [
+      {
+        "name": "dest", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "c", 
+        "register": "ESI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d450", 
+    "function_name": "strlen", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d4c4", 
+    "function_name": "__set_thread_area", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d4d4", 
+    "function_name": "__lock", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d575", 
+    "function_name": "__unlock", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d5ab", 
+    "function_name": "__clock_gettime", 
+    "arguments": [
+      {
+        "name": "clk", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "ts", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d628", 
+    "function_name": "cgt_init", 
+    "arguments": [
+      {
+        "name": "clk", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "ts", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d672", 
+    "function_name": "__vdsosym", 
+    "arguments": [
+      {
+        "name": "vername", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "name", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d87e", 
+    "function_name": "strcmp", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "r", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d89a", 
+    "function_name": "usleep", 
+    "arguments": [
+      {
+        "name": "useconds", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d8c8", 
+    "function_name": "nanosleep", 
+    "arguments": [
+      {
+        "name": "req", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "rem", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d8e3", 
+    "function_name": "__clock_nanosleep", 
+    "arguments": [
+      {
+        "name": "clk", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "flags", 
+        "register": "ESI"
+      }, 
+      {
+        "name": "req", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "rem", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d930", 
+    "function_name": "sccp", 
+    "arguments": [
+      {
+        "name": "nr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "u", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "v", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "w", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "x", 
+        "register": "R8"
+      }, 
+      {
+        "name": "y", 
+        "register": "R9"
+      }, 
+      {
+        "name": "z", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d94d", 
+    "function_name": "__syscall_cp", 
+    "arguments": [
+      {
+        "name": "nr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "u", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "v", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "w", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "x", 
+        "register": "R8"
+      }, 
+      {
+        "name": "y", 
+        "register": "R9"
+      }, 
+      {
+        "name": "z", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d952", 
+    "function_name": "write", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "buf", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "count", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020d978", 
+    "function_name": "memmove", 
+    "arguments": [
+      {
+        "name": "dest", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "src", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020da60", 
+    "function_name": "internal/itoa.Itoa", 
+    "arguments": [
+      {
+        "name": "val", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020da90", 
+    "function_name": "internal/itoa.Uitoa", 
+    "arguments": [
+      {
+        "name": "val", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020db40", 
+    "function_name": "math/bits.TrailingZeros", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020db60", 
+    "function_name": "math/bits.TrailingZeros64", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020db80", 
+    "function_name": "math/bits.Len", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dba0", 
+    "function_name": "math/bits.Len32", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dbc0", 
+    "function_name": "math/bits.Len64", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dbe0", 
+    "function_name": "math/bits.Add64", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "carry", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dc10", 
+    "function_name": "math/bits.Mul64", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dc60", 
+    "function_name": "math.Float64bits", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "XMM0_Qa"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dc90", 
+    "function_name": "math.Float32bits", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "XMM0_Da"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dcc0", 
+    "function_name": "unicode/utf8.DecodeRune", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020de10", 
+    "function_name": "unicode/utf8.DecodeRuneInString", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020df60", 
+    "function_name": "unicode/utf8.RuneLen", 
+    "arguments": [
+      {
+        "name": "r", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020dfc0", 
+    "function_name": "unicode/utf8.EncodeRune", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e0f0", 
+    "function_name": "unicode/utf8.AppendRune", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e150", 
+    "function_name": "unicode/utf8.appendRuneNonASCII", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e2a0", 
+    "function_name": "unicode/utf8.RuneCount", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e3b0", 
+    "function_name": "unicode/utf8.RuneCountInString", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e4c0", 
+    "function_name": "unicode/utf8.ValidRune", 
+    "arguments": [
+      {
+        "name": "r", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e500", 
+    "function_name": "reflect.TypeOf", 
+    "arguments": [
+      {
+        "name": "i", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e520", 
+    "function_name": "(*reflect.rawType).Kind", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e550", 
+    "function_name": "(*reflect.rawType).Size", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e650", 
+    "function_name": "(*reflect.rawType).elem", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e6c0", 
+    "function_name": "(*reflect.rawType).Len", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e700", 
+    "function_name": "(*reflect.rawType).underlying", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e730", 
+    "function_name": "(*reflect.rawType).isNamed", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e760", 
+    "function_name": "(*reflect.rawType).ptrtag", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e770", 
+    "function_name": "(*reflect.TypeError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e7b0", 
+    "function_name": "(*reflect.rawType).ChanDir", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e7e0", 
+    "function_name": "(*reflect.rawType).Elem", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020e7f0", 
+    "function_name": "(*reflect.rawType).Field", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "i", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020eaa0", 
+    "function_name": "(*reflect.rawType).Key", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020eab0", 
+    "function_name": "(*reflect.rawType).NumField", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020eaf0", 
+    "function_name": "(*reflect.rawType).NumMethod", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020eb30", 
+    "function_name": "(*reflect.rawType).String", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020ef60", 
+    "function_name": "(*reflect.rawType).isBinary", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020ef80", 
+    "function_name": "(*reflect.rawType).key", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020efc0", 
+    "function_name": "(*reflect.rawType).name", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020efe0", 
+    "function_name": "(*reflect.rawType).rawField", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020f130", 
+    "function_name": "reflect.uvarint32", 
+    "arguments": [
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020f190", 
+    "function_name": "reflect.readStringZ", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020f1f0", 
+    "function_name": "reflect.rawStructFieldFromPointer", 
+    "arguments": [
+      {
+        "name": "descriptor", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "fieldType", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "data", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "flagsByte", 
+        "register": "DIL"
+      }, 
+      {
+        "name": "name", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "offset", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020f380", 
+    "function_name": "(reflect.Kind).String", 
+    "arguments": [
+      {
+        "name": "k", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "0020f570", 
+    "function_name": "reflect.quote", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020f7e0", 
+    "function_name": "reflect.appendEscapedRune", 
+    "arguments": [
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0020fb70", 
+    "function_name": "reflect.isPrint", 
+    "arguments": [
+      {
+        "name": "r", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0020fbb0", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0020fbd0", 
+    "function_name": "(reflect.Value).IsValid", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020fc00", 
+    "function_name": "(reflect.Value).pointer", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020fc50", 
+    "function_name": "(reflect.Value).Kind", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020fc80", 
+    "function_name": "(reflect.Value).Len", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0020fd80", 
+    "function_name": "(reflect.Value).Index", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "i", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "002102f0", 
+    "function_name": "(reflect.Value).IsNil", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210420", 
+    "function_name": "(reflect.Value).UnsafePointer", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210510", 
+    "function_name": "(reflect.Value).Elem", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002106c0", 
+    "function_name": "(reflect.Value).NumField", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002106f0", 
+    "function_name": "(reflect.Value).Field", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "i", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00210ac0", 
+    "function_name": "reflect.valueInterfaceUnsafe", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210ba0", 
+    "function_name": "(reflect.Value).isIndirect", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210bd0", 
+    "function_name": "reflect.New", 
+    "arguments": [
+      {
+        "name": "typ", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210c80", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00210ca0", 
+    "function_name": "(reflect.Value).Interface", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210ce0", 
+    "function_name": "(reflect.Value).isExported", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210d10", 
+    "function_name": "reflect.pointerTo", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00210d60", 
+    "function_name": "(*reflect.Kind).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00210d80", 
+    "function_name": "(reflect.Kind).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00210d90", 
+    "function_name": "(*reflect.ValueError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00210e70", 
+    "function_name": "reflect.ValueOf", 
+    "arguments": [
+      {
+        "name": "i", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210ed0", 
+    "function_name": "reflect.loadValue", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "size", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00210f10", 
+    "function_name": "reflect.maskAndShift", 
+    "arguments": [
+      {
+        "name": "value", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "offset", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "size", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00210f50", 
+    "function_name": "(reflect.valueFlags).ro", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00210f60", 
+    "function_name": "(reflect.badSyntax).Error", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00210f70", 
+    "function_name": "(*reflect.badSyntax).Error", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00210f80", 
+    "function_name": "(reflect.badSyntax).Error$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00210f90", 
+    "function_name": "(reflect.Value).CanAddr", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00210fc0", 
+    "function_name": "(reflect.Value).Bool", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211080", 
+    "function_name": "(reflect.Value).Bytes", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211250", 
+    "function_name": "(reflect.Value).checkAddressable", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211270", 
+    "function_name": "(reflect.Value).CanInterface", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002112a0", 
+    "function_name": "(reflect.Value).isRO", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002112d0", 
+    "function_name": "(reflect.Value).Type", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211300", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00211320", 
+    "function_name": "(reflect.Value).Complex", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211420", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00211440", 
+    "function_name": "(reflect.Value).Float", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211540", 
+    "function_name": "(reflect.Value).Uint", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002116b0", 
+    "function_name": "(reflect.Value).Int", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211870", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002118e0", 
+    "function_name": "(reflect.Value).MapRange", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211a30", 
+    "function_name": "(reflect.Value).Pointer", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211a40", 
+    "function_name": "(reflect.Value).RawType", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211a70", 
+    "function_name": "(reflect.Value).String", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211af0", 
+    "function_name": "(*reflect.MapIter).Key", 
+    "arguments": [
+      {
+        "name": "it", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00211b70", 
+    "function_name": "(*reflect.MapIter).Next", 
+    "arguments": [
+      {
+        "name": "it", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00211c90", 
+    "function_name": "(*reflect.MapIter).Value", 
+    "arguments": [
+      {
+        "name": "it", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00211ce0", 
+    "function_name": "(*errors.errorString).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00211d00", 
+    "function_name": "errors.New", 
+    "arguments": [
+      {
+        "name": "text", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00211d40", 
+    "function_name": "(*errors.joinError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00211f20", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002120b0", 
+    "function_name": "runtime/interrupt.Disable", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002120c0", 
+    "function_name": "runtime/interrupt.Restore", 
+    "arguments": [
+      {
+        "name": "state", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002120d0", 
+    "function_name": "runtime/interrupt.In", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002120e0", 
+    "function_name": "(*internal/task.gcData).swap", 
+    "arguments": [
+      {
+        "name": "gcd", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002120f0", 
+    "function_name": "(*internal/task.Queue).Pop", 
+    "arguments": [
+      {
+        "name": "q", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212170", 
+    "function_name": "(*internal/task.Queue).Push", 
+    "arguments": [
+      {
+        "name": "q", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "t", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212200", 
+    "function_name": "(*internal/task.Stack).Pop", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212260", 
+    "function_name": "(*internal/task.Stack).Push", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "t", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "002122a0", 
+    "function_name": "(*internal/task.Task).Resume", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212300", 
+    "function_name": "(*internal/task.state).resume", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212320", 
+    "function_name": "(*internal/task.state).archInit", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "r", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "fn", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "args", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00212370", 
+    "function_name": "(*internal/task.state).initialize", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "fn", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "args", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "stackSize", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "002123f0", 
+    "function_name": "(*internal/task.state).pause", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212420", 
+    "function_name": "internal/task.Current", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212430", 
+    "function_name": "internal/task.Pause", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002124b0", 
+    "function_name": "internal/task.pause", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002124c0", 
+    "function_name": "internal/task.start", 
+    "arguments": [
+      {
+        "name": "fn", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "args", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "stackSize", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00212510", 
+    "function_name": "internal/task.OnSystemStack", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212520", 
+    "function_name": "internal/task.SystemStack", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212530", 
+    "function_name": "sync/atomic.StorePointer", 
+    "arguments": [
+      {
+        "name": "addr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "val", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212540", 
+    "function_name": "runtime.alloc", 
+    "arguments": [
+      {
+        "name": "size", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "layout", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212710", 
+    "function_name": "runtime.align", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212720", 
+    "function_name": "runtime.runtimePanicAt", 
+    "arguments": [
+      {
+        "name": "addr", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "msg", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00212780", 
+    "function_name": "runtime.runGC", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002127a0", 
+    "function_name": "runtime.growHeap", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212810", 
+    "function_name": "(runtime.gcBlock).state", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212840", 
+    "function_name": "(runtime.gcBlock).pointer", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212850", 
+    "function_name": "runtime.printstring", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00212890", 
+    "function_name": "runtime.printptr", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212900", 
+    "function_name": "runtime.printint64", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212920", 
+    "function_name": "runtime.printnl", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212930", 
+    "function_name": "(runtime.gcBlock).setState", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "newState", 
+        "register": "SIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00212960", 
+    "function_name": "runtime.memzero", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "size", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212970", 
+    "function_name": "runtime.runtimePanic", 
+    "arguments": [
+      {
+        "name": "msg", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00212990", 
+    "function_name": "runtime.putchar", 
+    "arguments": [
+      {
+        "name": "c", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "002129c0", 
+    "function_name": "runtime.printuint64", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212a50", 
+    "function_name": "(runtime.gcBlock).address", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212a60", 
+    "function_name": "runtime.setHeapEnd", 
+    "arguments": [
+      {
+        "name": "newHeapEnd", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212aa0", 
+    "function_name": "runtime.calculateHeapAddresses", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212af0", 
+    "function_name": "runtime.memcpy", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "src", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "size", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00212b00", 
+    "function_name": "runtime.markStack", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212b30", 
+    "function_name": "runtime.markRoots", 
+    "arguments": [
+      {
+        "name": "start", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "end", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212b60", 
+    "function_name": "runtime.findGlobals", 
+    "arguments": [
+      {
+        "name": "found", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00212c00", 
+    "function_name": "runtime.finishMark", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212c60", 
+    "function_name": "runtime.markRoot", 
+    "arguments": [
+      {
+        "name": "addr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "root", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212cb0", 
+    "function_name": "runtime.sweep", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00212d40", 
+    "function_name": "(runtime.gcBlock).markFree", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212d70", 
+    "function_name": "(runtime.gcBlock).unmark", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212da0", 
+    "function_name": "runtime.isOnHeap", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212dc0", 
+    "function_name": "runtime.blockFromAddr", 
+    "arguments": [
+      {
+        "name": "addr", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212dd0", 
+    "function_name": "(runtime.gcBlock).findHead", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212e00", 
+    "function_name": "runtime.startMark", 
+    "arguments": [
+      {
+        "name": "root", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00212ff0", 
+    "function_name": "runtime.newGCObjectScanner", 
+    "arguments": [
+      {
+        "name": "block", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "002130a0", 
+    "function_name": "(*runtime.gcObjectScanner).pointerFree", 
+    "arguments": [
+      {
+        "name": "scanner", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002130e0", 
+    "function_name": "(runtime.gcBlock).findNext", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00213120", 
+    "function_name": "(*runtime.gcObjectScanner).nextIsPointer", 
+    "arguments": [
+      {
+        "name": "scanner", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "word", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "parent", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "addrOfWord", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00213220", 
+    "function_name": "runtime.lookupPanic", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00213240", 
+    "function_name": "runtime.nilPanic", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00213260", 
+    "function_name": "runtime.getSystemStackPointer", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00213280", 
+    "function_name": "runtime.getCurrentStackPointer", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00213290", 
+    "function_name": "runtime.stacksave", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002132a0", 
+    "function_name": "runtime.fastrand", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002132c0", 
+    "function_name": "runtime.xorshift32", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002132e0", 
+    "function_name": "runtime.hash32", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "seed", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00213310", 
+    "function_name": "runtime.chanLen", 
+    "arguments": [
+      {
+        "name": "c", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00213330", 
+    "function_name": "runtime._panic", 
+    "arguments": [
+      {
+        "name": "message", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002133a0", 
+    "function_name": "runtime.printitf", 
+    "arguments": [
+      {
+        "name": "msg", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00213670", 
+    "function_name": "runtime.printbool", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "002136a0", 
+    "function_name": "runtime.printint8", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "002136b0", 
+    "function_name": "runtime.printint16", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "DI"
+      }
+    ]
+  }, 
+  {
+    "address": "002136c0", 
+    "function_name": "runtime.printint32", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002136e0", 
+    "function_name": "runtime.printuint8", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "002136f0", 
+    "function_name": "runtime.printuint16", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "DI"
+      }
+    ]
+  }, 
+  {
+    "address": "00213700", 
+    "function_name": "runtime.printuint32", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00213710", 
+    "function_name": "runtime.printfloat32", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "XMM0_Da"
+      }
+    ]
+  }, 
+  {
+    "address": "00213ab0", 
+    "function_name": "runtime.printfloat64", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "XMM0_Qa"
+      }
+    ]
+  }, 
+  {
+    "address": "00213e60", 
+    "function_name": "runtime.printcomplex64", 
+    "arguments": [
+      {
+        "name": "c", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00213ea0", 
+    "function_name": "runtime.printcomplex128", 
+    "arguments": [
+      {
+        "name": "c", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00213ef0", 
+    "function_name": "(Go_interface_assert)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00213fc0", 
+    "function_name": "(Go_interface_assert)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00214050", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00214140", 
+    "function_name": "runtime.printuintptr", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214150", 
+    "function_name": "runtime.runqueuePushBack", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214160", 
+    "function_name": "runtime.stringEqual", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "y", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "00214190", 
+    "function_name": "runtime.sliceCopy", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "src", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "dstLen", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "srcLen", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "elemSize", 
+        "register": "R8"
+      }
+    ]
+  }, 
+  {
+    "address": "002141b0", 
+    "function_name": "runtime.slicePanic", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002141d0", 
+    "function_name": "runtime.memmove", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "src", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "size", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "002141e0", 
+    "function_name": "runtime.initHeap", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00214200", 
+    "function_name": "runtime.scanstack", 
+    "arguments": [
+      {
+        "name": "sp", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214230", 
+    "function_name": "runtime.hashmapNewIterator", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00214250", 
+    "function_name": "runtime.hashmapTopHash", 
+    "arguments": [
+      {
+        "name": "hash", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214260", 
+    "function_name": "runtime.hashmapMake", 
+    "arguments": [
+      {
+        "name": "keySize", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "valueSize", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "sizeHint", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "alg", 
+        "register": "CL"
+      }
+    ]
+  }, 
+  {
+    "address": "002143a0", 
+    "function_name": "runtime.hashmapHasSpaceToGrow", 
+    "arguments": [
+      {
+        "name": "bucketBits", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "002143b0", 
+    "function_name": "runtime.hashmapOverLoadFactor", 
+    "arguments": [
+      {
+        "name": "n", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "bucketBits", 
+        "register": "SIL"
+      }
+    ]
+  }, 
+  {
+    "address": "002143d0", 
+    "function_name": "runtime.hashmapKeyHashAlg", 
+    "arguments": [
+      {
+        "name": "alg", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00214400", 
+    "function_name": "runtime.hashmapKeyEqualAlg", 
+    "arguments": [
+      {
+        "name": "alg", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00214430", 
+    "function_name": "runtime.memequal", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00214460", 
+    "function_name": "runtime.hashmapStringEqual", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00214480", 
+    "function_name": "runtime.hashmapInterfaceEqual", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "002144a0", 
+    "function_name": "runtime.interfaceEqual", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "y", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "002144f0", 
+    "function_name": "runtime.reflectValueEqual", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "y", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "002148c0", 
+    "function_name": "runtime.hashmapStringPtrHash", 
+    "arguments": [
+      {
+        "name": "sptr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "size", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "seed", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00214900", 
+    "function_name": "runtime.hashmapInterfacePtrHash", 
+    "arguments": [
+      {
+        "name": "iptr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "size", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "seed", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00214920", 
+    "function_name": "runtime.hashmapInterfaceHash", 
+    "arguments": [
+      {
+        "name": "itf", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "seed", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00214bb0", 
+    "function_name": "runtime.hashmapFloat32Hash", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "seed", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214c00", 
+    "function_name": "runtime.hashmapFloat64Hash", 
+    "arguments": [
+      {
+        "name": "ptr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "seed", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214c50", 
+    "function_name": "runtime.hashmapStringHash", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "seed", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00214ca0", 
+    "function_name": "runtime.hashmapBucketSize", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214ce0", 
+    "function_name": "runtime.hashmapBucketAddr", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "buckets", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00214d00", 
+    "function_name": "runtime.hashmapLen", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214d20", 
+    "function_name": "runtime.hashmapBucketAddrForHash", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "hash", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "00214d60", 
+    "function_name": "runtime.hashmapSlotKey", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "bucket", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "slot", 
+        "register": "DL"
+      }
+    ]
+  }, 
+  {
+    "address": "00214d90", 
+    "function_name": "runtime.hashmapSlotValue", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "bucket", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "slot", 
+        "register": "DL"
+      }
+    ]
+  }, 
+  {
+    "address": "00214dd0", 
+    "function_name": "runtime.hashmapSet", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "key", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "value", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "hash", 
+        "register": "ECX"
+      }
+    ]
+  }, 
+  {
+    "address": "002150f0", 
+    "function_name": "runtime.hashmapGrow", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215310", 
+    "function_name": "runtime.hashmapInsertIntoNewBucket", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "key", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "value", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "tophash", 
+        "register": "CL"
+      }
+    ]
+  }, 
+  {
+    "address": "002153e0", 
+    "function_name": "runtime.hashmapNext", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "it", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "key", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "value", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00215810", 
+    "function_name": "runtime.hashmapGet", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "key", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "value", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "valueSize", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "hash", 
+        "register": "R8D"
+      }
+    ]
+  }, 
+  {
+    "address": "00215970", 
+    "function_name": "runtime.nilMapPanic", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215990", 
+    "function_name": "runtime.hashmapStringSet", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "key", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "value", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00215a10", 
+    "function_name": "runtime.hashmapStringGet", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "key", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "value", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "valueSize", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00215a90", 
+    "function_name": "runtime.composeInterface", 
+    "arguments": [
+      {
+        "name": "typecode", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "value", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215ad0", 
+    "function_name": "runtime.decomposeInterface", 
+    "arguments": [
+      {
+        "name": "i", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00215b10", 
+    "function_name": "runtime.interfaceTypeAssert", 
+    "arguments": [
+      {
+        "name": "ok", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00215b30", 
+    "function_name": "runtime.setupDeferFrame", 
+    "arguments": [
+      {
+        "name": "frame", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "jumpSP", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215ba0", 
+    "function_name": "runtime.destroyDeferFrame", 
+    "arguments": [
+      {
+        "name": "frame", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215c00", 
+    "function_name": "runtime._recover", 
+    "arguments": [
+      {
+        "name": "useParentFrame", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00215c70", 
+    "function_name": "runtime.unsafeSlicePanic", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215c90", 
+    "function_name": "runtime.negativeShiftPanic", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215cb0", 
+    "function_name": "runtime.divideByZeroPanic", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215cd0", 
+    "function_name": "runtime.GOROOT", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215ce0", 
+    "function_name": "runtime.nanotime", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215cf0", 
+    "function_name": "runtime.ticks", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215d00", 
+    "function_name": "runtime.ticksToNanoseconds", 
+    "arguments": [
+      {
+        "name": "ticks", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215d10", 
+    "function_name": "runtime.monotime", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215d20", 
+    "function_name": "runtime.getTime", 
+    "arguments": [
+      {
+        "name": "clock", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215d70", 
+    "function_name": "runtime.clock_gettime", 
+    "arguments": [
+      {
+        "name": "clk_id", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "ts", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215d80", 
+    "function_name": "runtime.write", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "p", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "n", 
+        "register": "EDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00215de0", 
+    "function_name": "runtime.main", 
+    "arguments": [
+      {
+        "name": "argc", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "argv", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00215e20", 
+    "function_name": "runtime.preinit", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215ea0", 
+    "function_name": "runtime.runMain", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215eb0", 
+    "function_name": "runtime.run", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215ed0", 
+    "function_name": "<goroutine_wrapper>", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00215ee0", 
+    "function_name": "runtime.scheduler", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00216160", 
+    "function_name": "runtime.scheduleLog", 
+    "arguments": [
+      {
+        "name": "msg", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00216170", 
+    "function_name": "runtime.scheduleLogTask", 
+    "arguments": [
+      {
+        "name": "msg", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "t", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00216180", 
+    "function_name": "(*runtime.timerNode).whenTicks", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002161b0", 
+    "function_name": "runtime.waitForEvents", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002161d0", 
+    "function_name": "runtime.sleepTicks", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00216200", 
+    "function_name": "runtime.nanosecondsToTicks", 
+    "arguments": [
+      {
+        "name": "ns", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00216210", 
+    "function_name": "runtime.run$1", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00216230", 
+    "function_name": "runtime.initAll", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002162b0", 
+    "function_name": "runtime.os_runtime_args", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002163b0", 
+    "function_name": "runtime.tinygo_handle_fatal_signal", 
+    "arguments": [
+      {
+        "name": "sig", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "addr", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00216450", 
+    "function_name": "runtime.syscall_runtime_envs", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00216590", 
+    "function_name": "runtime.sliceAppend", 
+    "arguments": [
+      {
+        "name": "srcBuf", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "elemsBuf", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "srcLen", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "srcCap", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "elemsLen", 
+        "register": "R8"
+      }, 
+      {
+        "name": "elemSize", 
+        "register": "R9"
+      }
+    ]
+  }, 
+  {
+    "address": "00216600", 
+    "function_name": "runtime.sliceGrow", 
+    "arguments": [
+      {
+        "name": "oldBuf", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "oldLen", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "oldCap", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "newCap", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "elemSize", 
+        "register": "R8"
+      }
+    ]
+  }, 
+  {
+    "address": "00216690", 
+    "function_name": "runtime.now", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002166e0", 
+    "function_name": "runtime.stringLess", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "y", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "00216730", 
+    "function_name": "runtime.stringConcat", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "y", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "00216860", 
+    "function_name": "runtime.stringFromBytes", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002168f0", 
+    "function_name": "runtime.stringToBytes", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002169a0", 
+    "function_name": "runtime.encodeUTF8", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "00216ad0", 
+    "function_name": "runtime.stringNext", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "it", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00216b30", 
+    "function_name": "runtime.decodeUTF8", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "index", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00216ce0", 
+    "function_name": "runtime.isContinuation", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00216cf0", 
+    "function_name": "runtime.stringFromUnicode", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00216d60", 
+    "function_name": "(*slices.xorshift).Next", 
+    "arguments": [
+      {
+        "name": "r", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00216dc0", 
+    "function_name": "slices.nextPowerOfTwo", 
+    "arguments": [
+      {
+        "name": "length", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00216df0", 
+    "function_name": "internal/fmtsort.Sort", 
+    "arguments": [
+      {
+        "name": "mapValue", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00216fd0", 
+    "function_name": "internal/fmtsort.Sort$1", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x38"
+      }
+    ]
+  }, 
+  {
+    "address": "00217070", 
+    "function_name": "slices.SortStableFunc[internal/fmtsort.SortedMap_internal/fmtsort.KeyValue]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "cmp", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00217090", 
+    "function_name": "slices.stableCmpFunc[internal/fmtsort.KeyValue]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "n", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "cmp", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "002171b0", 
+    "function_name": "slices.insertionSortCmpFunc[internal/fmtsort.KeyValue]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "cmp", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00217390", 
+    "function_name": "slices.symMergeCmpFunc[internal/fmtsort.KeyValue]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "m", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "cmp", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00217930", 
+    "function_name": "slices.rotateCmpFunc[internal/fmtsort.KeyValue]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "m", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "cmp", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00217a10", 
+    "function_name": "slices.swapRangeCmpFunc[internal/fmtsort.KeyValue]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "n", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "cmp", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00217b50", 
+    "function_name": "internal/fmtsort.compare", 
+    "arguments": [
+      {
+        "name": "aVal", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00218080", 
+    "function_name": "cmp.Compare[int64]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "002180d0", 
+    "function_name": "cmp.Compare[uint64]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218120", 
+    "function_name": "cmp.Compare[string]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "y", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "002181a0", 
+    "function_name": "cmp.Compare[float64]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "XMM0_Qa"
+      }, 
+      {
+        "name": "y", 
+        "register": "XMM1_Qa"
+      }
+    ]
+  }, 
+  {
+    "address": "00218200", 
+    "function_name": "cmp.Compare[uintptr]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218250", 
+    "function_name": "internal/fmtsort.nilCompare", 
+    "arguments": [
+      {
+        "name": "aVal", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "bVal", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "002182b0", 
+    "function_name": "cmp.isNaN[uintptr]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002182c0", 
+    "function_name": "cmp.isNaN[float64]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "XMM0_Qa"
+      }
+    ]
+  }, 
+  {
+    "address": "002182d0", 
+    "function_name": "cmp.isNaN[string]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002182e0", 
+    "function_name": "cmp.isNaN[uint64]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002182f0", 
+    "function_name": "cmp.isNaN[int64]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218300", 
+    "function_name": "runtime/volatile.LoadUint8", 
+    "arguments": [
+      {
+        "name": "addr", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218310", 
+    "function_name": "runtime/volatile.StoreUint8", 
+    "arguments": [
+      {
+        "name": "addr", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "val", 
+        "register": "SIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00218320", 
+    "function_name": "(*sync.Mutex).Lock", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218370", 
+    "function_name": "(*sync.Mutex).Unlock", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002183c0", 
+    "function_name": "(*sync.Mutex).islocked", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002183e0", 
+    "function_name": "(*sync.Mutex).setlock", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "b", 
+        "register": "SIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00218410", 
+    "function_name": "sync.boolToU8", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00218420", 
+    "function_name": "(*sync.RWMutex).RLock", 
+    "arguments": [
+      {
+        "name": "rw", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002184a0", 
+    "function_name": "(*sync.RWMutex).RUnlock", 
+    "arguments": [
+      {
+        "name": "rw", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218520", 
+    "function_name": "(*sync.RWMutex).maybeUnblockWriter", 
+    "arguments": [
+      {
+        "name": "rw", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218560", 
+    "function_name": "(*sync.Once).Do", 
+    "arguments": [
+      {
+        "name": "o", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "f", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00218740", 
+    "function_name": "(*sync.Pool).Get", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218850", 
+    "function_name": "(*sync.Pool).Put", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002188e0", 
+    "function_name": "(*io.discard).Write", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00218900", 
+    "function_name": "(io.discard).Write", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00218910", 
+    "function_name": "(io.discard).Write$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00218930", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002189d0", 
+    "function_name": "(*io.multiWriter).Write", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00218a60", 
+    "function_name": "internal/bytealg.IndexByte", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "c", 
+        "register": "AL"
+      }
+    ]
+  }, 
+  {
+    "address": "00218aa0", 
+    "function_name": "internal/bytealg.IndexByteString", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "c", 
+        "register": "AL"
+      }
+    ]
+  }, 
+  {
+    "address": "00218ad0", 
+    "function_name": "(*internal/bisect.parseError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218af0", 
+    "function_name": "(*internal/godebug.runtimeStderr).Write", 
+    "arguments": [
+      {
+        "name": "arg0", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00218b20", 
+    "function_name": "internal/stringslite.Clone", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00218bc0", 
+    "function_name": "(*syscall.Errno).Error", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00218be0", 
+    "function_name": "(syscall.Errno).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218c50", 
+    "function_name": "(syscall.Errno).Error$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00218c60", 
+    "function_name": "syscall.errnoErr", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218cc0", 
+    "function_name": "syscall.init#1", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00218d60", 
+    "function_name": "syscall.Getrlimit", 
+    "arguments": [
+      {
+        "name": "resource", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "rlim", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218da0", 
+    "function_name": "(*sync/atomic.Pointer[syscall.Rlimit]).Store[syscall.Rlimit]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "val", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218dc0", 
+    "function_name": "syscall.adjustFileLimit", 
+    "arguments": [
+      {
+        "name": "lim", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218dd0", 
+    "function_name": "syscall.setrlimit", 
+    "arguments": [
+      {
+        "name": "resource", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "rlim", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00218e10", 
+    "function_name": "syscall.copyenv", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00218f50", 
+    "function_name": "syscall.Getenv", 
+    "arguments": [
+      {
+        "name": "key", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002192b0", 
+    "function_name": "syscall.Close", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002192f0", 
+    "function_name": "syscall.Open", 
+    "arguments": [
+      {
+        "name": "path", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "mode", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "perm", 
+        "register": "EBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00219310", 
+    "function_name": "syscall.Write", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00219320", 
+    "function_name": "syscall.write", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00219380", 
+    "function_name": "syscall.openat", 
+    "arguments": [
+      {
+        "name": "dirfd", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "path", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "flags", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "mode", 
+        "register": "ECX"
+      }
+    ]
+  }, 
+  {
+    "address": "00219410", 
+    "function_name": "syscall.BytePtrFromString", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00219460", 
+    "function_name": "syscall.ByteSliceFromString", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00219510", 
+    "function_name": "syscall.Getpid", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00219520", 
+    "function_name": "(syscall.Signal).String", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00219590", 
+    "function_name": "syscall.Read", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002195a0", 
+    "function_name": "syscall.read", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002195f0", 
+    "function_name": "syscall.Seek", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "offset", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "whence", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "00219640", 
+    "function_name": "time.startsWithLowerCase", 
+    "arguments": [
+      {
+        "name": "str", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00219660", 
+    "function_name": "time.nextStdChunk", 
+    "arguments": [
+      {
+        "name": "layout", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021aa40", 
+    "function_name": "time.isDigit[string]", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "i", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021aa70", 
+    "function_name": "time.stdFracSecond", 
+    "arguments": [
+      {
+        "name": "code", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "c", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021aa90", 
+    "function_name": "time.appendInt", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "x", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "width", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021ae30", 
+    "function_name": "time.appendInt$1", 
+    "arguments": [
+      {
+        "name": "u", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021ae40", 
+    "function_name": "time.digitsLen", 
+    "arguments": [
+      {
+        "name": "std", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021ae50", 
+    "function_name": "time.separator", 
+    "arguments": [
+      {
+        "name": "std", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021ae60", 
+    "function_name": "time.appendNano", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "nanosec", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "std", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021afc0", 
+    "function_name": "(*time.ParseError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021b160", 
+    "function_name": "time.quote", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021b480", 
+    "function_name": "time.isLeap", 
+    "arguments": [
+      {
+        "name": "year", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021b4f0", 
+    "function_name": "time.daysIn", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "year", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021b540", 
+    "function_name": "(*time.Time).unixSec", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021b560", 
+    "function_name": "(*time.Location).lookup", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "sec", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021ba00", 
+    "function_name": "(*time.Location).get", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021ba40", 
+    "function_name": "time.initLocal", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0021bd30", 
+    "function_name": "time.loadLocation", 
+    "arguments": [
+      {
+        "name": "name", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "sources", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0021c000", 
+    "function_name": "time.loadTzinfo", 
+    "arguments": [
+      {
+        "name": "name", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "source", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0021c0e0", 
+    "function_name": "time.LoadLocationFromTZData", 
+    "arguments": [
+      {
+        "name": "name", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "data", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0021cb40", 
+    "function_name": "time.gorootZoneSource", 
+    "arguments": [
+      {
+        "name": "goroot", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021cb80", 
+    "function_name": "(*time.dataIO).read", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021cc40", 
+    "function_name": "(*time.dataIO).big4", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021ccb0", 
+    "function_name": "(*time.dataIO).rest", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021cce0", 
+    "function_name": "(*time.dataIO).byte", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021cd20", 
+    "function_name": "time.byteString", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021cd70", 
+    "function_name": "(*time.dataIO).big8", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021cdc0", 
+    "function_name": "time.tzset", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "lastTxSec", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "sec", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021d260", 
+    "function_name": "time.findZone", 
+    "arguments": [
+      {
+        "name": "zones", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "name", 
+        "register": "Stack_0x20"
+      }, 
+      {
+        "name": "offset", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "isDST", 
+        "register": "BL"
+      }
+    ]
+  }, 
+  {
+    "address": "0021d340", 
+    "function_name": "time.tzsetName", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021d4d0", 
+    "function_name": "time.tzsetOffset", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021d680", 
+    "function_name": "time.tzsetRule", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021da30", 
+    "function_name": "time.absDate", 
+    "arguments": [
+      {
+        "name": "abs", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "full", 
+        "register": "DL"
+      }
+    ]
+  }, 
+  {
+    "address": "0021dbd0", 
+    "function_name": "time.daysSinceEpoch", 
+    "arguments": [
+      {
+        "name": "year", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021dc50", 
+    "function_name": "time.tzruleTime", 
+    "arguments": [
+      {
+        "name": "year", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "r", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "off", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021df30", 
+    "function_name": "time.tzsetNum", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "min", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "max", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021e020", 
+    "function_name": "time.loadTzinfoFromDirOrZip", 
+    "arguments": [
+      {
+        "name": "dir", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "name", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0021e130", 
+    "function_name": "time.loadTzinfoFromZip", 
+    "arguments": [
+      {
+        "name": "zipfile", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "name", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f420", 
+    "function_name": "time.readFile", 
+    "arguments": [
+      {
+        "name": "name", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f920", 
+    "function_name": "time.open", 
+    "arguments": [
+      {
+        "name": "name", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f940", 
+    "function_name": "time.closefd", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f950", 
+    "function_name": "time.read", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f960", 
+    "function_name": "(*time.fileSizeError).Error", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f980", 
+    "function_name": "(time.fileSizeError).Error", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f9b0", 
+    "function_name": "(time.fileSizeError).Error$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0021f9d0", 
+    "function_name": "time.preadn", 
+    "arguments": [
+      {
+        "name": "fd", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "off", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fa80", 
+    "function_name": "time.get4", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fad0", 
+    "function_name": "time.get2", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fb00", 
+    "function_name": "(*time.Time).sec", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fb50", 
+    "function_name": "(*time.Location).lookupFirstZone", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fcc0", 
+    "function_name": "(*time.Location).firstZoneUsed", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fd50", 
+    "function_name": "time.Now", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fe60", 
+    "function_name": "(*time.Time).nsec", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fe80", 
+    "function_name": "(*time.Location).String", 
+    "arguments": [
+      {
+        "name": "l", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fea0", 
+    "function_name": "(*time.Time).GoString", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fec0", 
+    "function_name": "(*time.Time).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0021fee0", 
+    "function_name": "(time.Time).locabs", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00220050", 
+    "function_name": "(time.Time).abs", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00220150", 
+    "function_name": "(time.Time).appendFormatRFC3339", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x20"
+      }, 
+      {
+        "name": "nanos", 
+        "register": "AL"
+      }
+    ]
+  }, 
+  {
+    "address": "00220540", 
+    "function_name": "time.absClock", 
+    "arguments": [
+      {
+        "name": "abs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002205b0", 
+    "function_name": "(time.Time).Nanosecond", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002205f0", 
+    "function_name": "(time.Time).appendFormat", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002210b0", 
+    "function_name": "(time.Month).String", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221180", 
+    "function_name": "time.absWeekday", 
+    "arguments": [
+      {
+        "name": "abs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002211c0", 
+    "function_name": "(time.Weekday).String", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221290", 
+    "function_name": "time.fmtInt", 
+    "arguments": [
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "v", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00221310", 
+    "function_name": "(time.Time).Unix", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00221350", 
+    "function_name": "(time.Time).String", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00221540", 
+    "function_name": "(time.Time).Format", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "layout", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "002215e0", 
+    "function_name": "(time.Time).AppendFormat", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x20"
+      }, 
+      {
+        "name": "layout", 
+        "register": "Stack_0x38"
+      }
+    ]
+  }, 
+  {
+    "address": "002216a0", 
+    "function_name": "(time.Time).Location", 
+    "arguments": [
+      {
+        "name": "t", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002216e0", 
+    "function_name": "(time.Time).GoString", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221a60", 
+    "function_name": "(time.Time).GoString$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221a80", 
+    "function_name": "(time.Time).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221aa0", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221ac0", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221ae0", 
+    "function_name": "(io/fs.FileMode).String", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221c30", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221c50", 
+    "function_name": "io/fs.FormatDirEntry", 
+    "arguments": [
+      {
+        "name": "dir", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00221dc0", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221e00", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221e40", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221e80", 
+    "function_name": "(io/fs.FileMode).IsDir", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221e90", 
+    "function_name": "(io/fs.FileMode).Type", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221ea0", 
+    "function_name": "(*io/fs.PathError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221f40", 
+    "function_name": "(io/fs.dirInfo).IsDir", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00221f80", 
+    "function_name": "(io/fs.dirInfo).Name", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00221fc0", 
+    "function_name": "(io/fs.dirInfo).String", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00222000", 
+    "function_name": "(*io/fs.dirInfo).IsDir", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00222020", 
+    "function_name": "(*io/fs.dirInfo).Name", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00222040", 
+    "function_name": "(*io/fs.dirInfo).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00222060", 
+    "function_name": "(*io/fs.dirInfo).Type", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00222080", 
+    "function_name": "(io/fs.dirInfo).Type", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002220c0", 
+    "function_name": "(io/fs.dirInfo).IsDir$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002220e0", 
+    "function_name": "(io/fs.dirInfo).Name$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00222100", 
+    "function_name": "(io/fs.dirInfo).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00222120", 
+    "function_name": "(io/fs.dirInfo).Type$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00222140", 
+    "function_name": "slices.Sort[[]int_int]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00222180", 
+    "function_name": "slices.pdqsortOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "limit", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "002223e0", 
+    "function_name": "slices.insertionSortOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222490", 
+    "function_name": "slices.heapSortOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222570", 
+    "function_name": "slices.choosePivotOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "002226e0", 
+    "function_name": "slices.reverseRangeOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222730", 
+    "function_name": "slices.partialInsertionSortOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222940", 
+    "function_name": "cmp.Less[int]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "y", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00222980", 
+    "function_name": "slices.partitionEqualOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "pivot", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222a80", 
+    "function_name": "slices.partitionOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "pivot", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222ca0", 
+    "function_name": "slices.breakPatternsOrdered[int]", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222db0", 
+    "function_name": "cmp.isNaN[int]", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00222dc0", 
+    "function_name": "slices.medianAdjacentOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "swaps", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222de0", 
+    "function_name": "slices.medianOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "c", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "swaps", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00222e50", 
+    "function_name": "slices.order2Ordered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "swaps", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222eb0", 
+    "function_name": "slices.siftDownOrdered[int]", 
+    "arguments": [
+      {
+        "name": "data", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "lo", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "hi", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "first", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00222f80", 
+    "function_name": "(*strings.appendSliceWriter).Write", 
+    "arguments": [
+      {
+        "name": "w", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00222fd0", 
+    "function_name": "(*os.DeadlineExceededError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00222fe0", 
+    "function_name": "(*syscall.Signal).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00223000", 
+    "function_name": "(syscall.Signal).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00223010", 
+    "function_name": "(*io/fs.FileMode).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00223030", 
+    "function_name": "(io/fs.FileMode).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00223040", 
+    "function_name": "(*os.fileStat).IsDir", 
+    "arguments": [
+      {
+        "name": "fs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223050", 
+    "function_name": "(*os.fileStat).Mode", 
+    "arguments": [
+      {
+        "name": "fs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223070", 
+    "function_name": "(*os.fileStat).Name", 
+    "arguments": [
+      {
+        "name": "fs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223090", 
+    "function_name": "os.handleSyscallError", 
+    "arguments": [
+      {
+        "name": "err", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00223100", 
+    "function_name": "(*os.unixFileHandle).Write", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00223120", 
+    "function_name": "(os.unixFileHandle).Write", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00223150", 
+    "function_name": "(os.unixFileHandle).Write$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00223160", 
+    "function_name": "os.init#3", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002231c0", 
+    "function_name": "os.Getpid", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002231d0", 
+    "function_name": "(*os.unixDirent).IsDir", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002231f0", 
+    "function_name": "(*os.unixDirent).Name", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223210", 
+    "function_name": "(*os.unixDirent).Type", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223230", 
+    "function_name": "(*os.SyscallError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223290", 
+    "function_name": "(*os.LinkError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223370", 
+    "function_name": "(*os.File).Write", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00223480", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002234c0", 
+    "function_name": "strconv.syntaxError", 
+    "arguments": [
+      {
+        "name": "fn", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "str", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "00223550", 
+    "function_name": "(*strconv.NumError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223630", 
+    "function_name": "strconv.Quote", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00223650", 
+    "function_name": "strconv.quoteWith", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "quote", 
+        "register": "AL"
+      }, 
+      {
+        "name": "ASCIIonly", 
+        "register": "BL"
+      }, 
+      {
+        "name": "graphicOnly", 
+        "register": "CL"
+      }
+    ]
+  }, 
+  {
+    "address": "00223710", 
+    "function_name": "strconv.appendQuotedWith", 
+    "arguments": [
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x20"
+      }, 
+      {
+        "name": "quote", 
+        "register": "AL"
+      }, 
+      {
+        "name": "ASCIIonly", 
+        "register": "BL"
+      }, 
+      {
+        "name": "graphicOnly", 
+        "register": "CL"
+      }
+    ]
+  }, 
+  {
+    "address": "002239b0", 
+    "function_name": "strconv.appendEscapedRune", 
+    "arguments": [
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }, 
+      {
+        "name": "quote", 
+        "register": "BL"
+      }, 
+      {
+        "name": "ASCIIonly", 
+        "register": "CL"
+      }, 
+      {
+        "name": "graphicOnly", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00223d50", 
+    "function_name": "strconv.IsPrint", 
+    "arguments": [
+      {
+        "name": "r", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223ec0", 
+    "function_name": "strconv.isInGraphicList", 
+    "arguments": [
+      {
+        "name": "r", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00223ef0", 
+    "function_name": "strconv.bsearch[[]uint16_uint16]", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "v", 
+        "register": "AX"
+      }
+    ]
+  }, 
+  {
+    "address": "00223f40", 
+    "function_name": "strconv.bsearch[[]uint32_uint32]", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "v", 
+        "register": "EAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00223f90", 
+    "function_name": "strconv.rangeError", 
+    "arguments": [
+      {
+        "name": "fn", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "str", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "00224020", 
+    "function_name": "(*strconv.decimal).Shift", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "k", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "002240b0", 
+    "function_name": "strconv.shouldRoundUp", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "nd", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00224170", 
+    "function_name": "strconv.leftShift", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "k", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00224480", 
+    "function_name": "strconv.rightShift", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "k", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "002246e0", 
+    "function_name": "strconv.trim", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002247b0", 
+    "function_name": "strconv.prefixIsLessThan", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00224800", 
+    "function_name": "strconv.lower", 
+    "arguments": [
+      {
+        "name": "c", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00224810", 
+    "function_name": "strconv.underscoreOK", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002249a0", 
+    "function_name": "strconv.baseError", 
+    "arguments": [
+      {
+        "name": "fn", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "str", 
+        "register": "Stack_0x18"
+      }, 
+      {
+        "name": "base", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00224a50", 
+    "function_name": "strconv.Itoa", 
+    "arguments": [
+      {
+        "name": "i", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00224a60", 
+    "function_name": "strconv.FormatInt", 
+    "arguments": [
+      {
+        "name": "i", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "base", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00224ac0", 
+    "function_name": "strconv.small", 
+    "arguments": [
+      {
+        "name": "i", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00224b20", 
+    "function_name": "strconv.formatBits", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "u", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "base", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "neg", 
+        "register": "CL"
+      }, 
+      {
+        "name": "append_", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00224e90", 
+    "function_name": "strconv.isPowerOfTwo", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00224ea0", 
+    "function_name": "strconv.bitSizeError", 
+    "arguments": [
+      {
+        "name": "fn", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "str", 
+        "register": "Stack_0x18"
+      }, 
+      {
+        "name": "bitSize", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00224f50", 
+    "function_name": "strconv.ParseUint", 
+    "arguments": [
+      {
+        "name": "base", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "bitSize", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00225360", 
+    "function_name": "strconv.ParseInt", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "base", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "bitSize", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "002255b0", 
+    "function_name": "strconv.Atoi", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00225710", 
+    "function_name": "strconv.genericFtoa", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "val", 
+        "register": "XMM0_Qa"
+      }, 
+      {
+        "name": "fmt", 
+        "register": "AL"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "bitSize", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00225cc0", 
+    "function_name": "strconv.fmtB", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "neg", 
+        "register": "AL"
+      }, 
+      {
+        "name": "mant", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "flt", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00225e20", 
+    "function_name": "strconv.fmtX", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "fmt", 
+        "register": "BL"
+      }, 
+      {
+        "name": "neg", 
+        "register": "CL"
+      }, 
+      {
+        "name": "mant", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "flt", 
+        "register": "R8"
+      }
+    ]
+  }, 
+  {
+    "address": "00226430", 
+    "function_name": "strconv.ryuFtoaShortest", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "mant", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "flt", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00226830", 
+    "function_name": "strconv.formatDigits", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "shortest", 
+        "register": "AL"
+      }, 
+      {
+        "name": "neg", 
+        "register": "BL"
+      }, 
+      {
+        "name": "digs", 
+        "register": "Stack_0x20"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "fmt", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00226a60", 
+    "function_name": "strconv.bigFtoa", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "fmt", 
+        "register": "BL"
+      }, 
+      {
+        "name": "neg", 
+        "register": "CL"
+      }, 
+      {
+        "name": "mant", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "flt", 
+        "register": "R8"
+      }
+    ]
+  }, 
+  {
+    "address": "00226d50", 
+    "function_name": "strconv.ryuFtoaFixed32", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "mant", 
+        "register": "ESI"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00226f90", 
+    "function_name": "strconv.ryuFtoaFixed64", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "mant", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "002271d0", 
+    "function_name": "strconv.mulByLog2Log10", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002271e0", 
+    "function_name": "strconv.mult128bitPow10", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "e2", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "q", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "002272e0", 
+    "function_name": "strconv.divisibleByPower5", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "k", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00227340", 
+    "function_name": "strconv.formatDecimal", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "m", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "trunc", 
+        "register": "DL"
+      }, 
+      {
+        "name": "roundUp", 
+        "register": "CL"
+      }, 
+      {
+        "name": "prec", 
+        "register": "R8"
+      }
+    ]
+  }, 
+  {
+    "address": "00227600", 
+    "function_name": "strconv.mulByLog10Log2", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00227610", 
+    "function_name": "strconv.mult64bitPow10", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "e2", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "q", 
+        "register": "RDX"
+      }
+    ]
+  }, 
+  {
+    "address": "002276c0", 
+    "function_name": "(*strconv.decimal).Assign", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "v", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "002277f0", 
+    "function_name": "strconv.roundShortest", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "mant", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "flt", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00227c00", 
+    "function_name": "(*strconv.decimal).Round", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "nd", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00227c50", 
+    "function_name": "(*strconv.decimal).RoundUp", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "nd", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00227d50", 
+    "function_name": "(*strconv.decimal).RoundDown", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "nd", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00227d90", 
+    "function_name": "strconv.fmtE", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "neg", 
+        "register": "AL"
+      }, 
+      {
+        "name": "d", 
+        "register": "Stack_0x20"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "fmt", 
+        "register": "CL"
+      }
+    ]
+  }, 
+  {
+    "address": "002281a0", 
+    "function_name": "strconv.fmtF", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "neg", 
+        "register": "AL"
+      }, 
+      {
+        "name": "d", 
+        "register": "Stack_0x20"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "00228450", 
+    "function_name": "strconv.ryuDigits", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "lower", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "central", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "upper", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "c0", 
+        "register": "R8B"
+      }, 
+      {
+        "name": "cup", 
+        "register": "R9B"
+      }
+    ]
+  }, 
+  {
+    "address": "002287f0", 
+    "function_name": "strconv.computeBounds", 
+    "arguments": [
+      {
+        "name": "mant", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "exp", 
+        "register": "RDX"
+      }, 
+      {
+        "name": "flt", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00228890", 
+    "function_name": "strconv.divmod1e9", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002288c0", 
+    "function_name": "strconv.ryuDigits32", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "lower", 
+        "register": "EBX"
+      }, 
+      {
+        "name": "central", 
+        "register": "ECX"
+      }, 
+      {
+        "name": "upper", 
+        "register": "EDI"
+      }, 
+      {
+        "name": "c0", 
+        "register": "SIL"
+      }, 
+      {
+        "name": "cup", 
+        "register": "R8B"
+      }, 
+      {
+        "name": "endindex", 
+        "register": "R9"
+      }
+    ]
+  }, 
+  {
+    "address": "00228af0", 
+    "function_name": "strconv.AppendFloat", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "f", 
+        "register": "XMM0_Qa"
+      }, 
+      {
+        "name": "fmt", 
+        "register": "AL"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "bitSize", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "00228b00", 
+    "function_name": "strconv.appendQuotedRuneWith", 
+    "arguments": [
+      {
+        "name": "buf", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }, 
+      {
+        "name": "quote", 
+        "register": "BL"
+      }, 
+      {
+        "name": "ASCIIonly", 
+        "register": "CL"
+      }, 
+      {
+        "name": "graphicOnly", 
+        "register": "DIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00228bd0", 
+    "function_name": "strconv.AppendQuote", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00228bf0", 
+    "function_name": "strconv.AppendQuoteToASCII", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00228c10", 
+    "function_name": "strconv.AppendQuoteRune", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00228c30", 
+    "function_name": "strconv.AppendQuoteRuneToASCII", 
+    "arguments": [
+      {
+        "name": "dst", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "r", 
+        "register": "EAX"
+      }
+    ]
+  }, 
+  {
+    "address": "00228c60", 
+    "function_name": "strconv.CanBackquote", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00228cd0", 
+    "function_name": "fmt.init$1", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00228cf0", 
+    "function_name": "(*fmt.buffer).write", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00228d40", 
+    "function_name": "(*fmt.buffer).writeByte", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "c", 
+        "register": "SIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00228dc0", 
+    "function_name": "(*fmt.buffer).writeRune", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "r", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "00228e00", 
+    "function_name": "(*fmt.buffer).writeString", 
+    "arguments": [
+      {
+        "name": "b", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00228e50", 
+    "function_name": "(*fmt.fmt).clearflags", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00228ea0", 
+    "function_name": "(*fmt.fmt).fmtBoolean", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "v", 
+        "register": "SIL"
+      }
+    ]
+  }, 
+  {
+    "address": "00228ed0", 
+    "function_name": "(*fmt.fmt).fmtBs", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00228ef0", 
+    "function_name": "(*fmt.fmt).fmtBx", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "digits", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "00228f20", 
+    "function_name": "(*fmt.fmt).fmtC", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "c", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00228f70", 
+    "function_name": "(*fmt.fmt).fmtFloat", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "v", 
+        "register": "XMM0_Qa"
+      }, 
+      {
+        "name": "size", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EDX"
+      }, 
+      {
+        "name": "prec", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "002295c0", 
+    "function_name": "(*fmt.fmt).fmtInteger", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "u", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "base", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "isSigned", 
+        "register": "DIL"
+      }, 
+      {
+        "name": "verb", 
+        "register": "ESI"
+      }, 
+      {
+        "name": "digits", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00229c00", 
+    "function_name": "(*fmt.fmt).fmtQ", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00229cf0", 
+    "function_name": "(*fmt.fmt).fmtQc", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "c", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "00229d60", 
+    "function_name": "(*fmt.fmt).fmtS", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00229d80", 
+    "function_name": "(*fmt.fmt).fmtSbx", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x18"
+      }, 
+      {
+        "name": "digits", 
+        "register": "Stack_0x30"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a290", 
+    "function_name": "(*fmt.fmt).fmtSx", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "digits", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a2c0", 
+    "function_name": "(*fmt.fmt).fmtUnicode", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "u", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a5c0", 
+    "function_name": "(*fmt.fmt).init", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "buf", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a5e0", 
+    "function_name": "(*fmt.fmt).pad", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a6e0", 
+    "function_name": "(*fmt.fmt).padString", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a7d0", 
+    "function_name": "(*fmt.fmt).truncate", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a8c0", 
+    "function_name": "(*fmt.fmt).truncateString", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022a950", 
+    "function_name": "(*fmt.fmt).writePadding", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "n", 
+        "register": "RSI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022aac0", 
+    "function_name": "(*reflect.Value).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022aae0", 
+    "function_name": "(reflect.Value).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ab00", 
+    "function_name": "(*fmt.pp).Write", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ab20", 
+    "function_name": "(*fmt.pp).argNumber", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "argNum", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "format", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "i", 
+        "register": "RCX"
+      }, 
+      {
+        "name": "numArgs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022abe0", 
+    "function_name": "(*fmt.pp).badArgNum", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "verb", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ac30", 
+    "function_name": "(*fmt.pp).badVerb", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "verb", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ae20", 
+    "function_name": "(*fmt.pp).catchPanic", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "arg", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EBX"
+      }, 
+      {
+        "name": "method", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0022b0b0", 
+    "function_name": "(*fmt.pp).doPrintf", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "format", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0022bf00", 
+    "function_name": "(*fmt.pp).doPrintln", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "a", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022bf90", 
+    "function_name": "(*fmt.pp).fmt0x64", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "v", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "leading0x", 
+        "register": "DL"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c030", 
+    "function_name": "(*fmt.pp).fmtBool", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "v", 
+        "register": "SIL"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c060", 
+    "function_name": "(*fmt.pp).fmtBytes", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EBX"
+      }, 
+      {
+        "name": "typeString", 
+        "register": "Stack_0x20"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c310", 
+    "function_name": "(*fmt.pp).fmtComplex", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "size", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "verb", 
+        "register": "ECX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c490", 
+    "function_name": "(*fmt.pp).fmtFloat", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "v", 
+        "register": "XMM0_Qa"
+      }, 
+      {
+        "name": "size", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EDX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c520", 
+    "function_name": "(*fmt.pp).fmtInteger", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "v", 
+        "register": "RSI"
+      }, 
+      {
+        "name": "isSigned", 
+        "register": "DL"
+      }, 
+      {
+        "name": "verb", 
+        "register": "ECX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c6e0", 
+    "function_name": "(*fmt.pp).fmtPointer", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "value", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c8d0", 
+    "function_name": "(*fmt.pp).fmtString", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022c990", 
+    "function_name": "(*fmt.pp).free", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022cb00", 
+    "function_name": "(*fmt.pp).handleMethods", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "verb", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022d6a0", 
+    "function_name": "(*fmt.pp).missingArg", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RDI"
+      }, 
+      {
+        "name": "verb", 
+        "register": "ESI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022d6f0", 
+    "function_name": "(*fmt.pp).printArg", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "arg", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022dae0", 
+    "function_name": "(*fmt.pp).printValue", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "value", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "verb", 
+        "register": "EBX"
+      }, 
+      {
+        "name": "depth", 
+        "register": "RCX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e690", 
+    "function_name": "(*fmt.pp).unknownType", 
+    "arguments": [
+      {
+        "name": "p", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e730", 
+    "function_name": "fmt.getField", 
+    "arguments": [
+      {
+        "name": "v", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "i", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e7a0", 
+    "function_name": "(Go_interface_assert)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e7b0", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e7c0", 
+    "function_name": "(Go_interface_assert)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e7e0", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e810", 
+    "function_name": "fmt.intFromArg", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "argNum", 
+        "register": "RAX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e920", 
+    "function_name": "fmt.parsenum", 
+    "arguments": [
+      {
+        "name": "s", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "start", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "end", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e9c0", 
+    "function_name": "fmt.tooLarge", 
+    "arguments": [
+      {
+        "name": "x", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022e9e0", 
+    "function_name": "fmt.parseArgNumber", 
+    "arguments": [
+      {
+        "name": "format", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ea50", 
+    "function_name": "fmt.Errorf", 
+    "arguments": [
+      {
+        "name": "format", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0022edd0", 
+    "function_name": "fmt.newPrinter", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ee60", 
+    "function_name": "(*fmt.wrapErrors).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ee80", 
+    "function_name": "(*fmt.wrapError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "0022eea0", 
+    "function_name": "fmt.Fprintf", 
+    "arguments": [
+      {
+        "name": "w", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "format", 
+        "register": "Stack_0x18"
+      }, 
+      {
+        "name": "a", 
+        "register": "Stack_0x28"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ef30", 
+    "function_name": "fmt.Printf", 
+    "arguments": [
+      {
+        "name": "format", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0022ef60", 
+    "function_name": "fmt.Fprintln", 
+    "arguments": [
+      {
+        "name": "w", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "a", 
+        "register": "Stack_0x18"
+      }
+    ]
+  }, 
+  {
+    "address": "0022efe0", 
+    "function_name": "fmt.Println", 
+    "arguments": [
+      {
+        "name": "a", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "0022f000", 
+    "function_name": "main.coreEngine", 
+    "arguments": [
+      {
+        "name": "num1", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "operator", 
+        "register": "Stack_0x8"
+      }, 
+      {
+        "name": "num2", 
+        "register": "RBX"
+      }
+    ]
+  }, 
+  {
+    "address": "0022f150", 
+    "function_name": "main.main", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022f2b0", 
+    "function_name": "tinygo_register_fatal_signals", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "0022f330", 
+    "function_name": "signal_handler", 
+    "arguments": [
+      {
+        "name": "sig", 
+        "register": "EAX"
+      }, 
+      {
+        "name": "info", 
+        "register": "RBX"
+      }, 
+      {
+        "name": "context", 
+        "register": "RCX"
+      }
+    ]
+  }
+]
