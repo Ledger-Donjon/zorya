@@ -1,4 +1,6 @@
 use std::{error::Error, fmt::{self, LowerHex}};
+use num_bigint::BigUint;
+use num_traits::{Zero, ToPrimitive};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConcreteVar {
@@ -73,6 +75,22 @@ impl ConcreteVar {
             },
             ConcreteVar::Bool(value) => *value as u64,
             ConcreteVar::LargeInt(value) => value[0], // Return the lower 64 bits
+        }
+    }
+
+    // Helper: Convert a ConcreteVar into a BigUint.
+    pub fn concrete_to_biguint(&self) -> BigUint {
+        match self {
+            ConcreteVar::Int(val) => BigUint::from(*val),
+            ConcreteVar::LargeInt(vec) => {
+                let mut num = BigUint::zero();
+                for (i, &chunk) in vec.iter().enumerate() {
+                    // little-endian ordering
+                    num |= BigUint::from(chunk) << (64 * i);
+                }
+                num
+            },
+            _ => BigUint::zero(), // Default value for non-integer types
         }
     }
 

@@ -297,22 +297,28 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let byte_size = ((size + 7) / 8) as usize;
         let (concrete, symbolic) = self.read_memory(address, byte_size)?;  // Get both parts
         
-        // Build the concrete value
-        let concrete_value = {
+        let concrete_value = if size == 128 {
+            // Handling 128-bit loads
             let mut padded = concrete.clone();
-            while padded.len() < 8 {
-                padded.push(0);
-            }
-            u64::from_le_bytes(padded.as_slice().try_into().unwrap())
+            padded.resize(16, 0); // Ensure exactly 16 bytes for 128-bit
+            
+            let low = u64::from_le_bytes(padded[0..8].try_into().unwrap());
+            let high = u64::from_le_bytes(padded[8..16].try_into().unwrap());
+            ((high as u128) << 64) | (low as u128) // Convert to a single 128-bit integer
+        } else {
+            // Handling <= 64-bit loads
+            let mut padded = concrete.clone();
+            padded.resize(8, 0); // Ensure exactly 8 bytes
+            
+            u64::from_le_bytes(padded.as_slice().try_into().unwrap()) as u128
         };
 
-        // Start with a default symbolic value if the last symbolic is None
+        // Handle symbolic values similarly
         let mut symbolic_value = match symbolic.last().and_then(|s| s.clone()) {
             Some(symb) => symb,  // Use the last symbolic value if it exists
-            None => Arc::new(BV::from_u64(self.ctx, concrete_value, size)),  // Default to a concrete-based symbolic value
+            None => Arc::new(BV::from_u64(self.ctx, concrete_value as u64, size)),  // Default symbolic value
         };
 
-        // Iterate through the rest of the symbolic values and concatenate them
         for symb in symbolic.iter().rev().skip(1) {
             if let Some(symb) = symb {
                 symbolic_value = Arc::new(symb.concat(&symbolic_value));
@@ -320,11 +326,11 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
 
         Ok(MemoryValue {
-            concrete: concrete_value,
+            concrete: concrete_value as u64, // Store only the lower 64 bits for now
             symbolic: (*symbolic_value).clone(),
             size,
         })
-    }   
+    } 
 
     /// Writes concrete and symbolic memory to a given address range.
     pub fn write_memory(&self, address: u64, concrete: &[u8], symbolic: &[Option<Arc<BV<'ctx>>>]) -> Result<(), MemoryError> {

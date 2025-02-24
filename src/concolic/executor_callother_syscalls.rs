@@ -59,6 +59,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
     log!(executor.state.logger.clone(), "Syscall number: {}", rax);
 
+    log!(executor.trace_logger, "----> Calling the syscall with number {}", rax);
+
     match rax {
         0 => { // sys_read
             log!(executor.state.logger.clone(), "Syscall type: sys_read");

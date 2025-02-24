@@ -24,6 +24,6 @@ exit
 EOF
 
 echo "============================"
-echo "✅ Function Argument Analysis Completed"
+echo "Function Argument Analysis Completed"
 echo "Results saved in $LOGFILE"
 echo "============================"

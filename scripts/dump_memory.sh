@@ -59,10 +59,12 @@ gdb -batch \
     -ex "set confirm off" \
     -ex "file $BIN_NAME" \
     -ex "set args ${ARGS[@]}" \
-    -ex "break *$ENTRY_POINT" \
+    -ex "break *(_start)" \
     -ex "run" \
+    -ex "x/gx 0x236670" \
     -ex "break *$START_POINT" \
     -ex "continue" \
+    -ex "x/gx 0x236670" \
     -ex "set logging file cpu_mapping.txt" \
     -ex "set logging enabled on" \
     -ex "info all-registers" \
@@ -89,10 +91,10 @@ gdb -batch \
     -ex "set confirm off" \
     -ex "file $BIN_NAME" \
     -ex "set args ${ARGS[@]}" \
-    -ex "break *$ENTRY_POINT" \
+    -ex "break *(_start)" \
     -ex "run" \
     -ex "break *$START_POINT" \
-    -ex "run" \
+    -ex "continue" \
     -ex "source execute_commands.py" \
     -ex "exec dump_commands.txt" \
     -ex "quit" &>> "$GDB_LOG"

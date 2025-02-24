@@ -213,9 +213,23 @@ impl<'ctx> SymbolicVar<'ctx> {
                     bv.zero_ext(size - bv.get_size())
                 }
             }
+            SymbolicVar::LargeInt(bv_vec) => {
+                let mut bv_iter = bv_vec.iter().rev(); // Reverse for little-endian order
+                let first_bv = bv_iter.next().expect("LargeInt should not be empty").clone();
+    
+                // Concatenate all BV parts
+                let mut result_bv = bv_iter.fold(first_bv, |acc, bv| acc.concat(&bv.clone()));
+    
+                // Extract or extend based on the required size
+                if result_bv.get_size() > size {
+                    result_bv.extract(size - 1, 0) // Truncate excess bits
+                } else {
+                    result_bv.zero_ext(size - result_bv.get_size()) // Zero-extend if smaller
+                }
+            }
             _ => panic!("Unsupported symbolic type for to_bv_of_size"),
         }
-    }
+    }     
 
     // Check if the symbolic variable is valid (i.e., its underlying AST is not null)
     pub fn is_valid(&self) -> bool {
