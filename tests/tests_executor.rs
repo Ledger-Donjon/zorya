@@ -164,7 +164,7 @@ mod tests {
 
         // Check memory state to ensure data is stored at the correct address
         let stored_value = executor.state.memory.read_u32(0x1000).expect("Failed to read memory value");
-        assert_eq!(stored_value.concrete, ConcreteVar::Int(0xDEADBEEF).to_u64());
+        assert_eq!(stored_value.concrete, ConcreteVar::Int(0xDEADBEEF));
 
         // Check CPU state to ensure data is also stored in the register if applicable
         let cpu_state_guard = executor.state.cpu_state.lock().unwrap();

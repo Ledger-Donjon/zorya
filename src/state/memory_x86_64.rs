@@ -10,6 +10,7 @@ use regex::Regex;
 use z3::{ast::BV, Context};
 
 use super::VirtualFileSystem;
+use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
 use crate::target_info::GLOBAL_TARGET_INFO;
 
 // Protection flags for memory regions
@@ -293,45 +294,87 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     /// Reads a MemoryValue (both concrete and symbolic) from memory.
-    pub fn read_value(&self, address: u64, size: u32) -> Result<MemoryValue<'ctx>, MemoryError> {
-        let byte_size = ((size + 7) / 8) as usize;
-        let (concrete, symbolic) = self.read_memory(address, byte_size)?;  // Get both parts
-        
-        let concrete_value = if size == 128 {
-            // Handling 128-bit loads
-            let mut padded = concrete.clone();
-            padded.resize(16, 0); // Ensure exactly 16 bytes for 128-bit
+    pub fn read_value(&self, address: u64, size: u32) -> Result<ConcolicVar<'ctx>, MemoryError> {
+        if size == 128 {
+            // --- Handle 128-bit loads by reading 16 bytes (two 8-byte chunks) ---
+            // Read lower 8 bytes.
+            let (concrete_low, symbolic_low) = self.read_memory(address, 8)?;
+            // Read upper 8 bytes from address + 8.
+            let (concrete_high, symbolic_high) = self.read_memory(address + 8, 8)?;
             
-            let low = u64::from_le_bytes(padded[0..8].try_into().unwrap());
-            let high = u64::from_le_bytes(padded[8..16].try_into().unwrap());
-            ((high as u128) << 64) | (low as u128) // Convert to a single 128-bit integer
-        } else {
-            // Handling <= 64-bit loads
-            let mut padded = concrete.clone();
-            padded.resize(8, 0); // Ensure exactly 8 bytes
+            // Convert the byte arrays (little-endian) to u64 values.
+            let low = u64::from_le_bytes(concrete_low.as_slice().try_into().unwrap());
+            let high = u64::from_le_bytes(concrete_high.as_slice().try_into().unwrap());
             
-            u64::from_le_bytes(padded.as_slice().try_into().unwrap()) as u128
-        };
-
-        // Handle symbolic values similarly
-        let mut symbolic_value = match symbolic.last().and_then(|s| s.clone()) {
-            Some(symb) => symb,  // Use the last symbolic value if it exists
-            None => Arc::new(BV::from_u64(self.ctx, concrete_value as u64, size)),  // Default symbolic value
-        };
-
-        for symb in symbolic.iter().rev().skip(1) {
-            if let Some(symb) = symb {
-                symbolic_value = Arc::new(symb.concat(&symbolic_value));
+            // Build the concrete part as a LargeInt.
+            let concrete = ConcreteVar::LargeInt(vec![low, high]);
+            
+            // For the symbolic part, flatten the vector of Option<Arc<BV>> and use the last element.
+            let sym_low = symbolic_low
+                .iter()
+                .flatten()
+                .last()
+                .cloned()
+                .unwrap_or_else(|| Arc::new(BV::from_u64(self.ctx, low, 64)));
+            let sym_high = symbolic_high
+                .iter()
+                .flatten()
+                .last()
+                .cloned()
+                .unwrap_or_else(|| Arc::new(BV::from_u64(self.ctx, high, 64)));
+            // SymbolicVar::LargeInt expects a Vec<BV>, so dereference the Arc.
+            let symbolic = SymbolicVar::LargeInt(vec![(*sym_low).clone(), (*sym_high).clone()]);
+            
+            Ok(ConcolicVar {
+                concrete,
+                symbolic,
+                ctx: self.ctx,
+            })
+        } else if size <= 64 {
+            // --- Handle loads for sizes 8, 16, 32, or 64 bits ---
+            // Determine the minimal number of bytes required.
+            let byte_size = ((size + 7) / 8) as usize;
+            let (mut concrete, symbolic) = self.read_memory(address, byte_size)?;
+            // Pad the concrete value to 8 bytes (u64) if needed.
+            if concrete.len() < 8 {
+                let mut padded = vec![0u8; 8];
+                padded[..concrete.len()].copy_from_slice(&concrete);
+                concrete = padded;
             }
+            // Convert padded bytes to u64.
+            let value = u64::from_le_bytes(concrete.as_slice().try_into().unwrap());
+            // Mask out any bits beyond 'size'.
+            let mask = if size < 64 { (1u64 << size) - 1 } else { u64::MAX };
+            let masked = value & mask;
+            let concrete_var = ConcreteVar::Int(masked);
+            
+            // For the symbolic side, similarly get a BV of the proper size.
+            let sym_val = symbolic
+                .iter()
+                .flatten()
+                .last()
+                .cloned()
+                .unwrap_or_else(|| Arc::new(BV::from_u64(self.ctx, value, size)));
+            let current_sym = (*sym_val).clone();
+            let resized_sym = if current_sym.get_size() < size {
+                current_sym.zero_ext(size - current_sym.get_size())
+            } else if current_sym.get_size() > size {
+                current_sym.extract(size - 1, 0)
+            } else {
+                current_sym
+            };
+            let symbolic_var = SymbolicVar::Int(resized_sym);
+            
+            Ok(ConcolicVar {
+                concrete: concrete_var,
+                symbolic: symbolic_var,
+                ctx: self.ctx,
+            })
+        } else {
+            Err(MemoryError::InvalidString)
         }
-
-        Ok(MemoryValue {
-            concrete: concrete_value as u64, // Store only the lower 64 bits for now
-            symbolic: (*symbolic_value).clone(),
-            size,
-        })
-    } 
-
+    }    
+    
     /// Writes concrete and symbolic memory to a given address range.
     pub fn write_memory(&self, address: u64, concrete: &[u8], symbolic: &[Option<Arc<BV<'ctx>>>]) -> Result<(), MemoryError> {
         if concrete.len() != symbolic.len() {
@@ -417,7 +460,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     // Additional methods for reading and writing standard data types
-    pub fn read_u64(&self, address: u64) -> Result<MemoryValue<'ctx>, MemoryError> {
+    pub fn read_u64(&self, address: u64) -> Result<ConcolicVar<'ctx>, MemoryError> {
         self.read_value(address, 64)
     }
 
@@ -425,7 +468,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         self.write_value(address, value)
     }
 
-    pub fn read_u32(&self, address: u64) -> Result<MemoryValue<'ctx>, MemoryError> {
+    pub fn read_u32(&self, address: u64) -> Result<ConcolicVar<'ctx>, MemoryError> {
         self.read_value(address, 32)
     }
 
@@ -474,10 +517,10 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     pub fn read_sigaction(&self, address: u64) -> Result<Sigaction<'ctx>, MemoryError> {
         // Read the sigaction structure from memory
-        let handler = self.read_u64(address)?;
-        let flags = self.read_u64(address + 8)?;
-        let restorer = self.read_u64(address + 16)?;
-        let mask = self.read_u64(address + 24)?;
+        let handler = self.read_u64(address)?.to_memory_value_u64();
+        let flags = self.read_u64(address + 8)?.to_memory_value_u64();
+        let restorer = self.read_u64(address + 16)?.to_memory_value_u64();
+        let mask = self.read_u64(address + 24)?.to_memory_value_u64();
         Ok(Sigaction { handler, flags, restorer, mask })
     }
 

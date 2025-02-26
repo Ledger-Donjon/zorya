@@ -112,6 +112,19 @@ impl<'ctx> SymbolicVar<'ctx> {
         }
     }
 
+    pub fn to_largebv(&self) -> Vec<BV<'ctx>> {
+        match self {
+            SymbolicVar::Int(bv) => vec![bv.clone()],
+            SymbolicVar::LargeInt(vec) => vec.clone(),
+            SymbolicVar::Float(_) => panic!("Cannot convert a floating-point symbolic variable to a large bit vector"),
+            SymbolicVar::Bool(b) => {
+                let one = BV::from_u64(b.get_ctx(), 1, 1); 
+                let zero = BV::from_u64(b.get_ctx(), 0, 1); 
+                vec![b.ite(&one, &zero)] // If `b` is true, return `one`, otherwise return `zero`
+            }
+        }
+    }
+
     // Convert the symbolic variable to a float
     pub fn to_float(&self) -> Float<'ctx> {
         match self {

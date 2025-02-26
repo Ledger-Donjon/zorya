@@ -351,10 +351,7 @@ impl<'ctx> CpuState<'ctx> {
                     if let Some((offset, size)) = self.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
                         let flag_symbolic = BV::from_u64(&self.ctx, flag_concrete, *size);
                         let flag_concolic = ConcolicVar::new_concrete_and_symbolic_int(flag_concrete, flag_symbolic, &self.ctx, *size);
-                        let _ = self.set_register_value_by_offset(offset, flag_concolic, *size);
-                        
-                        // Verify update
-                        let updated_value = self.get_register_by_offset(offset, *size).map(|v| v.concrete.to_u64());
+                        let _ = self.set_register_value_by_offset(offset, flag_concolic, *size);   
                     } else {
                         println!("Flag {} not found in register_map", flag);
                     }

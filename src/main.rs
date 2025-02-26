@@ -547,7 +547,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let register0xb8 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb8, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0xb8 - R15 is {:x}", register0xb8.concrete);
             let register0x1200 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x1200, 256).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x1200 - YMM0 is {:?}, i.e. when formatted {:x}", register0x1200.concrete, register0x1200.concrete);
+            log!(executor.state.logger,  "The value of register at offset 0x1200 - YMM0 is {:x}, i.e. {:?}", register0x1200.concrete, register0x1200.concrete);
+            let register0x1220 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x1220, 256).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x1220 - YMM1 is {:x}, i.e. {:?}", register0x1220.concrete, register0x1220.concrete);
             let register0x200 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x200 - CF is {:x}", register0x200.concrete);
             let register0x202 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x202, 64).unwrap();

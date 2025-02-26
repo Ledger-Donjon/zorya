@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the CALLOTHER opcode, especially syscalls, from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{executor::ConcolicExecutor, state::memory_x86_64::{MemoryValue, Sigaction}};
+use crate::{concolic::ConcreteVar, executor::ConcolicExecutor, state::memory_x86_64::{MemoryValue, Sigaction}};
 use nix::libc::{gettid, SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use z3::ast::BV;
 use std::{io::Write, process, time::Duration};
@@ -446,7 +446,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     .memory
                     .read_u64(set_ptr.to_u64())
                     .map_err(|e| format!("Failed to read new signal mask from memory: {}", e))?;
-                let new_mask = new_mask_value.concrete as u64; // sigset_t is 64 bits
+                let new_mask = new_mask_value.concrete.to_u64(); // sigset_t is 64 bits
         
                 match how {
                     nix::libc::SIG_BLOCK => {
@@ -664,10 +664,10 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 let arg_ptr = executor.state.memory.read_u64(argv_ptr + (i * 8))
                     .map_err(|e| format!("Failed to read argv_ptr at index {}: {}", i, e))?
                     .concrete;
-                if arg_ptr == 0 {
+                if arg_ptr == ConcreteVar::Int(0) {
                     break; // Null pointer indicates the end of the argv array
                 }
-                let arg = executor.state.memory.read_string(arg_ptr)
+                let arg = executor.state.memory.read_string(arg_ptr.to_u64())
                     .map_err(|e| format!("Failed to read argv[{}]: {}", i, e))?;
                 argv.push(arg);
                 i += 1;
@@ -681,10 +681,10 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 let env_ptr = executor.state.memory.read_u64(envp_ptr + (j * 8))
                     .map_err(|e| format!("Failed to read envp_ptr at index {}: {}", j, e))?
                     .concrete;
-                if env_ptr == 0 {
+                if env_ptr == ConcreteVar::Int(0) {
                     break; // Null pointer indicates the end of the envp array
                 }
-                let env = executor.state.memory.read_string(env_ptr)
+                let env = executor.state.memory.read_string(env_ptr.to_u64())
                     .map_err(|e| format!("Failed to read envp[{}]: {}", j, e))?;
                 envp.push(env);
                 j += 1;
@@ -838,13 +838,13 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 log!(executor.state.logger.clone(), "Read ss_sp: 0x{:x}", ss_sp);
             
                 let ss_flags = match executor.state.memory.read_u32(ss_ptr + 8) {
-                    Ok(value) => value.concrete as i32,
+                    Ok(value) => value.concrete.to_i32(),
                     Err(e) => {
                         log!(executor.state.logger.clone(), "Error reading ss_flags from memory: {:?}", e);
                         return Err("Failed to read ss_flags from memory".to_string());
                     },
                 };
-                log!(executor.state.logger.clone(), "Read ss_flags: 0x{:x}", ss_flags);
+                log!(executor.state.logger.clone(), "Read ss_flags: 0x{:?}", ss_flags);
             
                 let ss_size = match executor.state.memory.read_u64(ss_ptr + 16) {
                     Ok(value) => value.concrete,
@@ -856,22 +856,22 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 log!(executor.state.logger.clone(), "Read ss_size: 0x{:x}", ss_size);
             
                 // Validate the stack flags
-                if ss_flags != 0i32 && ss_flags != SS_DISABLE as i32 {
-                    log!(executor.state.logger.clone(), "Invalid ss_flags: 0x{:x}", ss_flags);
+                if ss_flags != Ok(0i32) && ss_flags != Ok(SS_DISABLE as i32) {
+                    log!(executor.state.logger.clone(), "Invalid ss_flags: 0x{:?}", ss_flags);
                     return Err("EINVAL: Invalid ss_flags".to_string());
                 }
             
                 // Validate the stack size
-                if ss_flags == 0 && ss_size < MINSIGSTKSZ as u64 {
+                if ss_flags == Ok(0) && ss_size.to_u64() < MINSIGSTKSZ as u64 {
                     log!(executor.state.logger.clone(), "Stack size too small: 0x{:x}", ss_size);
                     return Err("ENOMEM: Stack size too small".to_string());
                 }
             
                 // Update the alternate signal stack with the new values
-                executor.state.altstack.ss_sp = ss_sp;
-                executor.state.altstack.ss_flags = ss_flags as u64;
-                executor.state.altstack.ss_size = ss_size;
-                log!(executor.state.logger.clone(), "Updated altstack: ss_sp=0x{:x}, ss_flags=0x{:x}, ss_size=0x{:x}", ss_sp, ss_flags, ss_size);
+                executor.state.altstack.ss_sp = ss_sp.to_u64();
+                executor.state.altstack.ss_flags = ss_flags.unwrap() as u64;
+                executor.state.altstack.ss_size = ss_size.to_u64();
+                log!(executor.state.logger.clone(), "Updated altstack: ss_sp=0x{:x}, ss_flags=0x{:?}, ss_size=0x{:x}", ss_sp, ss_flags, ss_size);
             }
             
             if oss_ptr != 0 {

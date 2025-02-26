@@ -417,6 +417,17 @@ impl<'a> State<'a> {
         self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
     }
 
+    pub fn create_or_update_concolic_variable_largeint(&mut self, var_name: &str, concrete_value: Vec<u64>, symbolic_var: SymbolicVar<'a>) -> &ConcolicVar<'a> {
+        // Create a new ConcolicVar with the provided symbolic variable
+        let new_var = ConcolicVar {
+            concrete: ConcreteVar::LargeInt(concrete_value),
+            symbolic: symbolic_var,
+            ctx: self.ctx,
+        };
+        // Insert the new concolic variable into the map, updating or creating as necessary
+        self.concolic_vars.entry(var_name.to_string()).or_insert(new_var)
+    }
+
     // Method to create or update a concolic variable with a boolean concrete value and symbolic value
     pub fn create_or_update_concolic_variable_bool(&mut self, var_name: &str, concrete_value: bool, symbolic_var: SymbolicVar<'a>) -> &ConcolicVar<'a> {
         // Create a new ConcolicVar with the provided symbolic variable

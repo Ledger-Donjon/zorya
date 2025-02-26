@@ -59,6 +59,14 @@ impl ConcreteVar {
         }
     }
 
+    pub fn to_i32(&self) -> Result<i32, &'static str> {
+        match self {
+            ConcreteVar::Int(val) => Ok(*val as i32),
+            ConcreteVar::Float(val) => Ok(*val as i32), // Adjust this if needed for float conversion
+            _ => Err("Unsupported type for to_i32 conversion"),
+        }
+    }
+
     // Convert ConcreteVar to u64 directly, using default values for non-convertible types
     pub fn to_u64(&self) -> u64 {
         match self {
@@ -75,6 +83,13 @@ impl ConcreteVar {
             },
             ConcreteVar::Bool(value) => *value as u64,
             ConcreteVar::LargeInt(value) => value[0], // Return the lower 64 bits
+        }
+    }
+
+    pub fn to_largeint(&self) -> Vec<u64> {
+        match self {
+            ConcreteVar::LargeInt(value) => value.clone(),
+            _ => vec![self.to_u64()],
         }
     }
 

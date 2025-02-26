@@ -23,6 +23,15 @@ impl<'ctx> ConcolicVar<'ctx> {
         var
     }
 
+    pub fn new_concrete_and_symbolic_large_int(concrete: Vec<u64>, symbolic: Vec<BV<'ctx>>, ctx: &'ctx Context) -> Self {
+        let var = ConcolicVar {
+            concrete: ConcreteVar::LargeInt(concrete),
+            symbolic: SymbolicVar::LargeInt(symbolic),
+            ctx,
+        };
+        var
+    }
+
     // Function to create a new ConcolicVar with a symbolic double-precision float
     pub fn new_concrete_and_symbolic_float(concrete: f64, symbolic: Float<'ctx>, ctx: &'ctx Context, size: u32) -> Self {
         let var = ConcolicVar {
@@ -86,6 +95,13 @@ impl<'ctx> ConcolicVar<'ctx> {
         } else {
             panic!("Attempted to update symbolic float value on a non-float ConcolicVar");
         }
+    }
+
+    // Convert a concolic variable to a MemoryValue
+    pub fn to_memory_value_u64(&self) -> MemoryValue<'ctx> {
+        let concrete = self.get_concrete_value().unwrap();
+        let symbolic = self.symbolic.to_bv(self.ctx);
+        MemoryValue::new(concrete, symbolic, 64)
     }
 
     pub fn get_context_id(&self) -> String {
