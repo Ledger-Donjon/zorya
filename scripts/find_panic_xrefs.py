@@ -3,12 +3,23 @@
 import sys
 import pyhidra
 import os
+import shutil
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: python3 find_panic_xrefs.py /path/to/binary")
         sys.exit(1)
+    
     binary_path = sys.argv[1]
+    project_name = os.path.basename(binary_path)  # Use binary name as project name
+    project_dir = os.path.join(os.getcwd(), project_name + ".rep")  # Default Ghidra project directory
+
+    # Delete the project if it already exists
+    if os.path.exists(project_dir):
+        print(f"[INFO] Deleting existing Ghidra project: {project_dir}")
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+    print(f"[INFO] Starting Pyhidra for {binary_path}")
 
     # Start Pyhidra
     pyhidra.start()
@@ -56,5 +67,8 @@ def main():
             for addr in xref_addresses:
                 file.write("0x{}\n".format(addr.toString()))
 
+        print(f"[INFO] Xref analysis completed. Results saved to {output_file}")
+
 if __name__ == "__main__":
     main()
+

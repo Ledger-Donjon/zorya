@@ -367,44 +367,6 @@ fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64)>)> {
     function_args_map
 }
 
-fn handle_control_flow_change(executor: &mut ConcolicExecutor, mut current_rip: u64, possible_new_rip: u64, possible_new_rip_hex: String, mut local_line_number: i64, instructions_map: &BTreeMap<u64, Vec<Inst>>, mut end_of_block: bool) {
-    log!(executor.state.logger, "Control flow change detected, new RIP: 0x{:x}", possible_new_rip);
-    if let Some(symbol_name_potential_new_rip) = executor.symbol_table.get(&possible_new_rip_hex) {
-        // Found a symbol, check if it's blacklisted, etc.
-        if IGNORED_TINYGO_FUNCS.contains(&symbol_name_potential_new_rip.as_str()) {
-            log!(executor.state.logger, "Skipping function '{:?}' at 0x{:x} because it is blacklisted.", symbol_name_potential_new_rip, current_rip);
-
-            // When skipping a function, we need to update the stack pointer i.e. add 8 to RSP
-            let rsp_value_concrete = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().concrete.to_u64();
-            let rsp_value_symbolic = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.to_bv(executor.context).clone();
-            let next_rsp_value_concrete = rsp_value_concrete + 8;
-            let next_rsp_value_symbolic = rsp_value_symbolic.bvadd(&BV::from_u64(executor.context, 8, 64));
-            let next_rsp_value = ConcolicVar::new_concrete_and_symbolic_int(next_rsp_value_concrete, next_rsp_value_symbolic, executor.context, 64);
-            executor.state.cpu_state.lock().unwrap()
-                .set_register_value_by_offset(0x20, next_rsp_value, 64)
-                .expect("Failed to set register value by offset");
-
-            let (next_addr_in_map, _ ) = instructions_map.range((current_rip + 1)..).next().unwrap();
-            current_rip = *next_addr_in_map;
-            local_line_number = 0;      // Reset instruction index
-            end_of_block = true; // Indicate end of current block execution
-            log!(executor.state.logger, "Jumping to 0x{:x}", next_addr_in_map);
-        } else {
-            // Manage the case where the RIP update points beyond the current block
-            current_rip = possible_new_rip;
-            local_line_number = 0;  // Reset instruction index for new RIP
-            end_of_block = true; // Indicate end of current block execution
-            log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
-        }
-    } else {
-        // Manage the case where the RIP update points beyond the current block
-        current_rip = possible_new_rip;
-        local_line_number = 0;  // Reset instruction index for new RIP
-        end_of_block = true; // Indicate end of current block execution
-        log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
-    }               
-}
-
 // Function to execute the instructions from the map of addresses to instructions
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver, binary_path: &str) {
     let mut current_rip = start_address;

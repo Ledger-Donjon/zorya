@@ -8,7 +8,7 @@ DUMPS_DIR="$QEMU_MOUNT_DIR/dumps"
 BIN_PATH="$1"
 START_POINT="$2" 
 ENTRY_POINT="$3"
-ARGS="${@:4}" # arguments to pass to pass to the binary
+ARGS=$(printf "%s " "${@:4}" | tr -d '\n')
 
 if [ -z "$BIN_PATH" ] || [ -z "$START_POINT" ]; then
     echo "Usage: ./scripts/dump_memory.sh /path/to/bin <start_point> <arguments>"
@@ -58,13 +58,10 @@ gdb -batch \
     -ex "set pagination off" \
     -ex "set confirm off" \
     -ex "file $BIN_NAME" \
-    -ex "set args ${ARGS[@]}" \
-    -ex "break *(_start)" \
-    -ex "run" \
-    -ex "x/gx 0x236670" \
+    -ex "set args ${ARGS}" \
+    -ex "show args" \
     -ex "break *$START_POINT" \
-    -ex "continue" \
-    -ex "x/gx 0x236670" \
+    -ex "run" \
     -ex "set logging file cpu_mapping.txt" \
     -ex "set logging enabled on" \
     -ex "info all-registers" \
@@ -90,11 +87,9 @@ gdb -batch \
     -ex "set pagination off" \
     -ex "set confirm off" \
     -ex "file $BIN_NAME" \
-    -ex "set args ${ARGS[@]}" \
-    -ex "break *(_start)" \
-    -ex "run" \
+    -ex "set args ${ARGS}" \
     -ex "break *$START_POINT" \
-    -ex "continue" \
+    -ex "run" \
     -ex "source execute_commands.py" \
     -ex "exec dump_commands.txt" \
     -ex "quit" &>> "$GDB_LOG"

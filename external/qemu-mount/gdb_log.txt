@@ -1,17 +1,13 @@
-Breakpoint 1 at 0x20c8cc
+Argument list to give program being debugged when it is started is "2 + 3 ".
+Breakpoint 1 at 0x22f150
 
-Breakpoint 1, 0x000000000020c8cc in _start ()
-0x236670 <runtime.stackTop>:	0x0000000000000000
-Breakpoint 2 at 0x22f150
-
-Breakpoint 2, 0x000000000022f150 in main.main ()
-0x236670 <runtime.stackTop>:	0x00007fffffffd558
+Breakpoint 1, 0x000000000022f150 in main.main ()
 rax            0x7fffb7e00010      140736278298640
 rbx            0x0                 0
-rcx            0x7fffb7e11d70      140736278371696
+rcx            0x7fffb7e11db0      140736278371760
 rdx            0x18                24
 rsi            0x0                 0
-rdi            0x7fffb7e11d70      140736278371696
+rdi            0x7fffb7e11db0      140736278371760
 rbp            0x0                 0x0
 rsp            0x7fffb7e10028      0x7fffb7e10028
 r8             0x0                 0
@@ -23,7 +19,7 @@ r13            0x0                 0
 r14            0x0                 0
 r15            0x0                 0
 rip            0x22f150            0x22f150 <main.main>
-eflags         0x202               [ IF ]
+eflags         0x206               [ PF IF ]
 cs             0x33                51
 ss             0x2b                43
 ds             0x0                 0
@@ -63,7 +59,7 @@ ymm12          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeat
 ymm13          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeats 16 times>}, v8_float = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_double = {0x0, 0x0, 0x0, 0x0}, v32_int8 = {0x0 <repeats 32 times>}, v16_int16 = {0x0 <repeats 16 times>}, v8_int32 = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_int64 = {0x0, 0x0, 0x0, 0x0}, v2_int128 = {0x0, 0x0}}
 ymm14          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeats 16 times>}, v8_float = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_double = {0x0, 0x0, 0x0, 0x0}, v32_int8 = {0x0 <repeats 32 times>}, v16_int16 = {0x0 <repeats 16 times>}, v8_int32 = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_int64 = {0x0, 0x0, 0x0, 0x0}, v2_int128 = {0x0, 0x0}}
 ymm15          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeats 16 times>}, v8_float = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_double = {0x0, 0x0, 0x0, 0x0}, v32_int8 = {0x0 <repeats 32 times>}, v16_int16 = {0x0 <repeats 16 times>}, v8_int32 = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_int64 = {0x0, 0x0, 0x0, 0x0}, v2_int128 = {0x0, 0x0}}
-process 1543123
+process 307454
 Mapped address spaces:
 
           Start Addr           End Addr       Size     Offset  Perms  objfile
@@ -76,12 +72,9 @@ Mapped address spaces:
       0x7ffff7ffd000     0x7ffff7fff000     0x2000        0x0  r-xp   [vdso]
       0x7ffffffdd000     0x7ffffffff000    0x22000        0x0  rw-p   [stack]
   0xffffffffff600000 0xffffffffff601000     0x1000        0x0  --xp   [vsyscall]
-Breakpoint 1 at 0x20c8cc
+Breakpoint 1 at 0x22f150
 
-Breakpoint 1, 0x000000000020c8cc in _start ()
-Breakpoint 2 at 0x22f150
-
-Breakpoint 2, 0x000000000022f150 in main.main ()
+Breakpoint 1, 0x000000000022f150 in main.main ()
 Executing: dump memory dumps/0x200000-0x20c000.bin 0x200000 0x20c000
 Executing: dump memory dumps/0x20c000-0x230000.bin 0x20c000 0x230000
 Executing: dump memory dumps/0x230000-0x231000.bin 0x230000 0x231000

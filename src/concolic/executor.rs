@@ -55,8 +55,14 @@ pub struct ConcolicExecutor<'ctx> {
 
 impl<'ctx> ConcolicExecutor<'ctx> {
     pub fn new(context: &'ctx Context, logger: Logger, trace_logger: Logger) -> Result<Self, Box<dyn Error>> {
+        // Create a new solver with the given Z3 context.
         let solver = Solver::new(context);
-        let state = State::new(context, logger)?;
+
+        // Initialize the State. If this fails, we add context to the error.
+        let state = State::new(context, logger.clone())
+            .map_err(|e| format!("Failed to initialize State in ConcolicExecutor::new: {}", e))?;
+
+        // Return the new ConcolicExecutor instance.
         Ok(ConcolicExecutor {
             context,
             solver,
@@ -65,12 +71,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             current_address: None,
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
-            pcode_internal_lines_to_be_jumped: 0, // number of lines to skip in case of branch instructions
+            pcode_internal_lines_to_be_jumped: 0, // Number of lines to skip for branch instructions.
             initialiazed_var: BTreeMap::new(),
             inside_jump_table: false,
             trace_logger,
-         })
-    }
+        })
+    } 
 
     pub fn populate_symbol_table(&mut self, elf_data: &[u8]) -> Result<(), goblin::error::Error> {
         let elf = Elf::parse(elf_data)?;
@@ -1636,11 +1642,31 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some(output_varnode) = instruction.output.as_ref() {
             match &output_varnode.var {
                 Var::Unique(id) => {
-                    log!(self.state.logger.clone(), "Writing LargeInt to Unique(0x{:x})", id);
                     let unique_name = format!("Unique(0x{:x})", id);
-                    self.unique_variables.insert(unique_name.clone(), new_concolic_var.clone());
+                    if output_size_bits > 64 {
+                        log!(self.state.logger.clone(), "Writing LargeInt to Unique(0x{:x})", id);
+                        self.unique_variables.insert(unique_name.clone(), new_concolic_var.clone());
+                    } else {
+                        log!(self.state.logger.clone(), "Writing Int to Unique(0x{:x})", id);
+                        // Create a ConcolicVar with the Int branch if needed:
+                        let int_concolic = ConcolicVar {
+                            concrete: ConcreteVar::Int(match new_concolic_var.concrete {
+                                ConcreteVar::Int(val) => val,
+                                // If it’s a LargeInt, take the low part.
+                                ConcreteVar::LargeInt(ref vec) => vec[0],
+                                _ => 0,
+                            }),
+                            symbolic: SymbolicVar::Int(match new_concolic_var.symbolic {
+                                SymbolicVar::Int(ref bv) => bv.clone(),
+                                SymbolicVar::LargeInt(ref vec) => vec[0].clone(),
+                                _ => BV::from_u64(&self.context, 0, 64),
+                            }),
+                            ctx: self.context,
+                        };
+                        self.unique_variables.insert(unique_name.clone(), int_concolic);
+                    }
                     log!(self.state.logger.clone(), "Updated Unique(0x{:x})", id);
-                }
+                } 
                 Var::Register(offset, _) => {
                     log!(self.state.logger.clone(), "Writing LargeInt to Register(0x{:x})", offset);
                     let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();

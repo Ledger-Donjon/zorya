@@ -65,16 +65,16 @@ impl<'a> State<'a> {
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
 
         log!(logger.clone(), "Uploading dumps to CPU registers...\n");
-        cpu_state.lock().unwrap().upload_dumps_to_cpu_registers()?;
+        cpu_state.lock().unwrap().upload_dumps_to_cpu_registers().map_err(|e| format!("Failed to upload dumps to CPU registers: {}", e))?;
 
         log!(logger.clone(), "Initializing virtual file system...\n");
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
 
         log!(logger.clone(), "Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
-        memory.load_all_dumps()?;
-        memory.initialize_cpuid_memory_variables()?;     
-        memory.ensure_gdb_mappings_covered("external/qemu-mount/memory_mapping.txt")?;    
+        memory.load_all_dumps().map_err(|e| format!("Failed to load memory dumps: {}", e))?;
+        memory.initialize_cpuid_memory_variables().map_err(|e| format!("Failed to initialize cpuid memory variables: {}", e))?;     
+        memory.ensure_gdb_mappings_covered("external/qemu-mount/memory_mapping.txt").map_err(|e| format!("Failed to ensure gdb mappings are covered: {}", e))?;    
 	
         log!(logger.clone(), "Initializing the State...\n");
         let mut state = State {
@@ -97,11 +97,11 @@ impl<'a> State<'a> {
         };
 
         log!(state.logger.clone(), "Initializing jump tables...\n");
-        state.initialize_jump_tables()?;
+        state.initialize_jump_tables().map_err(|e| format!("Failed to initialize jump tables: {}", e))?;
         //state.print_memory_content(address, range);
 
         log!(state.logger.clone(), "Creating the P-Code for the executable sections of libc.so and ld-linux-x86-64.so...\n");
-        state.initialize_libc_and_ld_linux()?;
+        state.initialize_libc_and_ld_linux().map_err(|e| format!("Failed to initialize libc and ld-linux-x86-64 P-Code: {}", e))?;
 
         Ok(state)
     }
