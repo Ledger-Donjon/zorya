@@ -55,14 +55,8 @@ pub struct ConcolicExecutor<'ctx> {
 
 impl<'ctx> ConcolicExecutor<'ctx> {
     pub fn new(context: &'ctx Context, logger: Logger, trace_logger: Logger) -> Result<Self, Box<dyn Error>> {
-        // Create a new solver with the given Z3 context.
         let solver = Solver::new(context);
-
-        // Initialize the State. If this fails, we add context to the error.
-        let state = State::new(context, logger.clone())
-            .map_err(|e| format!("Failed to initialize State in ConcolicExecutor::new: {}", e))?;
-
-        // Return the new ConcolicExecutor instance.
+        let state = State::new(context, logger)?;
         Ok(ConcolicExecutor {
             context,
             solver,
@@ -71,12 +65,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             current_address: None,
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
-            pcode_internal_lines_to_be_jumped: 0, // Number of lines to skip for branch instructions.
+            pcode_internal_lines_to_be_jumped: 0, // number of lines to skip in case of branch instructions
             initialiazed_var: BTreeMap::new(),
             inside_jump_table: false,
             trace_logger,
-        })
-    } 
+         })
+    }
 
     pub fn populate_symbol_table(&mut self, elf_data: &[u8]) -> Result<(), goblin::error::Error> {
         let elf = Elf::parse(elf_data)?;
@@ -694,7 +688,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }
 
-    fn extract_branch_target_address(&mut self, varnode: &Varnode, instruction: Inst) -> Result<u64, String> {
+    // For BRANCHIND, CALLIND, BRANCH and CBRANCH instruction
+    // However, this function is not used in handle_cbranch, but in mains.rs when doing checks related to CBRANCH instruction
+    pub fn extract_branch_target_address(&mut self, varnode: &Varnode, instruction: Inst) -> Result<u64, String> {
         match &varnode.var {
             Var::Memory(addr) => {
                 log!(self.state.logger.clone(), "Branch target is a specific memory address: 0x{:x}", addr);
@@ -707,18 +703,20 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         .map_err(|e| format!("Failed to read memory at address 0x{:x}: {:?}", addr, e))?;
                     let dereferenced_value = ConcolicVar::new_from_memory_value(&mem_value.to_memory_value_u64());
                     dereferenced_value
-                } else { // Case when BRANCH * [ram]addr (no need for a dereference)
+                } else { // Case when BRANCH * [ram]addr (no need for a dereference) or CBRANCH * [ram]addr
                     // Return the memory address as is
                     let dereferenced_value = ConcolicVar::new_concrete_and_symbolic_int(*addr, SymbolicVar::from_u64(&self.context, *addr, 64).to_bv(&self.context), &self.context, 64);
                     dereferenced_value
                 };
                 
-                // Update the RIP register to the new branch target address
-                {
-                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    cpu_state_guard.set_register_value_by_offset(0x288, dereferenced_value, 64)?;
-                }
-                log!(self.state.logger.clone(), "Branching to address 0x{:x}", addr);
+                // Update the RIP register to the new branch target address, except for Cbranch, where a check has to be done
+                if instruction.opcode == Opcode::BranchInd || instruction.opcode == Opcode::CallInd || instruction.opcode == Opcode::Branch {
+                    {
+                        let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                        cpu_state_guard.set_register_value_by_offset(0x288, dereferenced_value, 64)?;
+                    }
+                    log!(self.state.logger.clone(), "Branching to address 0x{:x}", addr);
+                }                 
 
                 Ok(*addr)
             },
