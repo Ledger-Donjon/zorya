@@ -447,56 +447,148 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
             // If this is a branch-type instruction, do symbolic checks.
             if inst.opcode == Opcode::CBranch || inst.opcode == Opcode::BranchInd || inst.opcode == Opcode::CallInd {
-
                 let branch_target_varnode = inst.inputs[0].clone();
-                let branch_target_address = executor.extract_branch_target_address(&branch_target_varnode, inst.clone()).map_err(|e| e.to_string()).unwrap();
-                
-                // Check if there is a potential panic function call in this branching instruction
+                let branch_target_address = executor
+                    .extract_branch_target_address(&branch_target_varnode, inst.clone())
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+            
+                // Check if the target is in our "panic addresses" list
                 if panic_address_ints.contains(&Int::from_u64(executor.context, branch_target_address)) {
-                    log!(executor.state.logger, "Branching instruction with a potential panic function call detected at 0x{:x}", branch_target_address);
-                    
-                    // Get the symbolic representation of RIP
-                    let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
-                    let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
-
-                    // Create conditions for each panic address
-                    let conditions: Vec<Bool> = panic_address_ints.iter()
-                        .map(|panic_addr_int| rip_symbolic._eq(panic_addr_int))
-                        .collect();
-
-                    // Collect references to the conditions
-                    let condition_refs: Vec<&Bool> = conditions.iter().collect();
-
-                    // Assert that RIP can be any of the panic addresses
-                    solver.push(); // Push context to prevent side effects
-                    solver.assert(&Bool::or(executor.context, &condition_refs));
-
-                    match solver.check() {
+                    log!(
+                        executor.state.logger, 
+                        "Potential branching to a panic function at 0x{:x}",
+                        branch_target_address
+                    );
+            
+                    // 1) push the solver context
+                    executor.solver.push();
+            
+                    // 2) The condition for cbranch is typically in input[1].
+                    //    By p-code definition, cbranch is taken if input1 != 0.
+                    let cond_varnode = &inst.inputs[1];
+                    let cond_concolic = executor
+                        .varnode_to_concolic(cond_varnode)
+                        .map_err(|e| e.to_string())
+                        .unwrap()
+                        .to_concolic_var()
+                        .unwrap();
+            
+                    // cond_bv might be 1 byte, or sometimes 1 bit, depending on your IR. 
+                    // Either way, "nonzero => branch".
+                    let cond_bv = cond_concolic.symbolic.to_bv(executor.context);
+            
+                    // Build "cond_bv != 0" => cond_bv == 0 .not()
+                    let zero_bv = BV::from_u64(executor.context, 0, cond_bv.get_size());
+                    let condition_expr = cond_bv._eq(&zero_bv).not();
+            
+                    // 3) assert the condition to take the branch
+                    executor.solver.assert(&condition_expr);
+            
+                    // 4) check feasibility
+                    match executor.solver.check() {
                         z3::SatResult::Sat => {
                             log!(executor.state.logger, "~~~~~~~~~~~");
                             log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
-                            let model = solver.get_model().unwrap();
-                            log!(executor.state.logger, "~~~~~~~~~~~\n");
-
-                            // Retrieve concrete values of registers or variables as needed
-                            // RAX:
-                            let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-                            let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
-                            let rax_val = model.eval(&rax_symbolic, true).unwrap().as_u64().unwrap();
-
-                            // Log the values
-                            log!(executor.state.logger, "RIP can reach a panic function at 0x{:x}. RAX = 0x{:x}", model.eval(&rip_symbolic, true).unwrap().as_u64().unwrap(), rax_val);
-                            process::exit(0); 
-                        },
+            
+                            // 5) get_model
+                            let model = executor.solver.get_model().unwrap();
+            
+                            // Retrieve RDI if you want
+                            let rdi_sym_bv = executor
+                                .state
+                                .cpu_state
+                                .lock().unwrap()
+                                .get_register_by_offset(0x38, 64).unwrap()
+                                .symbolic
+                                .to_bv(executor.context);
+                            let rdi_val = model.eval(&rdi_sym_bv, true).unwrap().as_u64().unwrap();
+            
+                            // Also retrieve RBX (offset 0x18)
+                            let rbx_sym_bv = executor
+                                .state
+                                .cpu_state
+                                .lock().unwrap()
+                                .get_register_by_offset(0x18, 64).unwrap()
+                                .symbolic
+                                .to_bv(executor.context);
+                            let rbx_val = model.eval(&rbx_sym_bv, true).unwrap().as_u64().unwrap();
+            
+                            // And R14 (offset 0xb0)
+                            let r14_sym_bv = executor
+                                .state
+                                .cpu_state
+                                .lock().unwrap()
+                                .get_register_by_offset(0xb0, 64).unwrap()
+                                .symbolic
+                                .to_bv(executor.context);
+                            let r14_val = model.eval(&r14_sym_bv, true).unwrap().as_u64().unwrap();
+            
+                            log!(
+                                executor.state.logger, 
+                                "To take the panic-branch => RDI={}, RBX={}, R14={}",
+                                rdi_val, rbx_val, r14_val
+                            );
+            
+                            // You can store these results or exit:
+                            process::exit(0);
+                        }
                         z3::SatResult::Unsat => {
-                            log!(executor.state.logger, "~~~~~~~~~~~~~");
-                            log!(executor.state.logger, "UNSATISFIABLE: Symbolic execution cannot reach any panic functions from current state. Continuing on the concrete execution...");
-                            log!(executor.state.logger, "~~~~~~~~~~~~~\n");
-                        },
+                            log!(executor.state.logger, 
+                                 "Branch to panic is UNSAT => no input can make that branch lead to panic");
+                        }
                         z3::SatResult::Unknown => {
-                            log!(executor.state.logger, "UNKNOWN: Solver could not determine satisfiability.");
-                        },
+                            log!(executor.state.logger, "Solver => Unknown feasibility");
+                        }
                     }
+            
+                    // 6) pop the solver context
+                    executor.solver.pop(1);
+                    
+                    // log!(executor.state.logger, "Branching instruction with a potential panic function call detected at 0x{:x}", branch_target_address);
+                    
+                    // // Get the symbolic representation of RIP
+                    // let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
+                    // let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
+
+                    // // Create conditions for each panic address
+                    // let conditions: Vec<Bool> = panic_address_ints.iter()
+                    //     .map(|panic_addr_int| rip_symbolic._eq(panic_addr_int))
+                    //     .collect();
+
+                    // // Collect references to the conditions
+                    // let condition_refs: Vec<&Bool> = conditions.iter().collect();
+
+                    // // Assert that RIP can be any of the panic addresses
+                    // solver.push(); // Push context to prevent side effects
+                    // solver.assert(&Bool::or(executor.context, &condition_refs));
+
+                    // match solver.check() {
+                    //     z3::SatResult::Sat => {
+                    //         log!(executor.state.logger, "~~~~~~~~~~~");
+                    //         log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
+                    //         let model = solver.get_model().unwrap();
+                    //         log!(executor.state.logger, "~~~~~~~~~~~\n");
+
+                    //         // Retrieve concrete values of registers or variables as needed
+                    //         // RAX:
+                    //         let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
+                    //         let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
+                    //         let rax_val = model.eval(&rax_symbolic, true).unwrap().as_u64().unwrap();
+
+                    //         // Log the values
+                    //         log!(executor.state.logger, "RIP can reach a panic function at 0x{:x}. RAX = 0x{:x}", model.eval(&rip_symbolic, true).unwrap().as_u64().unwrap(), rax_val);
+                    //         process::exit(0); 
+                    //     },
+                    //     z3::SatResult::Unsat => {
+                    //         log!(executor.state.logger, "~~~~~~~~~~~~~");
+                    //         log!(executor.state.logger, "UNSATISFIABLE: Symbolic execution cannot reach any panic functions from current state. Continuing on the concrete execution...");
+                    //         log!(executor.state.logger, "~~~~~~~~~~~~~\n");
+                    //     },
+                    //     z3::SatResult::Unknown => {
+                    //         log!(executor.state.logger, "UNKNOWN: Solver could not determine satisfiability.");
+                    //     },
+                    // }
                 }
                 //solver.pop(1); // Pop context to clean up assertions
             }
@@ -811,4 +903,21 @@ struct FunctionSignature {
 struct FunctionArgument {
     name: String,
     register: String,
+}
+
+#[derive(Clone)]
+pub struct PathState<'ctx> {
+    pub executor: ConcolicExecutor<'ctx>,
+    pub current_rip: u64,
+    pub local_line_number: i64,
+}
+
+impl<'ctx> PathState<'ctx> {
+    pub fn new(executor: ConcolicExecutor<'ctx>, start_rip: u64) -> Self {
+        PathState {
+            executor,
+            current_rip: start_rip,
+            local_line_number: 0,
+        }
+    }
 }
