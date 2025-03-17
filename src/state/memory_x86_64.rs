@@ -69,7 +69,7 @@ impl From<std::num::ParseIntError> for MemoryError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MemoryValue<'ctx> {
     pub concrete: u64,
     pub symbolic: BV<'ctx>,

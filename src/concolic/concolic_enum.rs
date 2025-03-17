@@ -1,6 +1,6 @@
 use crate::state::{cpu_state::CpuConcolicValue, memory_x86_64::MemoryValue};
 use z3::{ast::{Ast, Bool, BV}, Context};
-use super::{ConcolicVar, ConcreteVar, SymbolicVar};
+use super::{concrete_var::VarError, ConcolicVar, ConcreteVar, SymbolicVar};
 
 
 #[derive(Clone, Debug)]
@@ -29,6 +29,13 @@ impl<'ctx> ConcolicEnum<'ctx> {
         }
     }
 
+    pub fn get_concrete_value_signed(&self) -> Result<i64, VarError> {
+        match self {
+            ConcolicEnum::ConcolicVar(var) => var.concrete.to_i64().map_err(|_| VarError::ConversionError),
+            ConcolicEnum::CpuConcolicValue(cpu) => cpu.concrete.to_i64().map_err(|_| VarError::ConversionError),
+            ConcolicEnum::MemoryValue(mem) => Ok(mem.concrete as i64),
+        }
+    }
     // Retrieve the symbolic value of the concolic variable
     pub fn get_symbolic_value_bv(&self, ctx: &'ctx Context) -> BV<'ctx> {
         match self {

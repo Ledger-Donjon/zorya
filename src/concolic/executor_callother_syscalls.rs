@@ -278,226 +278,107 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         13 => { // rt_sigaction
             log!(executor.state.logger.clone(), "Syscall type: rt_sigaction");
 
-            // Retrieve parameters from registers
-            let signum_offset = 0x38; // RDI
-            let act_offset = 0x30;    // RSI
-            let oldact_offset = 0x28; // RDX
-            let sigsetsize_offset = 0x20; // R10
+            let signum = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as i32;
+            let act_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
+            let oldact_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
+            // from R10 register
+            let sigsetsize = cpu_state_guard.get_register_by_offset(0x90, 64).unwrap().get_concrete_value()? as usize;
 
-            let signum = cpu_state_guard.get_register_by_offset(signum_offset, 64).unwrap().get_concrete_value()? as i32;
-            let act_ptr = cpu_state_guard.get_register_by_offset(act_offset, 64).unwrap().get_concrete_value()?;
-            let oldact_ptr = cpu_state_guard.get_register_by_offset(oldact_offset, 64).unwrap().get_concrete_value()?;
-            let sigsetsize = cpu_state_guard.get_register_by_offset(sigsetsize_offset, 64).unwrap().get_concrete_value()? as usize;
+            log!(executor.state.logger.clone(), 
+                "rt_sigaction called with signum: {}, act_ptr: 0x{:x}, oldact_ptr: 0x{:x}, sigsetsize: {}",
+                signum, act_ptr, oldact_ptr, sigsetsize
+            );
 
-            log!(executor.state.logger.clone(), "rt_sigaction called with signum: {}, act_ptr: 0x{:x}, oldact_ptr: 0x{:x}, sigsetsize: {}", signum, act_ptr, oldact_ptr, sigsetsize);
+            // Handle oldact_ptr: Save current action if requested
+            if oldact_ptr != 0 && executor.state.memory.is_valid_address(oldact_ptr) {
+                let current_action = executor.state.signal_handlers
+                    .get(&signum)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        log!(executor.state.logger.clone(), "Using default signal action for signum: {}", signum);
+                        Sigaction::new_default(executor.context)
+                    });
 
-            // For simplicity, let's assume sigsetsize is correct (e.g., 8 bytes)
-
-            // 1) If oldact_ptr != 0, we *try* to write the current action.
-            if oldact_ptr != 0 {
-                // e.g. oldact_ptr == 3 => skip
-                if oldact_ptr == 3 {
-                    log!(executor.state.logger.clone(), "Skipping oldact_ptr=0x3 in rt_sigaction, no error.");
-                } else if executor.state.memory.is_valid_address(oldact_ptr) {
-                    let current_action = executor
-                        .state
-                        .signal_handlers
-                        .get(&signum)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            log!(executor.state.logger.clone(),
-                                "Using default signal action for signum: {}", signum);
-                            Sigaction::new_default(executor.context)
-                        });
-                    
-                    // Attempt to write the old action
-                    match executor.state.memory.write_sigaction(oldact_ptr, &current_action) {
-                        Ok(_) => {
-                            log!(executor.state.logger.clone(),
-                                "Wrote old action to 0x{:x} for signum: {}", oldact_ptr, signum);
-                        }
-                        Err(e) => {
-                            // If you’d rather skip than fail, just log a warning:
-                            log!(executor.state.logger.clone(),
-                                "Warning: Could not write old action to 0x{:x}: {}. Skipping.",
-                                oldact_ptr, e);
-                        }
-                    }
-                } else {
-                    // skip rather than error out:
-                    log!(executor.state.logger.clone(),
-                        "Invalid oldact_ptr=0x{:x}, skipping write in rt_sigaction.", oldact_ptr);
+                match executor.state.memory.write_sigaction(oldact_ptr, &current_action) {
+                    Ok(_) => log!(executor.state.logger.clone(), "Wrote old action to 0x{:x} for signum: {}", oldact_ptr, signum),
+                    Err(e) => log!(executor.state.logger.clone(), "Warning: Could not write old action to 0x{:x}: {}. Skipping.", oldact_ptr, e),
                 }
             }
 
-            // 2) If act_ptr != 0, read the new action and store it
-            if act_ptr != 0 {
-                // If you want to skip invalid addresses similarly, do it:
-                if executor.state.memory.is_valid_address(act_ptr) {
-                    match executor.state.memory.read_sigaction(act_ptr) {
-                        Ok(new_action) => {
-                            executor.state.signal_handlers.insert(signum, new_action);
-                            log!(executor.state.logger.clone(),
-                                "Installed new action for signum {} from 0x{:x}", signum, act_ptr);
+            // Handle act_ptr: Read and install new action if valid
+            if act_ptr != 0 && executor.state.memory.is_valid_address(act_ptr) {
+                match executor.state.memory.read_sigaction(act_ptr) {
+                    Ok(new_action) => {
+                        if new_action.handler.concrete == 0 {
+                            log!(executor.state.logger.clone(), "Warning: Installing NULL signal handler for signum {}", signum);
                         }
-                        Err(e) => {
-                            log!(executor.state.logger.clone(),
-                                "Warning: Could not read new action from 0x{:x}: {}. Skipping.",
-                                act_ptr, e);
-                        }
+                        executor.state.signal_handlers.insert(signum, new_action);
+                        log!(executor.state.logger.clone(), "Installed new action for signum {} from 0x{:x}", signum, act_ptr);
                     }
-                } else {
-                    log!(executor.state.logger.clone(),
-                        "act_ptr=0x{:x} invalid in rt_sigaction, skipping new action.", act_ptr);
+                    Err(e) => log!(executor.state.logger.clone(), "Error: Failed to read new action from 0x{:x}: {}", act_ptr, e),
                 }
             }
 
-            // 3) Indicate success in RAX
+            // Indicate success in RAX
+            cpu_state_guard.set_register_value_by_offset(rax_offset, ConcolicVar::new_concrete_and_symbolic_int(
+                0, BV::from_u64(executor.context, 0, 64), executor.context, 64), 64
+            ).map_err(|e| format!("Failed to set RAX: {}", e))?;
+
+            drop(cpu_state_guard);
+        },
+
+        14 => { // sys_rt_sigprocmask
+            log!(executor.state.logger.clone(), "Syscall type: sys_rt_sigprocmask");
+
+            let how = cpu_state_guard.get_register_by_offset(0x38, 64).unwrap().get_concrete_value()? as i32;
+            let set_ptr = cpu_state_guard.get_register_by_offset(0x30, 64).unwrap().get_concrete_value()?;
+            let oldset_ptr = cpu_state_guard.get_register_by_offset(0x28, 64).unwrap().get_concrete_value()?;
+            let sigsetsize = cpu_state_guard.get_register_by_offset(0x90, 64).unwrap().get_concrete_value()? as usize;
+
+            log!(executor.state.logger.clone(), "Sigsetsize: {}", sigsetsize);
+            
+            if sigsetsize != 8 && sigsetsize != 16 {
+                return Err(format!("Unexpected sigsetsize: {}", sigsetsize));
+            }
+
+            // Handle oldset_ptr: Save current signal mask if requested
+            if oldset_ptr != 0 && executor.state.memory.is_valid_address(oldset_ptr) {
+                let current_mask = executor.state.signal_mask;
+                let mem_value = MemoryValue {
+                    concrete: current_mask,
+                    symbolic: BV::from_u64(executor.context, current_mask, 64),
+                    size: 64,
+                };
+
+                match executor.state.memory.write_value(oldset_ptr, &mem_value) {
+                    Ok(_) => log!(executor.state.logger.clone(), "Saved old signal mask to 0x{:x}", oldset_ptr),
+                    Err(e) => return Err(format!("Failed to write old signal mask: {}", e)),
+                }
+            }
+
+            // Handle set_ptr: Apply new mask if provided
+            if set_ptr != 0 && executor.state.memory.is_valid_address(set_ptr) {
+                let new_mask = executor.state.memory.read_u64(set_ptr)
+                    .map_err(|e| format!("Failed to read new signal mask from memory: {}", e))?
+                    .concrete.to_u64();
+
+                match how {
+                    nix::libc::SIG_BLOCK => executor.state.signal_mask |= new_mask,
+                    nix::libc::SIG_UNBLOCK => executor.state.signal_mask &= !new_mask,
+                    nix::libc::SIG_SETMASK => executor.state.signal_mask = new_mask,
+                    _ => return Err(format!("Invalid 'how' argument for sys_rt_sigprocmask: {}", how)),
+                }
+            }
+
+            // Indicate success in RAX
             cpu_state_guard.set_register_value_by_offset(
-                0x0,
-                ConcolicVar::new_concrete_and_symbolic_int(
-                    0,
-                    z3::ast::BV::from_u64(executor.context, 0, 64),
-                    executor.context,
-                    64
-                ),
+                rax_offset,
+                ConcolicVar::new_concrete_and_symbolic_int(0, BV::from_u64(executor.context, 0, 64), executor.context, 64),
                 64
             ).map_err(|e| format!("Failed to set RAX: {}", e))?;
 
             drop(cpu_state_guard);
-
-            // 4) Create concolic variable for the operation
-            let current_addr_hex = executor.current_address.map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!("{}-{:02}-callother-rt_sigaction", current_addr_hex, executor.instruction_counter);
-            executor.state.create_or_update_concolic_variable_int(&result_var_name, 0u64, SymbolicVar::Int(BV::from_u64(executor.context, 0u64, 64)));
-        },
-        14 => { // sys_rt_sigprocmask
-            log!(executor.state.logger.clone(), "Syscall type: sys_rt_sigprocmask");
-        
-            // 1. Retrieve 'how' argument from RDI (offset 0x38)
-            let how_var = cpu_state_guard
-                .get_register_by_offset(0x38, 64)
-                .ok_or("Failed to retrieve 'how' from RDI.")?;
-            let how = how_var.concrete.to_u64() as i32;
-        
-            // 2. Retrieve 'set_ptr' from RSI (offset 0x30)
-            let set_ptr_var = cpu_state_guard
-                .get_register_by_offset(0x30, 64)
-                .ok_or("Failed to retrieve 'set_ptr' from RSI.")?;
-            let set_ptr = set_ptr_var.concrete;
-        
-            // 3. Retrieve 'oldset_ptr' from RDX (offset 0x28)
-            let oldset_ptr_var = cpu_state_guard
-                .get_register_by_offset(0x28, 64)
-                .ok_or("Failed to retrieve 'oldset_ptr' from RDX.")?;
-            let oldset_ptr = oldset_ptr_var.concrete;
-        
-            // 4. Retrieve 'sigsetsize' from R10 (offset 0x90)
-            let sigsetsize_var = cpu_state_guard
-                .get_register_by_offset(0x90, 64)
-                .ok_or("Failed to retrieve 'sigsetsize' from R10.")?;
-            let sigsetsize = sigsetsize_var.concrete.to_u64() as usize;
-        
-            log!(
-                executor.state.logger.clone(),
-                "Sigsetsize: {}",
-                sigsetsize
-            );
-        
-            // 5. Validate sigsetsize (typically should be 8 bytes)
-            if sigsetsize != 8 {
-                return Err("Invalid sigsetsize for sys_rt_sigprocmask.".to_string());
-            }
-        
-            // 6. Handle oldset_ptr (save current signal mask if not NULL)
-            if oldset_ptr.to_u64() != 0 {
-                // --- If the pointer is exactly 0x3, skip without error ---
-                if oldset_ptr.to_u64() == 0x3 {
-                    log!(
-                        executor.state.logger.clone(),
-                        "Skipping oldset_ptr=0x3; doing nothing, no error."
-                    );
-                } else if executor.state.memory.is_valid_address(oldset_ptr.to_u64()) {
-                    let current_mask = executor.state.signal_mask;
-                    let mem_value = MemoryValue {
-                        concrete: current_mask,
-                        symbolic: z3::ast::BV::from_u64(executor.context, current_mask, 64),
-                        size: 64,
-                    };
-        
-                    executor
-                        .state
-                        .memory
-                        .write_value(oldset_ptr.to_u64(), &mem_value)
-                        .map_err(|e| format!("Failed to write old signal mask to memory: {}", e))?;
-                } else {
-                    // Original behavior: return an error for invalid addresses
-                    return Err(format!(
-                        "Invalid memory address for old signal mask: 0x{:x}",
-                        oldset_ptr.to_u64()
-                    ));
-                }
-            }
-        
-            // 7. Handle set_ptr (apply new mask if not NULL)
-            if set_ptr.to_u64() != 0 {
-                let new_mask_value = executor
-                    .state
-                    .memory
-                    .read_u64(set_ptr.to_u64())
-                    .map_err(|e| format!("Failed to read new signal mask from memory: {}", e))?;
-                let new_mask = new_mask_value.concrete.to_u64(); // sigset_t is 64 bits
-        
-                match how {
-                    nix::libc::SIG_BLOCK => {
-                        executor.state.signal_mask |= new_mask;
-                    }
-                    nix::libc::SIG_UNBLOCK => {
-                        executor.state.signal_mask &= !new_mask;
-                    }
-                    nix::libc::SIG_SETMASK => {
-                        executor.state.signal_mask = new_mask;
-                    }
-                    _ => {
-                        return Err(format!(
-                            "Invalid 'how' argument for sys_rt_sigprocmask: {}",
-                            how
-                        ));
-                    }
-                }
-            }
-        
-            // 8. Update RAX to 0 to indicate success
-            let rax_value = MemoryValue {
-                concrete: 0,
-                symbolic: z3::ast::BV::from_u64(executor.context, 0, 64),
-                size: 64,
-            };
-            let rax_concolic_var = ConcolicVar::new_from_memory_value(&rax_value);
-            cpu_state_guard
-                .set_register_value_by_offset(0x0, rax_concolic_var, 64)
-                .map_err(|e| format!("Failed to set RAX: {}", e))?;
-        
-            drop(cpu_state_guard);
-        
-            // 9. Record the operation in concolic variables
-            let current_addr_hex = executor
-                .current_address
-                .map_or_else(|| "unknown".to_string(), |addr| format!("{:x}", addr));
-            let result_var_name = format!(
-                "{}-{:02}-callother-sys-rt_sigprocmask",
-                current_addr_hex, executor.instruction_counter
-            );
-            executor.state.create_or_update_concolic_variable_int(
-                &result_var_name,
-                how.try_into().unwrap(),
-                SymbolicVar::Int(z3::ast::BV::from_u64(
-                    executor.context,
-                    how.try_into().unwrap(),
-                    64
-                )),
-            );
-        }         
+        },        
         24 => { // sys_sched_yield
             log!(executor.state.logger.clone(), "Syscall type: sys_sched_yield");
             // sys_sched_yield() causes the calling thread to relinquish the CPU

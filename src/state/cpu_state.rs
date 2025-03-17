@@ -62,6 +62,43 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         }
     }
 
+    /// Creates a new CpuConcolicValue where the symbolic part is built from fresh constants.
+    /// If the register size is greater than 64, it creates a vector of fresh 64‑bit BVs.
+    pub fn new_with_symbolic(ctx: &'ctx Context, initial_value: u64, reg_name: &str, size: u32,) -> Self {
+        if size > 64 {
+            let num_chunks = ((size as usize) + 63) / 64; // Number of 64-bit chunks needed.
+            let mut fresh_chunks = Vec::with_capacity(num_chunks);
+            for i in 0..num_chunks {
+                let chunk = BV::fresh_const(ctx, &format!("{}_chunk_{}", reg_name, i), 64);
+                fresh_chunks.push(chunk);
+            }
+            // For the concrete part, split initial_value into chunks.
+            let mut chunks = Vec::new();
+            let num_full_chunks = (size / 64) as usize;
+            let mut remaining_value = initial_value;
+            for i in 0..num_full_chunks {
+                chunks.push(remaining_value & 0xFFFFFFFFFFFFFFFF);
+                // Only shift if this is not the last full chunk.
+                if i < num_full_chunks - 1 {
+                    // Use checked_shr to safely shift.
+                    remaining_value = remaining_value.checked_shr(64).unwrap_or(0);
+                }
+            }
+            if size % 64 != 0 {
+                // Handle any leftover bits.
+                chunks.push(remaining_value & ((1u64 << (size % 64)) - 1));
+            }
+            let concrete = ConcreteVar::LargeInt(chunks);
+            let symbolic = SymbolicVar::LargeInt(fresh_chunks);
+            CpuConcolicValue { concrete, symbolic, ctx }
+        } else {
+            let sym_bv = BV::fresh_const(ctx, &format!("reg_{}", reg_name), size);
+            let concrete = ConcreteVar::Int(initial_value);
+            let symbolic = SymbolicVar::Int(sym_bv);
+            CpuConcolicValue { concrete, symbolic, ctx }
+        }        
+    }
+
     // Method to retrieve the concrete u64 value
     pub fn get_concrete_value(&self) -> Result<u64, String> {
         match self.concrete {
@@ -169,88 +206,85 @@ impl<'ctx> CpuState<'ctx> {
 
         // From ia.sinc
         let register_definitions = [
-        // General Purpose Registers (64-bit mode)
-        ("RAX", "0x0", "64"), ("RCX", "0x8", "64"), ("RDX", "0x10", "64"), ("RBX", "0x18", "64"),
-        ("RSP", "0x20", "64"), ("RBP", "0x28", "64"), ("RSI", "0x30", "64"), ("RDI", "0x38", "64"),
-        ("R8", "0x80", "64"), ("R9", "0x88", "64"), ("R10", "0x90", "64"), ("R11", "0x98", "64"),
-        ("R12", "0xa0", "64"), ("R13", "0xa8", "64"), ("R14", "0xb0", "64"), ("R15", "0xb8", "64"),
+            // General Purpose Registers (64-bit mode)
+            ("RAX", "0x0", "64"), ("RCX", "0x8", "64"), ("RDX", "0x10", "64"), ("RBX", "0x18", "64"),
+            ("RSP", "0x20", "64"), ("RBP", "0x28", "64"), ("RSI", "0x30", "64"), ("RDI", "0x38", "64"),
+            ("R8", "0x80", "64"), ("R9", "0x88", "64"), ("R10", "0x90", "64"), ("R11", "0x98", "64"),
+            ("R12", "0xa0", "64"), ("R13", "0xa8", "64"), ("R14", "0xb0", "64"), ("R15", "0xb8", "64"),
 
-        // Segment Registers
-        ("ES", "0x100", "16"), ("CS", "0x102", "16"), ("SS", "0x104", "16"), ("DS", "0x106", "16"),
-        ("FS", "0x108", "16"), ("GS", "0x10a", "16"), ("FS_OFFSET", "0x110", "64"), ("GS_OFFSET", "0x118", "64"),
+            // Segment Registers
+            ("ES", "0x100", "16"), ("CS", "0x102", "16"), ("SS", "0x104", "16"), ("DS", "0x106", "16"),
+            ("FS", "0x108", "16"), ("GS", "0x10a", "16"), ("FS_OFFSET", "0x110", "64"), ("GS_OFFSET", "0x118", "64"),
 
-        // Individual Flags within the Flag Register
-        ("CF", "0x200", "8"),   // Carry Flag
-        ("F1", "0x201", "8"),   // Reserved (always 1)
-        ("PF", "0x202", "8"),   // Parity Flag
-        ("F3", "0x203", "8"),   // Reserved
-        ("AF", "0x204", "8"),   // Auxiliary Carry Flag
-        ("F5", "0x205", "8"),   // Reserved
-        ("ZF", "0x206", "8"),   // Zero Flag
-        ("SF", "0x207", "8"),   // Sign Flag
-        ("TF", "0x208", "8"),   // Trap Flag (Single Step)
-        ("IF", "0x209", "8"),   // Interrupt Enable Flag
-        ("DF", "0x20a", "8"),   // Direction Flag
-        ("OF", "0x20b", "8"),   // Overflow Flag
-        ("IOPL", "0x20c", "16"), // I/O Privilege Level (2 bits)
-        ("NT", "0x20d", "8"),   // Nested Task Flag
-        ("F15", "0x20e", "8"),  // Reserved
-        ("RF", "0x20f", "8"),   // Resume Flag
-        ("VM", "0x210", "8"),   // Virtual 8086 Mode
-        ("AC", "0x211", "8"),   // Alignment Check (Alignment Mask)
-        ("VIF", "0x212", "8"),  // Virtual Interrupt Flag
-        ("VIP", "0x213", "8"),  // Virtual Interrupt Pending
-        ("ID", "0x214", "8"),   // ID Flag 
+            // Individual Flags within the Flag Register
+            ("CF", "0x200", "8"),   // Carry Flag
+            ("F1", "0x201", "8"),   // Reserved (always 1)
+            ("PF", "0x202", "8"),   // Parity Flag
+            ("F3", "0x203", "8"),   // Reserved
+            ("AF", "0x204", "8"),   // Auxiliary Carry Flag
+            ("F5", "0x205", "8"),   // Reserved
+            ("ZF", "0x206", "8"),   // Zero Flag
+            ("SF", "0x207", "8"),   // Sign Flag
+            ("TF", "0x208", "8"),   // Trap Flag (Single Step)
+            ("IF", "0x209", "8"),   // Interrupt Enable Flag
+            ("DF", "0x20a", "8"),   // Direction Flag
+            ("OF", "0x20b", "8"),   // Overflow Flag
+            ("IOPL", "0x20c", "16"), // I/O Privilege Level (2 bits)
+            ("NT", "0x20d", "8"),   // Nested Task Flag
+            ("F15", "0x20e", "8"),  // Reserved
+            ("RF", "0x20f", "8"),   // Resume Flag
+            ("VM", "0x210", "8"),   // Virtual 8086 Mode
+            ("AC", "0x211", "8"),   // Alignment Check (Alignment Mask)
+            ("VIF", "0x212", "8"),  // Virtual Interrupt Flag
+            ("VIP", "0x213", "8"),  // Virtual Interrupt Pending
+            ("ID", "0x214", "8"),   // ID Flag 
 
-        // RIP
-        ("RIP", "0x288", "64"),
+            // RIP
+            ("RIP", "0x288", "64"),
 
-        // Debug and Control Registers
-        ("DR0", "0x300", "64"), ("DR1", "0x308", "64"), ("DR2", "0x310", "64"), ("DR3", "0x318", "64"),
-        ("DR4", "0x320", "64"), ("DR5", "0x328", "64"), ("DR6", "0x330", "64"), ("DR7", "0x338", "64"),
-        ("CR0", "0x380", "64"), ("CR2", "0x390", "64"), ("CR3", "0x398", "64"), ("CR4", "0x3a0", "64"),
-        ("CR8", "0x3c0", "64"),
+            // Debug and Control Registers
+            ("DR0", "0x300", "64"), ("DR1", "0x308", "64"), ("DR2", "0x310", "64"), ("DR3", "0x318", "64"),
+            ("DR4", "0x320", "64"), ("DR5", "0x328", "64"), ("DR6", "0x330", "64"), ("DR7", "0x338", "64"),
+            ("CR0", "0x380", "64"), ("CR2", "0x390", "64"), ("CR3", "0x398", "64"), ("CR4", "0x3a0", "64"),
+            ("CR8", "0x3c0", "64"),
 
-        // Processor State Register and MPX Registers
-        ("XCR0", "0x600", "64"), ("BNDCFGS", "0x700", "64"), ("BNDCFGU", "0x708", "64"),
-        ("BNDSTATUS", "0x710", "64"), ("BND0", "0x740", "128"), ("BND1", "0x750", "128"),
-        ("BND2", "0x760", "128"), ("BND3", "0x770", "128"),
+            // Processor State Register and MPX Registers
+            ("XCR0", "0x600", "64"), ("BNDCFGS", "0x700", "64"), ("BNDCFGU", "0x708", "64"),
+            ("BNDSTATUS", "0x710", "64"), ("BND0", "0x740", "128"), ("BND1", "0x750", "128"),
+            ("BND2", "0x760", "128"), ("BND3", "0x770", "128"),
 
-        // ST registers
-        ("MXCSR", "0x1094", "32"),
+            // ST registers
+            ("MXCSR", "0x1094", "32"),
 
-        // Extended SIMD Registers
-        ("YMM0", "0x1200", "256"), ("YMM1", "0x1220", "256"), ("YMM2", "0x1240", "256"), ("YMM3", "0x1260", "256"),
-        ("YMM4", "0x1280", "256"), ("YMM5", "0x12a0", "256"), ("YMM6", "0x12c0", "256"), ("YMM7", "0x12e0", "256"),
-        ("YMM8", "0x1300", "256"), ("YMM9", "0x1320", "256"), ("YMM10", "0x1340", "256"), ("YMM11", "0x1360", "256"),
-        ("YMM12", "0x1380", "256"), ("YMM13", "0x13a0", "256"), ("YMM14", "0x13c0", "256"), ("YMM15", "0x13e0", "256"),
+            // Extended SIMD Registers
+            ("YMM0", "0x1200", "256"), ("YMM1", "0x1220", "256"), ("YMM2", "0x1240", "256"), ("YMM3", "0x1260", "256"),
+            ("YMM4", "0x1280", "256"), ("YMM5", "0x12a0", "256"), ("YMM6", "0x12c0", "256"), ("YMM7", "0x12e0", "256"),
+            ("YMM8", "0x1300", "256"), ("YMM9", "0x1320", "256"), ("YMM10", "0x1340", "256"), ("YMM11", "0x1360", "256"),
+            ("YMM12", "0x1380", "256"), ("YMM13", "0x13a0", "256"), ("YMM14", "0x13c0", "256"), ("YMM15", "0x13e0", "256"),
 
-        // Temporary SIMD Registers (for intermediate calculations etc.)
-        ("xmmTmp1", "0x1400", "128"), ("xmmTmp2", "0x1410", "128"),
-    ];
+            // Temporary SIMD Registers (for intermediate calculations etc.)
+            ("xmmTmp1", "0x1400", "128"), ("xmmTmp2", "0x1410", "128"),
+        ];
 
         for &(name, offset_hex, size_str) in register_definitions.iter() {
             let offset = u64::from_str_radix(offset_hex.trim_start_matches("0x"), 16)
                 .map_err(|e| anyhow!("Error parsing offset for {}: {}", name, e))?;
             let size = size_str.parse::<u32>()
                 .map_err(|e| anyhow!("Error parsing size for {}: {}", name, e))?;
-
+        
             if !self.is_valid_register_offset(name, offset) {
                 return Err(anyhow!("Invalid register offset 0x{:X} for {}", offset, name));
             }
-
-            let initial_value = 0;  // Default initialization value for all registers.
-
-            // Create a new concolic value for the register.
-            let concolic_value = CpuConcolicValue::new(self.ctx, initial_value, size);
-            // Insert the new register into the map using its offset as the key.
+        
+            // Use 0 as the default concrete value.
+            let initial_concrete = 0;
+        
+            // Create a new concolic value with a fresh symbolic BV (or vector of BVs if size > 64).
+            let concolic_value = CpuConcolicValue::new_with_symbolic(self.ctx, initial_concrete, name, size);
+        
             self.registers.insert(offset, concolic_value.clone());
-            // Map the offset to the register name for easy lookup
             self.register_map.insert(offset, (name.to_string(), size));
-
-            // Print debug info to trace the initialization of registers
-            // println!("Initialized register {} at offset 0x{:X} with value {:?} and size {}.", name, offset, concolic_value, size);
-        }
+        }    
 
         Ok(())
     }

@@ -1,14 +1,17 @@
-use std::collections::{BTreeMap, HashMap};
+use core::panic;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
+use std::sync::Arc;
+use libc::EXDEV;
 use parser::parser::{Inst, Opcode};
 use serde::Deserialize;
 use z3::ast::{Ast, Bool, Int, BV};
-use z3::{Config, Context, Solver};
+use z3::{Config, Context, SatResult, Solver};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
 use zorya::state::memory_x86_64::MemoryValue;
@@ -75,6 +78,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Adapt scenaris according to the chosen mode in the command
     let mode = env::var("MODE").expect("MODE environment variable is not set");
     let arguments = env::var("ARGS").expect("MODE environment variable is not set");
+
+    initialize_symbolic_part_args(&mut executor)?;
     
     if mode == "function" { 
         log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
@@ -88,26 +93,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         } else {
             log!(executor.state.logger, "Function not found in symbol table.");
         }
-
-        // // Path to the Python script
-        // let python_script_path = "src/get_function_args.py";
-        // // Spawn the Python process
-        // let output = Command::new("python3")
-        //     .arg(python_script_path)
-        //     .arg(binary_path)
-        //     .arg(start_address_hex)
-        //     .output()
-        //     .expect("Failed to run python script");
-
-        // if !output.status.success() {
-        //     log!(executor.state.logger, "Python script returned an error code: {:?}", output.status);
-        //     log!(executor.state.logger, "--- stderr ---\n{}", String::from_utf8_lossy(&output.stderr));
-        // }
-
-        // // Capture and print stdout from the script
-        // let stdout = String::from_utf8_lossy(&output.stdout);
-        // log!(executor.state.logger, "=== Pyhidra Script Output ===\n{stdout}");
-
     
     } else if mode == "start" {
         log!(executor.state.logger, "Updating argc and argv on the stack");
@@ -117,14 +102,88 @@ fn main() -> Result<(), Box<dyn Error>> {
         log!(executor.state.logger, "Continuing execution without modification.");
     }
 
-    let osargslen = executor.state.memory.read_memory(0x235c50, 8);
-    let osargs = executor.state.memory.read_memory(0x235c60, 64);
-    log!(executor.state.logger, "os args are {:?}with lenght {:?}", osargs, osargslen);
-
     // CORE COMMAND
     execute_instructions_from(&mut executor, start_address, &instructions_map, &solver, &binary_path);
 
-    log!(executor.state.logger, "The concolic execution has finished.");
+    Ok(())
+}
+
+pub fn initialize_symbolic_part_args(executor: &mut ConcolicExecutor) -> Result<(), Box<dyn Error>> {
+    // 1) RUN PYTHON SCRIPT TO FIND 'os.Args'
+    let binary_path = {
+        let target_info = crate::GLOBAL_TARGET_INFO.lock().unwrap();
+        target_info.binary_path.clone()
+    };
+
+    let script_path = "scripts/find_os_args.py";
+    let output = std::process::Command::new("python3")
+        .arg(script_path)
+        .arg(&binary_path)
+        .output()
+        .map_err(|e| format!("Failed to run pyhidra script: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("pyhidra script returned error: {}", stderr).into());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut address: Option<u64> = None;
+
+    for line in stdout.lines() {
+        if line.starts_with("ERROR") {
+            return Err(format!("Could not find 'os.Args' symbol: {}", line).into());
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() == 2 {
+            if let Ok(addr) = u64::from_str_radix(parts[1].trim_start_matches("0x"), 16) {
+                address = Some(addr);
+            }
+        }
+    }
+
+    let args_addr = address.ok_or("No valid address returned by find_os_args.py")?;
+
+    log!(executor.state.logger, "Found 'os.Args' symbol at address: 0x{:x}", args_addr);
+
+    // 2) READ THE os.Args SLICE HEADER (Pointer, Len, Cap)
+    let mem = &executor.state.memory;
+    let slice_ptr = mem.read_u64(args_addr)?.concrete.to_u64();       // Pointer to backing array
+    let slice_len = mem.read_u64(args_addr + 8)?.concrete.to_u64();   // Length (number of arguments)
+    let _slice_cap = mem.read_u64(args_addr + 16)?.concrete.to_u64(); // Capacity (not used)
+
+    log!(executor.state.logger, "os.Args -> ptr=0x{:?}, len={}, cap={}", slice_ptr, slice_len, _slice_cap);
+
+    // Iterate through each argument
+    for i in 0..slice_len {
+        let string_struct_addr = slice_ptr + i * 16; // Each Go string struct is 16 bytes
+        let str_data_ptr = mem.read_u64(string_struct_addr)?.concrete.to_u64();       // Pointer to actual string data
+        let str_data_len = mem.read_u64(string_struct_addr + 8)?.concrete.to_u64();   // Length of the string
+
+        log!(executor.state.logger, "os.Args[{}] -> string ptr=0x{:x}, len={}", i, str_data_ptr, str_data_len);
+
+        if str_data_ptr == 0 || str_data_len == 0 {
+            // Possibly an empty argument? Just skip or handle specially
+            continue;
+        }
+
+        // Read the actual string bytes
+        let concrete_str_bytes = mem.read_bytes(str_data_ptr, str_data_len as usize)?;
+
+        // Create fresh symbolic variables for each byte of this argument
+        let mut fresh_symbolic = Vec::with_capacity(str_data_len as usize);
+        for (byte_index, _) in concrete_str_bytes.iter().enumerate() {
+            let bv_name = format!("arg{}_byte_{}", i, byte_index);
+            let fresh_bv = BV::fresh_const(&executor.context, &bv_name, 8);
+            fresh_symbolic.push(Some(Arc::new(fresh_bv)));
+        }
+
+        // Write those symbolic values back into memory
+        mem.write_memory(str_data_ptr, &concrete_str_bytes, &fresh_symbolic)?;
+
+        log!(executor.state.logger, "Successfully replaced os.Args[{}] with {} symbolic bytes.", i, str_data_len);
+    }
+
     Ok(())
 }
 
@@ -367,6 +426,85 @@ fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64)>)> {
     function_args_map
 }
 
+// Function to add the arguments of the target binary from the user's command 
+fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+
+    if arguments == "none" {
+        return Ok(());
+    }
+
+    // Parse arguments
+    let args: Vec<String> = shell_words::split(arguments)?;
+    let argc = args.len() as u64;
+
+    log!(executor.state.logger, "Symbolically setting argc: {}", argc);
+
+    let rsp = cpu_state_guard
+        .get_register_by_offset(0x20, 64)
+        .unwrap()
+        .concrete
+        .to_u64();
+
+    // Write argc (concrete)
+    executor.state.memory.write_value(
+        rsp,
+        &MemoryValue::new(
+            argc,
+            BV::from_u64(&executor.context, argc, 64),
+            64,
+        ),
+    )?;
+
+    let argv_ptr_base = rsp + 8;
+    let mut current_string_address = argv_ptr_base + (argc + 1) * 8;
+
+    for (i, arg) in args.iter().enumerate() {
+        // Write argv[i] pointer
+        executor.state.memory.write_value(
+            argv_ptr_base + (i as u64 * 8),
+            &MemoryValue::new(
+                current_string_address,
+                BV::from_u64(&executor.context, current_string_address, 64),
+                64,
+            ),
+        )?;
+
+        log!(executor.state.logger, "Set argv[{}] pointer at: 0x{:x}", i, current_string_address);
+
+        let arg_bytes = arg.as_bytes();
+
+        for offset in 0..arg_bytes.len() {
+            let sym_byte = BV::fresh_const(&executor.context, &format!("arg{}_byte{}", i, offset),8);
+
+            executor.state.memory.write_value(
+                current_string_address + offset as u64,
+                &MemoryValue::new(
+                    0,
+                    sym_byte.clone(),
+                    8,
+                ),
+            )?;
+        }
+
+        // NULL terminator
+        executor.state.memory.write_value(
+            current_string_address + arg_bytes.len() as u64,
+            &MemoryValue::new(0, BV::from_u64(&executor.context, 0, 8), 8),
+        )?;
+
+        current_string_address += ((arg_bytes.len() + 8) as u64) & !7; // align to 8 bytes
+    }
+
+    // Write argv NULL terminator pointer
+    executor.state.memory.write_value(
+        argv_ptr_base + argc * 8,
+        &MemoryValue::new(0, BV::from_u64(executor.context, 0, 64), 64),
+    )?;
+
+    Ok(())
+}
+
 // Function to execute the instructions from the map of addresses to instructions
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver, binary_path: &str) {
     let mut current_rip = start_address;
@@ -452,44 +590,47 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     .extract_branch_target_address(&branch_target_varnode, inst.clone())
                     .map_err(|e| e.to_string())
                     .unwrap();
-            
-                // Check if the target is in our "panic addresses" list
-                if panic_address_ints.contains(&Int::from_u64(executor.context, branch_target_address)) {
-                    log!(
-                        executor.state.logger, 
+
+                if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
+                    log!(executor.state.logger,
                         "Potential branching to a panic function at 0x{:x}",
-                        branch_target_address
-                    );
-            
-                    // 1) push the solver context
+                        branch_target_address);
+                    
+                    // 1) Push the solver context.
                     executor.solver.push();
-            
-                    // 2) The condition for cbranch is typically in input[1].
-                    //    By p-code definition, cbranch is taken if input1 != 0.
+
+                    // 2) Assert the global registers' state and memory into the solver.
+                    //assert_registers_state(executor);
+                    //assert_memory_state(executor);
+
+                    // 3) Process the branch condition.
                     let cond_varnode = &inst.inputs[1];
-                    let cond_concolic = executor
-                        .varnode_to_concolic(cond_varnode)
+                    let cond_concolic = executor.varnode_to_concolic(cond_varnode)
                         .map_err(|e| e.to_string())
                         .unwrap()
                         .to_concolic_var()
                         .unwrap();
-            
-                    // cond_bv might be 1 byte, or sometimes 1 bit, depending on your IR. 
-                    // Either way, "nonzero => branch".
                     let cond_bv = cond_concolic.symbolic.to_bv(executor.context);
-            
-                    // Build "cond_bv != 0" => cond_bv == 0 .not()
-                    let zero_bv = BV::from_u64(executor.context, 0, cond_bv.get_size());
-                    let condition_expr = cond_bv._eq(&zero_bv).not();
-            
-                    // 3) assert the condition to take the branch
-                    executor.solver.assert(&condition_expr);
+
+                    if current_rip == 0x22b21a {
+                        log!(executor.state.logger, "Branch condition symbolic: {:?}", cond_bv);
+                        log!(executor.state.logger, "Branch condition symbolic simplified: {:?}", cond_bv.simplify());
+                    }
+
+                    // Instead of checking for equality with 1 (which is too strict),
+                    // we typically want to assert that the condition is nonzero.
+                    let zero_bv = z3::ast::BV::from_u64(executor.context, 0, cond_bv.get_size());
+                    let branch_condition = cond_bv._eq(&zero_bv).not();
+
+                    // 4) Assert the branch condition.
+                    executor.solver.assert(&branch_condition);
             
                     // 4) check feasibility
                     match executor.solver.check() {
                         z3::SatResult::Sat => {
                             log!(executor.state.logger, "~~~~~~~~~~~");
                             log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
+                            log!(executor.state.logger, "~~~~~~~~~~~");
             
                             // 5) get_model
                             let model = executor.solver.get_model().unwrap();
@@ -524,18 +665,27 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 .to_bv(executor.context);
                             let r14_val = model.eval(&r14_sym_bv, true).unwrap().as_u64().unwrap();
             
-                            log!(
-                                executor.state.logger, 
-                                "To take the panic-branch => RDI={}, RBX={}, R14={}",
-                                rdi_val, rbx_val, r14_val
-                            );
+
+                            let zf_sym_bv = executor
+                                .state
+                                .cpu_state
+                                .lock().unwrap()
+                                .get_register_by_offset(0x206, 8).unwrap()
+                                .symbolic
+                                .to_bv(executor.context);
+                            let zf_val = model.eval(&zf_sym_bv, true).unwrap().as_u64().unwrap();
+
+                            log!(executor.state.logger, 
+                                "To take the panic-branch => RDI={}, RBX={}, R14={}, ZF={}",
+                                rdi_val, rbx_val, r14_val, zf_val);
             
                             // You can store these results or exit:
-                            process::exit(0);
+                            //process::exit(0);
                         }
                         z3::SatResult::Unsat => {
-                            log!(executor.state.logger, 
-                                 "Branch to panic is UNSAT => no input can make that branch lead to panic");
+                            log!(executor.state.logger, "~~~~~~~~~~~");
+                            log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");
+                            log!(executor.state.logger, "~~~~~~~~~~~");
                         }
                         z3::SatResult::Unknown => {
                             log!(executor.state.logger, "Solver => Unknown feasibility");
@@ -639,6 +789,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger,  "The value of register at offset 0x30 - RSI is {:x}", register0x30.concrete);
             let register0x38 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x38 - RDI is {:x}", register0x38.concrete);
+            let register0x90 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x90, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x90 - R10 is {:x}", register0x90.concrete);
             let register0x98 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x98 - R11 is {:x}", register0x98.concrete);
             let register0xa0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa0, 64).unwrap();
@@ -830,68 +982,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     }
 }
 
-// Function to add the arguments of the target binary from the user's command 
-fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
-
-    if arguments == "none" {
-        log!(executor.state.logger, "ARGS is 'none', skipping argument setup.");
-        return Ok(());
-    }
-
-    let args: Vec<String> = shell_words::split(arguments).expect("Failed to parse arguments");
-    let argc = args.len() as u64;
-
-    log!(executor.state.logger, "Extracted argc: {}", argc);
-    log!(executor.state.logger, "Extracted argv: {:?}", args);
-
-    let rsp_value = cpu_state_guard.get_register_by_offset(0x20, 64).unwrap().concrete.to_u64();
-    log!(executor.state.logger, "RSP value: 0x{:x}", rsp_value);
-
-    // Store argc at RSP
-    let argc_symbolic = SymbolicVar::new_int(argc as i64, executor.context, 64);
-    let argc_mem_value = MemoryValue::new(argc, argc_symbolic.to_bv(executor.context), 64);
-    executor.state.memory.write_value(rsp_value, &argc_mem_value)?;
-    log!(executor.state.logger, "Wrote argc at 0x{:x}: {}", rsp_value, argc);
-
-    let argv_base_addr = rsp_value + 16;
-    let mut string_memory_base = argv_base_addr + (args.len() as u64 * 8);
-
-    for (i, arg) in args.iter().enumerate() {
-        let arg_ptr_addr = argv_base_addr + (i as u64 * 8);
-        let arg_string_addr = string_memory_base;
-        string_memory_base += ((arg.len() as u64 + 8) / 8) * 8; // Ensure alignment
-
-        // Write pointer to argv[i]
-        let arg_ptr_symbolic = SymbolicVar::new_int(arg_string_addr as i64, executor.context, 64);
-        let arg_ptr_mem_value = MemoryValue::new(arg_string_addr, arg_ptr_symbolic.to_bv(executor.context), 64);
-        executor.state.memory.write_value(arg_ptr_addr, &arg_ptr_mem_value)?;
-        log!(executor.state.logger, "Wrote argv[{}] pointer at 0x{:x}: 0x{:x}", i, arg_ptr_addr, arg_string_addr);
-
-        // Convert argument string to ASCII bytes and store as u64 chunks
-        let mut arg_bytes = arg.clone().into_bytes();
-        arg_bytes.push(0); // NULL-terminate string
-
-        for chunk in arg_bytes.chunks(8) {
-            let mut chunk_data = [0u8; 8];
-            chunk_data[..chunk.len()].copy_from_slice(chunk);
-            let chunk_value = u64::from_le_bytes(chunk_data);
-
-            let chunk_mem_value = MemoryValue::new(chunk_value, SymbolicVar::new_int(chunk_value as i64, executor.context, 64).to_bv(executor.context), 64);
-            executor.state.memory.write_value(arg_string_addr + (chunk.as_ptr() as u64 - arg_bytes.as_ptr() as u64), &chunk_mem_value)?;
-        }
-    }
-
-    // Write NULL terminator for argv
-    let argv_null_addr = argv_base_addr + (args.len() as u64 * 8);
-    let null_ptr_symbolic = SymbolicVar::new_int(0, executor.context, 64);
-    let null_mem_value = MemoryValue::new(0, null_ptr_symbolic.to_bv(executor.context), 64);
-    executor.state.memory.write_value(argv_null_addr, &null_mem_value)?;
-    log!(executor.state.logger, "Wrote NULL terminator at 0x{:x}", argv_null_addr);
-
-    Ok(())
-}
-
 #[derive(Deserialize)]
 struct FunctionSignature {
     address: String,
@@ -905,19 +995,3 @@ struct FunctionArgument {
     register: String,
 }
 
-#[derive(Clone)]
-pub struct PathState<'ctx> {
-    pub executor: ConcolicExecutor<'ctx>,
-    pub current_rip: u64,
-    pub local_line_number: i64,
-}
-
-impl<'ctx> PathState<'ctx> {
-    pub fn new(executor: ConcolicExecutor<'ctx>, start_rip: u64) -> Self {
-        PathState {
-            executor,
-            current_rip: start_rip,
-            local_line_number: 0,
-        }
-    }
-}
