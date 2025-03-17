@@ -373,6 +373,26 @@ impl<'ctx> MemoryX86_64<'ctx> {
         } else {
             Err(MemoryError::InvalidString)
         }
+    }
+
+    /// Reads exactly one byte from memory, returning a ConcolicVar representing
+    /// that single byte (both concrete and symbolic).
+    pub fn read_byte(&self, address: u64) -> Result<ConcolicVar<'ctx>, MemoryError> {
+        // read_memory(size=1) returns (concrete_bytes, [symbolic_bvs])
+        let (concrete, symbolic) = self.read_memory(address, 1)?;
+        let cbyte = concrete[0] as u64;
+
+        // If there's no symbolic data for that byte, create a fresh BV from cbyte
+        let sym_bv: Arc<BV<'ctx>> = symbolic[0]
+            .clone()
+            .unwrap_or_else(|| Arc::new(BV::from_u64(self.ctx, cbyte, 8)));
+
+        // Build a ConcolicVar for this single byte
+        Ok(ConcolicVar {
+            concrete: ConcreteVar::Int(cbyte),
+            symbolic: SymbolicVar::Int((*sym_bv).clone()),
+            ctx: self.ctx,
+        })
     }    
     
     /// Writes concrete and symbolic memory to a given address range.

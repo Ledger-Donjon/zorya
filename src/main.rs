@@ -78,8 +78,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Adapt scenaris according to the chosen mode in the command
     let mode = env::var("MODE").expect("MODE environment variable is not set");
     let arguments = env::var("ARGS").expect("MODE environment variable is not set");
-
-    initialize_symbolic_part_args(&mut executor)?;
+    
+    // Turn each byte of each user input into a symbolic variable
+    let os_args_addr = get_os_args_address()?;
+    initialize_symbolic_part_args(&mut executor, os_args_addr)?;
     
     if mode == "function" { 
         log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
@@ -108,15 +110,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn initialize_symbolic_part_args(executor: &mut ConcolicExecutor) -> Result<(), Box<dyn Error>> {
-    // 1) RUN PYTHON SCRIPT TO FIND 'os.Args'
+// Function to get the address of the os.Args slice in the target binary
+pub fn get_os_args_address() -> Result<u64, Box<dyn Error>> {
+    // Use the globally stored target info to get the path to your binary
     let binary_path = {
         let target_info = crate::GLOBAL_TARGET_INFO.lock().unwrap();
         target_info.binary_path.clone()
     };
 
     let script_path = "scripts/find_os_args.py";
-    let output = std::process::Command::new("python3")
+    let output = Command::new("python3")
         .arg(script_path)
         .arg(&binary_path)
         .output()
@@ -128,25 +131,33 @@ pub fn initialize_symbolic_part_args(executor: &mut ConcolicExecutor) -> Result<
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut address: Option<u64> = None;
 
+    // We parse lines to find the address. 
+    let mut address: Option<u64> = None;
     for line in stdout.lines() {
+        // If the script prints an error line
         if line.starts_with("ERROR") {
             return Err(format!("Could not find 'os.Args' symbol: {}", line).into());
         }
+
+        // the script prints "os.Args 0x232760"
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() == 2 {
+        if parts.len() == 2 && parts[0].contains("os.Args") {
             if let Ok(addr) = u64::from_str_radix(parts[1].trim_start_matches("0x"), 16) {
                 address = Some(addr);
+                break;
             }
         }
     }
 
-    let args_addr = address.ok_or("No valid address returned by find_os_args.py")?;
+    // If address is still None, we failed to parse
+    let addr = address.ok_or("No valid address returned by find_os_args.py")?;
+    Ok(addr)
+}
 
-    log!(executor.state.logger, "Found 'os.Args' symbol at address: 0x{:x}", args_addr);
 
-    // 2) READ THE os.Args SLICE HEADER (Pointer, Len, Cap)
+pub fn initialize_symbolic_part_args(executor: &mut ConcolicExecutor, args_addr: u64) -> Result<(), Box<dyn Error>> {
+    // Read os.Args slice header (Pointer, Len, Cap)
     let mem = &executor.state.memory;
     let slice_ptr = mem.read_u64(args_addr)?.concrete.to_u64();       // Pointer to backing array
     let slice_len = mem.read_u64(args_addr + 8)?.concrete.to_u64();   // Length (number of arguments)
@@ -634,52 +645,90 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             
                             // 5) get_model
                             let model = executor.solver.get_model().unwrap();
-            
-                            // Retrieve RDI if you want
-                            let rdi_sym_bv = executor
-                                .state
-                                .cpu_state
-                                .lock().unwrap()
-                                .get_register_by_offset(0x38, 64).unwrap()
-                                .symbolic
-                                .to_bv(executor.context);
-                            let rdi_val = model.eval(&rdi_sym_bv, true).unwrap().as_u64().unwrap();
-            
-                            // Also retrieve RBX (offset 0x18)
-                            let rbx_sym_bv = executor
-                                .state
-                                .cpu_state
-                                .lock().unwrap()
-                                .get_register_by_offset(0x18, 64).unwrap()
-                                .symbolic
-                                .to_bv(executor.context);
-                            let rbx_val = model.eval(&rbx_sym_bv, true).unwrap().as_u64().unwrap();
-            
-                            // And R14 (offset 0xb0)
-                            let r14_sym_bv = executor
-                                .state
-                                .cpu_state
-                                .lock().unwrap()
-                                .get_register_by_offset(0xb0, 64).unwrap()
-                                .symbolic
-                                .to_bv(executor.context);
-                            let r14_val = model.eval(&r14_sym_bv, true).unwrap().as_u64().unwrap();
-            
 
-                            let zf_sym_bv = executor
-                                .state
-                                .cpu_state
-                                .lock().unwrap()
-                                .get_register_by_offset(0x206, 8).unwrap()
-                                .symbolic
-                                .to_bv(executor.context);
-                            let zf_val = model.eval(&zf_sym_bv, true).unwrap().as_u64().unwrap();
+                            // broken-calculator-bis : 22def7 / crashme : 22b21a
+                            if current_rip == 0x22def7 {
+                                // 5.1) get address of os.Args
+                                let os_args_addr = get_os_args_address().unwrap();
 
-                            log!(executor.state.logger, 
-                                "To take the panic-branch => RDI={}, RBX={}, R14={}, ZF={}",
-                                rdi_val, rbx_val, r14_val, zf_val);
+                                // 5.2) read the slice's pointer and length from memory, then evaluate them in the model
+                                let slice_ptr_bv = executor
+                                    .state
+                                    .memory
+                                    .read_u64(os_args_addr)
+                                    .unwrap()
+                                    .symbolic
+                                    .to_bv(executor.context);
+                                let slice_ptr_val = model.eval(&slice_ptr_bv, true).unwrap().as_u64().unwrap();
+
+                                let slice_len_bv = executor
+                                    .state
+                                    .memory
+                                    .read_u64(os_args_addr + 8)
+                                    .unwrap()
+                                    .symbolic
+                                    .to_bv(executor.context);
+                                let slice_len_val = model.eval(&slice_len_bv, true).unwrap().as_u64().unwrap();
+
+                                log!(executor.state.logger, "To take the panic-branch => os.Args ptr=0x{:x}, len={}", slice_ptr_val, slice_len_val);
+
+                                // 5.3) For each argument in os.Args, read the string struct (ptr, len), then read each byte
+                                // starting the loop from 1 to skip the first argument (binary name)
+                                for i in 1..slice_len_val {
+                                    // Each string struct is 16 bytes: [8-byte ptr][8-byte len]
+                                    let string_struct_addr = slice_ptr_val + i * 16;
+
+                                    // Evaluate the pointer field
+                                    let str_data_ptr_bv = executor
+                                        .state
+                                        .memory
+                                        .read_u64(string_struct_addr)
+                                        .unwrap()
+                                        .symbolic
+                                        .to_bv(executor.context);
+                                    let str_data_ptr_val = model.eval(&str_data_ptr_bv, true).unwrap().as_u64().unwrap();
+
+                                    // Evaluate the length field
+                                    let str_data_len_bv = executor
+                                        .state
+                                        .memory
+                                        .read_u64(string_struct_addr + 8)
+                                        .unwrap()
+                                        .symbolic
+                                        .to_bv(executor.context);
+                                    let str_data_len_val = model.eval(&str_data_len_bv, true).unwrap().as_u64().unwrap();
+
+                                    // If pointer or length is zero, skip
+                                    if str_data_ptr_val == 0 || str_data_len_val == 0 {
+                                        log!(executor.state.logger, "Arg[{}] => (empty or null)", i);
+                                        continue;
+                                    }
+
+                                    // 5.4) read each symbolic byte from memory, evaluate in the model, and collect
+                                    let mut arg_bytes = Vec::new();
+                                    for j in 0..str_data_len_val {
+                                        let byte_read = executor
+                                            .state
+                                            .memory
+                                            .read_byte(str_data_ptr_val + j)
+                                            .map_err(|e| format!("Could not read arg[{}][{}]: {}", i, j, e))
+                                            .unwrap();
+
+                                        let byte_bv = byte_read.symbolic.to_bv(executor.context);
+                                        let byte_val = model.eval(&byte_bv, true).unwrap().as_u64().unwrap() as u8;
+
+                                        arg_bytes.push(byte_val);
+                                    }
+
+                                    // Convert the collected bytes into a String (falling back to lossy if invalid UTF-8)
+                                    let arg_str = String::from_utf8_lossy(&arg_bytes);
+
+                                    log!(executor.state.logger, "The user input nr.{} must be => \"{}\" (len={})", i, arg_str, str_data_len_val);
+                                }
+                                log!(executor.state.logger, "~~~~~~~~~~~");
+                            }
             
-                            // You can store these results or exit:
+                            // store these results or exit:
                             //process::exit(0);
                         }
                         z3::SatResult::Unsat => {
@@ -694,56 +743,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             
                     // 6) pop the solver context
                     executor.solver.pop(1);
-                    
-                    // log!(executor.state.logger, "Branching instruction with a potential panic function call detected at 0x{:x}", branch_target_address);
-                    
-                    // // Get the symbolic representation of RIP
-                    // let rip = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x288, 64).unwrap();
-                    // let rip_symbolic = rip.symbolic.clone().to_int().unwrap();
-
-                    // // Create conditions for each panic address
-                    // let conditions: Vec<Bool> = panic_address_ints.iter()
-                    //     .map(|panic_addr_int| rip_symbolic._eq(panic_addr_int))
-                    //     .collect();
-
-                    // // Collect references to the conditions
-                    // let condition_refs: Vec<&Bool> = conditions.iter().collect();
-
-                    // // Assert that RIP can be any of the panic addresses
-                    // solver.push(); // Push context to prevent side effects
-                    // solver.assert(&Bool::or(executor.context, &condition_refs));
-
-                    // match solver.check() {
-                    //     z3::SatResult::Sat => {
-                    //         log!(executor.state.logger, "~~~~~~~~~~~");
-                    //         log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
-                    //         let model = solver.get_model().unwrap();
-                    //         log!(executor.state.logger, "~~~~~~~~~~~\n");
-
-                    //         // Retrieve concrete values of registers or variables as needed
-                    //         // RAX:
-                    //         let rax = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap();
-                    //         let rax_symbolic = rax.symbolic.clone().to_int().unwrap();
-                    //         let rax_val = model.eval(&rax_symbolic, true).unwrap().as_u64().unwrap();
-
-                    //         // Log the values
-                    //         log!(executor.state.logger, "RIP can reach a panic function at 0x{:x}. RAX = 0x{:x}", model.eval(&rip_symbolic, true).unwrap().as_u64().unwrap(), rax_val);
-                    //         process::exit(0); 
-                    //     },
-                    //     z3::SatResult::Unsat => {
-                    //         log!(executor.state.logger, "~~~~~~~~~~~~~");
-                    //         log!(executor.state.logger, "UNSATISFIABLE: Symbolic execution cannot reach any panic functions from current state. Continuing on the concrete execution...");
-                    //         log!(executor.state.logger, "~~~~~~~~~~~~~\n");
-                    //     },
-                    //     z3::SatResult::Unknown => {
-                    //         log!(executor.state.logger, "UNKNOWN: Solver could not determine satisfiability.");
-                    //     },
-                    // }
                 }
-                //solver.pop(1); // Pop context to clean up assertions
             }
             
-
             // Calculate the potential next address taken by RIP, for the purpose of updating the symbolic part of CBRANCH
             let (next_addr_in_map, _ ) = instructions_map.range((current_rip + 1)..).next().unwrap();
 
