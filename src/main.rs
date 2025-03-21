@@ -726,7 +726,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                     // Convert the collected bytes into a String (falling back to lossy if invalid UTF-8)
                                     let arg_str = String::from_utf8_lossy(&arg_bytes);
 
-                                    log!(executor.state.logger, "The user input nr.{} must be => \"{}\" (len={})", i, arg_str, str_data_len_val);
+                                    log!(executor.state.logger, "The user input nr.{} must be => \"{}\", the raw value beeing {:?} (len={})", i, arg_str, arg_bytes, str_data_len_val);
                                 }
 
                                 // Retrieve others registers values
@@ -746,6 +746,10 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 let rsi_val = model.eval(&rsi_sym_bv, true).unwrap().as_u64().unwrap();
                                 let rdi_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap().symbolic.to_bv(executor.context);
                                 let rdi_val = model.eval(&rdi_sym_bv, true).unwrap().as_u64().unwrap();
+                                let r8_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x80, 64).unwrap().symbolic.to_bv(executor.context);
+                                let r8_val = model.eval(&r8_sym_bv, true).unwrap().as_u64().unwrap();
+                                let r9_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x88, 64).unwrap().symbolic.to_bv(executor.context);
+                                let r9_val = model.eval(&r9_sym_bv, true).unwrap().as_u64().unwrap();
                                 let r10_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x90, 64).unwrap().symbolic.to_bv(executor.context);
                                 let r10_val = model.eval(&r10_sym_bv, true).unwrap().as_u64().unwrap();
                                 let r11_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap().symbolic.to_bv(executor.context);
@@ -772,6 +776,8 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 log!(executor.state.logger, "RBP: 0x{:x}", rbp_val);
                                 log!(executor.state.logger, "RSI: 0x{:x}", rsi_val);
                                 log!(executor.state.logger, "RDI: 0x{:x}", rdi_val);
+                                log!(executor.state.logger, "R8: 0x{:x}", r8_val);
+                                log!(executor.state.logger, "R9: 0x{:x}", r9_val);
                                 log!(executor.state.logger, "R10: 0x{:x}", r10_val);
                                 log!(executor.state.logger, "R11: 0x{:x}", r11_val);
                                 log!(executor.state.logger, "R12: 0x{:x}", r12_val);
@@ -849,6 +855,10 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger,  "The value of register at offset 0x30 - RSI is {:x}", register0x30.concrete);
             let register0x38 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x38 - RDI is {:x}", register0x38.concrete);
+            let register0x80 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x80, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x80 - R8 is {:x}", register0x80.concrete);
+            let register0x88 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x88, 64).unwrap();
+            log!(executor.state.logger,  "The value of register at offset 0x88 - R9 is {:x}", register0x88.concrete);
             let register0x90 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x90, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x90 - R10 is {:x}", register0x90.concrete);
             let register0x98 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap();

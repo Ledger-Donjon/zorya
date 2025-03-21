@@ -70,7 +70,7 @@ pub fn handle_bool_negate(executor: &mut ConcolicExecutor, instruction: Inst) ->
 
     log!(executor.state.logger.clone(), "* Fetching instruction.input[0] for BOOL_NEGATE");
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
-
+    log!(executor.state.logger.clone(), "Input0 symbolic: {:?}", input0_var.to_concolic_var().unwrap().symbolic.simplify());
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
 
