@@ -71,6 +71,18 @@ impl<'ctx> SymbolicVar<'ctx> {
         }
     }
 
+    // Simplifies the symbolic variable, returning a new simplified symbolic value
+    pub fn simplify(&self) -> SymbolicVar<'ctx> {
+        match self {
+            SymbolicVar::Int(bv) => SymbolicVar::Int(bv.simplify()),
+            SymbolicVar::LargeInt(vec) => {
+                SymbolicVar::LargeInt(vec.iter().map(|bv| bv.simplify()).collect())
+            }
+            SymbolicVar::Float(flt) => SymbolicVar::Float(flt.simplify()),
+            SymbolicVar::Bool(b) => SymbolicVar::Bool(b.simplify()),
+        }
+    }
+
     // Method to check if two symbolic variables are equal
     pub fn equal(&self, other: &SymbolicVar<'ctx>) -> bool {
         match (self, other) {

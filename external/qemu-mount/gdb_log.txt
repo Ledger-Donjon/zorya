@@ -1,25 +1,25 @@
-Argument list to give program being debugged when it is started is "3 + 2 ".
-Breakpoint 1 at 0x22dfc0
+Argument list to give program being debugged when it is started is "b ".
+Breakpoint 1 at 0x22b1d0
 
-Breakpoint 1, 0x000000000022dfc0 in main.main ()
+Breakpoint 1, 0x000000000022b1d0 in main.main ()
 rax            0x7fffb7e00010      140736278298640
 rbx            0x0                 0
-rcx            0x7fffb7e11db0      140736278371760
+rcx            0x7fffb7e11d90      140736278371728
 rdx            0x18                24
 rsi            0x0                 0
-rdi            0x7fffb7e11db0      140736278371760
+rdi            0x7fffb7e11d90      140736278371728
 rbp            0x0                 0x0
 rsp            0x7fffb7e10028      0x7fffb7e10028
 r8             0x0                 0
 r9             0x0                 0
 r10            0x0                 0
 r11            0x246               582
-r12            0x215a90            2185872
+r12            0x2152e0            2183904
 r13            0x0                 0
 r14            0x0                 0
 r15            0x0                 0
-rip            0x22dfc0            0x22dfc0 <main.main>
-eflags         0x202               [ IF ]
+rip            0x22b1d0            0x22b1d0 <main.main>
+eflags         0x206               [ PF IF ]
 cs             0x33                51
 ss             0x2b                43
 ds             0x0                 0
@@ -59,26 +59,26 @@ ymm12          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeat
 ymm13          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeats 16 times>}, v8_float = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_double = {0x0, 0x0, 0x0, 0x0}, v32_int8 = {0x0 <repeats 32 times>}, v16_int16 = {0x0 <repeats 16 times>}, v8_int32 = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_int64 = {0x0, 0x0, 0x0, 0x0}, v2_int128 = {0x0, 0x0}}
 ymm14          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeats 16 times>}, v8_float = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_double = {0x0, 0x0, 0x0, 0x0}, v32_int8 = {0x0 <repeats 32 times>}, v16_int16 = {0x0 <repeats 16 times>}, v8_int32 = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_int64 = {0x0, 0x0, 0x0, 0x0}, v2_int128 = {0x0, 0x0}}
 ymm15          {v16_bfloat16 = {0x0 <repeats 16 times>}, v16_half = {0x0 <repeats 16 times>}, v8_float = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_double = {0x0, 0x0, 0x0, 0x0}, v32_int8 = {0x0 <repeats 32 times>}, v16_int16 = {0x0 <repeats 16 times>}, v8_int32 = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}, v4_int64 = {0x0, 0x0, 0x0, 0x0}, v2_int128 = {0x0, 0x0}}
-process 2875080
+process 53608
 Mapped address spaces:
 
           Start Addr           End Addr       Size     Offset  Perms  objfile
-            0x200000           0x20c000     0xc000        0x0  r--p   /home/kgorna/Documents/zorya/external/qemu-mount/broken-calculator-bis
-            0x20c000           0x22f000    0x23000     0xb000  r-xp   /home/kgorna/Documents/zorya/external/qemu-mount/broken-calculator-bis
-            0x22f000           0x230000     0x1000    0x2d000  rw-p   /home/kgorna/Documents/zorya/external/qemu-mount/broken-calculator-bis
-            0x230000           0x236000     0x6000    0x2d000  rw-p   /home/kgorna/Documents/zorya/external/qemu-mount/broken-calculator-bis
+            0x200000           0x20b000     0xb000        0x0  r--p   /home/kgorna/Documents/zorya/external/qemu-mount/crashme
+            0x20b000           0x22c000    0x21000     0xa000  r-xp   /home/kgorna/Documents/zorya/external/qemu-mount/crashme
+            0x22c000           0x22d000     0x1000    0x2a000  rw-p   /home/kgorna/Documents/zorya/external/qemu-mount/crashme
+            0x22d000           0x233000     0x6000    0x2a000  rw-p   /home/kgorna/Documents/zorya/external/qemu-mount/crashme
       0x7fffb7e00000     0x7ffff7e00000 0x40000000        0x0  rw-p   
       0x7ffff7ff9000     0x7ffff7ffd000     0x4000        0x0  r--p   [vvar]
       0x7ffff7ffd000     0x7ffff7fff000     0x2000        0x0  r-xp   [vdso]
       0x7ffffffdd000     0x7ffffffff000    0x22000        0x0  rw-p   [stack]
   0xffffffffff600000 0xffffffffff601000     0x1000        0x0  --xp   [vsyscall]
-Breakpoint 1 at 0x22dfc0
+Breakpoint 1 at 0x22b1d0
 
-Breakpoint 1, 0x000000000022dfc0 in main.main ()
-Executing: dump memory dumps/0x200000-0x20c000.bin 0x200000 0x20c000
-Executing: dump memory dumps/0x20c000-0x22f000.bin 0x20c000 0x22f000
-Executing: dump memory dumps/0x22f000-0x230000.bin 0x22f000 0x230000
-Executing: dump memory dumps/0x230000-0x236000.bin 0x230000 0x236000
+Breakpoint 1, 0x000000000022b1d0 in main.main ()
+Executing: dump memory dumps/0x200000-0x20b000.bin 0x200000 0x20b000
+Executing: dump memory dumps/0x20b000-0x22c000.bin 0x20b000 0x22c000
+Executing: dump memory dumps/0x22c000-0x22d000.bin 0x22c000 0x22d000
+Executing: dump memory dumps/0x22d000-0x233000.bin 0x22d000 0x233000
 Executing: dump memory dumps/0x7fffb7e00000-0x7ffff7e00000.bin 0x7fffb7e00000 0x7ffff7e00000
 Executing: dump memory dumps/0x7ffff7ff9000-0x7ffff7ffd000.bin 0x7ffff7ff9000 0x7ffff7ffd000
 Error executing 'dump memory 0x7ffff7ff9000-0x7ffff7ffd000.bin 0x7ffff7ff9000 0x7ffff7ffd000': Cannot access memory at address 0x7ffff7ff9000

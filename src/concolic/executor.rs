@@ -542,15 +542,18 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 };
                 let extracted_value = (*value >> bit_offset) & mask;
     
-                // Handle the symbolic extraction
+                // Symbolic extraction explicitly simplified
                 let symbolic_bv = original_register.symbolic.to_bv(&cpu_state_guard.ctx);
                 let high_bit = (bit_offset + u64::from(bit_size) - 1) as u32;
                 let low_bit = bit_offset as u32;
-                let extracted_symbolic = symbolic_bv.extract(high_bit, low_bit).simplify();
-    
+
+                let extracted_symbolic = symbolic_bv
+                    .extract(high_bit, low_bit)
+                    .simplify(); 
+
                 if extracted_symbolic.get_z3_ast().is_null() {
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
-                }
+                } 
     
                 Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
                     concrete: ConcreteVar::Int(extracted_value),
@@ -571,7 +574,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         bvs,
                         start_bit,
                         end_bit,
-                    );    
+                    )
+                    .simplify();
+
                     Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
                         concrete: extracted_concrete,
                         symbolic: extracted_symbolic,
@@ -595,7 +600,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     log!(self.state.logger.clone(), "Writing {:x} to the unique variable with ID: 0x{:x}", result_value.concrete.to_u64(), id);
                     let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name, result_value.clone());
-                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete size {} bits, symbolic size {} bits", id, bit_size, result_value.symbolic.get_size());
+                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete part : {:x}, concrete size {} bits, symbolic part : {:?} and symbolic size {} bits", id, result_value.concrete.to_u64(), bit_size, result_value.symbolic.simplify(), result_value.symbolic.get_size());
                     Ok(())
                 }, 
                 Var::Register(offset, _) => {
@@ -605,8 +610,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     match cpu_state_guard.set_register_value_by_offset(*offset, result_value.clone(), bit_size) {
                         Ok(_) => {
                             // check
-                            let register = cpu_state_guard.get_register_by_offset(*offset, bit_size);
-                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}, size {} bits", offset, register.unwrap().concrete.to_u64(), bit_size);
+                            let register = cpu_state_guard.get_register_by_offset(*offset, bit_size).unwrap();
+                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with concrete value 0x{:x}, concrete size {} bits, symbolic part : {:?} and symbolic size {:?} bits", offset, register.concrete.to_u64(), bit_size, register.symbolic.simplify(), register.symbolic.get_size());
                             Ok(())
                         },
                         Err(e) => {
@@ -635,14 +640,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     // Create a MemoryValue
                     let mem_value = MemoryValue {
                         concrete: concrete_value,
-                        symbolic: symbolic_bv,
+                        symbolic: symbolic_bv.clone(),
                         size: bit_size,
                     };
     
                     // Write the MemoryValue to memory
                     match self.state.memory.write_value(*addr, &mem_value) {
                         Ok(_) => {
-                            log!(self.state.logger.clone(), "Wrote value 0x{:x} to memory at address 0x{:x}", concrete_value, addr);
+                            log!(self.state.logger.clone(), "Wrote value 0x{:x} to memory at address 0x{:x}, with symbolic part : {:?} and symbolic size {:?} bits", concrete_value, addr, symbolic_bv.simplify(), symbolic_size);
                             Ok(())
                         },
                         Err(e) => {
@@ -1204,7 +1209,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
 
         let mem_value_size = mem_value.concrete.get_size();
-        log!(self.state.logger.clone(), "Dereferenced value: 0x{:x} with size {:?}", mem_value.concrete, mem_value_size);
+        log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}, symbolic : {:?} with size {:?}", mem_value.concrete, mem_value.symbolic.simplify(), mem_value_size);
 
         // --- Handle jump table access versus regular LOAD ---
         let dereferenced_concolic = if self.inside_jump_table {
@@ -1448,6 +1453,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let data_to_store_concolic = self.varnode_to_concolic(data_to_store_var).map_err(|e| e.to_string())?;
         let data_to_store_concrete = data_to_store_concolic.get_concrete_value();
         let data_to_store_symbolic = data_to_store_concolic.get_symbolic_value_bv(self.context);
+        log!(self.state.logger.clone(), "Data to store: 0x{:x} and symbolic part : {:?}", data_to_store_concrete, data_to_store_symbolic.simplify());
     
         // Determine the size of the data to store
         let data_size_bits = data_to_store_var.size.to_bitvector_size() as u32;
@@ -1498,7 +1504,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some(_register_value) = cpu_state_guard.get_register_by_offset(pointer_offset_concrete, data_size_bits) {
             match cpu_state_guard.set_register_value_by_offset(pointer_offset_concrete, data_to_store_concolic.to_concolic_var().unwrap(), data_size_bits) {
                 Ok(_) => {
-                    log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x}", pointer_offset_concrete, data_to_store_concrete);
+                    log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with value 0x{:x} and symbolic part {:?}", pointer_offset_concrete, data_to_store_concrete, data_to_store_symbolic.simplify());
                 },
                 Err(e) => {
                     let error_msg = format!("Failed to update register at offset 0x{:x}: {}", pointer_offset_concrete, e);
@@ -1515,192 +1521,134 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         self.state.create_or_update_concolic_variable_int(&result_var_name, data_to_store_concrete, SymbolicVar::Int(data_to_store_symbolic.clone()));
     
         Ok(())
-    }        
+    }
 
     pub fn handle_copy(&mut self, instruction: Inst) -> Result<(), String> {
         if instruction.opcode != Opcode::Copy || instruction.inputs.len() != 1 {
             return Err("[ERROR] Invalid instruction format for COPY".to_string());
         }
-    
-        let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
+
+        let output_varnode = instruction.output.as_ref().unwrap();
+        let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+
         log!(self.state.logger.clone(), "Output size in bits: {}", output_size_bits);
-    
-        // 1) Fetch the source varnode.
-        log!(self.state.logger.clone(), "* Fetching branch target from instruction.input[0]");
-        let source_concolic = match self.varnode_to_concolic(&instruction.inputs[0]) {
-            Ok(v) => v.to_concolic_var().unwrap(),
-            Err(e) => {
-                log!(self.state.logger.clone(), "[ERROR] Failed to get source concolic: {}", e);
-                return Err(e);
-            }
-        };
-    
-        // 2) Minimal logs.
-        log!(self.state.logger.clone(), "Fetched source concolic: {:?}", source_concolic.concrete);
-    
-        // 3) Retrieve the symbolic portion.
-        // Now, we handle Boolean values explicitly.
+
+        // Fetch the source explicitly
+        log!(self.state.logger.clone(), "* Fetching source from instruction.input[0]");
+        let source_concolic = self.varnode_to_concolic(&instruction.inputs[0])?
+            .to_concolic_var()
+            .unwrap();
+
+        log!(self.state.logger.clone(), "Source ConcolicVar: {:?} and symbolic {:?}", source_concolic.concrete, source_concolic.symbolic.to_bv(self.context).simplify());
+
+        // Handle symbolic copying explicitly for large bitvectors
         let new_symbolic = match &source_concolic.symbolic {
             SymbolicVar::LargeInt(bv_vec) => {
-                // Calculate the total bit size represented by the vector.
-                let source_size = (bv_vec.len() as u32) * 64;
-                if output_size_bits == source_size {
-                    // Destination size matches the source exactly, so clone the vector.
-                    SymbolicVar::LargeInt(bv_vec.clone())
+                // Concatenate all chunks
+                let mut combined_bv = bv_vec[0].clone();
+                for chunk_bv in bv_vec.iter().skip(1) {
+                    combined_bv = chunk_bv.concat(&combined_bv);
+                }
+
+                // Adjust to output_size_bits explicitly
+                if combined_bv.get_size() > output_size_bits {
+                    SymbolicVar::Int(combined_bv.extract(output_size_bits - 1, 0).simplify())
+                } else if combined_bv.get_size() < output_size_bits {
+                    SymbolicVar::Int(combined_bv.zero_ext(output_size_bits - combined_bv.get_size()).simplify())
                 } else {
-                    // Otherwise, concatenate then extract the lower output_size_bits.
-                    let mut full_bv = bv_vec[0].clone();
-                    for i in 1..bv_vec.len() {
-                        full_bv = bv_vec[i].concat(&full_bv);
-                    }
-                    SymbolicVar::Int(full_bv.extract(output_size_bits - 1, 0))
+                    SymbolicVar::Int(combined_bv)
                 }
             }
             SymbolicVar::Int(bv) => {
-                if output_size_bits == bv.get_size() {
-                    SymbolicVar::Int(bv.clone())
+                if bv.get_size() > output_size_bits {
+                    SymbolicVar::Int(bv.extract(output_size_bits - 1, 0).simplify())
+                } else if bv.get_size() < output_size_bits {
+                    SymbolicVar::Int(bv.zero_ext(output_size_bits - bv.get_size()).simplify())
                 } else {
-                    SymbolicVar::Int(bv.extract(output_size_bits - 1, 0))
+                    SymbolicVar::Int(bv.clone())
                 }
             }
             SymbolicVar::Bool(b) => {
-                // Convert the Bool to an 8-bit BV:
-                let bv_int = b.ite(&BV::from_u64(self.context, 1, 8),
-                                   &BV::from_u64(self.context, 0, 8));
+                let bv_int = b.ite(&BV::from_u64(self.context, 1, output_size_bits), &BV::from_u64(self.context, 0, output_size_bits));
                 SymbolicVar::Int(bv_int)
             }
-            _ => {
-                log!(self.state.logger.clone(), "[ERROR] Unexpected symbolic type for COPY");
-                return Err("[ERROR] Unexpected symbolic type for COPY".to_string());
-            }
+            _ => return Err("[ERROR] Unsupported symbolic type in COPY".to_string()),
         };
-    
-        // 4) Check that the extracted symbolic has nonzero size.
-        let symbolic_size = match &new_symbolic {
-            SymbolicVar::LargeInt(bv_vec) => (bv_vec.len() as u32) * 64,
-            SymbolicVar::Int(bv) => bv.get_size(),
-            _ => 0,
-        };
-        if symbolic_size == 0 {
-            log!(self.state.logger.clone(), "[ERROR] Unexpected null symbolic BV");
-            return Err("[ERROR] Unexpected null symbolic BV".to_string());
-        }
-        log!(self.state.logger.clone(), "Extracted symbolic size: {}", symbolic_size);
-    
-        // 5) Handle the concrete portion.
-        // We extract concrete bits in 64-bit chunks.
+
+        // Handle concrete copying explicitly for large values
         let num_chunks = ((output_size_bits + 63) / 64) as usize;
-        let mut concrete_values = vec![0u64; num_chunks];
+        let mut concrete_chunks = vec![0u64; num_chunks];
+
         match &source_concolic.concrete {
             ConcreteVar::LargeInt(values) => {
-                for i in 0..num_chunks.min(values.len()) {
-                    concrete_values[i] = values[i];
+                for (i, &val) in values.iter().enumerate().take(num_chunks) {
+                    concrete_chunks[i] = val;
                 }
-                log!(self.state.logger.clone(), "Concrete LargeInt value: {:?}", concrete_values);
             }
-            ConcreteVar::Int(val) => {
-                concrete_values[0] = *val;
-                log!(self.state.logger.clone(), "Concrete Int value: {:?}", val);
-            }
-            ConcreteVar::Bool(b_val) => {
-                let int_val = if *b_val { 1u64 } else { 0u64 };
-                concrete_values[0] = int_val;
-                log!(self.state.logger.clone(), "Concrete Bool value: {:?}", int_val);
-            }
-            _ => {
-                log!(self.state.logger.clone(), "[ERROR] Unexpected concrete type for COPY: {:?}", source_concolic.concrete);
-                return Err("[ERROR] Unexpected concrete type for COPY".to_string());
-            }
-        }
-    
-        // 6) Assemble the final ConcolicVar for the destination.
+            ConcreteVar::Int(val) => concrete_chunks[0] = *val,
+            ConcreteVar::Bool(b_val) => concrete_chunks[0] = if *b_val { 1u64 } else { 0u64 },
+            _ => return Err("[ERROR] Unsupported concrete type in COPY".to_string()),
+        };
+
+        // Construct new ConcolicVar explicitly
         let new_concolic_var = if output_size_bits > 64 {
             ConcolicVar {
-                concrete: ConcreteVar::LargeInt(concrete_values.clone()),
-                symbolic: new_symbolic,
+                concrete: ConcreteVar::LargeInt(concrete_chunks.clone()),
+                symbolic: match &new_symbolic {
+                    SymbolicVar::Int(bv) => {
+                        // Clone bv explicitly to avoid moving ownership
+                        let mut bv_vec = Vec::new();
+                        let mut remaining_bv = bv.clone();
+                        let mut bits_left = remaining_bv.get_size();
+                        while bits_left > 64 {
+                            let lower_chunk = remaining_bv.extract(63, 0);
+                            bv_vec.push(lower_chunk);
+                            remaining_bv = remaining_bv.extract(bits_left - 1, 64);
+                            bits_left -= 64;
+                        }
+                        bv_vec.push(remaining_bv);
+                        SymbolicVar::LargeInt(bv_vec)
+                    }
+                    SymbolicVar::LargeInt(bv_vec) => SymbolicVar::LargeInt(bv_vec.clone()),
+                    _ => return Err("[ERROR] Unexpected symbolic type after conversion".to_string()),
+                },
                 ctx: self.context,
             }
         } else {
             ConcolicVar {
-                concrete: ConcreteVar::Int(concrete_values[0]),
-                symbolic: new_symbolic,
+                concrete: ConcreteVar::Int(concrete_chunks[0]),
+                symbolic: match &new_symbolic {
+                    SymbolicVar::Int(bv) => SymbolicVar::Int(bv.clone()),
+                    SymbolicVar::LargeInt(bv_vec) => SymbolicVar::Int(bv_vec[0].clone()),
+                    _ => return Err("[ERROR] Unexpected symbolic type for small COPY".to_string()),
+                },
                 ctx: self.context,
             }
+        };        
+        log!(self.state.logger.clone(), "Copied ConcolicVar: {:?} and symbolic {:?}", source_concolic.concrete, source_concolic.symbolic.to_bv(self.context).simplify());
+
+        // Perform copy explicitly
+        match &output_varnode.var {
+            Var::Unique(id) => {
+                self.unique_variables.insert(format!("Unique(0x{:x})", id), new_concolic_var);
+            },
+            Var::Register(offset, _) => {
+                let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
+                cpu_state_guard.set_register_value_by_offset(*offset, new_concolic_var, output_size_bits)?;
+            },
+            Var::Memory(addr) => {
+                let mem_value = MemoryValue {
+                    concrete: concrete_chunks[0],
+                    symbolic: new_symbolic.to_bv(self.context),
+                    size: output_size_bits,
+                };
+                self.state.memory.write_value(*addr, &mem_value).map_err(|e| e.to_string())?;
+            },
+            _ => return Err("[ERROR] Unsupported output type in COPY".to_string()),
         };
-    
-        log!(self.state.logger.clone(), "Created new concolic variable: {:?}", new_concolic_var.concrete);
-    
-        // 7) Write the new concolic variable to the output (Unique, Register, or Memory).
-        if let Some(output_varnode) = instruction.output.as_ref() {
-            match &output_varnode.var {
-                Var::Unique(id) => {
-                    let unique_name = format!("Unique(0x{:x})", id);
-                    if output_size_bits > 64 {
-                        log!(self.state.logger.clone(), "Writing LargeInt to Unique(0x{:x})", id);
-                        self.unique_variables.insert(unique_name.clone(), new_concolic_var.clone());
-                    } else {
-                        log!(self.state.logger.clone(), "Writing Int to Unique(0x{:x})", id);
-                        let int_concolic = ConcolicVar {
-                            concrete: match new_concolic_var.concrete {
-                                ConcreteVar::Int(val) => ConcreteVar::Int(val),
-                                // If it’s a LargeInt, take the low part.
-                                ConcreteVar::LargeInt(ref vec) => ConcreteVar::Int(vec[0]),
-                                _ => ConcreteVar::Int(0),
-                            },
-                            symbolic: match &new_concolic_var.symbolic {
-                                SymbolicVar::Int(ref bv) => SymbolicVar::Int(bv.clone()),
-                                SymbolicVar::LargeInt(ref vec) => SymbolicVar::Int(vec[0].clone()),
-                                _ => SymbolicVar::Int(BV::from_u64(&self.context, 0, 64)),
-                            },
-                            ctx: self.context,
-                        };
-                        self.unique_variables.insert(unique_name.clone(), int_concolic);
-                    }
-                    log!(self.state.logger.clone(), "Updated Unique(0x{:x})", id);
-                }
-                Var::Register(offset, _) => {
-                    log!(self.state.logger.clone(), "Writing to Register(0x{:x})", offset);
-                    let mut cpu_state_guard = self.state.cpu_state.lock().unwrap();
-                    match cpu_state_guard.set_register_value_by_offset(*offset, new_concolic_var.clone(), output_size_bits) {
-                        Ok(_) => log!(self.state.logger.clone(), "Successfully updated register 0x{:x}", offset),
-                        Err(e) => {
-                            log!(self.state.logger.clone(), "[ERROR] Failed to write to register 0x{:x}: {:?}", offset, e);
-                            return Err(format!("Failed to write to register 0x{:x}: {:?}", offset, e));
-                        }
-                    }
-                }
-                Var::Memory(addr) => {
-                    log!(self.state.logger.clone(), "Writing to Memory(0x{:x})", addr);
-                    let mem_value = MemoryValue {
-                        concrete: concrete_values[0],
-                        symbolic: match &new_concolic_var.symbolic {
-                            SymbolicVar::Int(bv) => bv.clone(),
-                            SymbolicVar::LargeInt(ref vec) => vec[0].clone(),
-                            _ => BV::from_u64(&self.context, 0, 64),
-                        },
-                        size: output_size_bits,
-                    };
-                    match self.state.memory.write_value(*addr, &mem_value) {
-                        Ok(_) => log!(self.state.logger.clone(), "Wrote to memory at 0x{:x}", addr),
-                        Err(e) => {
-                            log!(self.state.logger.clone(), "[ERROR] Failed to write to memory at 0x{:x}: {:?}", addr, e);
-                            return Err(format!("Failed to write to memory at 0x{:x}: {:?}", addr, e));
-                        }
-                    }
-                }
-                _ => {
-                    log!(self.state.logger.clone(), "[ERROR] Unsupported output type for COPY");
-                    return Err("[ERROR] Output type not supported".to_string());
-                }
-            }
-        } else {
-            log!(self.state.logger.clone(), "[ERROR] No output variable specified for COPY");
-            return Err("[ERROR] No output variable specified for COPY".to_string());
-        }
-    
-        log!(self.state.logger.clone(), "COPY operation completed successfully.");
+
         Ok(())
-    }    
+    }        
     
     // The function to handle POPCOUNT instruction
     pub fn handle_popcount(&mut self, instruction: Inst) -> Result<(), String> {

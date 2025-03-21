@@ -824,17 +824,18 @@ impl<'ctx> CpuState<'ctx> {
                         .cloned()
                         .unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
         
-                    let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take - 1, bit_in_chunk);
+                    let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take - 1, bit_in_chunk).simplify();
         
                     let shifted_extracted_bv = if result_bit_pos > 0 {
                         extracted_bv
                             .zero_ext(total_bits - bits_to_take - result_bit_pos)
                             .bvshl(&BV::from_u64(ctx, result_bit_pos as u64, total_bits))
+                            .simplify()
                     } else {
-                        extracted_bv.zero_ext(total_bits - bits_to_take)
+                        extracted_bv.zero_ext(total_bits - bits_to_take).simplify()
                     };
         
-                    result_bv = result_bv.bvor(&shifted_extracted_bv);
+                    result_bv = result_bv.bvor(&shifted_extracted_bv).simplify();
         
                     current_bit += bits_to_take as u64;
                     result_bit_pos += bits_to_take;
@@ -873,7 +874,7 @@ impl<'ctx> CpuState<'ctx> {
                         .cloned()
                         .unwrap_or_else(|| BV::from_u64(ctx, 0, 64));
         
-                    let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take_u32 - 1, bit_in_chunk);
+                    let extracted_bv = bv_chunk.extract(bit_in_chunk + bits_to_take_u32 - 1, bit_in_chunk).simplify();
         
                     let result_index = (result_bit_pos / 64) as usize;
                     let result_bit_offset = (result_bit_pos % 64) as u32;
@@ -884,31 +885,33 @@ impl<'ctx> CpuState<'ctx> {
                             extracted_bv
                                 .zero_ext(64 - bits_to_take_u32 - result_bit_offset)
                                 .bvshl(&BV::from_u64(ctx, result_bit_offset as u64, 64))
+                                .simplify()
                         } else {
-                            extracted_bv.zero_ext(64 - bits_to_take_u32)
+                            extracted_bv.zero_ext(64 - bits_to_take_u32).simplify()
                         };
         
-                        result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv);
+                        result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv).simplify();
                     } else {
                         // Bits span across two BVs
                         let bits_in_current = 64 - result_bit_offset;
                         let bits_in_current_u32 = bits_in_current as u32;
         
-                        let extracted_bv_current = extracted_bv.extract(bits_in_current_u32 - 1, 0);
+                        let extracted_bv_current = extracted_bv.extract(bits_in_current_u32 - 1, 0).simplify();
         
-                        let extracted_bv_next = extracted_bv.extract(bits_to_take_u32 - 1, bits_in_current_u32);
+                        let extracted_bv_next = extracted_bv.extract(bits_to_take_u32 - 1, bits_in_current_u32).simplify();
         
                         let shifted_extracted_bv_current = if result_bit_offset > 0 {
                             extracted_bv_current
                                 .zero_ext(64 - bits_in_current_u32 - result_bit_offset)
                                 .bvshl(&BV::from_u64(ctx, result_bit_offset as u64, 64))
+                                .simplify()
                         } else {
-                            extracted_bv_current.zero_ext(64 - bits_in_current_u32)
+                            extracted_bv_current.zero_ext(64 - bits_in_current_u32).simplify()
                         };
         
-                        result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv_current);
+                        result_bvs[result_index] = result_bvs[result_index].bvor(&shifted_extracted_bv_current).simplify();
         
-                        result_bvs[result_index + 1] = result_bvs[result_index + 1].bvor(&extracted_bv_next);
+                        result_bvs[result_index + 1] = result_bvs[result_index + 1].bvor(&extracted_bv_next).simplify();
                     }
         
                     current_bit += bits_to_take;

@@ -1,6 +1,6 @@
 [
   {
-    "address": "0020c440", 
+    "address": "0020bc90", 
     "function_name": "__init_array_start", 
     "arguments": [
       {
@@ -10,7 +10,7 @@
     ]
   }, 
   {
-    "address": "0020c45b", 
+    "address": "0020bcab", 
     "function_name": "tinygo_longjmp", 
     "arguments": [
       {
@@ -20,7 +20,7 @@
     ]
   }, 
   {
-    "address": "0020c464", 
+    "address": "0020bcb4", 
     "function_name": "tinygo_startTask", 
     "arguments": [
       {
@@ -30,7 +30,7 @@
     ]
   }, 
   {
-    "address": "0020c46f", 
+    "address": "0020bcbf", 
     "function_name": "tinygo_swapTask", 
     "arguments": [
       {
@@ -40,7 +40,7 @@
     ]
   }, 
   {
-    "address": "0020c48c", 
+    "address": "0020bcdc", 
     "function_name": "entry", 
     "arguments": [
       {
@@ -50,7 +50,7 @@
     ]
   }, 
   {
-    "address": "0020c4a2", 
+    "address": "0020bcf2", 
     "function_name": "_start_c", 
     "arguments": [
       {
@@ -60,7 +60,7 @@
     ]
   }, 
   {
-    "address": "0020c4c5", 
+    "address": "0020bd15", 
     "function_name": "dummy", 
     "arguments": [
       {
@@ -70,7 +70,7 @@
     ]
   }, 
   {
-    "address": "0020c4c6", 
+    "address": "0020bd16", 
     "function_name": "dummy1", 
     "arguments": [
       {
@@ -80,7 +80,7 @@
     ]
   }, 
   {
-    "address": "0020c4c7", 
+    "address": "0020bd17", 
     "function_name": "__init_libc", 
     "arguments": [
       {
@@ -94,7 +94,7 @@
     ]
   }, 
   {
-    "address": "0020c636", 
+    "address": "0020be86", 
     "function_name": "libc_start_init", 
     "arguments": [
       {
@@ -104,7 +104,7 @@
     ]
   }, 
   {
-    "address": "0020c662", 
+    "address": "0020beb2", 
     "function_name": "__libc_start_main", 
     "arguments": [
       {
@@ -134,7 +134,7 @@
     ]
   }, 
   {
-    "address": "0020c697", 
+    "address": "0020bee7", 
     "function_name": "libc_start_main_stage2", 
     "arguments": [
       {
@@ -152,7 +152,7 @@
     ]
   }, 
   {
-    "address": "0020c6c8", 
+    "address": "0020bf18", 
     "function_name": "__init_tp", 
     "arguments": [
       {
@@ -162,7 +162,7 @@
     ]
   }, 
   {
-    "address": "0020c731", 
+    "address": "0020bf81", 
     "function_name": "__copy_tls", 
     "arguments": [
       {
@@ -172,7 +172,7 @@
     ]
   }, 
   {
-    "address": "0020c7b2", 
+    "address": "0020c002", 
     "function_name": "static_init_tls", 
     "arguments": [
       {
@@ -182,7 +182,7 @@
     ]
   }, 
   {
-    "address": "0020c91c", 
+    "address": "0020c16c", 
     "function_name": "abort", 
     "arguments": [
       {
@@ -192,7 +192,7 @@
     ]
   }, 
   {
-    "address": "0020c99a", 
+    "address": "0020c1ea", 
     "function_name": "_Exit", 
     "arguments": [
       {
@@ -202,7 +202,7 @@
     ]
   }, 
   {
-    "address": "0020c9ae", 
+    "address": "0020c1fe", 
     "function_name": "dummy", 
     "arguments": [
       {
@@ -212,7 +212,7 @@
     ]
   }, 
   {
-    "address": "0020c9af", 
+    "address": "0020c1ff", 
     "function_name": "libc_exit_fini", 
     "arguments": [
       {
@@ -222,7 +222,7 @@
     ]
   }, 
   {
-    "address": "0020c9e2", 
+    "address": "0020c232", 
     "function_name": "exit", 
     "arguments": [
       {
@@ -232,7 +232,7 @@
     ]
   }, 
   {
-    "address": "0020c9fd", 
+    "address": "0020c24d", 
     "function_name": "dummy", 
     "arguments": [
       {
@@ -242,7 +242,7 @@
     ]
   }, 
   {
-    "address": "0020c9fe", 
+    "address": "0020c24e", 
     "function_name": "__mmap", 
     "arguments": [
       {
@@ -272,7 +272,7 @@
     ]
   }, 
   {
-    "address": "0020caac", 
+    "address": "0020c2fc", 
     "function_name": "__errno_location", 
     "arguments": [
       {
@@ -282,7 +282,7 @@
     ]
   }, 
   {
-    "address": "0020caba", 
+    "address": "0020c30a", 
     "function_name": "__syscall_ret", 
     "arguments": [
       {
@@ -292,7 +292,7 @@
     ]
   }, 
   {
-    "address": "0020cad8", 
+    "address": "0020c328", 
     "function_name": "__block_all_sigs", 
     "arguments": [
       {
@@ -302,7 +302,7 @@
     ]
   }, 
   {
-    "address": "0020caee", 
+    "address": "0020c33e", 
     "function_name": "__block_app_sigs", 
     "arguments": [
       {
@@ -312,7 +312,7 @@
     ]
   }, 
   {
-    "address": "0020cb04", 
+    "address": "0020c354", 
     "function_name": "__restore_sigs", 
     "arguments": [
       {
@@ -322,7 +322,7 @@
     ]
   }, 
   {
-    "address": "0020cb16", 
+    "address": "0020c366", 
     "function_name": "raise", 
     "arguments": [
       {
@@ -332,7 +332,7 @@
     ]
   }, 
   {
-    "address": "0020cb66", 
+    "address": "0020c3b6", 
     "function_name": "__libc_sigaction", 
     "arguments": [
       {
@@ -350,7 +350,7 @@
     ]
   }, 
   {
-    "address": "0020cc77", 
+    "address": "0020c4c7", 
     "function_name": "__sigaction", 
     "arguments": [
       {
@@ -368,7 +368,7 @@
     ]
   }, 
   {
-    "address": "0020ccf4", 
+    "address": "0020c544", 
     "function_name": "__restore_rt", 
     "arguments": [
       {
@@ -378,7 +378,7 @@
     ]
   }, 
   {
-    "address": "0020ccf5", 
+    "address": "0020c545", 
     "function_name": "memcpy", 
     "arguments": [
       {
@@ -396,7 +396,7 @@
     ]
   }, 
   {
-    "address": "0020cf3f", 
+    "address": "0020c78f", 
     "function_name": "memset", 
     "arguments": [
       {
@@ -414,7 +414,7 @@
     ]
   }, 
   {
-    "address": "0020d010", 
+    "address": "0020c860", 
     "function_name": "strlen", 
     "arguments": [
       {
@@ -424,7 +424,7 @@
     ]
   }, 
   {
-    "address": "0020d084", 
+    "address": "0020c8d4", 
     "function_name": "__set_thread_area", 
     "arguments": [
       {
@@ -434,7 +434,7 @@
     ]
   }, 
   {
-    "address": "0020d094", 
+    "address": "0020c8e4", 
     "function_name": "__lock", 
     "arguments": [
       {
@@ -444,7 +444,7 @@
     ]
   }, 
   {
-    "address": "0020d135", 
+    "address": "0020c985", 
     "function_name": "__unlock", 
     "arguments": [
       {
@@ -454,7 +454,7 @@
     ]
   }, 
   {
-    "address": "0020d16b", 
+    "address": "0020c9bb", 
     "function_name": "__clock_gettime", 
     "arguments": [
       {
@@ -468,7 +468,7 @@
     ]
   }, 
   {
-    "address": "0020d1e8", 
+    "address": "0020ca38", 
     "function_name": "cgt_init", 
     "arguments": [
       {
@@ -482,7 +482,7 @@
     ]
   }, 
   {
-    "address": "0020d232", 
+    "address": "0020ca82", 
     "function_name": "__vdsosym", 
     "arguments": [
       {
@@ -496,7 +496,7 @@
     ]
   }, 
   {
-    "address": "0020d43e", 
+    "address": "0020cc8e", 
     "function_name": "strcmp", 
     "arguments": [
       {
@@ -510,7 +510,7 @@
     ]
   }, 
   {
-    "address": "0020d45a", 
+    "address": "0020ccaa", 
     "function_name": "usleep", 
     "arguments": [
       {
@@ -520,7 +520,7 @@
     ]
   }, 
   {
-    "address": "0020d488", 
+    "address": "0020ccd8", 
     "function_name": "nanosleep", 
     "arguments": [
       {
@@ -534,7 +534,7 @@
     ]
   }, 
   {
-    "address": "0020d4a3", 
+    "address": "0020ccf3", 
     "function_name": "__clock_nanosleep", 
     "arguments": [
       {
@@ -556,7 +556,7 @@
     ]
   }, 
   {
-    "address": "0020d4f0", 
+    "address": "0020cd40", 
     "function_name": "sccp", 
     "arguments": [
       {
@@ -590,7 +590,7 @@
     ]
   }, 
   {
-    "address": "0020d50d", 
+    "address": "0020cd5d", 
     "function_name": "__syscall_cp", 
     "arguments": [
       {
@@ -624,7 +624,7 @@
     ]
   }, 
   {
-    "address": "0020d512", 
+    "address": "0020cd62", 
     "function_name": "write", 
     "arguments": [
       {
@@ -642,7 +642,7 @@
     ]
   }, 
   {
-    "address": "0020d538", 
+    "address": "0020cd88", 
     "function_name": "memmove", 
     "arguments": [
       {
@@ -660,7 +660,7 @@
     ]
   }, 
   {
-    "address": "0020d620", 
+    "address": "0020ce70", 
     "function_name": "internal/itoa.Itoa", 
     "arguments": [
       {
@@ -670,7 +670,7 @@
     ]
   }, 
   {
-    "address": "0020d650", 
+    "address": "0020cea0", 
     "function_name": "internal/itoa.Uitoa", 
     "arguments": [
       {
@@ -680,7 +680,7 @@
     ]
   }, 
   {
-    "address": "0020d700", 
+    "address": "0020cf50", 
     "function_name": "math/bits.TrailingZeros", 
     "arguments": [
       {
@@ -690,7 +690,7 @@
     ]
   }, 
   {
-    "address": "0020d720", 
+    "address": "0020cf70", 
     "function_name": "math/bits.TrailingZeros64", 
     "arguments": [
       {
@@ -700,7 +700,7 @@
     ]
   }, 
   {
-    "address": "0020d740", 
+    "address": "0020cf90", 
     "function_name": "math/bits.Len", 
     "arguments": [
       {
@@ -710,7 +710,7 @@
     ]
   }, 
   {
-    "address": "0020d760", 
+    "address": "0020cfb0", 
     "function_name": "math/bits.Len32", 
     "arguments": [
       {
@@ -720,7 +720,7 @@
     ]
   }, 
   {
-    "address": "0020d780", 
+    "address": "0020cfd0", 
     "function_name": "math/bits.Len64", 
     "arguments": [
       {
@@ -730,7 +730,7 @@
     ]
   }, 
   {
-    "address": "0020d7a0", 
+    "address": "0020cff0", 
     "function_name": "math/bits.Add64", 
     "arguments": [
       {
@@ -748,7 +748,7 @@
     ]
   }, 
   {
-    "address": "0020d7d0", 
+    "address": "0020d020", 
     "function_name": "math/bits.Mul64", 
     "arguments": [
       {
@@ -762,7 +762,7 @@
     ]
   }, 
   {
-    "address": "0020d820", 
+    "address": "0020d070", 
     "function_name": "math.Float64bits", 
     "arguments": [
       {
@@ -772,7 +772,7 @@
     ]
   }, 
   {
-    "address": "0020d850", 
+    "address": "0020d0a0", 
     "function_name": "math.Float32bits", 
     "arguments": [
       {
@@ -782,7 +782,7 @@
     ]
   }, 
   {
-    "address": "0020d880", 
+    "address": "0020d0d0", 
     "function_name": "unicode/utf8.DecodeRune", 
     "arguments": [
       {
@@ -792,7 +792,7 @@
     ]
   }, 
   {
-    "address": "0020d9d0", 
+    "address": "0020d220", 
     "function_name": "unicode/utf8.DecodeRuneInString", 
     "arguments": [
       {
@@ -802,7 +802,7 @@
     ]
   }, 
   {
-    "address": "0020db20", 
+    "address": "0020d370", 
     "function_name": "unicode/utf8.RuneLen", 
     "arguments": [
       {
@@ -812,7 +812,7 @@
     ]
   }, 
   {
-    "address": "0020db80", 
+    "address": "0020d3d0", 
     "function_name": "unicode/utf8.EncodeRune", 
     "arguments": [
       {
@@ -826,7 +826,7 @@
     ]
   }, 
   {
-    "address": "0020dcb0", 
+    "address": "0020d500", 
     "function_name": "unicode/utf8.AppendRune", 
     "arguments": [
       {
@@ -840,7 +840,7 @@
     ]
   }, 
   {
-    "address": "0020dd10", 
+    "address": "0020d560", 
     "function_name": "unicode/utf8.appendRuneNonASCII", 
     "arguments": [
       {
@@ -854,7 +854,7 @@
     ]
   }, 
   {
-    "address": "0020de60", 
+    "address": "0020d6b0", 
     "function_name": "unicode/utf8.RuneCount", 
     "arguments": [
       {
@@ -864,7 +864,7 @@
     ]
   }, 
   {
-    "address": "0020df70", 
+    "address": "0020d7c0", 
     "function_name": "unicode/utf8.RuneCountInString", 
     "arguments": [
       {
@@ -874,7 +874,7 @@
     ]
   }, 
   {
-    "address": "0020e080", 
+    "address": "0020d8d0", 
     "function_name": "unicode/utf8.ValidRune", 
     "arguments": [
       {
@@ -884,7 +884,7 @@
     ]
   }, 
   {
-    "address": "0020e0c0", 
+    "address": "0020d910", 
     "function_name": "reflect.TypeOf", 
     "arguments": [
       {
@@ -894,7 +894,7 @@
     ]
   }, 
   {
-    "address": "0020e0e0", 
+    "address": "0020d930", 
     "function_name": "(*reflect.rawType).Kind", 
     "arguments": [
       {
@@ -904,7 +904,7 @@
     ]
   }, 
   {
-    "address": "0020e110", 
+    "address": "0020d960", 
     "function_name": "(*reflect.rawType).Size", 
     "arguments": [
       {
@@ -914,7 +914,7 @@
     ]
   }, 
   {
-    "address": "0020e210", 
+    "address": "0020da60", 
     "function_name": "(*reflect.rawType).elem", 
     "arguments": [
       {
@@ -924,7 +924,7 @@
     ]
   }, 
   {
-    "address": "0020e280", 
+    "address": "0020dad0", 
     "function_name": "(*reflect.rawType).Len", 
     "arguments": [
       {
@@ -934,7 +934,7 @@
     ]
   }, 
   {
-    "address": "0020e2c0", 
+    "address": "0020db10", 
     "function_name": "(*reflect.rawType).underlying", 
     "arguments": [
       {
@@ -944,7 +944,7 @@
     ]
   }, 
   {
-    "address": "0020e2f0", 
+    "address": "0020db40", 
     "function_name": "(*reflect.rawType).isNamed", 
     "arguments": [
       {
@@ -954,7 +954,7 @@
     ]
   }, 
   {
-    "address": "0020e320", 
+    "address": "0020db70", 
     "function_name": "(*reflect.rawType).ptrtag", 
     "arguments": [
       {
@@ -964,7 +964,7 @@
     ]
   }, 
   {
-    "address": "0020e330", 
+    "address": "0020db80", 
     "function_name": "(*reflect.TypeError).Error", 
     "arguments": [
       {
@@ -974,7 +974,7 @@
     ]
   }, 
   {
-    "address": "0020e370", 
+    "address": "0020dbc0", 
     "function_name": "(*reflect.rawType).ChanDir", 
     "arguments": [
       {
@@ -984,7 +984,7 @@
     ]
   }, 
   {
-    "address": "0020e3a0", 
+    "address": "0020dbf0", 
     "function_name": "(*reflect.rawType).Elem", 
     "arguments": [
       {
@@ -994,7 +994,7 @@
     ]
   }, 
   {
-    "address": "0020e3b0", 
+    "address": "0020dc00", 
     "function_name": "(*reflect.rawType).Field", 
     "arguments": [
       {
@@ -1008,7 +1008,7 @@
     ]
   }, 
   {
-    "address": "0020e660", 
+    "address": "0020deb0", 
     "function_name": "(*reflect.rawType).Key", 
     "arguments": [
       {
@@ -1018,7 +1018,7 @@
     ]
   }, 
   {
-    "address": "0020e670", 
+    "address": "0020dec0", 
     "function_name": "(*reflect.rawType).NumField", 
     "arguments": [
       {
@@ -1028,7 +1028,7 @@
     ]
   }, 
   {
-    "address": "0020e6b0", 
+    "address": "0020df00", 
     "function_name": "(*reflect.rawType).NumMethod", 
     "arguments": [
       {
@@ -1038,7 +1038,7 @@
     ]
   }, 
   {
-    "address": "0020e6f0", 
+    "address": "0020df40", 
     "function_name": "(*reflect.rawType).String", 
     "arguments": [
       {
@@ -1048,7 +1048,7 @@
     ]
   }, 
   {
-    "address": "0020eb20", 
+    "address": "0020e370", 
     "function_name": "(*reflect.rawType).isBinary", 
     "arguments": [
       {
@@ -1058,7 +1058,7 @@
     ]
   }, 
   {
-    "address": "0020eb40", 
+    "address": "0020e390", 
     "function_name": "(*reflect.rawType).key", 
     "arguments": [
       {
@@ -1068,7 +1068,7 @@
     ]
   }, 
   {
-    "address": "0020eb80", 
+    "address": "0020e3d0", 
     "function_name": "(*reflect.rawType).name", 
     "arguments": [
       {
@@ -1078,7 +1078,7 @@
     ]
   }, 
   {
-    "address": "0020eba0", 
+    "address": "0020e3f0", 
     "function_name": "(*reflect.rawType).rawField", 
     "arguments": [
       {
@@ -1092,7 +1092,7 @@
     ]
   }, 
   {
-    "address": "0020ecf0", 
+    "address": "0020e540", 
     "function_name": "reflect.uvarint32", 
     "arguments": [
       {
@@ -1102,7 +1102,7 @@
     ]
   }, 
   {
-    "address": "0020ed50", 
+    "address": "0020e5a0", 
     "function_name": "reflect.readStringZ", 
     "arguments": [
       {
@@ -1112,7 +1112,7 @@
     ]
   }, 
   {
-    "address": "0020edb0", 
+    "address": "0020e600", 
     "function_name": "reflect.rawStructFieldFromPointer", 
     "arguments": [
       {
@@ -1142,7 +1142,7 @@
     ]
   }, 
   {
-    "address": "0020ef40", 
+    "address": "0020e790", 
     "function_name": "(reflect.Kind).String", 
     "arguments": [
       {
@@ -1152,7 +1152,7 @@
     ]
   }, 
   {
-    "address": "0020f130", 
+    "address": "0020e980", 
     "function_name": "reflect.quote", 
     "arguments": [
       {
@@ -1162,7 +1162,7 @@
     ]
   }, 
   {
-    "address": "0020f3a0", 
+    "address": "0020ebf0", 
     "function_name": "reflect.appendEscapedRune", 
     "arguments": [
       {
@@ -1176,7 +1176,7 @@
     ]
   }, 
   {
-    "address": "0020f730", 
+    "address": "0020ef80", 
     "function_name": "reflect.isPrint", 
     "arguments": [
       {
@@ -1186,7 +1186,7 @@
     ]
   }, 
   {
-    "address": "0020f770", 
+    "address": "0020efc0", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -1196,7 +1196,7 @@
     ]
   }, 
   {
-    "address": "0020f790", 
+    "address": "0020efe0", 
     "function_name": "(reflect.Value).IsValid", 
     "arguments": [
       {
@@ -1206,7 +1206,7 @@
     ]
   }, 
   {
-    "address": "0020f7c0", 
+    "address": "0020f010", 
     "function_name": "(reflect.Value).pointer", 
     "arguments": [
       {
@@ -1216,7 +1216,7 @@
     ]
   }, 
   {
-    "address": "0020f810", 
+    "address": "0020f060", 
     "function_name": "(reflect.Value).Kind", 
     "arguments": [
       {
@@ -1226,7 +1226,7 @@
     ]
   }, 
   {
-    "address": "0020f840", 
+    "address": "0020f090", 
     "function_name": "(reflect.Value).Len", 
     "arguments": [
       {
@@ -1236,7 +1236,7 @@
     ]
   }, 
   {
-    "address": "0020f940", 
+    "address": "0020f190", 
     "function_name": "(reflect.Value).Index", 
     "arguments": [
       {
@@ -1250,7 +1250,7 @@
     ]
   }, 
   {
-    "address": "0020feb0", 
+    "address": "0020f700", 
     "function_name": "(reflect.Value).IsNil", 
     "arguments": [
       {
@@ -1260,7 +1260,7 @@
     ]
   }, 
   {
-    "address": "0020ffe0", 
+    "address": "0020f830", 
     "function_name": "(reflect.Value).UnsafePointer", 
     "arguments": [
       {
@@ -1270,7 +1270,7 @@
     ]
   }, 
   {
-    "address": "002100d0", 
+    "address": "0020f920", 
     "function_name": "(reflect.Value).Elem", 
     "arguments": [
       {
@@ -1280,7 +1280,7 @@
     ]
   }, 
   {
-    "address": "00210280", 
+    "address": "0020fad0", 
     "function_name": "(reflect.Value).NumField", 
     "arguments": [
       {
@@ -1290,7 +1290,7 @@
     ]
   }, 
   {
-    "address": "002102b0", 
+    "address": "0020fb00", 
     "function_name": "(reflect.Value).Field", 
     "arguments": [
       {
@@ -1304,7 +1304,7 @@
     ]
   }, 
   {
-    "address": "00210680", 
+    "address": "0020fed0", 
     "function_name": "reflect.valueInterfaceUnsafe", 
     "arguments": [
       {
@@ -1314,7 +1314,7 @@
     ]
   }, 
   {
-    "address": "00210760", 
+    "address": "0020ffb0", 
     "function_name": "(reflect.Value).isIndirect", 
     "arguments": [
       {
@@ -1324,7 +1324,7 @@
     ]
   }, 
   {
-    "address": "00210790", 
+    "address": "0020ffe0", 
     "function_name": "reflect.New", 
     "arguments": [
       {
@@ -1334,7 +1334,7 @@
     ]
   }, 
   {
-    "address": "00210840", 
+    "address": "00210090", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -1344,7 +1344,7 @@
     ]
   }, 
   {
-    "address": "00210860", 
+    "address": "002100b0", 
     "function_name": "(reflect.Value).Interface", 
     "arguments": [
       {
@@ -1354,7 +1354,7 @@
     ]
   }, 
   {
-    "address": "002108a0", 
+    "address": "002100f0", 
     "function_name": "(reflect.Value).isExported", 
     "arguments": [
       {
@@ -1364,7 +1364,7 @@
     ]
   }, 
   {
-    "address": "002108d0", 
+    "address": "00210120", 
     "function_name": "reflect.pointerTo", 
     "arguments": [
       {
@@ -1374,7 +1374,7 @@
     ]
   }, 
   {
-    "address": "00210920", 
+    "address": "00210170", 
     "function_name": "(*reflect.Kind).String", 
     "arguments": [
       {
@@ -1384,7 +1384,7 @@
     ]
   }, 
   {
-    "address": "00210940", 
+    "address": "00210190", 
     "function_name": "(reflect.Kind).String$invoke", 
     "arguments": [
       {
@@ -1394,7 +1394,7 @@
     ]
   }, 
   {
-    "address": "00210950", 
+    "address": "002101a0", 
     "function_name": "(*reflect.ValueError).Error", 
     "arguments": [
       {
@@ -1404,7 +1404,7 @@
     ]
   }, 
   {
-    "address": "00210a30", 
+    "address": "00210280", 
     "function_name": "reflect.ValueOf", 
     "arguments": [
       {
@@ -1414,7 +1414,7 @@
     ]
   }, 
   {
-    "address": "00210a90", 
+    "address": "002102e0", 
     "function_name": "reflect.loadValue", 
     "arguments": [
       {
@@ -1428,7 +1428,7 @@
     ]
   }, 
   {
-    "address": "00210ad0", 
+    "address": "00210320", 
     "function_name": "reflect.maskAndShift", 
     "arguments": [
       {
@@ -1446,7 +1446,7 @@
     ]
   }, 
   {
-    "address": "00210b10", 
+    "address": "00210360", 
     "function_name": "(reflect.valueFlags).ro", 
     "arguments": [
       {
@@ -1456,7 +1456,7 @@
     ]
   }, 
   {
-    "address": "00210b20", 
+    "address": "00210370", 
     "function_name": "(reflect.badSyntax).Error", 
     "arguments": [
       {
@@ -1466,7 +1466,7 @@
     ]
   }, 
   {
-    "address": "00210b30", 
+    "address": "00210380", 
     "function_name": "(*reflect.badSyntax).Error", 
     "arguments": [
       {
@@ -1476,7 +1476,7 @@
     ]
   }, 
   {
-    "address": "00210b40", 
+    "address": "00210390", 
     "function_name": "(reflect.badSyntax).Error$invoke", 
     "arguments": [
       {
@@ -1486,7 +1486,7 @@
     ]
   }, 
   {
-    "address": "00210b50", 
+    "address": "002103a0", 
     "function_name": "(reflect.Value).CanAddr", 
     "arguments": [
       {
@@ -1496,7 +1496,7 @@
     ]
   }, 
   {
-    "address": "00210b80", 
+    "address": "002103d0", 
     "function_name": "(reflect.Value).Bool", 
     "arguments": [
       {
@@ -1506,7 +1506,7 @@
     ]
   }, 
   {
-    "address": "00210c40", 
+    "address": "00210490", 
     "function_name": "(reflect.Value).Bytes", 
     "arguments": [
       {
@@ -1516,7 +1516,7 @@
     ]
   }, 
   {
-    "address": "00210e10", 
+    "address": "00210660", 
     "function_name": "(reflect.Value).checkAddressable", 
     "arguments": [
       {
@@ -1526,7 +1526,7 @@
     ]
   }, 
   {
-    "address": "00210e30", 
+    "address": "00210680", 
     "function_name": "(reflect.Value).CanInterface", 
     "arguments": [
       {
@@ -1536,7 +1536,7 @@
     ]
   }, 
   {
-    "address": "00210e60", 
+    "address": "002106b0", 
     "function_name": "(reflect.Value).isRO", 
     "arguments": [
       {
@@ -1546,7 +1546,7 @@
     ]
   }, 
   {
-    "address": "00210e90", 
+    "address": "002106e0", 
     "function_name": "(reflect.Value).Type", 
     "arguments": [
       {
@@ -1556,7 +1556,7 @@
     ]
   }, 
   {
-    "address": "00210ec0", 
+    "address": "00210710", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -1566,7 +1566,7 @@
     ]
   }, 
   {
-    "address": "00210ee0", 
+    "address": "00210730", 
     "function_name": "(reflect.Value).Complex", 
     "arguments": [
       {
@@ -1576,7 +1576,7 @@
     ]
   }, 
   {
-    "address": "00210fe0", 
+    "address": "00210830", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -1586,7 +1586,7 @@
     ]
   }, 
   {
-    "address": "00211000", 
+    "address": "00210850", 
     "function_name": "(reflect.Value).Float", 
     "arguments": [
       {
@@ -1596,7 +1596,7 @@
     ]
   }, 
   {
-    "address": "00211100", 
+    "address": "00210950", 
     "function_name": "(reflect.Value).Uint", 
     "arguments": [
       {
@@ -1606,7 +1606,7 @@
     ]
   }, 
   {
-    "address": "00211270", 
+    "address": "00210ac0", 
     "function_name": "(reflect.Value).Int", 
     "arguments": [
       {
@@ -1616,7 +1616,7 @@
     ]
   }, 
   {
-    "address": "00211430", 
+    "address": "00210c80", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -1626,7 +1626,7 @@
     ]
   }, 
   {
-    "address": "002114a0", 
+    "address": "00210cf0", 
     "function_name": "(reflect.Value).MapRange", 
     "arguments": [
       {
@@ -1636,7 +1636,7 @@
     ]
   }, 
   {
-    "address": "002115f0", 
+    "address": "00210e40", 
     "function_name": "(reflect.Value).Pointer", 
     "arguments": [
       {
@@ -1646,7 +1646,7 @@
     ]
   }, 
   {
-    "address": "00211600", 
+    "address": "00210e50", 
     "function_name": "(reflect.Value).RawType", 
     "arguments": [
       {
@@ -1656,7 +1656,7 @@
     ]
   }, 
   {
-    "address": "00211630", 
+    "address": "00210e80", 
     "function_name": "(reflect.Value).String", 
     "arguments": [
       {
@@ -1666,7 +1666,7 @@
     ]
   }, 
   {
-    "address": "002116b0", 
+    "address": "00210f00", 
     "function_name": "(*reflect.MapIter).Key", 
     "arguments": [
       {
@@ -1676,7 +1676,7 @@
     ]
   }, 
   {
-    "address": "00211730", 
+    "address": "00210f80", 
     "function_name": "(*reflect.MapIter).Next", 
     "arguments": [
       {
@@ -1686,7 +1686,7 @@
     ]
   }, 
   {
-    "address": "00211850", 
+    "address": "002110a0", 
     "function_name": "(*reflect.MapIter).Value", 
     "arguments": [
       {
@@ -1696,7 +1696,7 @@
     ]
   }, 
   {
-    "address": "002118a0", 
+    "address": "002110f0", 
     "function_name": "(*errors.errorString).Error", 
     "arguments": [
       {
@@ -1706,7 +1706,7 @@
     ]
   }, 
   {
-    "address": "002118c0", 
+    "address": "00211110", 
     "function_name": "errors.New", 
     "arguments": [
       {
@@ -1716,7 +1716,7 @@
     ]
   }, 
   {
-    "address": "00211900", 
+    "address": "00211150", 
     "function_name": "(*errors.joinError).Error", 
     "arguments": [
       {
@@ -1726,7 +1726,7 @@
     ]
   }, 
   {
-    "address": "00211ae0", 
+    "address": "00211330", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -1736,7 +1736,7 @@
     ]
   }, 
   {
-    "address": "00211c70", 
+    "address": "002114c0", 
     "function_name": "runtime/interrupt.Disable", 
     "arguments": [
       {
@@ -1746,7 +1746,7 @@
     ]
   }, 
   {
-    "address": "00211c80", 
+    "address": "002114d0", 
     "function_name": "runtime/interrupt.Restore", 
     "arguments": [
       {
@@ -1756,7 +1756,7 @@
     ]
   }, 
   {
-    "address": "00211c90", 
+    "address": "002114e0", 
     "function_name": "runtime/interrupt.In", 
     "arguments": [
       {
@@ -1766,7 +1766,7 @@
     ]
   }, 
   {
-    "address": "00211ca0", 
+    "address": "002114f0", 
     "function_name": "(*internal/task.gcData).swap", 
     "arguments": [
       {
@@ -1776,7 +1776,7 @@
     ]
   }, 
   {
-    "address": "00211cb0", 
+    "address": "00211500", 
     "function_name": "(*internal/task.Queue).Pop", 
     "arguments": [
       {
@@ -1786,7 +1786,7 @@
     ]
   }, 
   {
-    "address": "00211d30", 
+    "address": "00211580", 
     "function_name": "(*internal/task.Queue).Push", 
     "arguments": [
       {
@@ -1800,7 +1800,7 @@
     ]
   }, 
   {
-    "address": "00211dc0", 
+    "address": "00211610", 
     "function_name": "(*internal/task.Stack).Pop", 
     "arguments": [
       {
@@ -1810,7 +1810,7 @@
     ]
   }, 
   {
-    "address": "00211e20", 
+    "address": "00211670", 
     "function_name": "(*internal/task.Stack).Push", 
     "arguments": [
       {
@@ -1824,7 +1824,7 @@
     ]
   }, 
   {
-    "address": "00211e60", 
+    "address": "002116b0", 
     "function_name": "(*internal/task.Task).Resume", 
     "arguments": [
       {
@@ -1834,7 +1834,7 @@
     ]
   }, 
   {
-    "address": "00211ec0", 
+    "address": "00211710", 
     "function_name": "(*internal/task.state).resume", 
     "arguments": [
       {
@@ -1844,7 +1844,7 @@
     ]
   }, 
   {
-    "address": "00211ee0", 
+    "address": "00211730", 
     "function_name": "(*internal/task.state).archInit", 
     "arguments": [
       {
@@ -1866,7 +1866,7 @@
     ]
   }, 
   {
-    "address": "00211f30", 
+    "address": "00211780", 
     "function_name": "(*internal/task.state).initialize", 
     "arguments": [
       {
@@ -1888,7 +1888,7 @@
     ]
   }, 
   {
-    "address": "00211fb0", 
+    "address": "00211800", 
     "function_name": "(*internal/task.state).pause", 
     "arguments": [
       {
@@ -1898,7 +1898,7 @@
     ]
   }, 
   {
-    "address": "00211fe0", 
+    "address": "00211830", 
     "function_name": "internal/task.Current", 
     "arguments": [
       {
@@ -1908,7 +1908,7 @@
     ]
   }, 
   {
-    "address": "00211ff0", 
+    "address": "00211840", 
     "function_name": "internal/task.Pause", 
     "arguments": [
       {
@@ -1918,7 +1918,7 @@
     ]
   }, 
   {
-    "address": "00212070", 
+    "address": "002118c0", 
     "function_name": "internal/task.pause", 
     "arguments": [
       {
@@ -1928,7 +1928,7 @@
     ]
   }, 
   {
-    "address": "00212080", 
+    "address": "002118d0", 
     "function_name": "internal/task.start", 
     "arguments": [
       {
@@ -1946,7 +1946,7 @@
     ]
   }, 
   {
-    "address": "002120d0", 
+    "address": "00211920", 
     "function_name": "internal/task.OnSystemStack", 
     "arguments": [
       {
@@ -1956,7 +1956,7 @@
     ]
   }, 
   {
-    "address": "002120e0", 
+    "address": "00211930", 
     "function_name": "internal/task.SystemStack", 
     "arguments": [
       {
@@ -1966,7 +1966,7 @@
     ]
   }, 
   {
-    "address": "002120f0", 
+    "address": "00211940", 
     "function_name": "sync/atomic.StorePointer", 
     "arguments": [
       {
@@ -1980,7 +1980,7 @@
     ]
   }, 
   {
-    "address": "00212100", 
+    "address": "00211950", 
     "function_name": "runtime.alloc", 
     "arguments": [
       {
@@ -1994,7 +1994,7 @@
     ]
   }, 
   {
-    "address": "002122d0", 
+    "address": "00211b20", 
     "function_name": "runtime.align", 
     "arguments": [
       {
@@ -2004,7 +2004,7 @@
     ]
   }, 
   {
-    "address": "002122e0", 
+    "address": "00211b30", 
     "function_name": "runtime.runtimePanicAt", 
     "arguments": [
       {
@@ -2018,7 +2018,7 @@
     ]
   }, 
   {
-    "address": "00212340", 
+    "address": "00211b90", 
     "function_name": "runtime.runGC", 
     "arguments": [
       {
@@ -2028,7 +2028,7 @@
     ]
   }, 
   {
-    "address": "00212360", 
+    "address": "00211bb0", 
     "function_name": "runtime.growHeap", 
     "arguments": [
       {
@@ -2038,7 +2038,7 @@
     ]
   }, 
   {
-    "address": "002123d0", 
+    "address": "00211c20", 
     "function_name": "(runtime.gcBlock).state", 
     "arguments": [
       {
@@ -2048,7 +2048,7 @@
     ]
   }, 
   {
-    "address": "00212400", 
+    "address": "00211c50", 
     "function_name": "(runtime.gcBlock).pointer", 
     "arguments": [
       {
@@ -2058,7 +2058,7 @@
     ]
   }, 
   {
-    "address": "00212410", 
+    "address": "00211c60", 
     "function_name": "runtime.printstring", 
     "arguments": [
       {
@@ -2068,7 +2068,7 @@
     ]
   }, 
   {
-    "address": "00212450", 
+    "address": "00211ca0", 
     "function_name": "runtime.printptr", 
     "arguments": [
       {
@@ -2078,7 +2078,7 @@
     ]
   }, 
   {
-    "address": "002124c0", 
+    "address": "00211d10", 
     "function_name": "runtime.printint64", 
     "arguments": [
       {
@@ -2088,7 +2088,7 @@
     ]
   }, 
   {
-    "address": "002124e0", 
+    "address": "00211d30", 
     "function_name": "runtime.printnl", 
     "arguments": [
       {
@@ -2098,7 +2098,7 @@
     ]
   }, 
   {
-    "address": "002124f0", 
+    "address": "00211d40", 
     "function_name": "(runtime.gcBlock).setState", 
     "arguments": [
       {
@@ -2112,7 +2112,7 @@
     ]
   }, 
   {
-    "address": "00212520", 
+    "address": "00211d70", 
     "function_name": "runtime.memzero", 
     "arguments": [
       {
@@ -2126,7 +2126,7 @@
     ]
   }, 
   {
-    "address": "00212530", 
+    "address": "00211d80", 
     "function_name": "runtime.runtimePanic", 
     "arguments": [
       {
@@ -2136,7 +2136,7 @@
     ]
   }, 
   {
-    "address": "00212550", 
+    "address": "00211da0", 
     "function_name": "runtime.putchar", 
     "arguments": [
       {
@@ -2146,7 +2146,7 @@
     ]
   }, 
   {
-    "address": "00212580", 
+    "address": "00211dd0", 
     "function_name": "runtime.printuint64", 
     "arguments": [
       {
@@ -2156,7 +2156,7 @@
     ]
   }, 
   {
-    "address": "00212610", 
+    "address": "00211e60", 
     "function_name": "(runtime.gcBlock).address", 
     "arguments": [
       {
@@ -2166,7 +2166,7 @@
     ]
   }, 
   {
-    "address": "00212620", 
+    "address": "00211e70", 
     "function_name": "runtime.setHeapEnd", 
     "arguments": [
       {
@@ -2176,7 +2176,7 @@
     ]
   }, 
   {
-    "address": "00212660", 
+    "address": "00211eb0", 
     "function_name": "runtime.calculateHeapAddresses", 
     "arguments": [
       {
@@ -2186,7 +2186,7 @@
     ]
   }, 
   {
-    "address": "002126b0", 
+    "address": "00211f00", 
     "function_name": "runtime.memcpy", 
     "arguments": [
       {
@@ -2204,7 +2204,7 @@
     ]
   }, 
   {
-    "address": "002126c0", 
+    "address": "00211f10", 
     "function_name": "runtime.markStack", 
     "arguments": [
       {
@@ -2214,7 +2214,7 @@
     ]
   }, 
   {
-    "address": "002126f0", 
+    "address": "00211f40", 
     "function_name": "runtime.markRoots", 
     "arguments": [
       {
@@ -2228,7 +2228,7 @@
     ]
   }, 
   {
-    "address": "00212720", 
+    "address": "00211f70", 
     "function_name": "runtime.findGlobals", 
     "arguments": [
       {
@@ -2238,7 +2238,7 @@
     ]
   }, 
   {
-    "address": "002127c0", 
+    "address": "00212010", 
     "function_name": "runtime.finishMark", 
     "arguments": [
       {
@@ -2248,7 +2248,7 @@
     ]
   }, 
   {
-    "address": "00212820", 
+    "address": "00212070", 
     "function_name": "runtime.markRoot", 
     "arguments": [
       {
@@ -2262,7 +2262,7 @@
     ]
   }, 
   {
-    "address": "00212870", 
+    "address": "002120c0", 
     "function_name": "runtime.sweep", 
     "arguments": [
       {
@@ -2272,7 +2272,7 @@
     ]
   }, 
   {
-    "address": "00212900", 
+    "address": "00212150", 
     "function_name": "(runtime.gcBlock).markFree", 
     "arguments": [
       {
@@ -2282,7 +2282,7 @@
     ]
   }, 
   {
-    "address": "00212930", 
+    "address": "00212180", 
     "function_name": "(runtime.gcBlock).unmark", 
     "arguments": [
       {
@@ -2292,7 +2292,7 @@
     ]
   }, 
   {
-    "address": "00212960", 
+    "address": "002121b0", 
     "function_name": "runtime.isOnHeap", 
     "arguments": [
       {
@@ -2302,7 +2302,7 @@
     ]
   }, 
   {
-    "address": "00212980", 
+    "address": "002121d0", 
     "function_name": "runtime.blockFromAddr", 
     "arguments": [
       {
@@ -2312,7 +2312,7 @@
     ]
   }, 
   {
-    "address": "00212990", 
+    "address": "002121e0", 
     "function_name": "(runtime.gcBlock).findHead", 
     "arguments": [
       {
@@ -2322,7 +2322,7 @@
     ]
   }, 
   {
-    "address": "002129c0", 
+    "address": "00212210", 
     "function_name": "runtime.startMark", 
     "arguments": [
       {
@@ -2332,7 +2332,7 @@
     ]
   }, 
   {
-    "address": "00212bb0", 
+    "address": "00212400", 
     "function_name": "runtime.newGCObjectScanner", 
     "arguments": [
       {
@@ -2342,7 +2342,7 @@
     ]
   }, 
   {
-    "address": "00212c60", 
+    "address": "002124b0", 
     "function_name": "(*runtime.gcObjectScanner).pointerFree", 
     "arguments": [
       {
@@ -2352,7 +2352,7 @@
     ]
   }, 
   {
-    "address": "00212ca0", 
+    "address": "002124f0", 
     "function_name": "(runtime.gcBlock).findNext", 
     "arguments": [
       {
@@ -2362,7 +2362,7 @@
     ]
   }, 
   {
-    "address": "00212ce0", 
+    "address": "00212530", 
     "function_name": "(*runtime.gcObjectScanner).nextIsPointer", 
     "arguments": [
       {
@@ -2384,7 +2384,7 @@
     ]
   }, 
   {
-    "address": "00212de0", 
+    "address": "00212630", 
     "function_name": "runtime.lookupPanic", 
     "arguments": [
       {
@@ -2394,7 +2394,7 @@
     ]
   }, 
   {
-    "address": "00212e00", 
+    "address": "00212650", 
     "function_name": "runtime.nilPanic", 
     "arguments": [
       {
@@ -2404,7 +2404,7 @@
     ]
   }, 
   {
-    "address": "00212e20", 
+    "address": "00212670", 
     "function_name": "runtime.getSystemStackPointer", 
     "arguments": [
       {
@@ -2414,7 +2414,7 @@
     ]
   }, 
   {
-    "address": "00212e40", 
+    "address": "00212690", 
     "function_name": "runtime.getCurrentStackPointer", 
     "arguments": [
       {
@@ -2424,7 +2424,7 @@
     ]
   }, 
   {
-    "address": "00212e50", 
+    "address": "002126a0", 
     "function_name": "runtime.stacksave", 
     "arguments": [
       {
@@ -2434,7 +2434,7 @@
     ]
   }, 
   {
-    "address": "00212e60", 
+    "address": "002126b0", 
     "function_name": "runtime.fastrand", 
     "arguments": [
       {
@@ -2444,7 +2444,7 @@
     ]
   }, 
   {
-    "address": "00212e80", 
+    "address": "002126d0", 
     "function_name": "runtime.xorshift32", 
     "arguments": [
       {
@@ -2454,7 +2454,7 @@
     ]
   }, 
   {
-    "address": "00212ea0", 
+    "address": "002126f0", 
     "function_name": "runtime.hash32", 
     "arguments": [
       {
@@ -2472,7 +2472,7 @@
     ]
   }, 
   {
-    "address": "00212ed0", 
+    "address": "00212720", 
     "function_name": "runtime.chanLen", 
     "arguments": [
       {
@@ -2482,7 +2482,7 @@
     ]
   }, 
   {
-    "address": "00212ef0", 
+    "address": "00212740", 
     "function_name": "runtime._panic", 
     "arguments": [
       {
@@ -2492,7 +2492,7 @@
     ]
   }, 
   {
-    "address": "00212f60", 
+    "address": "002127b0", 
     "function_name": "runtime.printitf", 
     "arguments": [
       {
@@ -2502,7 +2502,7 @@
     ]
   }, 
   {
-    "address": "00213230", 
+    "address": "00212a80", 
     "function_name": "runtime.printbool", 
     "arguments": [
       {
@@ -2512,7 +2512,7 @@
     ]
   }, 
   {
-    "address": "00213260", 
+    "address": "00212ab0", 
     "function_name": "runtime.printint8", 
     "arguments": [
       {
@@ -2522,7 +2522,7 @@
     ]
   }, 
   {
-    "address": "00213270", 
+    "address": "00212ac0", 
     "function_name": "runtime.printint16", 
     "arguments": [
       {
@@ -2532,7 +2532,7 @@
     ]
   }, 
   {
-    "address": "00213280", 
+    "address": "00212ad0", 
     "function_name": "runtime.printint32", 
     "arguments": [
       {
@@ -2542,7 +2542,7 @@
     ]
   }, 
   {
-    "address": "002132a0", 
+    "address": "00212af0", 
     "function_name": "runtime.printuint8", 
     "arguments": [
       {
@@ -2552,7 +2552,7 @@
     ]
   }, 
   {
-    "address": "002132b0", 
+    "address": "00212b00", 
     "function_name": "runtime.printuint16", 
     "arguments": [
       {
@@ -2562,7 +2562,7 @@
     ]
   }, 
   {
-    "address": "002132c0", 
+    "address": "00212b10", 
     "function_name": "runtime.printuint32", 
     "arguments": [
       {
@@ -2572,7 +2572,7 @@
     ]
   }, 
   {
-    "address": "002132d0", 
+    "address": "00212b20", 
     "function_name": "runtime.printfloat32", 
     "arguments": [
       {
@@ -2582,7 +2582,7 @@
     ]
   }, 
   {
-    "address": "00213670", 
+    "address": "00212ec0", 
     "function_name": "runtime.printfloat64", 
     "arguments": [
       {
@@ -2592,7 +2592,7 @@
     ]
   }, 
   {
-    "address": "00213a20", 
+    "address": "00213270", 
     "function_name": "runtime.printcomplex64", 
     "arguments": [
       {
@@ -2602,7 +2602,7 @@
     ]
   }, 
   {
-    "address": "00213a60", 
+    "address": "002132b0", 
     "function_name": "runtime.printcomplex128", 
     "arguments": [
       {
@@ -2612,7 +2612,7 @@
     ]
   }, 
   {
-    "address": "00213ab0", 
+    "address": "00213300", 
     "function_name": "(Go_interface_assert)", 
     "arguments": [
       {
@@ -2622,7 +2622,7 @@
     ]
   }, 
   {
-    "address": "00213b80", 
+    "address": "002133d0", 
     "function_name": "(Go_interface_assert)", 
     "arguments": [
       {
@@ -2632,7 +2632,7 @@
     ]
   }, 
   {
-    "address": "00213c10", 
+    "address": "00213460", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -2642,7 +2642,7 @@
     ]
   }, 
   {
-    "address": "00213d00", 
+    "address": "00213550", 
     "function_name": "runtime.printuintptr", 
     "arguments": [
       {
@@ -2652,7 +2652,7 @@
     ]
   }, 
   {
-    "address": "00213d10", 
+    "address": "00213560", 
     "function_name": "runtime.runqueuePushBack", 
     "arguments": [
       {
@@ -2662,7 +2662,7 @@
     ]
   }, 
   {
-    "address": "00213d20", 
+    "address": "00213570", 
     "function_name": "runtime.stringEqual", 
     "arguments": [
       {
@@ -2676,7 +2676,7 @@
     ]
   }, 
   {
-    "address": "00213d50", 
+    "address": "002135a0", 
     "function_name": "runtime.sliceCopy", 
     "arguments": [
       {
@@ -2702,7 +2702,7 @@
     ]
   }, 
   {
-    "address": "00213d70", 
+    "address": "002135c0", 
     "function_name": "runtime.slicePanic", 
     "arguments": [
       {
@@ -2712,7 +2712,7 @@
     ]
   }, 
   {
-    "address": "00213d90", 
+    "address": "002135e0", 
     "function_name": "runtime.memmove", 
     "arguments": [
       {
@@ -2730,7 +2730,7 @@
     ]
   }, 
   {
-    "address": "00213da0", 
+    "address": "002135f0", 
     "function_name": "runtime.initHeap", 
     "arguments": [
       {
@@ -2740,7 +2740,7 @@
     ]
   }, 
   {
-    "address": "00213dc0", 
+    "address": "00213610", 
     "function_name": "runtime.scanstack", 
     "arguments": [
       {
@@ -2750,7 +2750,7 @@
     ]
   }, 
   {
-    "address": "00213df0", 
+    "address": "00213640", 
     "function_name": "runtime.hashmapNewIterator", 
     "arguments": [
       {
@@ -2760,7 +2760,7 @@
     ]
   }, 
   {
-    "address": "00213e10", 
+    "address": "00213660", 
     "function_name": "runtime.hashmapTopHash", 
     "arguments": [
       {
@@ -2770,7 +2770,7 @@
     ]
   }, 
   {
-    "address": "00213e20", 
+    "address": "00213670", 
     "function_name": "runtime.hashmapMake", 
     "arguments": [
       {
@@ -2792,7 +2792,7 @@
     ]
   }, 
   {
-    "address": "00213f60", 
+    "address": "002137b0", 
     "function_name": "runtime.hashmapHasSpaceToGrow", 
     "arguments": [
       {
@@ -2802,7 +2802,7 @@
     ]
   }, 
   {
-    "address": "00213f70", 
+    "address": "002137c0", 
     "function_name": "runtime.hashmapOverLoadFactor", 
     "arguments": [
       {
@@ -2816,7 +2816,7 @@
     ]
   }, 
   {
-    "address": "00213f90", 
+    "address": "002137e0", 
     "function_name": "runtime.hashmapKeyHashAlg", 
     "arguments": [
       {
@@ -2826,7 +2826,7 @@
     ]
   }, 
   {
-    "address": "00213fc0", 
+    "address": "00213810", 
     "function_name": "runtime.hashmapKeyEqualAlg", 
     "arguments": [
       {
@@ -2836,7 +2836,7 @@
     ]
   }, 
   {
-    "address": "00213ff0", 
+    "address": "00213840", 
     "function_name": "runtime.memequal", 
     "arguments": [
       {
@@ -2854,7 +2854,7 @@
     ]
   }, 
   {
-    "address": "00214020", 
+    "address": "00213870", 
     "function_name": "runtime.hashmapStringEqual", 
     "arguments": [
       {
@@ -2872,7 +2872,7 @@
     ]
   }, 
   {
-    "address": "00214040", 
+    "address": "00213890", 
     "function_name": "runtime.hashmapInterfaceEqual", 
     "arguments": [
       {
@@ -2890,7 +2890,7 @@
     ]
   }, 
   {
-    "address": "00214060", 
+    "address": "002138b0", 
     "function_name": "runtime.interfaceEqual", 
     "arguments": [
       {
@@ -2904,7 +2904,7 @@
     ]
   }, 
   {
-    "address": "002140b0", 
+    "address": "00213900", 
     "function_name": "runtime.reflectValueEqual", 
     "arguments": [
       {
@@ -2918,7 +2918,7 @@
     ]
   }, 
   {
-    "address": "00214480", 
+    "address": "00213cd0", 
     "function_name": "runtime.hashmapStringPtrHash", 
     "arguments": [
       {
@@ -2936,7 +2936,7 @@
     ]
   }, 
   {
-    "address": "002144c0", 
+    "address": "00213d10", 
     "function_name": "runtime.hashmapInterfacePtrHash", 
     "arguments": [
       {
@@ -2954,7 +2954,7 @@
     ]
   }, 
   {
-    "address": "002144e0", 
+    "address": "00213d30", 
     "function_name": "runtime.hashmapInterfaceHash", 
     "arguments": [
       {
@@ -2968,7 +2968,7 @@
     ]
   }, 
   {
-    "address": "00214770", 
+    "address": "00213fc0", 
     "function_name": "runtime.hashmapFloat32Hash", 
     "arguments": [
       {
@@ -2982,7 +2982,7 @@
     ]
   }, 
   {
-    "address": "002147c0", 
+    "address": "00214010", 
     "function_name": "runtime.hashmapFloat64Hash", 
     "arguments": [
       {
@@ -2996,7 +2996,7 @@
     ]
   }, 
   {
-    "address": "00214810", 
+    "address": "00214060", 
     "function_name": "runtime.hashmapStringHash", 
     "arguments": [
       {
@@ -3010,7 +3010,7 @@
     ]
   }, 
   {
-    "address": "00214860", 
+    "address": "002140b0", 
     "function_name": "runtime.hashmapBucketSize", 
     "arguments": [
       {
@@ -3020,7 +3020,7 @@
     ]
   }, 
   {
-    "address": "002148a0", 
+    "address": "002140f0", 
     "function_name": "runtime.hashmapBucketAddr", 
     "arguments": [
       {
@@ -3038,7 +3038,7 @@
     ]
   }, 
   {
-    "address": "002148c0", 
+    "address": "00214110", 
     "function_name": "runtime.hashmapLen", 
     "arguments": [
       {
@@ -3048,7 +3048,7 @@
     ]
   }, 
   {
-    "address": "002148e0", 
+    "address": "00214130", 
     "function_name": "runtime.hashmapBucketAddrForHash", 
     "arguments": [
       {
@@ -3062,7 +3062,7 @@
     ]
   }, 
   {
-    "address": "00214920", 
+    "address": "00214170", 
     "function_name": "runtime.hashmapSlotKey", 
     "arguments": [
       {
@@ -3080,7 +3080,7 @@
     ]
   }, 
   {
-    "address": "00214950", 
+    "address": "002141a0", 
     "function_name": "runtime.hashmapSlotValue", 
     "arguments": [
       {
@@ -3098,7 +3098,7 @@
     ]
   }, 
   {
-    "address": "00214990", 
+    "address": "002141e0", 
     "function_name": "runtime.hashmapSet", 
     "arguments": [
       {
@@ -3120,7 +3120,7 @@
     ]
   }, 
   {
-    "address": "00214cb0", 
+    "address": "00214500", 
     "function_name": "runtime.hashmapGrow", 
     "arguments": [
       {
@@ -3130,7 +3130,7 @@
     ]
   }, 
   {
-    "address": "00214ed0", 
+    "address": "00214720", 
     "function_name": "runtime.hashmapInsertIntoNewBucket", 
     "arguments": [
       {
@@ -3152,7 +3152,7 @@
     ]
   }, 
   {
-    "address": "00214fa0", 
+    "address": "002147f0", 
     "function_name": "runtime.hashmapNext", 
     "arguments": [
       {
@@ -3174,7 +3174,7 @@
     ]
   }, 
   {
-    "address": "002153d0", 
+    "address": "00214c20", 
     "function_name": "runtime.hashmapGet", 
     "arguments": [
       {
@@ -3200,7 +3200,7 @@
     ]
   }, 
   {
-    "address": "00215530", 
+    "address": "00214d80", 
     "function_name": "runtime.nilMapPanic", 
     "arguments": [
       {
@@ -3210,7 +3210,7 @@
     ]
   }, 
   {
-    "address": "00215550", 
+    "address": "00214da0", 
     "function_name": "runtime.hashmapStringSet", 
     "arguments": [
       {
@@ -3228,7 +3228,7 @@
     ]
   }, 
   {
-    "address": "002155d0", 
+    "address": "00214e20", 
     "function_name": "runtime.hashmapStringGet", 
     "arguments": [
       {
@@ -3250,7 +3250,7 @@
     ]
   }, 
   {
-    "address": "00215650", 
+    "address": "00214ea0", 
     "function_name": "runtime.composeInterface", 
     "arguments": [
       {
@@ -3264,7 +3264,7 @@
     ]
   }, 
   {
-    "address": "00215690", 
+    "address": "00214ee0", 
     "function_name": "runtime.decomposeInterface", 
     "arguments": [
       {
@@ -3274,7 +3274,7 @@
     ]
   }, 
   {
-    "address": "002156d0", 
+    "address": "00214f20", 
     "function_name": "runtime.interfaceTypeAssert", 
     "arguments": [
       {
@@ -3284,7 +3284,7 @@
     ]
   }, 
   {
-    "address": "002156f0", 
+    "address": "00214f40", 
     "function_name": "runtime.setupDeferFrame", 
     "arguments": [
       {
@@ -3298,7 +3298,7 @@
     ]
   }, 
   {
-    "address": "00215760", 
+    "address": "00214fb0", 
     "function_name": "runtime.destroyDeferFrame", 
     "arguments": [
       {
@@ -3308,7 +3308,7 @@
     ]
   }, 
   {
-    "address": "002157c0", 
+    "address": "00215010", 
     "function_name": "runtime._recover", 
     "arguments": [
       {
@@ -3318,7 +3318,7 @@
     ]
   }, 
   {
-    "address": "00215830", 
+    "address": "00215080", 
     "function_name": "runtime.unsafeSlicePanic", 
     "arguments": [
       {
@@ -3328,7 +3328,7 @@
     ]
   }, 
   {
-    "address": "00215850", 
+    "address": "002150a0", 
     "function_name": "runtime.negativeShiftPanic", 
     "arguments": [
       {
@@ -3338,7 +3338,7 @@
     ]
   }, 
   {
-    "address": "00215870", 
+    "address": "002150c0", 
     "function_name": "runtime.divideByZeroPanic", 
     "arguments": [
       {
@@ -3348,7 +3348,7 @@
     ]
   }, 
   {
-    "address": "00215890", 
+    "address": "002150e0", 
     "function_name": "runtime.GOROOT", 
     "arguments": [
       {
@@ -3358,7 +3358,7 @@
     ]
   }, 
   {
-    "address": "002158a0", 
+    "address": "002150f0", 
     "function_name": "runtime.nanotime", 
     "arguments": [
       {
@@ -3368,7 +3368,7 @@
     ]
   }, 
   {
-    "address": "002158b0", 
+    "address": "00215100", 
     "function_name": "runtime.ticks", 
     "arguments": [
       {
@@ -3378,7 +3378,7 @@
     ]
   }, 
   {
-    "address": "002158c0", 
+    "address": "00215110", 
     "function_name": "runtime.ticksToNanoseconds", 
     "arguments": [
       {
@@ -3388,7 +3388,7 @@
     ]
   }, 
   {
-    "address": "002158d0", 
+    "address": "00215120", 
     "function_name": "runtime.monotime", 
     "arguments": [
       {
@@ -3398,7 +3398,7 @@
     ]
   }, 
   {
-    "address": "002158e0", 
+    "address": "00215130", 
     "function_name": "runtime.getTime", 
     "arguments": [
       {
@@ -3408,7 +3408,7 @@
     ]
   }, 
   {
-    "address": "00215930", 
+    "address": "00215180", 
     "function_name": "runtime.clock_gettime", 
     "arguments": [
       {
@@ -3422,7 +3422,7 @@
     ]
   }, 
   {
-    "address": "00215940", 
+    "address": "00215190", 
     "function_name": "runtime.write", 
     "arguments": [
       {
@@ -3440,7 +3440,7 @@
     ]
   }, 
   {
-    "address": "002159a0", 
+    "address": "002151f0", 
     "function_name": "runtime.main", 
     "arguments": [
       {
@@ -3454,7 +3454,7 @@
     ]
   }, 
   {
-    "address": "002159e0", 
+    "address": "00215230", 
     "function_name": "runtime.preinit", 
     "arguments": [
       {
@@ -3464,7 +3464,7 @@
     ]
   }, 
   {
-    "address": "00215a60", 
+    "address": "002152b0", 
     "function_name": "runtime.runMain", 
     "arguments": [
       {
@@ -3474,7 +3474,7 @@
     ]
   }, 
   {
-    "address": "00215a70", 
+    "address": "002152c0", 
     "function_name": "runtime.run", 
     "arguments": [
       {
@@ -3484,7 +3484,7 @@
     ]
   }, 
   {
-    "address": "00215a90", 
+    "address": "002152e0", 
     "function_name": "<goroutine_wrapper>", 
     "arguments": [
       {
@@ -3494,7 +3494,7 @@
     ]
   }, 
   {
-    "address": "00215aa0", 
+    "address": "002152f0", 
     "function_name": "runtime.scheduler", 
     "arguments": [
       {
@@ -3504,7 +3504,7 @@
     ]
   }, 
   {
-    "address": "00215d20", 
+    "address": "00215570", 
     "function_name": "runtime.scheduleLog", 
     "arguments": [
       {
@@ -3514,7 +3514,7 @@
     ]
   }, 
   {
-    "address": "00215d30", 
+    "address": "00215580", 
     "function_name": "runtime.scheduleLogTask", 
     "arguments": [
       {
@@ -3528,7 +3528,7 @@
     ]
   }, 
   {
-    "address": "00215d40", 
+    "address": "00215590", 
     "function_name": "(*runtime.timerNode).whenTicks", 
     "arguments": [
       {
@@ -3538,7 +3538,7 @@
     ]
   }, 
   {
-    "address": "00215d70", 
+    "address": "002155c0", 
     "function_name": "runtime.waitForEvents", 
     "arguments": [
       {
@@ -3548,7 +3548,7 @@
     ]
   }, 
   {
-    "address": "00215d90", 
+    "address": "002155e0", 
     "function_name": "runtime.sleepTicks", 
     "arguments": [
       {
@@ -3558,7 +3558,7 @@
     ]
   }, 
   {
-    "address": "00215dc0", 
+    "address": "00215610", 
     "function_name": "runtime.nanosecondsToTicks", 
     "arguments": [
       {
@@ -3568,7 +3568,7 @@
     ]
   }, 
   {
-    "address": "00215dd0", 
+    "address": "00215620", 
     "function_name": "runtime.run$1", 
     "arguments": [
       {
@@ -3578,7 +3578,7 @@
     ]
   }, 
   {
-    "address": "00215df0", 
+    "address": "00215640", 
     "function_name": "runtime.initAll", 
     "arguments": [
       {
@@ -3588,7 +3588,7 @@
     ]
   }, 
   {
-    "address": "00215e70", 
+    "address": "002156c0", 
     "function_name": "runtime.os_runtime_args", 
     "arguments": [
       {
@@ -3598,7 +3598,7 @@
     ]
   }, 
   {
-    "address": "00215f70", 
+    "address": "002157c0", 
     "function_name": "runtime.tinygo_handle_fatal_signal", 
     "arguments": [
       {
@@ -3612,7 +3612,7 @@
     ]
   }, 
   {
-    "address": "00216010", 
+    "address": "00215860", 
     "function_name": "runtime.syscall_runtime_envs", 
     "arguments": [
       {
@@ -3622,7 +3622,7 @@
     ]
   }, 
   {
-    "address": "00216150", 
+    "address": "002159a0", 
     "function_name": "runtime.sliceAppend", 
     "arguments": [
       {
@@ -3652,7 +3652,7 @@
     ]
   }, 
   {
-    "address": "002161c0", 
+    "address": "00215a10", 
     "function_name": "runtime.sliceGrow", 
     "arguments": [
       {
@@ -3678,7 +3678,7 @@
     ]
   }, 
   {
-    "address": "00216250", 
+    "address": "00215aa0", 
     "function_name": "runtime.now", 
     "arguments": [
       {
@@ -3688,7 +3688,7 @@
     ]
   }, 
   {
-    "address": "002162a0", 
+    "address": "00215af0", 
     "function_name": "runtime.stringLess", 
     "arguments": [
       {
@@ -3702,7 +3702,7 @@
     ]
   }, 
   {
-    "address": "002162f0", 
+    "address": "00215b40", 
     "function_name": "runtime.stringConcat", 
     "arguments": [
       {
@@ -3716,7 +3716,7 @@
     ]
   }, 
   {
-    "address": "00216420", 
+    "address": "00215c70", 
     "function_name": "runtime.stringFromBytes", 
     "arguments": [
       {
@@ -3726,7 +3726,7 @@
     ]
   }, 
   {
-    "address": "002164b0", 
+    "address": "00215d00", 
     "function_name": "runtime.stringToBytes", 
     "arguments": [
       {
@@ -3736,7 +3736,7 @@
     ]
   }, 
   {
-    "address": "00216560", 
+    "address": "00215db0", 
     "function_name": "runtime.encodeUTF8", 
     "arguments": [
       {
@@ -3746,7 +3746,7 @@
     ]
   }, 
   {
-    "address": "00216690", 
+    "address": "00215ee0", 
     "function_name": "runtime.stringNext", 
     "arguments": [
       {
@@ -3760,7 +3760,7 @@
     ]
   }, 
   {
-    "address": "002166f0", 
+    "address": "00215f40", 
     "function_name": "runtime.decodeUTF8", 
     "arguments": [
       {
@@ -3774,7 +3774,7 @@
     ]
   }, 
   {
-    "address": "002168a0", 
+    "address": "002160f0", 
     "function_name": "runtime.isContinuation", 
     "arguments": [
       {
@@ -3784,7 +3784,7 @@
     ]
   }, 
   {
-    "address": "002168b0", 
+    "address": "00216100", 
     "function_name": "runtime.stringFromUnicode", 
     "arguments": [
       {
@@ -3794,27 +3794,7 @@
     ]
   }, 
   {
-    "address": "00216920", 
-    "function_name": "(*slices.xorshift).Next", 
-    "arguments": [
-      {
-        "name": "r", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00216980", 
-    "function_name": "slices.nextPowerOfTwo", 
-    "arguments": [
-      {
-        "name": "length", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "002169b0", 
+    "address": "00216170", 
     "function_name": "internal/fmtsort.Sort", 
     "arguments": [
       {
@@ -3824,7 +3804,7 @@
     ]
   }, 
   {
-    "address": "00216b90", 
+    "address": "00216350", 
     "function_name": "internal/fmtsort.Sort$1", 
     "arguments": [
       {
@@ -3838,7 +3818,7 @@
     ]
   }, 
   {
-    "address": "00216c30", 
+    "address": "002163f0", 
     "function_name": "slices.SortStableFunc[internal/fmtsort.SortedMap_internal/fmtsort.KeyValue]", 
     "arguments": [
       {
@@ -3852,7 +3832,7 @@
     ]
   }, 
   {
-    "address": "00216c50", 
+    "address": "00216410", 
     "function_name": "slices.stableCmpFunc[internal/fmtsort.KeyValue]", 
     "arguments": [
       {
@@ -3870,7 +3850,7 @@
     ]
   }, 
   {
-    "address": "00216d70", 
+    "address": "00216530", 
     "function_name": "slices.insertionSortCmpFunc[internal/fmtsort.KeyValue]", 
     "arguments": [
       {
@@ -3892,7 +3872,7 @@
     ]
   }, 
   {
-    "address": "00216f50", 
+    "address": "00216710", 
     "function_name": "slices.symMergeCmpFunc[internal/fmtsort.KeyValue]", 
     "arguments": [
       {
@@ -3918,7 +3898,7 @@
     ]
   }, 
   {
-    "address": "002174f0", 
+    "address": "00216cb0", 
     "function_name": "slices.rotateCmpFunc[internal/fmtsort.KeyValue]", 
     "arguments": [
       {
@@ -3944,7 +3924,7 @@
     ]
   }, 
   {
-    "address": "002175d0", 
+    "address": "00216d90", 
     "function_name": "slices.swapRangeCmpFunc[internal/fmtsort.KeyValue]", 
     "arguments": [
       {
@@ -3970,7 +3950,7 @@
     ]
   }, 
   {
-    "address": "00217710", 
+    "address": "00216ed0", 
     "function_name": "internal/fmtsort.compare", 
     "arguments": [
       {
@@ -3980,7 +3960,7 @@
     ]
   }, 
   {
-    "address": "00217c40", 
+    "address": "00217400", 
     "function_name": "cmp.Compare[int64]", 
     "arguments": [
       {
@@ -3994,7 +3974,7 @@
     ]
   }, 
   {
-    "address": "00217c90", 
+    "address": "00217450", 
     "function_name": "cmp.Compare[uint64]", 
     "arguments": [
       {
@@ -4008,7 +3988,7 @@
     ]
   }, 
   {
-    "address": "00217ce0", 
+    "address": "002174a0", 
     "function_name": "cmp.Compare[string]", 
     "arguments": [
       {
@@ -4022,7 +4002,7 @@
     ]
   }, 
   {
-    "address": "00217d60", 
+    "address": "00217520", 
     "function_name": "cmp.Compare[float64]", 
     "arguments": [
       {
@@ -4036,7 +4016,7 @@
     ]
   }, 
   {
-    "address": "00217dc0", 
+    "address": "00217580", 
     "function_name": "cmp.Compare[uintptr]", 
     "arguments": [
       {
@@ -4050,7 +4030,7 @@
     ]
   }, 
   {
-    "address": "00217e10", 
+    "address": "002175d0", 
     "function_name": "internal/fmtsort.nilCompare", 
     "arguments": [
       {
@@ -4064,7 +4044,7 @@
     ]
   }, 
   {
-    "address": "00217e70", 
+    "address": "00217630", 
     "function_name": "cmp.isNaN[uintptr]", 
     "arguments": [
       {
@@ -4074,7 +4054,7 @@
     ]
   }, 
   {
-    "address": "00217e80", 
+    "address": "00217640", 
     "function_name": "cmp.isNaN[float64]", 
     "arguments": [
       {
@@ -4084,7 +4064,7 @@
     ]
   }, 
   {
-    "address": "00217e90", 
+    "address": "00217650", 
     "function_name": "cmp.isNaN[string]", 
     "arguments": [
       {
@@ -4094,7 +4074,7 @@
     ]
   }, 
   {
-    "address": "00217ea0", 
+    "address": "00217660", 
     "function_name": "cmp.isNaN[uint64]", 
     "arguments": [
       {
@@ -4104,7 +4084,7 @@
     ]
   }, 
   {
-    "address": "00217eb0", 
+    "address": "00217670", 
     "function_name": "cmp.isNaN[int64]", 
     "arguments": [
       {
@@ -4114,7 +4094,7 @@
     ]
   }, 
   {
-    "address": "00217ec0", 
+    "address": "00217680", 
     "function_name": "runtime/volatile.LoadUint8", 
     "arguments": [
       {
@@ -4124,7 +4104,7 @@
     ]
   }, 
   {
-    "address": "00217ed0", 
+    "address": "00217690", 
     "function_name": "runtime/volatile.StoreUint8", 
     "arguments": [
       {
@@ -4138,7 +4118,7 @@
     ]
   }, 
   {
-    "address": "00217ee0", 
+    "address": "002176a0", 
     "function_name": "(*sync.Mutex).Lock", 
     "arguments": [
       {
@@ -4148,7 +4128,7 @@
     ]
   }, 
   {
-    "address": "00217f30", 
+    "address": "002176f0", 
     "function_name": "(*sync.Mutex).Unlock", 
     "arguments": [
       {
@@ -4158,7 +4138,7 @@
     ]
   }, 
   {
-    "address": "00217f80", 
+    "address": "00217740", 
     "function_name": "(*sync.Mutex).islocked", 
     "arguments": [
       {
@@ -4168,7 +4148,7 @@
     ]
   }, 
   {
-    "address": "00217fa0", 
+    "address": "00217760", 
     "function_name": "(*sync.Mutex).setlock", 
     "arguments": [
       {
@@ -4182,7 +4162,7 @@
     ]
   }, 
   {
-    "address": "00217fd0", 
+    "address": "00217790", 
     "function_name": "sync.boolToU8", 
     "arguments": [
       {
@@ -4192,7 +4172,7 @@
     ]
   }, 
   {
-    "address": "00217fe0", 
+    "address": "002177a0", 
     "function_name": "(*sync.RWMutex).RLock", 
     "arguments": [
       {
@@ -4202,7 +4182,7 @@
     ]
   }, 
   {
-    "address": "00218060", 
+    "address": "00217820", 
     "function_name": "(*sync.RWMutex).RUnlock", 
     "arguments": [
       {
@@ -4212,7 +4192,7 @@
     ]
   }, 
   {
-    "address": "002180e0", 
+    "address": "002178a0", 
     "function_name": "(*sync.RWMutex).maybeUnblockWriter", 
     "arguments": [
       {
@@ -4222,7 +4202,7 @@
     ]
   }, 
   {
-    "address": "00218120", 
+    "address": "002178e0", 
     "function_name": "(*sync.Once).Do", 
     "arguments": [
       {
@@ -4236,7 +4216,7 @@
     ]
   }, 
   {
-    "address": "00218300", 
+    "address": "00217ac0", 
     "function_name": "(*sync.Pool).Get", 
     "arguments": [
       {
@@ -4246,7 +4226,7 @@
     ]
   }, 
   {
-    "address": "00218410", 
+    "address": "00217bd0", 
     "function_name": "(*sync.Pool).Put", 
     "arguments": [
       {
@@ -4260,7 +4240,7 @@
     ]
   }, 
   {
-    "address": "002184a0", 
+    "address": "00217c60", 
     "function_name": "(*io.discard).Write", 
     "arguments": [
       {
@@ -4270,7 +4250,7 @@
     ]
   }, 
   {
-    "address": "002184c0", 
+    "address": "00217c80", 
     "function_name": "(io.discard).Write", 
     "arguments": [
       {
@@ -4280,7 +4260,7 @@
     ]
   }, 
   {
-    "address": "002184d0", 
+    "address": "00217c90", 
     "function_name": "(io.discard).Write$invoke", 
     "arguments": [
       {
@@ -4290,7 +4270,7 @@
     ]
   }, 
   {
-    "address": "002184f0", 
+    "address": "00217cb0", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -4300,7 +4280,7 @@
     ]
   }, 
   {
-    "address": "00218590", 
+    "address": "00217d50", 
     "function_name": "(*io.multiWriter).Write", 
     "arguments": [
       {
@@ -4314,7 +4294,7 @@
     ]
   }, 
   {
-    "address": "00218620", 
+    "address": "00217de0", 
     "function_name": "internal/bytealg.IndexByte", 
     "arguments": [
       {
@@ -4328,7 +4308,7 @@
     ]
   }, 
   {
-    "address": "00218660", 
+    "address": "00217e20", 
     "function_name": "internal/bytealg.IndexByteString", 
     "arguments": [
       {
@@ -4342,7 +4322,7 @@
     ]
   }, 
   {
-    "address": "00218690", 
+    "address": "00217e50", 
     "function_name": "(*internal/bisect.parseError).Error", 
     "arguments": [
       {
@@ -4352,7 +4332,7 @@
     ]
   }, 
   {
-    "address": "002186b0", 
+    "address": "00217e70", 
     "function_name": "(*internal/godebug.runtimeStderr).Write", 
     "arguments": [
       {
@@ -4366,7 +4346,7 @@
     ]
   }, 
   {
-    "address": "002186e0", 
+    "address": "00217ea0", 
     "function_name": "(*syscall.Errno).Error", 
     "arguments": [
       {
@@ -4376,7 +4356,7 @@
     ]
   }, 
   {
-    "address": "00218700", 
+    "address": "00217ec0", 
     "function_name": "(syscall.Errno).Error", 
     "arguments": [
       {
@@ -4386,7 +4366,7 @@
     ]
   }, 
   {
-    "address": "00218770", 
+    "address": "00217f30", 
     "function_name": "(syscall.Errno).Error$invoke", 
     "arguments": [
       {
@@ -4396,7 +4376,7 @@
     ]
   }, 
   {
-    "address": "00218780", 
+    "address": "00217f40", 
     "function_name": "syscall.errnoErr", 
     "arguments": [
       {
@@ -4406,7 +4386,7 @@
     ]
   }, 
   {
-    "address": "002187e0", 
+    "address": "00217fa0", 
     "function_name": "syscall.init#1", 
     "arguments": [
       {
@@ -4416,7 +4396,7 @@
     ]
   }, 
   {
-    "address": "00218880", 
+    "address": "00218040", 
     "function_name": "syscall.Getrlimit", 
     "arguments": [
       {
@@ -4430,7 +4410,7 @@
     ]
   }, 
   {
-    "address": "002188c0", 
+    "address": "00218080", 
     "function_name": "(*sync/atomic.Pointer[syscall.Rlimit]).Store[syscall.Rlimit]", 
     "arguments": [
       {
@@ -4444,7 +4424,7 @@
     ]
   }, 
   {
-    "address": "002188e0", 
+    "address": "002180a0", 
     "function_name": "syscall.adjustFileLimit", 
     "arguments": [
       {
@@ -4454,7 +4434,7 @@
     ]
   }, 
   {
-    "address": "002188f0", 
+    "address": "002180b0", 
     "function_name": "syscall.setrlimit", 
     "arguments": [
       {
@@ -4468,7 +4448,7 @@
     ]
   }, 
   {
-    "address": "00218930", 
+    "address": "002180f0", 
     "function_name": "syscall.copyenv", 
     "arguments": [
       {
@@ -4478,7 +4458,7 @@
     ]
   }, 
   {
-    "address": "00218a70", 
+    "address": "00218230", 
     "function_name": "syscall.Getenv", 
     "arguments": [
       {
@@ -4488,7 +4468,7 @@
     ]
   }, 
   {
-    "address": "00218dd0", 
+    "address": "00218590", 
     "function_name": "syscall.Close", 
     "arguments": [
       {
@@ -4498,7 +4478,7 @@
     ]
   }, 
   {
-    "address": "00218e10", 
+    "address": "002185d0", 
     "function_name": "syscall.Open", 
     "arguments": [
       {
@@ -4516,7 +4496,7 @@
     ]
   }, 
   {
-    "address": "00218e30", 
+    "address": "002185f0", 
     "function_name": "syscall.Write", 
     "arguments": [
       {
@@ -4530,7 +4510,7 @@
     ]
   }, 
   {
-    "address": "00218e40", 
+    "address": "00218600", 
     "function_name": "syscall.write", 
     "arguments": [
       {
@@ -4544,7 +4524,7 @@
     ]
   }, 
   {
-    "address": "00218ea0", 
+    "address": "00218660", 
     "function_name": "syscall.openat", 
     "arguments": [
       {
@@ -4566,7 +4546,7 @@
     ]
   }, 
   {
-    "address": "00218f30", 
+    "address": "002186f0", 
     "function_name": "syscall.BytePtrFromString", 
     "arguments": [
       {
@@ -4576,7 +4556,7 @@
     ]
   }, 
   {
-    "address": "00218f80", 
+    "address": "00218740", 
     "function_name": "syscall.ByteSliceFromString", 
     "arguments": [
       {
@@ -4586,7 +4566,7 @@
     ]
   }, 
   {
-    "address": "00219030", 
+    "address": "002187f0", 
     "function_name": "syscall.Getpid", 
     "arguments": [
       {
@@ -4596,7 +4576,7 @@
     ]
   }, 
   {
-    "address": "00219040", 
+    "address": "00218800", 
     "function_name": "(syscall.Signal).String", 
     "arguments": [
       {
@@ -4606,7 +4586,7 @@
     ]
   }, 
   {
-    "address": "002190b0", 
+    "address": "00218870", 
     "function_name": "syscall.Read", 
     "arguments": [
       {
@@ -4620,7 +4600,7 @@
     ]
   }, 
   {
-    "address": "002190c0", 
+    "address": "00218880", 
     "function_name": "syscall.read", 
     "arguments": [
       {
@@ -4634,7 +4614,7 @@
     ]
   }, 
   {
-    "address": "00219110", 
+    "address": "002188d0", 
     "function_name": "syscall.Seek", 
     "arguments": [
       {
@@ -4652,7 +4632,7 @@
     ]
   }, 
   {
-    "address": "00219160", 
+    "address": "00218920", 
     "function_name": "time.startsWithLowerCase", 
     "arguments": [
       {
@@ -4662,7 +4642,7 @@
     ]
   }, 
   {
-    "address": "00219180", 
+    "address": "00218940", 
     "function_name": "time.nextStdChunk", 
     "arguments": [
       {
@@ -4672,7 +4652,7 @@
     ]
   }, 
   {
-    "address": "0021a560", 
+    "address": "00219d20", 
     "function_name": "time.isDigit[string]", 
     "arguments": [
       {
@@ -4686,7 +4666,7 @@
     ]
   }, 
   {
-    "address": "0021a590", 
+    "address": "00219d50", 
     "function_name": "time.stdFracSecond", 
     "arguments": [
       {
@@ -4704,7 +4684,7 @@
     ]
   }, 
   {
-    "address": "0021a5b0", 
+    "address": "00219d70", 
     "function_name": "time.appendInt", 
     "arguments": [
       {
@@ -4722,7 +4702,7 @@
     ]
   }, 
   {
-    "address": "0021a950", 
+    "address": "0021a110", 
     "function_name": "time.appendInt$1", 
     "arguments": [
       {
@@ -4732,7 +4712,7 @@
     ]
   }, 
   {
-    "address": "0021a960", 
+    "address": "0021a120", 
     "function_name": "time.digitsLen", 
     "arguments": [
       {
@@ -4742,7 +4722,7 @@
     ]
   }, 
   {
-    "address": "0021a970", 
+    "address": "0021a130", 
     "function_name": "time.separator", 
     "arguments": [
       {
@@ -4752,7 +4732,7 @@
     ]
   }, 
   {
-    "address": "0021a980", 
+    "address": "0021a140", 
     "function_name": "time.appendNano", 
     "arguments": [
       {
@@ -4770,7 +4750,7 @@
     ]
   }, 
   {
-    "address": "0021aae0", 
+    "address": "0021a2a0", 
     "function_name": "(*time.ParseError).Error", 
     "arguments": [
       {
@@ -4780,7 +4760,7 @@
     ]
   }, 
   {
-    "address": "0021ac80", 
+    "address": "0021a440", 
     "function_name": "time.quote", 
     "arguments": [
       {
@@ -4790,7 +4770,7 @@
     ]
   }, 
   {
-    "address": "0021afa0", 
+    "address": "0021a760", 
     "function_name": "time.isLeap", 
     "arguments": [
       {
@@ -4800,7 +4780,7 @@
     ]
   }, 
   {
-    "address": "0021b010", 
+    "address": "0021a7d0", 
     "function_name": "time.daysIn", 
     "arguments": [
       {
@@ -4814,7 +4794,7 @@
     ]
   }, 
   {
-    "address": "0021b060", 
+    "address": "0021a820", 
     "function_name": "(*time.Time).unixSec", 
     "arguments": [
       {
@@ -4824,7 +4804,7 @@
     ]
   }, 
   {
-    "address": "0021b080", 
+    "address": "0021a840", 
     "function_name": "(*time.Location).lookup", 
     "arguments": [
       {
@@ -4838,7 +4818,7 @@
     ]
   }, 
   {
-    "address": "0021b520", 
+    "address": "0021ace0", 
     "function_name": "(*time.Location).get", 
     "arguments": [
       {
@@ -4848,7 +4828,7 @@
     ]
   }, 
   {
-    "address": "0021b560", 
+    "address": "0021ad20", 
     "function_name": "time.initLocal", 
     "arguments": [
       {
@@ -4858,7 +4838,7 @@
     ]
   }, 
   {
-    "address": "0021b850", 
+    "address": "0021b010", 
     "function_name": "time.loadLocation", 
     "arguments": [
       {
@@ -4872,7 +4852,7 @@
     ]
   }, 
   {
-    "address": "0021bb20", 
+    "address": "0021b2e0", 
     "function_name": "time.loadTzinfo", 
     "arguments": [
       {
@@ -4886,7 +4866,7 @@
     ]
   }, 
   {
-    "address": "0021bc00", 
+    "address": "0021b3c0", 
     "function_name": "time.LoadLocationFromTZData", 
     "arguments": [
       {
@@ -4900,7 +4880,7 @@
     ]
   }, 
   {
-    "address": "0021c660", 
+    "address": "0021be20", 
     "function_name": "time.gorootZoneSource", 
     "arguments": [
       {
@@ -4910,7 +4890,7 @@
     ]
   }, 
   {
-    "address": "0021c6a0", 
+    "address": "0021be60", 
     "function_name": "(*time.dataIO).read", 
     "arguments": [
       {
@@ -4924,7 +4904,7 @@
     ]
   }, 
   {
-    "address": "0021c760", 
+    "address": "0021bf20", 
     "function_name": "(*time.dataIO).big4", 
     "arguments": [
       {
@@ -4934,7 +4914,7 @@
     ]
   }, 
   {
-    "address": "0021c7d0", 
+    "address": "0021bf90", 
     "function_name": "(*time.dataIO).rest", 
     "arguments": [
       {
@@ -4944,7 +4924,7 @@
     ]
   }, 
   {
-    "address": "0021c800", 
+    "address": "0021bfc0", 
     "function_name": "(*time.dataIO).byte", 
     "arguments": [
       {
@@ -4954,7 +4934,7 @@
     ]
   }, 
   {
-    "address": "0021c840", 
+    "address": "0021c000", 
     "function_name": "time.byteString", 
     "arguments": [
       {
@@ -4964,7 +4944,7 @@
     ]
   }, 
   {
-    "address": "0021c890", 
+    "address": "0021c050", 
     "function_name": "(*time.dataIO).big8", 
     "arguments": [
       {
@@ -4974,7 +4954,7 @@
     ]
   }, 
   {
-    "address": "0021c8e0", 
+    "address": "0021c0a0", 
     "function_name": "time.tzset", 
     "arguments": [
       {
@@ -4992,7 +4972,7 @@
     ]
   }, 
   {
-    "address": "0021cd80", 
+    "address": "0021c540", 
     "function_name": "time.findZone", 
     "arguments": [
       {
@@ -5014,7 +4994,7 @@
     ]
   }, 
   {
-    "address": "0021ce60", 
+    "address": "0021c620", 
     "function_name": "time.tzsetName", 
     "arguments": [
       {
@@ -5024,7 +5004,7 @@
     ]
   }, 
   {
-    "address": "0021cff0", 
+    "address": "0021c7b0", 
     "function_name": "time.tzsetOffset", 
     "arguments": [
       {
@@ -5034,7 +5014,7 @@
     ]
   }, 
   {
-    "address": "0021d1a0", 
+    "address": "0021c960", 
     "function_name": "time.tzsetRule", 
     "arguments": [
       {
@@ -5044,7 +5024,7 @@
     ]
   }, 
   {
-    "address": "0021d550", 
+    "address": "0021cd10", 
     "function_name": "time.absDate", 
     "arguments": [
       {
@@ -5058,7 +5038,7 @@
     ]
   }, 
   {
-    "address": "0021d6f0", 
+    "address": "0021ceb0", 
     "function_name": "time.daysSinceEpoch", 
     "arguments": [
       {
@@ -5068,7 +5048,7 @@
     ]
   }, 
   {
-    "address": "0021d770", 
+    "address": "0021cf30", 
     "function_name": "time.tzruleTime", 
     "arguments": [
       {
@@ -5086,7 +5066,7 @@
     ]
   }, 
   {
-    "address": "0021da50", 
+    "address": "0021d210", 
     "function_name": "time.tzsetNum", 
     "arguments": [
       {
@@ -5104,7 +5084,7 @@
     ]
   }, 
   {
-    "address": "0021db40", 
+    "address": "0021d300", 
     "function_name": "time.loadTzinfoFromDirOrZip", 
     "arguments": [
       {
@@ -5118,7 +5098,7 @@
     ]
   }, 
   {
-    "address": "0021dc50", 
+    "address": "0021d410", 
     "function_name": "time.loadTzinfoFromZip", 
     "arguments": [
       {
@@ -5132,7 +5112,7 @@
     ]
   }, 
   {
-    "address": "0021ef40", 
+    "address": "0021e700", 
     "function_name": "time.readFile", 
     "arguments": [
       {
@@ -5142,7 +5122,7 @@
     ]
   }, 
   {
-    "address": "0021f440", 
+    "address": "0021ec00", 
     "function_name": "time.open", 
     "arguments": [
       {
@@ -5152,7 +5132,7 @@
     ]
   }, 
   {
-    "address": "0021f460", 
+    "address": "0021ec20", 
     "function_name": "time.closefd", 
     "arguments": [
       {
@@ -5162,7 +5142,7 @@
     ]
   }, 
   {
-    "address": "0021f470", 
+    "address": "0021ec30", 
     "function_name": "time.read", 
     "arguments": [
       {
@@ -5176,7 +5156,7 @@
     ]
   }, 
   {
-    "address": "0021f480", 
+    "address": "0021ec40", 
     "function_name": "(*time.fileSizeError).Error", 
     "arguments": [
       {
@@ -5186,7 +5166,7 @@
     ]
   }, 
   {
-    "address": "0021f4a0", 
+    "address": "0021ec60", 
     "function_name": "(time.fileSizeError).Error", 
     "arguments": [
       {
@@ -5196,7 +5176,7 @@
     ]
   }, 
   {
-    "address": "0021f4d0", 
+    "address": "0021ec90", 
     "function_name": "(time.fileSizeError).Error$invoke", 
     "arguments": [
       {
@@ -5206,7 +5186,7 @@
     ]
   }, 
   {
-    "address": "0021f4f0", 
+    "address": "0021ecb0", 
     "function_name": "time.preadn", 
     "arguments": [
       {
@@ -5224,7 +5204,7 @@
     ]
   }, 
   {
-    "address": "0021f5a0", 
+    "address": "0021ed60", 
     "function_name": "time.get4", 
     "arguments": [
       {
@@ -5234,7 +5214,7 @@
     ]
   }, 
   {
-    "address": "0021f5f0", 
+    "address": "0021edb0", 
     "function_name": "time.get2", 
     "arguments": [
       {
@@ -5244,7 +5224,7 @@
     ]
   }, 
   {
-    "address": "0021f620", 
+    "address": "0021ede0", 
     "function_name": "(*time.Time).sec", 
     "arguments": [
       {
@@ -5254,7 +5234,7 @@
     ]
   }, 
   {
-    "address": "0021f670", 
+    "address": "0021ee30", 
     "function_name": "(*time.Location).lookupFirstZone", 
     "arguments": [
       {
@@ -5264,7 +5244,7 @@
     ]
   }, 
   {
-    "address": "0021f7e0", 
+    "address": "0021efa0", 
     "function_name": "(*time.Location).firstZoneUsed", 
     "arguments": [
       {
@@ -5274,7 +5254,7 @@
     ]
   }, 
   {
-    "address": "0021f870", 
+    "address": "0021f030", 
     "function_name": "time.Now", 
     "arguments": [
       {
@@ -5284,7 +5264,7 @@
     ]
   }, 
   {
-    "address": "0021f980", 
+    "address": "0021f140", 
     "function_name": "(*time.Time).nsec", 
     "arguments": [
       {
@@ -5294,7 +5274,7 @@
     ]
   }, 
   {
-    "address": "0021f9a0", 
+    "address": "0021f160", 
     "function_name": "(*time.Location).String", 
     "arguments": [
       {
@@ -5304,7 +5284,7 @@
     ]
   }, 
   {
-    "address": "0021f9c0", 
+    "address": "0021f180", 
     "function_name": "(*time.Time).GoString", 
     "arguments": [
       {
@@ -5314,7 +5294,7 @@
     ]
   }, 
   {
-    "address": "0021f9e0", 
+    "address": "0021f1a0", 
     "function_name": "(*time.Time).String", 
     "arguments": [
       {
@@ -5324,7 +5304,7 @@
     ]
   }, 
   {
-    "address": "0021fa00", 
+    "address": "0021f1c0", 
     "function_name": "(time.Time).locabs", 
     "arguments": [
       {
@@ -5334,7 +5314,7 @@
     ]
   }, 
   {
-    "address": "0021fb70", 
+    "address": "0021f330", 
     "function_name": "(time.Time).abs", 
     "arguments": [
       {
@@ -5344,7 +5324,7 @@
     ]
   }, 
   {
-    "address": "0021fc70", 
+    "address": "0021f430", 
     "function_name": "(time.Time).appendFormatRFC3339", 
     "arguments": [
       {
@@ -5362,7 +5342,7 @@
     ]
   }, 
   {
-    "address": "00220060", 
+    "address": "0021f820", 
     "function_name": "time.absClock", 
     "arguments": [
       {
@@ -5372,7 +5352,7 @@
     ]
   }, 
   {
-    "address": "002200d0", 
+    "address": "0021f890", 
     "function_name": "(time.Time).Nanosecond", 
     "arguments": [
       {
@@ -5382,7 +5362,7 @@
     ]
   }, 
   {
-    "address": "00220110", 
+    "address": "0021f8d0", 
     "function_name": "(time.Time).appendFormat", 
     "arguments": [
       {
@@ -5392,7 +5372,7 @@
     ]
   }, 
   {
-    "address": "00220bd0", 
+    "address": "00220390", 
     "function_name": "(time.Month).String", 
     "arguments": [
       {
@@ -5402,7 +5382,7 @@
     ]
   }, 
   {
-    "address": "00220ca0", 
+    "address": "00220460", 
     "function_name": "time.absWeekday", 
     "arguments": [
       {
@@ -5412,7 +5392,7 @@
     ]
   }, 
   {
-    "address": "00220ce0", 
+    "address": "002204a0", 
     "function_name": "(time.Weekday).String", 
     "arguments": [
       {
@@ -5422,7 +5402,7 @@
     ]
   }, 
   {
-    "address": "00220db0", 
+    "address": "00220570", 
     "function_name": "time.fmtInt", 
     "arguments": [
       {
@@ -5436,7 +5416,7 @@
     ]
   }, 
   {
-    "address": "00220e30", 
+    "address": "002205f0", 
     "function_name": "(time.Time).Unix", 
     "arguments": [
       {
@@ -5446,7 +5426,7 @@
     ]
   }, 
   {
-    "address": "00220e70", 
+    "address": "00220630", 
     "function_name": "(time.Time).String", 
     "arguments": [
       {
@@ -5456,7 +5436,7 @@
     ]
   }, 
   {
-    "address": "00221060", 
+    "address": "00220820", 
     "function_name": "(time.Time).Format", 
     "arguments": [
       {
@@ -5470,7 +5450,7 @@
     ]
   }, 
   {
-    "address": "00221100", 
+    "address": "002208c0", 
     "function_name": "(time.Time).AppendFormat", 
     "arguments": [
       {
@@ -5488,7 +5468,7 @@
     ]
   }, 
   {
-    "address": "002211c0", 
+    "address": "00220980", 
     "function_name": "(time.Time).Location", 
     "arguments": [
       {
@@ -5498,7 +5478,7 @@
     ]
   }, 
   {
-    "address": "00221200", 
+    "address": "002209c0", 
     "function_name": "(time.Time).GoString", 
     "arguments": [
       {
@@ -5508,7 +5488,7 @@
     ]
   }, 
   {
-    "address": "00221580", 
+    "address": "00220d40", 
     "function_name": "(time.Time).GoString$invoke", 
     "arguments": [
       {
@@ -5518,7 +5498,7 @@
     ]
   }, 
   {
-    "address": "002215a0", 
+    "address": "00220d60", 
     "function_name": "(time.Time).String$invoke", 
     "arguments": [
       {
@@ -5528,7 +5508,7 @@
     ]
   }, 
   {
-    "address": "002215c0", 
+    "address": "00220d80", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -5538,7 +5518,7 @@
     ]
   }, 
   {
-    "address": "002215e0", 
+    "address": "00220da0", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -5548,7 +5528,7 @@
     ]
   }, 
   {
-    "address": "00221600", 
+    "address": "00220dc0", 
     "function_name": "(io/fs.FileMode).String", 
     "arguments": [
       {
@@ -5558,7 +5538,7 @@
     ]
   }, 
   {
-    "address": "00221750", 
+    "address": "00220f10", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -5568,7 +5548,7 @@
     ]
   }, 
   {
-    "address": "00221770", 
+    "address": "00220f30", 
     "function_name": "io/fs.FormatDirEntry", 
     "arguments": [
       {
@@ -5578,12 +5558,404 @@
     ]
   }, 
   {
-    "address": "002218e0", 
+    "address": "002210a0", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
         "name": "NoArgs", 
         "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002210e0", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221120", 
+    "function_name": "(Go_interface_method)", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221160", 
+    "function_name": "(io/fs.FileMode).IsDir", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221170", 
+    "function_name": "(io/fs.FileMode).Type", 
+    "arguments": [
+      {
+        "name": "m", 
+        "register": "EDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221180", 
+    "function_name": "(*io/fs.PathError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221220", 
+    "function_name": "(io/fs.dirInfo).IsDir", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00221260", 
+    "function_name": "(io/fs.dirInfo).Name", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002212a0", 
+    "function_name": "(io/fs.dirInfo).String", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002212e0", 
+    "function_name": "(*io/fs.dirInfo).IsDir", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221300", 
+    "function_name": "(*io/fs.dirInfo).Name", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221320", 
+    "function_name": "(*io/fs.dirInfo).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221340", 
+    "function_name": "(*io/fs.dirInfo).Type", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221360", 
+    "function_name": "(io/fs.dirInfo).Type", 
+    "arguments": [
+      {
+        "name": "di", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002213a0", 
+    "function_name": "(io/fs.dirInfo).IsDir$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002213c0", 
+    "function_name": "(io/fs.dirInfo).Name$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002213e0", 
+    "function_name": "(io/fs.dirInfo).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221400", 
+    "function_name": "(io/fs.dirInfo).Type$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221420", 
+    "function_name": "(*strings.appendSliceWriter).Write", 
+    "arguments": [
+      {
+        "name": "w", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "p", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "00221470", 
+    "function_name": "(*os.DeadlineExceededError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221480", 
+    "function_name": "(*syscall.Signal).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002214a0", 
+    "function_name": "(syscall.Signal).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002214b0", 
+    "function_name": "(*io/fs.FileMode).String", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002214d0", 
+    "function_name": "(io/fs.FileMode).String$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002214e0", 
+    "function_name": "(*os.fileStat).IsDir", 
+    "arguments": [
+      {
+        "name": "fs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002214f0", 
+    "function_name": "(*os.fileStat).Mode", 
+    "arguments": [
+      {
+        "name": "fs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221510", 
+    "function_name": "(*os.fileStat).Name", 
+    "arguments": [
+      {
+        "name": "fs", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221530", 
+    "function_name": "os.handleSyscallError", 
+    "arguments": [
+      {
+        "name": "err", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002215a0", 
+    "function_name": "(*os.unixFileHandle).Write", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "002215c0", 
+    "function_name": "(os.unixFileHandle).Write", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
+      }
+    ]
+  }, 
+  {
+    "address": "002215f0", 
+    "function_name": "(os.unixFileHandle).Write$invoke", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221600", 
+    "function_name": "os.init#3", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221660", 
+    "function_name": "os.Getpid", 
+    "arguments": [
+      {
+        "name": "NoArgs", 
+        "register": "None"
+      }
+    ]
+  }, 
+  {
+    "address": "00221670", 
+    "function_name": "(*os.unixDirent).IsDir", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221690", 
+    "function_name": "(*os.unixDirent).Name", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002216b0", 
+    "function_name": "(*os.unixDirent).Type", 
+    "arguments": [
+      {
+        "name": "d", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "002216d0", 
+    "function_name": "(*os.SyscallError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221730", 
+    "function_name": "(*os.LinkError).Error", 
+    "arguments": [
+      {
+        "name": "e", 
+        "register": "RDI"
+      }
+    ]
+  }, 
+  {
+    "address": "00221810", 
+    "function_name": "(*os.File).Write", 
+    "arguments": [
+      {
+        "name": "f", 
+        "register": "RAX"
+      }, 
+      {
+        "name": "b", 
+        "register": "Stack_0x8"
       }
     ]
   }, 
@@ -5599,690 +5971,6 @@
   }, 
   {
     "address": "00221960", 
-    "function_name": "(Go_interface_method)", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "002219a0", 
-    "function_name": "(io/fs.FileMode).IsDir", 
-    "arguments": [
-      {
-        "name": "m", 
-        "register": "EDI"
-      }
-    ]
-  }, 
-  {
-    "address": "002219b0", 
-    "function_name": "(io/fs.FileMode).Type", 
-    "arguments": [
-      {
-        "name": "m", 
-        "register": "EDI"
-      }
-    ]
-  }, 
-  {
-    "address": "002219c0", 
-    "function_name": "(*io/fs.PathError).Error", 
-    "arguments": [
-      {
-        "name": "e", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00221a60", 
-    "function_name": "(io/fs.dirInfo).IsDir", 
-    "arguments": [
-      {
-        "name": "di", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00221aa0", 
-    "function_name": "(io/fs.dirInfo).Name", 
-    "arguments": [
-      {
-        "name": "di", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00221ae0", 
-    "function_name": "(io/fs.dirInfo).String", 
-    "arguments": [
-      {
-        "name": "di", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00221b20", 
-    "function_name": "(*io/fs.dirInfo).IsDir", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221b40", 
-    "function_name": "(*io/fs.dirInfo).Name", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221b60", 
-    "function_name": "(*io/fs.dirInfo).String", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221b80", 
-    "function_name": "(*io/fs.dirInfo).Type", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221ba0", 
-    "function_name": "(io/fs.dirInfo).Type", 
-    "arguments": [
-      {
-        "name": "di", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00221be0", 
-    "function_name": "(io/fs.dirInfo).IsDir$invoke", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221c00", 
-    "function_name": "(io/fs.dirInfo).Name$invoke", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221c20", 
-    "function_name": "(io/fs.dirInfo).String$invoke", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221c40", 
-    "function_name": "(io/fs.dirInfo).Type$invoke", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00221c60", 
-    "function_name": "slices.Sort[[]int_int]", 
-    "arguments": [
-      {
-        "name": "x", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00221ca0", 
-    "function_name": "slices.pdqsortOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }, 
-      {
-        "name": "limit", 
-        "register": "RCX"
-      }
-    ]
-  }, 
-  {
-    "address": "00221f00", 
-    "function_name": "slices.insertionSortOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "00221fb0", 
-    "function_name": "slices.heapSortOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "00222090", 
-    "function_name": "slices.choosePivotOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "00222200", 
-    "function_name": "slices.reverseRangeOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "00222250", 
-    "function_name": "slices.partialInsertionSortOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "00222460", 
-    "function_name": "cmp.Less[int]", 
-    "arguments": [
-      {
-        "name": "x", 
-        "register": "RDI"
-      }, 
-      {
-        "name": "y", 
-        "register": "RSI"
-      }
-    ]
-  }, 
-  {
-    "address": "002224a0", 
-    "function_name": "slices.partitionEqualOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }, 
-      {
-        "name": "pivot", 
-        "register": "RCX"
-      }
-    ]
-  }, 
-  {
-    "address": "002225a0", 
-    "function_name": "slices.partitionOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }, 
-      {
-        "name": "pivot", 
-        "register": "RCX"
-      }
-    ]
-  }, 
-  {
-    "address": "002227c0", 
-    "function_name": "slices.breakPatternsOrdered[int]", 
-    "arguments": [
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "002228d0", 
-    "function_name": "cmp.isNaN[int]", 
-    "arguments": [
-      {
-        "name": "x", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "002228e0", 
-    "function_name": "slices.medianAdjacentOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "swaps", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "00222900", 
-    "function_name": "slices.medianOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }, 
-      {
-        "name": "c", 
-        "register": "RCX"
-      }, 
-      {
-        "name": "swaps", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222970", 
-    "function_name": "slices.order2Ordered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "RBX"
-      }, 
-      {
-        "name": "swaps", 
-        "register": "RCX"
-      }
-    ]
-  }, 
-  {
-    "address": "002229d0", 
-    "function_name": "slices.siftDownOrdered[int]", 
-    "arguments": [
-      {
-        "name": "data", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "lo", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "hi", 
-        "register": "RBX"
-      }, 
-      {
-        "name": "first", 
-        "register": "RCX"
-      }
-    ]
-  }, 
-  {
-    "address": "00222aa0", 
-    "function_name": "(*strings.appendSliceWriter).Write", 
-    "arguments": [
-      {
-        "name": "w", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "p", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00222af0", 
-    "function_name": "(*os.DeadlineExceededError).Error", 
-    "arguments": [
-      {
-        "name": "e", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222b00", 
-    "function_name": "(*syscall.Signal).String", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222b20", 
-    "function_name": "(syscall.Signal).String$invoke", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222b30", 
-    "function_name": "(*io/fs.FileMode).String", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222b50", 
-    "function_name": "(io/fs.FileMode).String$invoke", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222b60", 
-    "function_name": "(*os.fileStat).IsDir", 
-    "arguments": [
-      {
-        "name": "fs", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222b70", 
-    "function_name": "(*os.fileStat).Mode", 
-    "arguments": [
-      {
-        "name": "fs", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222b90", 
-    "function_name": "(*os.fileStat).Name", 
-    "arguments": [
-      {
-        "name": "fs", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222bb0", 
-    "function_name": "os.handleSyscallError", 
-    "arguments": [
-      {
-        "name": "err", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00222c20", 
-    "function_name": "(*os.unixFileHandle).Write", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222c40", 
-    "function_name": "(os.unixFileHandle).Write", 
-    "arguments": [
-      {
-        "name": "f", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00222c70", 
-    "function_name": "(os.unixFileHandle).Write$invoke", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222c80", 
-    "function_name": "os.init#3", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222ce0", 
-    "function_name": "os.Getpid", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222cf0", 
-    "function_name": "(*os.unixDirent).IsDir", 
-    "arguments": [
-      {
-        "name": "d", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222d10", 
-    "function_name": "(*os.unixDirent).Name", 
-    "arguments": [
-      {
-        "name": "d", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222d30", 
-    "function_name": "(*os.unixDirent).Type", 
-    "arguments": [
-      {
-        "name": "d", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222d50", 
-    "function_name": "(*os.SyscallError).Error", 
-    "arguments": [
-      {
-        "name": "e", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222db0", 
-    "function_name": "(*os.LinkError).Error", 
-    "arguments": [
-      {
-        "name": "e", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00222e90", 
-    "function_name": "(*os.File).Write", 
-    "arguments": [
-      {
-        "name": "f", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "b", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "00222fa0", 
-    "function_name": "(Go_interface_method)", 
-    "arguments": [
-      {
-        "name": "NoArgs", 
-        "register": "None"
-      }
-    ]
-  }, 
-  {
-    "address": "00222fe0", 
     "function_name": "(*strconv.NumError).Error", 
     "arguments": [
       {
@@ -6292,7 +5980,7 @@
     ]
   }, 
   {
-    "address": "002230c0", 
+    "address": "00221a40", 
     "function_name": "strconv.Quote", 
     "arguments": [
       {
@@ -6302,7 +5990,7 @@
     ]
   }, 
   {
-    "address": "002230e0", 
+    "address": "00221a60", 
     "function_name": "strconv.quoteWith", 
     "arguments": [
       {
@@ -6324,7 +6012,7 @@
     ]
   }, 
   {
-    "address": "002231a0", 
+    "address": "00221b20", 
     "function_name": "strconv.appendQuotedWith", 
     "arguments": [
       {
@@ -6350,7 +6038,7 @@
     ]
   }, 
   {
-    "address": "00223440", 
+    "address": "00221dc0", 
     "function_name": "strconv.appendEscapedRune", 
     "arguments": [
       {
@@ -6376,7 +6064,7 @@
     ]
   }, 
   {
-    "address": "002237e0", 
+    "address": "00222160", 
     "function_name": "strconv.IsPrint", 
     "arguments": [
       {
@@ -6386,7 +6074,7 @@
     ]
   }, 
   {
-    "address": "00223950", 
+    "address": "002222d0", 
     "function_name": "strconv.isInGraphicList", 
     "arguments": [
       {
@@ -6396,7 +6084,7 @@
     ]
   }, 
   {
-    "address": "00223980", 
+    "address": "00222300", 
     "function_name": "strconv.bsearch[[]uint16_uint16]", 
     "arguments": [
       {
@@ -6410,7 +6098,7 @@
     ]
   }, 
   {
-    "address": "002239d0", 
+    "address": "00222350", 
     "function_name": "strconv.bsearch[[]uint32_uint32]", 
     "arguments": [
       {
@@ -6424,7 +6112,7 @@
     ]
   }, 
   {
-    "address": "00223a20", 
+    "address": "002223a0", 
     "function_name": "(*strconv.decimal).Shift", 
     "arguments": [
       {
@@ -6438,7 +6126,7 @@
     ]
   }, 
   {
-    "address": "00223ab0", 
+    "address": "00222430", 
     "function_name": "strconv.shouldRoundUp", 
     "arguments": [
       {
@@ -6452,7 +6140,7 @@
     ]
   }, 
   {
-    "address": "00223b70", 
+    "address": "002224f0", 
     "function_name": "strconv.leftShift", 
     "arguments": [
       {
@@ -6466,7 +6154,7 @@
     ]
   }, 
   {
-    "address": "00223e80", 
+    "address": "00222800", 
     "function_name": "strconv.rightShift", 
     "arguments": [
       {
@@ -6480,7 +6168,7 @@
     ]
   }, 
   {
-    "address": "002240e0", 
+    "address": "00222a60", 
     "function_name": "strconv.trim", 
     "arguments": [
       {
@@ -6490,7 +6178,7 @@
     ]
   }, 
   {
-    "address": "002241b0", 
+    "address": "00222b30", 
     "function_name": "strconv.prefixIsLessThan", 
     "arguments": [
       {
@@ -6504,7 +6192,7 @@
     ]
   }, 
   {
-    "address": "00224200", 
+    "address": "00222b80", 
     "function_name": "strconv.lower", 
     "arguments": [
       {
@@ -6514,7 +6202,7 @@
     ]
   }, 
   {
-    "address": "00224210", 
+    "address": "00222b90", 
     "function_name": "strconv.formatBits", 
     "arguments": [
       {
@@ -6540,7 +6228,7 @@
     ]
   }, 
   {
-    "address": "00224580", 
+    "address": "00222f00", 
     "function_name": "strconv.isPowerOfTwo", 
     "arguments": [
       {
@@ -6550,7 +6238,7 @@
     ]
   }, 
   {
-    "address": "00224590", 
+    "address": "00222f10", 
     "function_name": "strconv.genericFtoa", 
     "arguments": [
       {
@@ -6576,7 +6264,7 @@
     ]
   }, 
   {
-    "address": "00224b40", 
+    "address": "002234c0", 
     "function_name": "strconv.fmtB", 
     "arguments": [
       {
@@ -6602,7 +6290,7 @@
     ]
   }, 
   {
-    "address": "00224ca0", 
+    "address": "00223620", 
     "function_name": "strconv.fmtX", 
     "arguments": [
       {
@@ -6636,7 +6324,7 @@
     ]
   }, 
   {
-    "address": "002252b0", 
+    "address": "00223c30", 
     "function_name": "strconv.ryuFtoaShortest", 
     "arguments": [
       {
@@ -6658,7 +6346,7 @@
     ]
   }, 
   {
-    "address": "002256b0", 
+    "address": "00224030", 
     "function_name": "strconv.formatDigits", 
     "arguments": [
       {
@@ -6688,7 +6376,7 @@
     ]
   }, 
   {
-    "address": "002258e0", 
+    "address": "00224260", 
     "function_name": "strconv.bigFtoa", 
     "arguments": [
       {
@@ -6722,7 +6410,7 @@
     ]
   }, 
   {
-    "address": "00225bd0", 
+    "address": "00224550", 
     "function_name": "strconv.ryuFtoaFixed32", 
     "arguments": [
       {
@@ -6744,7 +6432,7 @@
     ]
   }, 
   {
-    "address": "00225e10", 
+    "address": "00224790", 
     "function_name": "strconv.ryuFtoaFixed64", 
     "arguments": [
       {
@@ -6766,7 +6454,7 @@
     ]
   }, 
   {
-    "address": "00226050", 
+    "address": "002249d0", 
     "function_name": "strconv.mulByLog2Log10", 
     "arguments": [
       {
@@ -6776,7 +6464,7 @@
     ]
   }, 
   {
-    "address": "00226060", 
+    "address": "002249e0", 
     "function_name": "strconv.mult128bitPow10", 
     "arguments": [
       {
@@ -6794,7 +6482,7 @@
     ]
   }, 
   {
-    "address": "00226160", 
+    "address": "00224ae0", 
     "function_name": "strconv.divisibleByPower5", 
     "arguments": [
       {
@@ -6808,7 +6496,7 @@
     ]
   }, 
   {
-    "address": "002261c0", 
+    "address": "00224b40", 
     "function_name": "strconv.formatDecimal", 
     "arguments": [
       {
@@ -6834,7 +6522,7 @@
     ]
   }, 
   {
-    "address": "00226480", 
+    "address": "00224e00", 
     "function_name": "strconv.mulByLog10Log2", 
     "arguments": [
       {
@@ -6844,7 +6532,7 @@
     ]
   }, 
   {
-    "address": "00226490", 
+    "address": "00224e10", 
     "function_name": "strconv.mult64bitPow10", 
     "arguments": [
       {
@@ -6862,7 +6550,7 @@
     ]
   }, 
   {
-    "address": "00226540", 
+    "address": "00224ec0", 
     "function_name": "(*strconv.decimal).Assign", 
     "arguments": [
       {
@@ -6876,7 +6564,7 @@
     ]
   }, 
   {
-    "address": "00226670", 
+    "address": "00224ff0", 
     "function_name": "strconv.roundShortest", 
     "arguments": [
       {
@@ -6898,7 +6586,7 @@
     ]
   }, 
   {
-    "address": "00226a80", 
+    "address": "00225400", 
     "function_name": "(*strconv.decimal).Round", 
     "arguments": [
       {
@@ -6912,7 +6600,7 @@
     ]
   }, 
   {
-    "address": "00226ad0", 
+    "address": "00225450", 
     "function_name": "(*strconv.decimal).RoundUp", 
     "arguments": [
       {
@@ -6926,7 +6614,7 @@
     ]
   }, 
   {
-    "address": "00226bd0", 
+    "address": "00225550", 
     "function_name": "(*strconv.decimal).RoundDown", 
     "arguments": [
       {
@@ -6940,7 +6628,7 @@
     ]
   }, 
   {
-    "address": "00226c10", 
+    "address": "00225590", 
     "function_name": "strconv.fmtE", 
     "arguments": [
       {
@@ -6966,7 +6654,7 @@
     ]
   }, 
   {
-    "address": "00227020", 
+    "address": "002259a0", 
     "function_name": "strconv.fmtF", 
     "arguments": [
       {
@@ -6988,7 +6676,7 @@
     ]
   }, 
   {
-    "address": "002272d0", 
+    "address": "00225c50", 
     "function_name": "strconv.ryuDigits", 
     "arguments": [
       {
@@ -7018,7 +6706,7 @@
     ]
   }, 
   {
-    "address": "00227670", 
+    "address": "00225ff0", 
     "function_name": "strconv.computeBounds", 
     "arguments": [
       {
@@ -7036,7 +6724,7 @@
     ]
   }, 
   {
-    "address": "00227710", 
+    "address": "00226090", 
     "function_name": "strconv.divmod1e9", 
     "arguments": [
       {
@@ -7046,7 +6734,7 @@
     ]
   }, 
   {
-    "address": "00227740", 
+    "address": "002260c0", 
     "function_name": "strconv.ryuDigits32", 
     "arguments": [
       {
@@ -7080,7 +6768,7 @@
     ]
   }, 
   {
-    "address": "00227970", 
+    "address": "002262f0", 
     "function_name": "strconv.AppendFloat", 
     "arguments": [
       {
@@ -7106,7 +6794,7 @@
     ]
   }, 
   {
-    "address": "00227980", 
+    "address": "00226300", 
     "function_name": "strconv.appendQuotedRuneWith", 
     "arguments": [
       {
@@ -7132,7 +6820,7 @@
     ]
   }, 
   {
-    "address": "00227a50", 
+    "address": "002263d0", 
     "function_name": "strconv.AppendQuote", 
     "arguments": [
       {
@@ -7146,7 +6834,7 @@
     ]
   }, 
   {
-    "address": "00227a70", 
+    "address": "002263f0", 
     "function_name": "strconv.AppendQuoteToASCII", 
     "arguments": [
       {
@@ -7160,7 +6848,7 @@
     ]
   }, 
   {
-    "address": "00227a90", 
+    "address": "00226410", 
     "function_name": "strconv.AppendQuoteRune", 
     "arguments": [
       {
@@ -7174,7 +6862,7 @@
     ]
   }, 
   {
-    "address": "00227ab0", 
+    "address": "00226430", 
     "function_name": "strconv.AppendQuoteRuneToASCII", 
     "arguments": [
       {
@@ -7188,7 +6876,7 @@
     ]
   }, 
   {
-    "address": "00227ae0", 
+    "address": "00226460", 
     "function_name": "strconv.CanBackquote", 
     "arguments": [
       {
@@ -7198,7 +6886,7 @@
     ]
   }, 
   {
-    "address": "00227b50", 
+    "address": "002264d0", 
     "function_name": "fmt.init$1", 
     "arguments": [
       {
@@ -7208,7 +6896,7 @@
     ]
   }, 
   {
-    "address": "00227b70", 
+    "address": "002264f0", 
     "function_name": "(*fmt.buffer).write", 
     "arguments": [
       {
@@ -7222,7 +6910,7 @@
     ]
   }, 
   {
-    "address": "00227bc0", 
+    "address": "00226540", 
     "function_name": "(*fmt.buffer).writeByte", 
     "arguments": [
       {
@@ -7236,7 +6924,7 @@
     ]
   }, 
   {
-    "address": "00227c40", 
+    "address": "002265c0", 
     "function_name": "(*fmt.buffer).writeRune", 
     "arguments": [
       {
@@ -7250,7 +6938,7 @@
     ]
   }, 
   {
-    "address": "00227c80", 
+    "address": "00226600", 
     "function_name": "(*fmt.buffer).writeString", 
     "arguments": [
       {
@@ -7264,7 +6952,7 @@
     ]
   }, 
   {
-    "address": "00227cd0", 
+    "address": "00226650", 
     "function_name": "(*fmt.fmt).clearflags", 
     "arguments": [
       {
@@ -7274,7 +6962,7 @@
     ]
   }, 
   {
-    "address": "00227d20", 
+    "address": "002266a0", 
     "function_name": "(*fmt.fmt).fmtBoolean", 
     "arguments": [
       {
@@ -7288,7 +6976,7 @@
     ]
   }, 
   {
-    "address": "00227d50", 
+    "address": "002266d0", 
     "function_name": "(*fmt.fmt).fmtBs", 
     "arguments": [
       {
@@ -7302,7 +6990,7 @@
     ]
   }, 
   {
-    "address": "00227d70", 
+    "address": "002266f0", 
     "function_name": "(*fmt.fmt).fmtBx", 
     "arguments": [
       {
@@ -7320,7 +7008,7 @@
     ]
   }, 
   {
-    "address": "00227da0", 
+    "address": "00226720", 
     "function_name": "(*fmt.fmt).fmtC", 
     "arguments": [
       {
@@ -7334,7 +7022,7 @@
     ]
   }, 
   {
-    "address": "00227df0", 
+    "address": "00226770", 
     "function_name": "(*fmt.fmt).fmtFloat", 
     "arguments": [
       {
@@ -7360,7 +7048,7 @@
     ]
   }, 
   {
-    "address": "00228440", 
+    "address": "00226dc0", 
     "function_name": "(*fmt.fmt).fmtInteger", 
     "arguments": [
       {
@@ -7390,7 +7078,7 @@
     ]
   }, 
   {
-    "address": "00228a80", 
+    "address": "00227400", 
     "function_name": "(*fmt.fmt).fmtQ", 
     "arguments": [
       {
@@ -7404,7 +7092,7 @@
     ]
   }, 
   {
-    "address": "00228b70", 
+    "address": "002274f0", 
     "function_name": "(*fmt.fmt).fmtQc", 
     "arguments": [
       {
@@ -7418,7 +7106,7 @@
     ]
   }, 
   {
-    "address": "00228be0", 
+    "address": "00227560", 
     "function_name": "(*fmt.fmt).fmtS", 
     "arguments": [
       {
@@ -7432,7 +7120,7 @@
     ]
   }, 
   {
-    "address": "00228c00", 
+    "address": "00227580", 
     "function_name": "(*fmt.fmt).fmtSbx", 
     "arguments": [
       {
@@ -7454,7 +7142,7 @@
     ]
   }, 
   {
-    "address": "00229110", 
+    "address": "00227a90", 
     "function_name": "(*fmt.fmt).fmtSx", 
     "arguments": [
       {
@@ -7472,7 +7160,7 @@
     ]
   }, 
   {
-    "address": "00229140", 
+    "address": "00227ac0", 
     "function_name": "(*fmt.fmt).fmtUnicode", 
     "arguments": [
       {
@@ -7486,7 +7174,7 @@
     ]
   }, 
   {
-    "address": "00229440", 
+    "address": "00227dc0", 
     "function_name": "(*fmt.fmt).init", 
     "arguments": [
       {
@@ -7500,7 +7188,7 @@
     ]
   }, 
   {
-    "address": "00229460", 
+    "address": "00227de0", 
     "function_name": "(*fmt.fmt).pad", 
     "arguments": [
       {
@@ -7514,7 +7202,7 @@
     ]
   }, 
   {
-    "address": "00229560", 
+    "address": "00227ee0", 
     "function_name": "(*fmt.fmt).padString", 
     "arguments": [
       {
@@ -7528,7 +7216,7 @@
     ]
   }, 
   {
-    "address": "00229650", 
+    "address": "00227fd0", 
     "function_name": "(*fmt.fmt).truncate", 
     "arguments": [
       {
@@ -7542,7 +7230,7 @@
     ]
   }, 
   {
-    "address": "00229740", 
+    "address": "002280c0", 
     "function_name": "(*fmt.fmt).truncateString", 
     "arguments": [
       {
@@ -7556,7 +7244,7 @@
     ]
   }, 
   {
-    "address": "002297d0", 
+    "address": "00228150", 
     "function_name": "(*fmt.fmt).writePadding", 
     "arguments": [
       {
@@ -7570,7 +7258,7 @@
     ]
   }, 
   {
-    "address": "00229940", 
+    "address": "002282c0", 
     "function_name": "(*reflect.Value).String", 
     "arguments": [
       {
@@ -7580,7 +7268,7 @@
     ]
   }, 
   {
-    "address": "00229960", 
+    "address": "002282e0", 
     "function_name": "(reflect.Value).String$invoke", 
     "arguments": [
       {
@@ -7590,7 +7278,7 @@
     ]
   }, 
   {
-    "address": "00229980", 
+    "address": "00228300", 
     "function_name": "(*fmt.pp).Write", 
     "arguments": [
       {
@@ -7604,47 +7292,7 @@
     ]
   }, 
   {
-    "address": "002299a0", 
-    "function_name": "(*fmt.pp).argNumber", 
-    "arguments": [
-      {
-        "name": "p", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "argNum", 
-        "register": "RBX"
-      }, 
-      {
-        "name": "format", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "i", 
-        "register": "RCX"
-      }, 
-      {
-        "name": "numArgs", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "00229a60", 
-    "function_name": "(*fmt.pp).badArgNum", 
-    "arguments": [
-      {
-        "name": "p", 
-        "register": "RDI"
-      }, 
-      {
-        "name": "verb", 
-        "register": "ESI"
-      }
-    ]
-  }, 
-  {
-    "address": "00229ab0", 
+    "address": "00228320", 
     "function_name": "(*fmt.pp).badVerb", 
     "arguments": [
       {
@@ -7658,7 +7306,7 @@
     ]
   }, 
   {
-    "address": "00229ca0", 
+    "address": "00228510", 
     "function_name": "(*fmt.pp).catchPanic", 
     "arguments": [
       {
@@ -7680,25 +7328,7 @@
     ]
   }, 
   {
-    "address": "00229f30", 
-    "function_name": "(*fmt.pp).doPrintf", 
-    "arguments": [
-      {
-        "name": "p", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "format", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "Stack_0x18"
-      }
-    ]
-  }, 
-  {
-    "address": "0022ad80", 
+    "address": "002287a0", 
     "function_name": "(*fmt.pp).doPrintln", 
     "arguments": [
       {
@@ -7712,7 +7342,7 @@
     ]
   }, 
   {
-    "address": "0022ae10", 
+    "address": "00228830", 
     "function_name": "(*fmt.pp).fmt0x64", 
     "arguments": [
       {
@@ -7730,7 +7360,7 @@
     ]
   }, 
   {
-    "address": "0022aeb0", 
+    "address": "002288d0", 
     "function_name": "(*fmt.pp).fmtBool", 
     "arguments": [
       {
@@ -7748,7 +7378,7 @@
     ]
   }, 
   {
-    "address": "0022aee0", 
+    "address": "00228900", 
     "function_name": "(*fmt.pp).fmtBytes", 
     "arguments": [
       {
@@ -7770,7 +7400,7 @@
     ]
   }, 
   {
-    "address": "0022b190", 
+    "address": "00228bb0", 
     "function_name": "(*fmt.pp).fmtComplex", 
     "arguments": [
       {
@@ -7792,7 +7422,7 @@
     ]
   }, 
   {
-    "address": "0022b310", 
+    "address": "00228d30", 
     "function_name": "(*fmt.pp).fmtFloat", 
     "arguments": [
       {
@@ -7814,7 +7444,7 @@
     ]
   }, 
   {
-    "address": "0022b3a0", 
+    "address": "00228dc0", 
     "function_name": "(*fmt.pp).fmtInteger", 
     "arguments": [
       {
@@ -7836,7 +7466,7 @@
     ]
   }, 
   {
-    "address": "0022b560", 
+    "address": "00228f80", 
     "function_name": "(*fmt.pp).fmtPointer", 
     "arguments": [
       {
@@ -7854,7 +7484,7 @@
     ]
   }, 
   {
-    "address": "0022b750", 
+    "address": "00229170", 
     "function_name": "(*fmt.pp).fmtString", 
     "arguments": [
       {
@@ -7872,7 +7502,7 @@
     ]
   }, 
   {
-    "address": "0022b810", 
+    "address": "00229230", 
     "function_name": "(*fmt.pp).free", 
     "arguments": [
       {
@@ -7882,7 +7512,7 @@
     ]
   }, 
   {
-    "address": "0022b980", 
+    "address": "002293a0", 
     "function_name": "(*fmt.pp).handleMethods", 
     "arguments": [
       {
@@ -7896,21 +7526,7 @@
     ]
   }, 
   {
-    "address": "0022c520", 
-    "function_name": "(*fmt.pp).missingArg", 
-    "arguments": [
-      {
-        "name": "p", 
-        "register": "RDI"
-      }, 
-      {
-        "name": "verb", 
-        "register": "ESI"
-      }
-    ]
-  }, 
-  {
-    "address": "0022c570", 
+    "address": "00229f40", 
     "function_name": "(*fmt.pp).printArg", 
     "arguments": [
       {
@@ -7928,7 +7544,7 @@
     ]
   }, 
   {
-    "address": "0022c960", 
+    "address": "0022a330", 
     "function_name": "(*fmt.pp).printValue", 
     "arguments": [
       {
@@ -7950,7 +7566,7 @@
     ]
   }, 
   {
-    "address": "0022d510", 
+    "address": "0022aee0", 
     "function_name": "(*fmt.pp).unknownType", 
     "arguments": [
       {
@@ -7964,7 +7580,7 @@
     ]
   }, 
   {
-    "address": "0022d5b0", 
+    "address": "0022af80", 
     "function_name": "fmt.getField", 
     "arguments": [
       {
@@ -7978,7 +7594,7 @@
     ]
   }, 
   {
-    "address": "0022d620", 
+    "address": "0022aff0", 
     "function_name": "(Go_interface_assert)", 
     "arguments": [
       {
@@ -7988,7 +7604,7 @@
     ]
   }, 
   {
-    "address": "0022d630", 
+    "address": "0022b000", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -7998,7 +7614,7 @@
     ]
   }, 
   {
-    "address": "0022d640", 
+    "address": "0022b010", 
     "function_name": "(Go_interface_assert)", 
     "arguments": [
       {
@@ -8008,7 +7624,7 @@
     ]
   }, 
   {
-    "address": "0022d660", 
+    "address": "0022b030", 
     "function_name": "(Go_interface_method)", 
     "arguments": [
       {
@@ -8018,73 +7634,7 @@
     ]
   }, 
   {
-    "address": "0022d690", 
-    "function_name": "fmt.intFromArg", 
-    "arguments": [
-      {
-        "name": "a", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "argNum", 
-        "register": "RAX"
-      }
-    ]
-  }, 
-  {
-    "address": "0022d7a0", 
-    "function_name": "fmt.parsenum", 
-    "arguments": [
-      {
-        "name": "s", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "start", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "end", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "0022d840", 
-    "function_name": "fmt.tooLarge", 
-    "arguments": [
-      {
-        "name": "x", 
-        "register": "RDI"
-      }
-    ]
-  }, 
-  {
-    "address": "0022d860", 
-    "function_name": "fmt.parseArgNumber", 
-    "arguments": [
-      {
-        "name": "format", 
-        "register": "Stack_0x8"
-      }
-    ]
-  }, 
-  {
-    "address": "0022d8d0", 
-    "function_name": "fmt.Errorf", 
-    "arguments": [
-      {
-        "name": "format", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "Stack_0x18"
-      }
-    ]
-  }, 
-  {
-    "address": "0022dc50", 
+    "address": "0022b060", 
     "function_name": "fmt.newPrinter", 
     "arguments": [
       {
@@ -8094,7 +7644,7 @@
     ]
   }, 
   {
-    "address": "0022dce0", 
+    "address": "0022b0f0", 
     "function_name": "(*fmt.wrapErrors).Error", 
     "arguments": [
       {
@@ -8104,7 +7654,7 @@
     ]
   }, 
   {
-    "address": "0022dd00", 
+    "address": "0022b110", 
     "function_name": "(*fmt.wrapError).Error", 
     "arguments": [
       {
@@ -8114,39 +7664,7 @@
     ]
   }, 
   {
-    "address": "0022dd20", 
-    "function_name": "fmt.Fprintf", 
-    "arguments": [
-      {
-        "name": "w", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "format", 
-        "register": "Stack_0x18"
-      }, 
-      {
-        "name": "a", 
-        "register": "Stack_0x28"
-      }
-    ]
-  }, 
-  {
-    "address": "0022ddb0", 
-    "function_name": "fmt.Printf", 
-    "arguments": [
-      {
-        "name": "format", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "a", 
-        "register": "Stack_0x18"
-      }
-    ]
-  }, 
-  {
-    "address": "0022dde0", 
+    "address": "0022b130", 
     "function_name": "fmt.Fprintln", 
     "arguments": [
       {
@@ -8160,7 +7678,7 @@
     ]
   }, 
   {
-    "address": "0022de60", 
+    "address": "0022b1b0", 
     "function_name": "fmt.Println", 
     "arguments": [
       {
@@ -8170,25 +7688,7 @@
     ]
   }, 
   {
-    "address": "0022de80", 
-    "function_name": "main.coreEngine", 
-    "arguments": [
-      {
-        "name": "num1", 
-        "register": "RAX"
-      }, 
-      {
-        "name": "operator", 
-        "register": "Stack_0x8"
-      }, 
-      {
-        "name": "num2", 
-        "register": "RBX"
-      }
-    ]
-  }, 
-  {
-    "address": "0022dfc0", 
+    "address": "0022b1d0", 
     "function_name": "main.main", 
     "arguments": [
       {
@@ -8198,7 +7698,7 @@
     ]
   }, 
   {
-    "address": "0022e150", 
+    "address": "0022b260", 
     "function_name": "tinygo_register_fatal_signals", 
     "arguments": [
       {
@@ -8208,7 +7708,7 @@
     ]
   }, 
   {
-    "address": "0022e1d0", 
+    "address": "0022b2e0", 
     "function_name": "signal_handler", 
     "arguments": [
       {
