@@ -355,6 +355,7 @@ pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     let input0_var = executor.varnode_to_concolic(&instruction.inputs[0]).map_err(|e| e.to_string())?;
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_LESS");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
+    log!(executor.state.logger.clone(), "input0_var symbolic : {:?}, input1_var symbolic: {:?}", input0_var.get_symbolic_value_bv(executor.context).simplify(), input1_var.get_symbolic_value_bv(executor.context).simplify());
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);

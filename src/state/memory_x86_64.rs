@@ -251,25 +251,27 @@ impl<'ctx> MemoryX86_64<'ctx> {
     /// Only returns symbolic data if it has been explicitly initialized.
     pub fn read_memory(&self, address: u64, size: usize) -> Result<(Vec<u8>, Vec<Option<Arc<BV<'ctx>>>>), MemoryError> {
         let regions = self.regions.read().unwrap();
-
+    
         for region in regions.iter() {
             if region.contains(address, size) {
                 let offset = region.offset(address);
-
-                // Collect concrete data
+    
+                if offset + size > region.concrete_data.len() {
+                    return Err(MemoryError::ReadOutOfBounds);
+                }
+    
                 let concrete = region.concrete_data[offset..offset + size].to_vec();
-
-                // Collect symbolic data (only existing ones)
-                let symbolic: Vec<Option<Arc<BV<'ctx>>>> = (0..size)
-                    .map(|i| region.symbolic_data.get(&(offset + i)).cloned())
+    
+                let symbolic = (offset..offset + size)
+                    .map(|i| region.symbolic_data.get(&i).cloned())
                     .collect();
-
+    
                 return Ok((concrete, symbolic));
             }
         }
-
+    
         Err(MemoryError::ReadOutOfBounds)
-    }
+    }    
 
     /// Reads a sequence of bytes from memory (concrete data only).
     pub fn read_bytes(&self, address: u64, size: usize) -> Result<Vec<u8>, MemoryError> {
@@ -316,76 +318,51 @@ impl<'ctx> MemoryX86_64<'ctx> {
         if size == 128 {
             let (concrete_low, symbolic_low) = self.read_memory(address, 8)?;
             let (concrete_high, symbolic_high) = self.read_memory(address + 8, 8)?;
-
+    
             let low = u64::from_le_bytes(concrete_low.as_slice().try_into().unwrap());
             let high = u64::from_le_bytes(concrete_high.as_slice().try_into().unwrap());
-
+    
             let concrete = ConcreteVar::LargeInt(vec![low, high]);
-
-            let symbolic_bvs_low: Vec<BV<'ctx>> = symbolic_low.iter().enumerate().map(|(i, sym)| {
-                sym.as_ref().map(|s| s.as_ref().clone()).unwrap_or_else(|| {
-                    if concrete_low[i] == 0 {
-                        BV::fresh_const(self.ctx, &format!("mem_{:x}_low_{}", address, i), 8)
-                    } else {
-                        BV::from_u64(self.ctx, concrete_low[i] as u64, 8)
-                    }
-                })
-            }).collect();
-
-            let symbolic_low_concat = symbolic_bvs_low.iter().rev().fold(None, |acc: Option<BV<'ctx>>, bv: &BV<'ctx>| {
-                Some(acc.map_or_else(|| bv.clone(), |a| a.concat(bv)))
+    
+            let symbolic_low_concat = symbolic_low.iter().enumerate().rev().fold(None, |acc: Option<BV<'ctx>>, (i, sym)| {
+                let bv = sym.as_ref().map(|s| s.as_ref().clone()).unwrap_or_else(|| {
+                    BV::from_u64(self.ctx, concrete_low[i] as u64, 8)
+                });
+                Some(acc.map_or_else(|| bv.clone(), |a| a.concat(&bv)))
             }).unwrap();
-
-            let symbolic_bvs_high: Vec<BV<'ctx>> = symbolic_high.iter().enumerate().map(|(i, sym)| {
-                sym.as_ref().map(|s| s.as_ref().clone()).unwrap_or_else(|| {
-                    if concrete_high[i] == 0 {
-                        BV::fresh_const(self.ctx, &format!("mem_{:x}_high_{}", address + 8, i), 8)
-                    } else {
-                        BV::from_u64(self.ctx, concrete_high[i] as u64, 8)
-                    }
-                })
-            }).collect();
-
-            let symbolic_high_concat = symbolic_bvs_high.iter().rev().fold(None, |acc: Option<BV<'ctx>>, bv: &BV<'ctx>| {
-                Some(acc.map_or_else(|| bv.clone(), |a| a.concat(bv)))
+    
+            let symbolic_high_concat = symbolic_high.iter().enumerate().rev().fold(None, |acc: Option<BV<'ctx>>, (i, sym)| {
+                let bv = sym.as_ref().map(|s| s.as_ref().clone()).unwrap_or_else(|| {
+                    BV::from_u64(self.ctx, concrete_high[i] as u64, 8)
+                });
+                Some(acc.map_or_else(|| bv.clone(), |a| a.concat(&bv)))
             }).unwrap();
-
+    
             let symbolic = SymbolicVar::LargeInt(vec![symbolic_low_concat, symbolic_high_concat]);
-
-            Ok(ConcolicVar {
-                concrete,
-                symbolic,
-                ctx: self.ctx,
-            })
+    
+            Ok(ConcolicVar { concrete, symbolic, ctx: self.ctx })
         } else if size <= 64 {
             let byte_size = ((size + 7) / 8) as usize;
             let (mut concrete, symbolic) = self.read_memory(address, byte_size)?;
-
+    
             if concrete.len() < 8 {
                 let mut padded = vec![0u8; 8];
                 padded[..concrete.len()].copy_from_slice(&concrete);
                 concrete = padded;
             }
-
+    
             let value = u64::from_le_bytes(concrete.as_slice().try_into().unwrap());
             let mask = if size < 64 { (1u64 << size) - 1 } else { u64::MAX };
             let masked = value & mask;
             let concrete_var = ConcreteVar::Int(masked);
-
-            let symbolic_bvs: Vec<BV<'ctx>> = symbolic.iter().enumerate().map(|(i, sym)| {
-                sym.as_ref().map(|s| s.as_ref().clone()).unwrap_or_else(|| {
-                    if concrete[i] == 0 {
-                        BV::fresh_const(self.ctx, &format!("mem_{:x}_byte_{}", address, i), 8)
-                    } else {
-                        BV::from_u64(self.ctx, concrete[i] as u64, 8)
-                    }
-                })
-            }).collect();
-
-            let symbolic_concat = symbolic_bvs.iter().rev().fold(None, |acc: Option<BV<'ctx>>, bv: &BV<'ctx>| {
-                Some(acc.map_or_else(|| bv.clone(), |a| a.concat(bv)))
+    
+            let symbolic_concat = symbolic.iter().enumerate().rev().fold(None, |acc: Option<BV<'ctx>>, (i, sym)| {
+                let bv = sym.as_ref().map(|s| s.as_ref().clone()).unwrap_or_else(|| {
+                    BV::from_u64(self.ctx, concrete[i] as u64, 8)
+                });
+                Some(acc.map_or_else(|| bv.clone(), |a| a.concat(&bv)))
             }).unwrap();
-
+    
             let resized_sym = if symbolic_concat.get_size() < size {
                 symbolic_concat.zero_ext(size - symbolic_concat.get_size())
             } else if symbolic_concat.get_size() > size {
@@ -393,18 +370,14 @@ impl<'ctx> MemoryX86_64<'ctx> {
             } else {
                 symbolic_concat
             };
-
+    
             let symbolic_var = SymbolicVar::Int(resized_sym);
-
-            Ok(ConcolicVar {
-                concrete: concrete_var,
-                symbolic: symbolic_var,
-                ctx: self.ctx,
-            })
+    
+            Ok(ConcolicVar { concrete: concrete_var, symbolic: symbolic_var, ctx: self.ctx })
         } else {
             Err(MemoryError::InvalidString)
         }
-    }
+    }    
 
     /// Writes concrete and symbolic memory to a given address range.
     pub fn write_memory(&self, address: u64, concrete: &[u8], symbolic: &[Option<Arc<BV<'ctx>>>]) -> Result<(), MemoryError> {
