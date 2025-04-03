@@ -80,14 +80,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let arguments = env::var("ARGS").expect("MODE environment variable is not set");
     
     // Turn each byte of each user input into a symbolic variable
-    let os_args_addr = get_os_args_address()?;
+    let os_args_addr = get_os_args_address(&mut executor, &binary_path)?;
+    log!(executor.state.logger, "os.Args slice address: 0x{:x}", os_args_addr);
     initialize_symbolic_part_args(&mut executor, os_args_addr)?;
     
     if mode == "function" { 
         log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
         let start_address_hex = format!("{:x}", start_address);
         log!(executor.state.logger, "Start address is {:?}", start_address_hex);
-        log!(executor.state.logger, "symbol table is {:?}", executor.symbol_table);
 
         if let Some(function) = executor.symbol_table.get(&start_address_hex) {
             log!(executor.state.logger, "Located function: {:?}", function);
@@ -111,50 +111,35 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 // Function to get the address of the os.Args slice in the target binary
-pub fn get_os_args_address() -> Result<u64, Box<dyn Error>> {
-    // Use the globally stored target info to get the path to your binary
-    let binary_path = {
-        let target_info = crate::GLOBAL_TARGET_INFO.lock().unwrap();
-        target_info.binary_path.clone()
-    };
-
-    let script_path = "scripts/find_os_args.py";
-    let output = Command::new("python3")
-        .arg(script_path)
-        .arg(&binary_path)
-        .output()
-        .map_err(|e| format!("Failed to run pyhidra script: {}", e))?;
+pub fn get_os_args_address(executor: &mut ConcolicExecutor, binary_path: &str) -> Result<u64, Box<dyn Error>> {
+    let output = Command::new("objdump")
+        .arg("-t")
+        .arg(binary_path)
+        .output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("pyhidra script returned error: {}", stderr).into());
+        return Err(format!("objdump failed: {}", stderr).into());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // We parse lines to find the address. 
-    let mut address: Option<u64> = None;
+    // Example line we might see:
+    // 0000000000236e68 l     O .bss   0000000000000018 os.Args
     for line in stdout.lines() {
-        // If the script prints an error line
-        if line.starts_with("ERROR") {
-            return Err(format!("Could not find 'os.Args' symbol: {}", line).into());
-        }
-
-        // the script prints "os.Args 0x232760"
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() == 2 && parts[0].contains("os.Args") {
-            if let Ok(addr) = u64::from_str_radix(parts[1].trim_start_matches("0x"), 16) {
-                address = Some(addr);
-                break;
+        if line.contains("os.Args") {
+            // The first token is the address in hex, like "0000000000236e68"
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if !parts.is_empty() {
+                let addr_hex = parts[0];
+                // Convert from hex string to u64
+                let addr = u64::from_str_radix(addr_hex, 16)?;
+                return Ok(addr);
             }
         }
     }
-
-    // If address is still None, we failed to parse
-    let addr = address.ok_or("No valid address returned by find_os_args.py")?;
-    Ok(addr)
+    Err("Could not find os.Args in objdump output".into())
 }
-
 
 pub fn initialize_symbolic_part_args(executor: &mut ConcolicExecutor, args_addr: u64) -> Result<(), Box<dyn Error>> {
     // Read os.Args slice header (Pointer, Len, Cap)
@@ -652,7 +637,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                             // broken-calculator-bis : 22def7 / crashme : 22b21a / broken-calculator: 22f06e
                             //if current_rip == 0x22f06e || current_rip == 0x22f068 || current_rip == 0x22b21a || current_rip == 0x22def7 {
                                 // 5.1) get address of os.Args
-                                let os_args_addr = get_os_args_address().unwrap();
+                                let os_args_addr = get_os_args_address(executor, binary_path).unwrap();
 
                                 // 5.2) read the slice's pointer and length from memory, then evaluate them in the model
                                 let slice_ptr_bv = executor

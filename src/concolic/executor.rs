@@ -1808,17 +1808,16 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let truncated_symbolic = match source_symbolic {
             SymbolicVar::Int(bv) => {
                 // Perform logical shift right on the BV then extract the desired bits.
-                let shifted_bv = bv.bvlshr(&BV::from_u64(self.context, bit_offset as u64, bv.get_size()));
-                let final_bv = shifted_bv.extract(output_size_bits - 1, 0);
-                SymbolicVar::Int(final_bv)
+                let safe_bv = Self::subpiece_bv(self.context, bv, bit_offset, output_size_bits);
+                SymbolicVar::Int(safe_bv)
             }
             SymbolicVar::LargeInt(bv_vec) => {
-                // Instead of concatenating all chunks into one BV and then extracting,
-                // we use our helper functions to perform a logical shift right and masking
-                // while preserving the multi-chunk structure.
-                let shifted_bv_vec = Self::bvlshr_largeint(self.context, bv_vec, bit_offset);
-                let masked_bv_vec = Self::mask_largeint_bv(self.context, &shifted_bv_vec, output_size_bits);
-                SymbolicVar::LargeInt(masked_bv_vec)
+                let combined = Self::combine_largeint(self.context, bv_vec);
+                let safe_bv = Self::subpiece_bv(self.context, &combined, bit_offset, output_size_bits);
+                // Now, if the output_size_bits is multiple of 64, you can split back:
+                let chunk_count = (output_size_bits + 63) / 64;
+                let splitted = Self::split_largeint(self.context, &safe_bv, chunk_count as usize);
+                SymbolicVar::LargeInt(splitted)
             }
             _ => return Err("Unsupported symbolic variable type in SUBPIECE".to_string()),
         };
@@ -1959,6 +1958,91 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             result[idx] &= mask;
         }
 
+        result
+    }
+
+    // Extract `out_bits` starting at `bit_offset` from `src_bv`,
+    // returning a BV of exactly `out_bits` bits. If offset or size
+    // is out of range, it gracefully zeros out everything that is
+    // beyond the source BV's length.
+    fn subpiece_bv(ctx: &'ctx Context, src_bv: &BV<'ctx>, bit_offset: u32, out_bits: u32) -> BV<'ctx> {
+        let src_size = src_bv.get_size();
+
+        // If you asked for 0 bits, just return a 0-bit or 1-bit of zero.
+        // (In practice, out_bits=0 may never happen, but let's be safe.)
+        if out_bits == 0 {
+            // We'll return a 1-bit zero for convenience, or could panic.
+            return BV::from_u64(ctx, 0, 1);
+        }
+
+        // If the offset is >= src_size, everything is shifted out.
+        // So the entire subpiece is just zero.
+        if bit_offset >= src_size {
+            return BV::from_u64(ctx, 0, out_bits);
+        }
+
+        // The maximum bits we can extract from `src_bv` after `bit_offset`
+        // is `src_size - bit_offset`.
+        let available_bits = src_size - bit_offset;
+
+        // We only need `out_bits`, but if out_bits > available_bits,
+        // we'll zero-extend what's left.
+        let final_bits = std::cmp::min(out_bits, available_bits);
+
+        // 1) Shift right by `bit_offset`.
+        //    This puts the desired subpiece at the bottom of `shifted`.
+        let shifted = src_bv.bvlshr(&BV::from_u64(ctx, bit_offset as u64, src_size));
+
+        // 2) Extract the lower `final_bits` bits from `shifted`.
+        //    If final_bits == 0, we’d skip and just produce 0,
+        //    but we already guaranteed bit_offset < src_size => final_bits > 0
+        let extracted = shifted.extract(final_bits - 1, 0);
+
+        // 3) If final_bits < out_bits, we must zero-extend to get the full `out_bits`.
+        if final_bits < out_bits {
+            extracted.zero_ext((out_bits - final_bits) as u32)
+        } else {
+            extracted
+        }
+    }
+
+    /// Combine a Vec<BV<ctx>> into a single BV (lowest index = least significant 64 bits).
+    fn combine_largeint(ctx: &'ctx Context, bv_vec: &Vec<BV<'ctx>>) -> BV<'ctx> {
+        // Assume bv_vec[0] = low 64 bits, bv_vec[1] = next 64, etc.
+        let mut iter = bv_vec.iter().rev(); // Start from the highest chunk
+        if let Some(first) = iter.next() {
+            let mut combined = first.clone();
+            for chunk in iter {
+                // Shift combined left 64 bits, then OR in the next chunk
+                combined = combined.bvshl(&BV::from_u64(ctx, 64, combined.get_size()));
+                combined = combined.concat(chunk);
+            }
+            combined
+        } else {
+            // If empty, return a 1-bit zero
+            BV::from_u64(ctx, 0, 1)
+        }
+    }
+
+    fn split_largeint(ctx: &'ctx Context, bv: &BV<'ctx>, total_chunks: usize) -> Vec<BV<'ctx>> {
+        let total_bits = bv.get_size();
+        let chunk_bits = 64;
+        let mut result = Vec::with_capacity(total_chunks);
+        let mut offset = 0;
+        for _ in 0..total_chunks {
+            let high_bit = std::cmp::min(offset + chunk_bits, total_bits) - 1;
+            let extracted = bv.extract(high_bit, offset);
+            // Next chunk
+            offset += chunk_bits;
+            result.push(extracted);
+            if offset >= total_bits {
+                // Zero-extend or fill the rest with 0 if needed
+                while result.len() < total_chunks {
+                    result.push(BV::from_u64(ctx, 0, 64));
+                }
+                break;
+            }
+        }
         result
     }
 

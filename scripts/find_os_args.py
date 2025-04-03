@@ -20,13 +20,15 @@ def main():
     from ghidra.program.model.symbol import SymbolUtilities
 
     binary_path = sys.argv[1]
+    print(f"Binary: {binary_path}")
     if not os.path.isfile(binary_path):
         print(f"Error: file {binary_path} does not exist.")
         sys.exit(1)
 
     with open_program(binary_path, analyze=True) as flat_api:
         # Get the current program object
-        program = flat_api.getCurrentProgram()
+        program = flat_api.getCurrentProgram() 
+        print(f"Program: {program.getName()}")
         
         # Access the symbol table from the program
         symbol_table = program.getSymbolTable()
