@@ -693,8 +693,79 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }
 
+    // However, this function is used in mains.rs when doing checks related to CBRANCH instruction
+    pub fn from_varnode_var_to_branch_address(&mut self, varnode: &Varnode) -> Result<u64, String> {
+        match &varnode.var {
+            Var::Memory(addr) => {
+                Ok(*addr)
+            },
+            Var::Const(value) => {
+                // Parse as unsigned first.
+                let parsed_value_u64 = if value.starts_with("0x") {
+                    u64::from_str_radix(&value[2..], 16)
+                } else {
+                    value.parse::<u64>()
+                }.map_err(|e| format!("Failed to parse value '{}' as u64: {}", value, e))?;
+        
+                // For a Word (32-bit) constant, manually sign-extend.
+                let bit_size = varnode.size.to_bitvector_size(); // e.g. 32 for Word
+                let parsed_value: i64 = if bit_size < 64 {
+                    let sign_bit = 1u64 << (bit_size - 1);
+                    let mask = (1u64 << bit_size) - 1;
+                    let x = parsed_value_u64 & mask;
+                    if x & sign_bit != 0 {
+                        (x as i64) - ((1u64 << bit_size) as i64)
+                    } else {
+                        x as i64
+                    }
+                } else {
+                    parsed_value_u64 as i64
+                };
+        
+                Ok(parsed_value as u64)
+            },    
+            Var::Register(offset, size) => {
+                // Validate that the register size matches the expected size
+                let expected_bit_size = 64; // branch targets are 64-bit addresses
+                if size.to_bitvector_size() != expected_bit_size {
+                    return Err(format!(
+                        "Unsupported register bit size for INT_SLESS: {}, expected {}",
+                        size.to_bitvector_size(),
+                        expected_bit_size
+                    ));
+                }
+                
+                // Retrieve the register's concrete and symbolic values
+                let cpu_state_guard: MutexGuard<'_, CpuState<'ctx>> = self.state.cpu_state.lock().unwrap();
+                let register_value = cpu_state_guard.get_register_by_offset(*offset, expected_bit_size)
+                    .ok_or_else(|| format!("Failed to retrieve register by offset 0x{:x}", offset))?;
+                
+                let concrete_value = match register_value.concrete {
+                    ConcreteVar::Int(val) => val,
+                    _ => return Err(format!("Unsupported concrete type for register at offset 0x{:x}", offset)),
+                };
+                
+                Ok(concrete_value)
+            },
+            Var::Unique(id) => {
+                let unique_name = format!("Unique(0x{:x})", id);
+                let unique_var = self.unique_variables.get(&unique_name)
+                    .ok_or_else(|| format!("Failed to retrieve unique variable with id 0x{:x}", id))?;
+                
+                let concrete_value = match unique_var.concrete {
+                    ConcreteVar::Int(val) => val,
+                    _ => return Err(format!("Unsupported concrete type for unique variable with id 0x{:x}", id)),
+                };
+               
+                Ok(concrete_value)
+            }
+            _ => {
+                Err(format!("Branch instruction does not support this variable type: {:?}", varnode.var))
+            }
+        }
+    }
+
     // For BRANCHIND, CALLIND, BRANCH and CBRANCH instruction
-    // However, this function is not used in handle_cbranch, but in mains.rs when doing checks related to CBRANCH instruction
     pub fn extract_branch_target_address(&mut self, varnode: &Varnode, instruction: Inst) -> Result<u64, String> {
         match &varnode.var {
             Var::Memory(addr) => {
@@ -759,7 +830,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 log!(self.state.logger.clone(), "Branch target is a Register at offset: 0x{:x} with size: {:?}", offset, size);
                 
                 // Validate that the register size matches the expected size
-                let expected_bit_size = 64; // Assuming branch targets are 64-bit addresses; adjust if necessary
+                let expected_bit_size = 64; // Branch targets are 64-bit addresses
                 if size.to_bitvector_size() != expected_bit_size {
                     return Err(format!(
                         "Unsupported register bit size for INT_SLESS: {}, expected {}",

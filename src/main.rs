@@ -281,7 +281,7 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
         if line.starts_with("0x") {
             match u64::from_str_radix(&line[2..], 16) {
                 Ok(addr) => {
-                    log!(executor.state.logger, "Read panic address: 0x{:x}", addr);
+                    // log!(executor.state.logger, "Read panic address: 0x{:x}", addr);
                     addresses.push(addr);
                 },
                 Err(e) => {
@@ -520,6 +520,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
     let panic_address_ints: Vec<Int> = panic_addresses.iter()
         .map(|&addr| Int::from_u64(executor.context, addr))
         .collect();
+    
 
     log!(executor.state.logger, "Beginning execution from address: 0x{:x}", start_address);
 
@@ -584,23 +585,17 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 log!(executor.state.logger, " !!! Branch-type instruction detected: entrying symbolic checks...");
                 let branch_target_varnode = inst.inputs[0].clone();
                 let branch_target_address = executor
-                    .extract_branch_target_address(&branch_target_varnode, inst.clone())
+                    .from_varnode_var_to_branch_address(&branch_target_varnode)
                     .map_err(|e| e.to_string())
                     .unwrap();
 
                 if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
-                    log!(executor.state.logger,
-                        "Potential branching to a panic function at 0x{:x}",
-                        branch_target_address);
+                    log!(executor.state.logger,"Potential branching to a panic function at 0x{:x}", branch_target_address);
                     
                     // 1) Push the solver context.
                     executor.solver.push();
 
-                    // 2) Assert the global registers' state and memory into the solver.
-                    //assert_registers_state(executor);
-                    //assert_memory_state(executor);
-
-                    // 3) Process the branch condition.
+                    // 2) Process the branch condition.
                     let cond_varnode = &inst.inputs[1];
                     let cond_concolic = executor.varnode_to_concolic(cond_varnode)
                         .map_err(|e| e.to_string())
@@ -621,7 +616,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     let zero_bv = z3::ast::BV::from_u64(executor.context, 0, cond_bv.get_size());
                     let branch_condition = cond_bv._eq(&zero_bv).not();
 
-                    // 4) Assert the branch condition.
+                    // 3) Assert the branch condition.
                     executor.solver.assert(&branch_condition);
             
                     // 4) check feasibility
