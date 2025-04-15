@@ -314,11 +314,19 @@ fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExe
     // Read GHIDRA_INSTALL_DIR from environment (or use fallback).
     let ghidra_path = env::var("GHIDRA_INSTALL_DIR")
         .unwrap_or_else(|_| String::from("~/ghidra_11.0.3_PUBLIC/"));
+    print!("Using Ghidra path: {}", ghidra_path);
+
     let project_path = "results/ghidra-project";
-    let project_name = "ghidra-project"; // the project name you want to use
+    let project_name = "ghidra-project"; 
     // Use the new script that processes all functions.
     let post_script_path = "scripts/get_all_function_args.py";
     let trace_file = "results/function_signature.txt";
+
+    // Ensure the Ghidra project directory exists; create it if it doesn't.
+    if !Path::new(project_path).exists() {
+        println!("Project directory '{}' not found. Creating it...", project_path);
+        fs::create_dir_all(project_path)?;
+    }
 
     // Clean the Ghidra project directory.
     clean_ghidra_project_dir(project_path);
@@ -332,10 +340,8 @@ fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExe
     let zorya_dir = env::var("ZORYA_DIR")
         .expect("ZORYA_DIR environment variable is not set");
 
-    println!("Precomputing function signatures using Ghidra Headless...");
-
     // Build the full path to the Ghidra headless executable.
-    let ghidra_executable = format!("{}support/analyzeHeadless", ghidra_path);
+    let ghidra_executable = format!("{}/support/analyzeHeadless", ghidra_path);
     // Construct the arguments as a vector.
     let args = vec![
         project_path,           // Project path (e.g., "results/ghidra-project")
@@ -590,7 +596,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     .unwrap();
 
                 if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
-                    log!(executor.state.logger,"Potential branching to a panic function at 0x{:x}", branch_target_address);
+                    log!(executor.state.logger,
+                        "Potential branching to a panic function at 0x{:x}",
+                        branch_target_address);
                     
                     // 1) Push the solver context.
                     executor.solver.push();
@@ -602,17 +610,9 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                         .unwrap()
                         .to_concolic_var()
                         .unwrap();
-                    let cond_bv = cond_concolic.symbolic.to_bv(executor.context);
+                    let cond_bv = cond_concolic.symbolic.to_bv(executor.context); 
 
-                    if current_rip == 0x2287e0 {
-                        //log!(executor.state.logger, "Branch condition symbolic: {:?}", cond_bv);
-                        log!(executor.state.logger, "Branch condition symbolic simplified: {:?}\n", cond_bv.simplify());
-                    } else {
-                        log!(executor.state.logger, "Branch condition symbolic simplified: {:?}\n", cond_bv.simplify());
-                    }
-
-                    // Instead of checking for equality with 1 (which is too strict),
-                    // we typically want to assert that the condition is nonzero.
+                    // we want to assert that the condition is non zero.
                     let zero_bv = z3::ast::BV::from_u64(executor.context, 0, cond_bv.get_size());
                     let branch_condition = cond_bv._eq(&zero_bv).not();
 

@@ -22,10 +22,7 @@ help:
 	@echo "  clean     - Clean up build artifacts"
 	@echo ""
 	@echo "Usage:"
-	@echo "  zorya /path/to/bin [start_point]"
-	@echo ""
-	@echo "Example:"
-	@echo "  zorya /path/to/your/binary main"
+	@echo "  zorya /path/to/bin"
 	@echo ""
 	@echo "Before running 'zorya', ensure that the 'ZORYA_DIR' environment variable is set to the path of your Zorya project."
 	@echo "You can set it by running:"
@@ -46,6 +43,10 @@ setup:
 	fi
 	@echo "Initializing submodules..."
 	git submodule update --init --recursive
+
+	@echo "Building pcode-generator (sleigh_opt + x86-64.sla)..."
+	$(MAKE) -C $(PCODE_GENERATOR_DIR) all
+
 	@echo "Building Zorya..."
 	cargo build
 
