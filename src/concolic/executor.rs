@@ -600,7 +600,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     log!(self.state.logger.clone(), "Writing {:x} to the unique variable with ID: 0x{:x}", result_value.concrete.to_u64(), id);
                     let unique_name = format!("Unique(0x{:x})", id);
                     self.unique_variables.insert(unique_name, result_value.clone());
-                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete part : {:x}, concrete size {} bits, symbolic part : {:?} and symbolic size {} bits", id, result_value.concrete.to_u64(), bit_size, result_value.symbolic.simplify(), result_value.symbolic.get_size());
+                    log!(self.state.logger.clone(), "Updated unique variable: Unique(0x{:x}) with concrete part : {:x}, concrete size {} bits and symbolic size {} bits", id, result_value.concrete.to_u64(), bit_size, result_value.symbolic.get_size());
                     Ok(())
                 }, 
                 Var::Register(offset, _) => {
@@ -611,7 +611,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Ok(_) => {
                             // check
                             let register = cpu_state_guard.get_register_by_offset(*offset, bit_size).unwrap();
-                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with concrete value 0x{:x}, concrete size {} bits, symbolic part : {:?} and symbolic size {:?} bits", offset, register.concrete.to_u64(), bit_size, register.symbolic.simplify(), register.symbolic.get_size());
+                            log!(self.state.logger.clone(), "Updated register at offset 0x{:x} with concrete value 0x{:x}, concrete size {} bits and symbolic size {:?} bits", offset, register.concrete.to_u64(), bit_size, register.symbolic.get_size());
                             Ok(())
                         },
                         Err(e) => {
@@ -1209,7 +1209,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
 
         let mem_value_size = mem_value.concrete.get_size();
-        log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}, symbolic : {:?} with size {:?}", mem_value.concrete, mem_value.symbolic.simplify(), mem_value_size);
+        log!(self.state.logger.clone(), "Dereferenced value: 0x{:x}, with size {:?}", mem_value.concrete, mem_value_size);
 
         // --- Handle jump table access versus regular LOAD ---
         let dereferenced_concolic = if self.inside_jump_table {
@@ -1453,7 +1453,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let data_to_store_concolic = self.varnode_to_concolic(data_to_store_var).map_err(|e| e.to_string())?;
         let data_to_store_concrete = data_to_store_concolic.get_concrete_value();
         let data_to_store_symbolic = data_to_store_concolic.get_symbolic_value_bv(self.context);
-        log!(self.state.logger.clone(), "Data to store: 0x{:x} and symbolic part : {:?}", data_to_store_concrete, data_to_store_symbolic.simplify());
+        log!(self.state.logger.clone(), "Data to store: 0x{:x}", data_to_store_concrete);
     
         // Determine the size of the data to store
         let data_size_bits = data_to_store_var.size.to_bitvector_size() as u32;
@@ -1538,13 +1538,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let source_concolic = self.varnode_to_concolic(&instruction.inputs[0])?
             .to_concolic_var()
             .unwrap();
-    
-        log!(
-            self.state.logger.clone(),
-            "Source ConcolicVar: {:?} and symbolic {:?}",
-            source_concolic.concrete,
-            source_concolic.symbolic.to_bv(self.context).simplify()
-        );
     
         let new_symbolic = match &source_concolic.symbolic {
             SymbolicVar::LargeInt(bv_vec) => {
@@ -1655,14 +1648,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 },
                 ctx: self.context,
             }
-        };
-    
-        log!(
-            self.state.logger.clone(),
-            "Copied ConcolicVar: {:?} and symbolic {:?}",
-            new_concolic_var.concrete,
-            new_concolic_var.symbolic.to_bv(self.context).simplify()
-        );
+        }; 
     
         // Write to the target
         match &output_varnode.var {

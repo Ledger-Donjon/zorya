@@ -59,7 +59,6 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     );
 
     log!(executor.state.logger.clone(), "*** INT_CARRY concrete result: {}", carry_concrete);
-    log!(executor.state.logger.clone(), "*** INT_CARRY symbolic expression (simplified): {:?}", result_value.symbolic);
 
     executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
@@ -117,7 +116,6 @@ pub fn handle_int_scarry(executor: &mut ConcolicExecutor, instruction: Inst) -> 
     );
 
     log!(executor.state.logger.clone(), "*** INT_SCARRY concrete result: {}", overflow_concrete);
-    log!(executor.state.logger.clone(), "*** INT_SCARRY symbolic expression (simplified): {:?}", result_value.symbolic);
 
     executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
@@ -239,12 +237,10 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Fetch symbolic values
     let input0_symbolic = input0_var.symbolic.to_bv(executor.context).simplify();
     let input1_symbolic = input1_var.symbolic.to_bv(executor.context).simplify();
-    log!(executor.state.logger.clone(), "input0_symbolic: {:?}, input1_symbolic: {:?}", input0_symbolic, input1_symbolic);
 
     // Perform the XOR operation
     let result_concrete = input0_var.concrete.to_u64() ^ input1_var.concrete.to_u64();
     let result_symbolic = input0_symbolic.bvxor(&input1_symbolic);
-    log!(executor.state.logger.clone(), "result_symbolic: {:?}", result_symbolic.simplify());
 
     // Create the result ConcolicVar
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
@@ -278,7 +274,6 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     log!(executor.state.logger.clone(), "* Fetching instruction.input[1] for INT_EQUAL");
     let input1_var = executor.varnode_to_concolic(&instruction.inputs[1]).map_err(|e| e.to_string())?;
     log!(executor.state.logger.clone(), "input0_var: {:?}, input1_var: {:?}", input0_var.get_concrete_value(), input1_var.get_concrete_value());
-    log!(executor.state.logger.clone(), "input0_var symbolic : {:?}, input1_var symbolic: {:?}", input0_var.get_symbolic_value_bv(executor.context).simplify(), input1_var.get_symbolic_value_bv(executor.context).simplify());
 
     let output_size_bits = instruction.output.as_ref().unwrap().size.to_bitvector_size() as u32;
     log!(executor.state.logger.clone(), "Output size in bits: {}", output_size_bits);
@@ -373,7 +368,6 @@ pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     );
 
     log!(executor.state.logger.clone(), "*** INT_LESS concrete result: {}", result_concrete);
-    log!(executor.state.logger.clone(), "*** INT_LESS symbolic expression: {}", result_symbolic_bv);
 
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(result_concrete as u64, result_symbolic_bv.clone(), executor.context, output_size_bits);  
 
@@ -537,7 +531,6 @@ pub fn handle_int_zext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Correct extraction logic explicitly
     let symbolic_input_bv = input_var.get_symbolic_value_bv(executor.context);
     let extracted_symbolic = symbolic_input_bv.extract((input_size - 1) as u32, 0).simplify();
-    log!(executor.state.logger.clone(), "Extracted symbolic value explicitly: {:?}", extracted_symbolic);
 
     let result_symbolic = extracted_symbolic
         .zero_ext((output_size - input_size) as u32)
@@ -558,7 +551,6 @@ pub fn handle_int_zext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     );
 
     log!(executor.state.logger.clone(), "*** INT_ZEXT concrete result: 0x{:x}", zero_extended_value);
-    log!(executor.state.logger.clone(), "*** INT_ZEXT symbolic expression (simplified): {:?}", result_symbolic);
 
     executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
@@ -753,7 +745,7 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         || input1_var.is_bool() 
         || input0_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits 
         || input1_var.to_concolic_var().unwrap().symbolic.get_size() != output_size_bits {
-        log!(executor.state.logger.clone(), "Adapting Boolean and Integer types for INT_OR");
+        log!(executor.state.logger.clone(), "Adapting Boolean and Integer types for INT_AND");
         executor.adapt_types(input0_var.clone(), input1_var.clone(), output_size_bits)?
     } else {
         (input0_var, input1_var)
