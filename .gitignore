@@ -1,12 +1,6 @@
 /target
 /src/state/working_files
 /.vscode
-/external/qemu-mount/dumps
-/external/qemu-cloudimg/jammy-server-cloudimg-amd64.img
-/external/qemu-mount/cpu_mapping.txt
-/external/qemu-mount/dump_commands.txt
-/external/qemu-mount/memory_mapping.txt
-/external/qemu-mount/dumps/
 /qemu_log.txt
 /scripts/__pycache__
 /results/ghidra-project/
@@ -14,3 +8,5 @@
 /results/execution_trace.txt
 /results/jump_tables.json
 /results/xref_addresses.txt
+/results/function_signature.json
+/results/initialization_data/*

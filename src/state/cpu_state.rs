@@ -319,7 +319,7 @@ impl<'ctx> CpuState<'ctx> {
             info.zorya_path.clone()
         };
 
-        let cpu_output_path = zorya_dir.join("external").join("qemu-mount").join("cpu_mapping.txt");
+        let cpu_output_path = zorya_dir.join("results").join("initialization_data").join("cpu_mapping.txt");
         
         // Attempt to read the file and print the file path if it fails
         let cpu_output = fs::read_to_string(&cpu_output_path);

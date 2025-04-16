@@ -160,7 +160,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
             info.zorya_path.clone()
         };
 
-        let dumps_dir_path = zorya_dir.join("external").join("qemu-mount").join("dumps");
+        let dumps_dir_path = zorya_dir.join("results").join("initialization_data").join("dumps");
 
         let entries = fs::read_dir(dumps_dir_path)?;
         for entry in entries {

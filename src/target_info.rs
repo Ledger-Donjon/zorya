@@ -30,11 +30,7 @@ lazy_static::lazy_static! {
         let bin_path = PathBuf::from(env::var("BIN_PATH").expect("BIN_PATH environment variable is not set"));
         
         // Extract binary name from BIN_PATH and construct the pcode file path
-        let binary_name = bin_path.file_name()
-            .expect("Failed to extract binary name from BIN_PATH")
-            .to_str()
-            .expect("Binary name contains invalid UTF-8 characters");
-        
+        let binary_name = bin_path.file_name().expect("Failed to extract binary name from BIN_PATH").to_str().expect("Binary name contains invalid UTF-8 characters");
         let pcode_file_name = format!("{}_low_pcode.txt", binary_name);
         let pcode_file_path = zorya_path.join("external/pcode-generator/results").join(pcode_file_name);
 
@@ -46,7 +42,3 @@ lazy_static::lazy_static! {
         )
     });
 }
-
-// From pcode-generator/tests :
-// additiongo - addr of main.main func : 0x4585c0
-// calculus - addr of main.main func : 0x48fca0

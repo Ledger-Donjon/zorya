@@ -16,7 +16,7 @@ class ExecuteCommands(gdb.Command):
             return
 
         # Ensure the dumps directory exists
-        dumps_dir = 'dumps'
+        dumps_dir = '../../results/initialization_data/dumps'
         if not os.path.exists(dumps_dir):
             os.makedirs(dumps_dir)
 

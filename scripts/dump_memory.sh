@@ -2,8 +2,12 @@
 
 # Get the absolute path of the Zorya project directory
 ZORYA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-QEMU_MOUNT_DIR="$ZORYA_DIR/external/qemu-mount"
-DUMPS_DIR="$QEMU_MOUNT_DIR/dumps"
+SCRIPTS_DUMP="$ZORYA_DIR/scripts/scripts_dump_registers_memory"
+RESULTS_DIR="$ZORYA_DIR/results"
+DUMPS_DIR="$RESULTS_DIR/initialization_data/dumps"
+MEMORY_MAP_PATH="$RESULTS_DIR/initialization_data/memory_mapping.txt"
+CPU_MAP_PATH="$RESULTS_DIR/initialization_data/cpu_mapping.txt"
+DUMP_COMMANDS_PATH="$RESULTS_DIR/initialization_data/dump_commands.txt"
 
 BIN_PATH="$1"
 START_POINT="$2" 
@@ -19,12 +23,6 @@ fi
 BIN_PATH="$(realpath "$BIN_PATH")"
 BIN_NAME="$(basename "$BIN_PATH")"
 
-# Prepare directories
-echo "Setting up working directories..."
-mkdir -p "$QEMU_MOUNT_DIR"
-> "$QEMU_MOUNT_DIR/cpu_mapping.txt"
-> "$QEMU_MOUNT_DIR/memory_mapping.txt"
-
 # Clean up and prepare the dumps directory
 if [ -d "$DUMPS_DIR" ]; then
     echo "Cleaning up existing contents in the dumps directory..."
@@ -34,46 +32,43 @@ else
     mkdir -p "$DUMPS_DIR"
 fi
 
-echo "Copying binary to working directory..."
-cp "$BIN_PATH" "$QEMU_MOUNT_DIR/$BIN_NAME"
-
 # Locate helper scripts
-PARSE_SCRIPT="$QEMU_MOUNT_DIR/parse_and_generate.py"
-EXECUTE_SCRIPT="$QEMU_MOUNT_DIR/execute_commands.py"
+PARSE_SCRIPT="$SCRIPTS_DUMP/parse_and_generate.py"
+EXECUTE_SCRIPT="$SCRIPTS_DUMP/execute_commands.py"
 
 # Check if helper scripts exist
 if [ ! -f "$PARSE_SCRIPT" ] || [ ! -f "$EXECUTE_SCRIPT" ]; then
-    echo "Error: Helper scripts not found in $QEMU_MOUNT_DIR"
+    echo "Error: Helper scripts not found in $SCRIPTS_DUMP"
     exit 1
 fi
 
 echo "Running GDB locally to generate CPU and memory mappings..."
-cd "$QEMU_MOUNT_DIR"
+cd "$SCRIPTS_DUMP"
 
 # Redirect GDB output to log files
-GDB_LOG="$QEMU_MOUNT_DIR/gdb_log.txt"
+GDB_LOG="$RESULTS_DIR/initialization_data/gdb_log.txt"
 
 gdb -batch \
     -ex "set auto-load safe-path /" \
     -ex "set pagination off" \
     -ex "set confirm off" \
-    -ex "file $BIN_NAME" \
+    -ex "file $BIN_PATH" \
     -ex "set args ${ARGS}" \
     -ex "show args" \
     -ex "break *$START_POINT" \
     -ex "run" \
-    -ex "set logging file cpu_mapping.txt" \
+    -ex "set logging file $CPU_MAP_PATH" \
     -ex "set logging enabled on" \
     -ex "info all-registers" \
     -ex "set logging enabled off" \
-    -ex "set logging file memory_mapping.txt" \
+    -ex "set logging file $MEMORY_MAP_PATH" \
     -ex "set logging enabled on" \
     -ex "info proc mappings" \
     -ex "set logging enabled off" \
     -ex "quit" &> "$GDB_LOG"
 
 # Check if CPU and memory mappings were successfully created
-if [ ! -s "cpu_mapping.txt" ] || [ ! -s "memory_mapping.txt" ]; then
+if [ ! -s $CPU_MAP_PATH ] || [ ! -s $MEMORY_MAP_PATH ]; then
     echo "Error: Failed to generate cpu_mapping.txt or memory_mapping.txt. Check $GDB_LOG for details."
     exit 1
 fi
@@ -86,12 +81,12 @@ gdb -batch \
     -ex "set auto-load safe-path /" \
     -ex "set pagination off" \
     -ex "set confirm off" \
-    -ex "file $BIN_NAME" \
+    -ex "file $BIN_PATH" \
     -ex "set args ${ARGS}" \
     -ex "break *$START_POINT" \
     -ex "run" \
     -ex "source execute_commands.py" \
-    -ex "exec dump_commands.txt" \
+    -ex "exec $DUMP_COMMANDS_PATH" \
     -ex "quit" &>> "$GDB_LOG"
 
 # Check if execution was successful
@@ -101,7 +96,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Dump commands executed successfully in GDB. Logs available in $GDB_LOG."
-echo "All tasks completed. Output available in $QEMU_MOUNT_DIR."
+echo "All tasks completed. Output available in $RESULTS_DIR/initialization_data."
 
 
 # SCRIPT IF YOU WANT TO USE QEMU WITGH ANOTHER CPU MODEL 

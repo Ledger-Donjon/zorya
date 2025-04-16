@@ -36,8 +36,8 @@ def write_commands_to_file(commands, output_file):
         print(f"Error writing to file: {str(e)}")
 
 # Usage
-input_filename = 'memory_mapping.txt'
-output_filename = 'dump_commands.txt'
+input_filename = '../../results/initialization_data/memory_mapping.txt'
+output_filename = '../../results/initialization_data/dump_commands.txt'
 commands = parse_memory_mappings(input_filename)
 write_commands_to_file(commands, output_filename)
 if commands:
