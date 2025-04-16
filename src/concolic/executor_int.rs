@@ -3,7 +3,7 @@
 
 use crate::concolic::executor::ConcolicExecutor;
 use parser::parser::{Inst, Opcode};
-use z3::ast::{Ast, Bool, Float, BV};
+use z3::ast::{Ast, Float, BV};
 use std::io::Write;
 
 use super::ConcolicVar;

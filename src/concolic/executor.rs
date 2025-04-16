@@ -1,10 +1,8 @@
-use core::str;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
-use std::process::Command;
 use std::sync::MutexGuard;
 use std::process;
 
@@ -14,11 +12,8 @@ use crate::state::state_manager::FunctionFrame;
 use crate::state::state_manager::Logger;
 use crate::state::CpuState;
 use crate::state::State;
-use goblin::elf;
-use goblin::elf::sym::STT_FUNC;
 use goblin::elf::Elf;
 use parser::parser::{Inst, Opcode, Var, Varnode};
-use serde::Deserialize;
 use z3::ast::Ast;
 use z3::ast::Bool;
 use z3::ast::BV;
@@ -110,7 +105,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // Process each address in .plt section
             for addr in (plt_start..plt_end).step_by(16) {
                 // Check if this address is already resolved
-                if let Some(symbol_name) = self.symbol_table.get(&format!("{:x}", addr)) {
+                if let Some(_symbol_name) = self.symbol_table.get(&format!("{:x}", addr)) {
                     continue; // Skip if already resolved
                 }
     
@@ -170,7 +165,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         None // Could not resolve
     }    
     
-    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64, next_addr_in_map: u64, next_inst: &Inst, instructions_map: &BTreeMap<u64, Vec<Inst>>) -> Result<(), String> {
+    pub fn execute_instruction(&mut self, instruction: Inst, current_addr: u64, next_addr_in_map: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>) -> Result<(), String> {
         // Convert current_addr to hexadecimal string to match with symbol table keys
         let current_addr_hex = format!("{:x}", current_addr);
         
@@ -265,7 +260,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Opcode::CrossBuild => panic!("Opcode CrossBuild is not implemented yet"),
             Opcode::DelaySlot => panic!("Opcode DelaySlot is not implemented yet"),
             Opcode::Label => panic!("Opcode Label is not implemented yet"),
-            Opcode::Load => self.handle_load(instruction, next_inst, instructions_map),
+            Opcode::Load => self.handle_load(instruction, instructions_map),
             Opcode::LZCount => panic!("Opcode LZCount is not implemented yet"), //self.handle_lzcount(instruction),
             Opcode::New => panic!("Opcode New is not implemented yet"), // allocates memory for an object and returns a pointer to that memory
             Opcode::Piece => panic!("Opcode Piece is not implemented yet"), // concatenation operation that combines two inputs
@@ -1200,7 +1195,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }    
  
-    pub fn handle_load(&mut self, instruction: Inst, next_inst: &Inst, instructions_map: &BTreeMap<u64, Vec<Inst>>) -> Result<(), String> {
+    pub fn handle_load(&mut self, instruction: Inst, instructions_map: &BTreeMap<u64, Vec<Inst>>) -> Result<(), String> {
         if instruction.opcode != Opcode::Load || instruction.inputs.len() != 2 {
             return Err("Invalid instruction format for LOAD".to_string());
         }
@@ -1939,58 +1934,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
         result
     }
-
-    // Logical shift right on Vec<BV<'ctx>>
-    fn bvlshr_largeint(ctx: &'ctx Context, bv_vec: &Vec<BV<'ctx>>, shift: u32) -> Vec<BV<'ctx>> {
-        let total_bits = (bv_vec.len() * 64) as u32;
-        if shift >= total_bits {
-            return vec![BV::from_u64(ctx, 0, 64); bv_vec.len()];
-        }
-
-        let mut result = vec![BV::from_u64(ctx, 0, 64); bv_vec.len()];
-        let full_shifts = (shift / 64) as usize;
-        let bit_shift = shift % 64;
-
-        for i in 0..(bv_vec.len() - full_shifts) {
-            let src_index = i + full_shifts;
-            let lower = bv_vec[src_index].bvlshr(&BV::from_u64(ctx, bit_shift as u64, 64));
-            let upper = if bit_shift > 0 && src_index + 1 < bv_vec.len() {
-                bv_vec[src_index + 1].bvshl(&BV::from_u64(ctx, (64 - bit_shift) as u64, 64))
-            } else {
-                BV::from_u64(ctx, 0, 64)
-            };
-            result[i] = lower.bvor(&upper);
-        }
-        result
-    }
-
-    // Mask the lower 'num_bits' bits of Vec<BV<'ctx>>
-    fn mask_largeint_bv(ctx: &'ctx Context, bv_vec: &Vec<BV<'ctx>>, num_bits: u32) -> Vec<BV<'ctx>> {
-        let total_bits = (bv_vec.len() * 64) as u32;
-        if num_bits >= total_bits {
-            return bv_vec.clone();
-        }
-
-        let mut result = bv_vec.clone();
-        let bits_to_clear = total_bits - num_bits;
-        let bits_in_partial_word = bits_to_clear % 64;
-
-        // Zero out the higher words
-        for i in ((num_bits / 64) as usize + 1)..bv_vec.len() {
-            result[i] = BV::from_u64(ctx, 0, 64);
-        }
-
-        // Mask the partial word
-        if bits_in_partial_word > 0 && ((num_bits / 64) as usize) < bv_vec.len() {
-            let idx = (num_bits / 64) as usize;
-            let mask = (1u64 << (64 - bits_in_partial_word)) - 1;
-            let mask_bv = BV::from_u64(ctx, mask, 64);
-            result[idx] = result[idx].bvand(&mask_bv);
-        }
-
-        result
-    }
-
 
     // Mask the lower 'num_bits' bits of Vec<u64>
     fn mask_largeint(values: &Vec<u64>, num_bits: u32) -> Vec<u64> {

@@ -1,6 +1,6 @@
 use std::{error::Error, fmt::{self, LowerHex}};
 use num_bigint::BigUint;
-use num_traits::{Zero, ToPrimitive};
+use num_traits::Zero;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConcreteVar {

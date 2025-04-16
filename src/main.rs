@@ -1,17 +1,16 @@
 use core::panic;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{self, Command};
+use std::process::Command;
 use std::sync::Arc;
-use libc::EXDEV;
 use parser::parser::{Inst, Opcode};
 use serde::Deserialize;
-use z3::ast::{Ast, Bool, Int, BV};
-use z3::{Config, Context, SatResult, Solver};
+use z3::ast::{Ast, Int, BV};
+use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
 use zorya::state::memory_x86_64::MemoryValue;
@@ -36,7 +35,6 @@ const IGNORED_TINYGO_FUNCS: &[&str] = &[
 fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::new();
     let context = Context::new(&config);
-    let solver = Solver::new(&context);
     let logger = Logger::new("results/execution_log.txt").expect("Failed to create logger"); // get the instruction handling detailed log
     let trace_logger = Logger::new("results/execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
     let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
@@ -80,10 +78,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let arguments = env::var("ARGS").expect("MODE environment variable is not set");
     
     // Turn each byte of each user input into a symbolic variable
-    let os_args_addr = get_os_args_address(&mut executor, &binary_path)?;
+    let os_args_addr = get_os_args_address(&binary_path)?;
     log!(executor.state.logger, "os.Args slice address: 0x{:x}", os_args_addr);
     initialize_symbolic_part_args(&mut executor, os_args_addr)?;
     
+    // TODO: adapt the execution mode according to the user's command line arguments
     if mode == "function" { 
         log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
         let start_address_hex = format!("{:x}", start_address);
@@ -91,7 +90,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         if let Some(function) = executor.symbol_table.get(&start_address_hex) {
             log!(executor.state.logger, "Located function: {:?}", function);
-    
         } else {
             log!(executor.state.logger, "Function not found in symbol table.");
         }
@@ -104,14 +102,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         log!(executor.state.logger, "Continuing execution without modification.");
     }
 
+    // *****************************
     // CORE COMMAND
-    execute_instructions_from(&mut executor, start_address, &instructions_map, &solver, &binary_path);
+    execute_instructions_from(&mut executor, start_address, &instructions_map, &binary_path);
+    // *****************************
 
     Ok(())
 }
 
 // Function to get the address of the os.Args slice in the target binary
-pub fn get_os_args_address(executor: &mut ConcolicExecutor, binary_path: &str) -> Result<u64, Box<dyn Error>> {
+pub fn get_os_args_address(binary_path: &str) -> Result<u64, Box<dyn Error>> {
     let output = Command::new("objdump")
         .arg("-t")
         .arg(binary_path)
@@ -141,6 +141,7 @@ pub fn get_os_args_address(executor: &mut ConcolicExecutor, binary_path: &str) -
     Err("Could not find os.Args in objdump output".into())
 }
 
+// Function to initialize the symbolic part of os.Args
 pub fn initialize_symbolic_part_args(executor: &mut ConcolicExecutor, args_addr: u64) -> Result<(), Box<dyn Error>> {
     // Read os.Args slice header (Pointer, Len, Cap)
     let mem = &executor.state.memory;
@@ -183,7 +184,7 @@ pub fn initialize_symbolic_part_args(executor: &mut ConcolicExecutor, args_addr:
     Ok(())
 }
 
-/// Function to execute the Python script to get the cross references of potential panics in the programs (for bug detetcion)
+// Function to execute the Python script to get the cross references of potential panics in the programs (for bug detetcion)
 fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
     let zorya_dir = {
         let info = GLOBAL_TARGET_INFO.lock().unwrap();
@@ -293,6 +294,7 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
     Ok(addresses)
 }
 
+// Function to clean the Ghidra project directory
 fn clean_ghidra_project_dir(project_path: &str) {
     if Path::new(project_path).exists() {
         println!("Cleaning Ghidra project directory: {}", project_path);
@@ -376,7 +378,7 @@ fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExe
     Ok(())
 }
 
-/// Load the function arguments map from the precomputed file.
+// Load the function arguments map from the precomputed file.
 fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64)>)> {
     let json_file = "results/function_signature.json";
     let mut function_args_map: HashMap<u64, (String, Vec<(String, u64)>)> = HashMap::new();
@@ -508,7 +510,7 @@ fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<
 }
 
 // Function to execute the instructions from the map of addresses to instructions
-fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, solver: &Solver, binary_path: &str) {
+fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, binary_path: &str) {
     let mut current_rip = start_address;
     let mut local_line_number: i64 = 0;  // Index of the current instruction within the block
     let end_address: u64 = 0x0; //no specific end address
@@ -577,15 +579,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let inst = &instructions[local_line_number as usize];
             log!(executor.state.logger, "-------> Processing instruction at index: {}, {:?}", local_line_number, inst);
 
-            // next_inst is used for updating the symbolic part during LOAD operation, to know if the next instruction is a BRANCHIND or CALLIND
-            let next_inst = if local_line_number < (instructions.len() - 1).try_into().unwrap() {
-                let next_inst = &instructions[(local_line_number + 1) as usize];
-                next_inst.clone()
-            } else {
-                let next_inst = inst.clone();
-                next_inst
-            };
-
             // If this is a branch-type instruction, do symbolic checks.
             if inst.opcode == Opcode::CBranch || inst.opcode == Opcode::BranchInd || inst.opcode == Opcode::CallInd {
                 log!(executor.state.logger, " !!! Branch-type instruction detected: entrying symbolic checks...");
@@ -632,7 +625,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                             // broken-calculator-bis : 22def7 / crashme : 22b21a / broken-calculator: 22f06e
                             //if current_rip == 0x22f06e || current_rip == 0x22f068 || current_rip == 0x22b21a || current_rip == 0x22def7 {
                                 // 5.1) get address of os.Args
-                                let os_args_addr = get_os_args_address(executor, binary_path).unwrap();
+                                let os_args_addr = get_os_args_address(binary_path).unwrap();
 
                                 // 5.2) read the slice's pointer and length from memory, then evaluate them in the model
                                 let slice_ptr_bv = executor
@@ -795,7 +788,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
             // MAIN PART OF THE CODE
             // Execute the instruction and handle errors
-            match executor.execute_instruction(inst.clone(), current_rip, *next_addr_in_map, &next_inst, instructions_map) {
+            match executor.execute_instruction(inst.clone(), current_rip, *next_addr_in_map, instructions_map) {
                 Ok(_) => {
                     // Check if the process has terminated
                     if executor.state.is_terminated {

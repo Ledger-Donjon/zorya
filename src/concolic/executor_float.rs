@@ -1,7 +1,7 @@
 /// Focuses on implementing the execution of the FLOAT related opcodes from Ghidra's Pcode specification
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
-use crate::{concolic::{ConcolicEnum, ConcolicVar, SymbolicVar}, executor::ConcolicExecutor, state::memory_x86_64::MemoryValue};
+use crate::{concolic::{ConcolicEnum, ConcolicVar, SymbolicVar}, executor::ConcolicExecutor};
 use parser::parser::{Inst, Opcode};
 use z3::ast::{Ast, Bool, BV};
 use std::io::Write;

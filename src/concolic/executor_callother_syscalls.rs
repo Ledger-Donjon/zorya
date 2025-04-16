@@ -2,7 +2,7 @@
 /// This implementation relies on Ghidra 11.0.1 with the specfiles in /specfiles
 
 use crate::{concolic::ConcreteVar, executor::ConcolicExecutor, state::memory_x86_64::{MemoryValue, Sigaction}};
-use nix::libc::{gettid, SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
+use nix::libc::gettid;
 use z3::ast::BV;
 use std::{io::Write, process, time::Duration};
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -872,7 +872,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let uaddr2 = cpu_state_guard.get_register_by_offset(0x18, 64).unwrap().get_concrete_value()?;
             let val3 = cpu_state_guard.get_register_by_offset(0x10, 32).unwrap().get_concrete_value()?;
         
-            let timeout = if timeout_ptr != 0 {
+            let _timeout = if timeout_ptr != 0 {
                 // TODO : Read the timeout value from the memory location
                 Some(Duration::from_secs(5)) // for now, use a 5-second timeout 
             } else {
@@ -886,7 +886,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_WAIT");
                     // This should block the thread if *uaddr == val, until *uaddr changes or optionally timeout expires
                     let futex_uaddr = uaddr as u64;
-                    let futex_val = val as i32;
+                    let _futex_val = val as i32;
                     // ignore this operation for now
                     // executor.state.futex_manager.futex_wait(futex_uaddr, futex_val, timeout)?;
         

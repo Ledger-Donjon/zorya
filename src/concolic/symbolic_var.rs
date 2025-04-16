@@ -243,7 +243,7 @@ impl<'ctx> SymbolicVar<'ctx> {
                 let first_bv = bv_iter.next().expect("LargeInt should not be empty").clone();
     
                 // Concatenate all BV parts
-                let mut result_bv = bv_iter.fold(first_bv, |acc, bv| acc.concat(&bv.clone()));
+                let result_bv = bv_iter.fold(first_bv, |acc, bv| acc.concat(&bv.clone()));
     
                 // Extract or extend based on the required size
                 if result_bv.get_size() > size {

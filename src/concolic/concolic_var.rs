@@ -13,7 +13,7 @@ pub struct ConcolicVar<'ctx> {
 }
 
 impl<'ctx> ConcolicVar<'ctx> {
-    // Function to create a new ConcolicVar with a symbolic integer
+    // Function to create a new ConcolicVar with a symbolic BV
     pub fn new_concrete_and_symbolic_int(concrete: u64, symbolic: BV<'ctx>, ctx: &'ctx Context, size: u32) -> Self {
         let var = ConcolicVar {
             concrete: ConcreteVar::Int(concrete),
@@ -23,6 +23,7 @@ impl<'ctx> ConcolicVar<'ctx> {
         var
     }
 
+    // Function to create a new ConcolicVar for a Large Int with a symbolic BV
     pub fn new_concrete_and_symbolic_large_int(concrete: Vec<u64>, symbolic: Vec<BV<'ctx>>, ctx: &'ctx Context) -> Self {
         let var = ConcolicVar {
             concrete: ConcreteVar::LargeInt(concrete),

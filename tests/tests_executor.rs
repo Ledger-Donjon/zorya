@@ -413,28 +413,9 @@ mod tests {
             ],
         };
 
-        // Since the next_inst parameter is required, and is used to detect switch tables, we can pass a default instruction
-        let next_inst = Inst {
-            opcode: Opcode::IntAdd,
-            output: Some(Varnode {
-                var: Var::Unique(0x3001), // Destination unique variable
-                size: Size::Byte,
-            }),
-            inputs: vec![
-                Varnode {
-                    var: Var::Const(1.to_string()), 
-                    size: Size::Byte,
-                },
-                Varnode {
-                    var: Var::Const(1.to_string()), 
-                    size: Size::Quad,
-                },
-            ],
-        };
-
         // Handle the LOAD instruction
         let instruction_map = BTreeMap::new();
-        let result = executor.handle_load(load_instruction, &next_inst, &instruction_map);
+        let result = executor.handle_load(load_instruction, &instruction_map);
 
         // Since the variable should have been cleaned up, we expect an error
         assert!(
