@@ -2,8 +2,14 @@
   <img src="doc/zorya_logo.jpg" alt="Logo" width="300"/>
 </div>
 
-# Zorya
-Zorya implements a concolic execution methodology to find vulnerabilities in application binaries. It uses Ghidra's Pcode to handle most of languages, including Go lang.
+
+Zorya is a concolic execution framework designed to detect logic-related bugs, language-specific vulnerabilities, and identify new patterns of security issues mainly in Go binaries. The analysis begins by generating CPU register and memory dumps using ```gdb```. Zorya loads these dumps to initialize execution from a specified starting address, ensuring a realistic and accurate representation of the program state.
+
+The core methodology involves translating binary code into Ghidra's P-Code, a low-level intermediate representation, which is subsequently parsed for precise execution path analysis. Other programs like C programs can also be translated to P-Code.
+
+Zorya's engine, implemented in Rust, uses the Z3 SMT solver and includes a state manager, CPU state, memory model, and virtual file system. It emulates P-Code instructions to track the execution and detect vulnerabilities in the analyzed binaries.
+
+Zorya supports both concrete and symbolic data types, x86-64 instructions and syscalls, and manages the program counter. Currently, Zorya analyzes single-threaded Go programs compiled with TinyGo, with plans to address multithreading and goroutines in future work.
 
 ## :inbox_tray: Install
 Make sure to have Rust, Golang and Python properly installed.
@@ -99,6 +105,9 @@ Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya
 
 ### Invariants writing
 - Has integrated Z3 capabilities for writing invariants over the instructions and CPU registers, through the Rust crate.
+
+## :spiral_calendar: Roadmap 
+Incoming
 
 ## :movie_camera: Demo video
 Incoming
