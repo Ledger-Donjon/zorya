@@ -9,6 +9,12 @@ MEMORY_MAP_PATH="$RESULTS_DIR/initialization_data/memory_mapping.txt"
 CPU_MAP_PATH="$RESULTS_DIR/initialization_data/cpu_mapping.txt"
 DUMP_COMMANDS_PATH="$RESULTS_DIR/initialization_data/dump_commands.txt"
 
+# Ensure the files exist and are empty
+mkdir -p "$(dirname "$CPU_MAP_PATH")"
+mkdir -p "$(dirname "$MEMORY_MAP_PATH")"
+: > "$CPU_MAP_PATH"
+: > "$MEMORY_MAP_PATH"
+
 BIN_PATH="$1"
 START_POINT="$2" 
 ENTRY_POINT="$3"

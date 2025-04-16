@@ -11,7 +11,7 @@ if [ "$ZORYA_DIR" == "__ZORYA_DIR__" ]; then
 fi
 
 PCODE_GENERATOR_DIR="$ZORYA_DIR/external/pcode-generator"
-QEMU_MOUNT_DIR="$ZORYA_DIR/external/qemu-mount"
+INIT_DATA_DIR="$ZORYA_DIR/results/initialization_data"
 TARGET_INFO_RS="$ZORYA_DIR/src/target_info.rs"
 
 # Verify directories exist
@@ -20,8 +20,8 @@ if [ ! -d "$PCODE_GENERATOR_DIR" ]; then
   exit 1
 fi
 
-if [ ! -d "$QEMU_MOUNT_DIR" ]; then
-  echo "Error: QEMU mount directory not found at $QEMU_MOUNT_DIR."
+if [ ! -d "$INIT_DATA_DIR" ]; then
+  echo "Error: QEMU mount directory not found at $INIT_DATA_DIR."
   exit 1
 fi
 

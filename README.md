@@ -11,8 +11,7 @@ Make sure to have Rust, Golang and Python properly installed.
 ```
 git clone --recursive https://github.com/kajaaz/zorya.git
 cd zorya
-make setup
-make install
+make all
 ```
 
 

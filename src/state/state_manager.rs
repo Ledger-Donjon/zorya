@@ -74,7 +74,7 @@ impl<'a> State<'a> {
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory.load_all_dumps().map_err(|e| format!("Failed to load memory dumps: {}", e))?;
         memory.initialize_cpuid_memory_variables().map_err(|e| format!("Failed to initialize cpuid memory variables: {}", e))?;     
-        memory.ensure_gdb_mappings_covered("external/qemu-mount/memory_mapping.txt").map_err(|e| format!("Failed to ensure gdb mappings are covered: {}", e))?;    
+        memory.ensure_gdb_mappings_covered("results/initialization_data/memory_mapping.txt").map_err(|e| format!("Failed to ensure gdb mappings are covered: {}", e))?;    
 	
         log!(logger.clone(), "Initializing the State...\n");
         let mut state = State {
@@ -238,7 +238,7 @@ impl<'a> State<'a> {
 
     // Method to initialize the P-Code for the libc.so and ld-linux-x86-64.so binaries
     pub fn initialize_libc_and_ld_linux(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let memory_mapping_path = "external/qemu-mount/memory_mapping.txt";
+        let memory_mapping_path = "results/initialization_data/memory_mapping.txt";
 
         // Grab the zorya & pcode path from your global
         let (zorya_path, pcode_file_path) = {

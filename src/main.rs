@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let context = Context::new(&config);
     let logger = Logger::new("results/execution_log.txt").expect("Failed to create logger"); // get the instruction handling detailed log
     let trace_logger = Logger::new("results/execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
-    let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone()).expect("Failed to initialize the ConcolicExecutor.");
+    let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone()).map_err(|e| e.to_string())?;
     
     log!(executor.state.logger, "Configuration and context have been initialized.");
 
