@@ -78,6 +78,12 @@ zorya /absolute/path/to/zorya/tests/programs/crashme/crashme
 ### Invariants writing
 - Has integrated Z3 capabilities for writing invariants over the instructions and CPU registers, through the Rust crate.
 
+## :movie_camera: Demo video
+Incoming
+
+## :memo: Academic work
+Incoming
+
 ## Troubleshooting
 When building the project, if you have issues related to C++, it might be necessary to also specify the path to ```libclang.so```:
 ```
