@@ -51,7 +51,29 @@ You can run Zorya on precompiled binaries with TinyGo located in ```tests/progra
 All the execution results can be found in ```results```, except the P-Code file which is in ```external/pcode-generator/results```.
 
 ```
-zorya /absolute/path/to/zorya/tests/programs/crashme/crashme
+$ zorya /absolute/path/to/zorya/tests/programs/crashme/crashme
+
+
+███████╗ ██████╗ ██████╗ ██╗   ██╗ █████╗ 
+╚══███╔╝██╔═══██╗██╔══██╗╚██╗ ██╔╝██╔══██╗
+  ███╔╝ ██║   ██║██████╔╝ ╚████╔╝ ███████║
+ ███╔╝  ██║   ██║██╔══██╗  ╚██╔╝  ██╔══██║
+███████╗╚██████╔╝██║  ██║   ██║   ██║  ██║
+╚══════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝
+    Next Generation Concolic Analysis
+
+Where to begin the analysis? (start / main / function / custom)
+[main]: 
+
+Automatically detected main function address: 0x000000000022b1d0
+***********************************************************************
+
+Does the binary expect any arguments? (none / e.g., x y z)
+[none]: a
+
+***********************************************************************
+Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya/tests/programs/crashme/crashme --mode main 0x000000000022b1d0 --arg a
+...
 ```
 
 
