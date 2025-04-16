@@ -5,7 +5,7 @@
 # Zorya
 Zorya implements a concolic execution methodology to find vulnerabilities in application binaries. It uses Ghidra's Pcode to handle most of languages, including Go lang.
 
-## Install
+## :inbox_tray: Install
 Make sure to have Rust, Golang and Python properly installed.
 
 ```
@@ -15,7 +15,7 @@ make all
 ```
 
 
-## Usage
+## :wrench: Usage
 
 ### A. Interactive Usage (prefered)
 Zorya provides a guided mode, so you don't need to remember the options or flags. It prompts you with questions to outline three typical scenarios:
@@ -46,7 +46,16 @@ OPTION:
     --arg          Specifies arguments to pass to the binary, if any (default is 'none').
 ```
 
-## Deep dive inside
+## :mag_right: Try it out with our test binaries
+You can run Zorya on precompiled binaries with TinyGo located in ```tests/programs```.
+All the execution results can be found in ```results```, except the P-Code file which is in ```external/pcode-generator/results```.
+
+```
+zorya /absolute/path/to/zorya/tests/programs/crashme/crashme
+```
+
+
+## :books: Deep dive inside
 
 ### Architecture
 - Implement a concolic execution engine (concrete and symbolic) written in Rust,
