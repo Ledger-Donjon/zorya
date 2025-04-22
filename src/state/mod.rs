@@ -2,6 +2,7 @@ pub mod state_manager;
 pub mod memory_x86_64;
 pub mod cpu_state;
 pub mod virtual_file_system;
+pub mod explore_ast;
 mod futex_manager;
 
 pub use state_manager::State;

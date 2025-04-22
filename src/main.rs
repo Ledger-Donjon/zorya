@@ -13,6 +13,7 @@ use z3::ast::{Ast, Int, BV};
 use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
+use zorya::state::explore_ast::explore_ast_for_panic;
 use zorya::state::memory_x86_64::MemoryValue;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
@@ -588,10 +589,15 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     .map_err(|e| e.to_string())
                     .unwrap();
 
+                // CALL TO THE AST EXPLORATION FOR A PANIC FUNCTION
+                explore_ast_for_panic(executor, &panic_address_ints, branch_target_address, binary_path);
+
                 if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
-                    log!(executor.state.logger,
-                        "Potential branching to a panic function at 0x{:x}",
-                        branch_target_address);
+                    log!(executor.state.logger, "Potential branching to a panic function at 0x{:x}", branch_target_address);
+
+                    let cf_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 64).unwrap();
+                    let cf_bv = cf_reg.symbolic.to_bv(executor.context).simplify();
+                    log!(executor.state.logger, "CF BV simplified: {:?}", cf_bv);
                     
                     // 1) Push the solver context.
                     executor.solver.push();
