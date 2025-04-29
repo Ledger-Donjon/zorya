@@ -78,31 +78,70 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mode = env::var("MODE").expect("MODE environment variable is not set");
     let arguments = env::var("ARGS").expect("MODE environment variable is not set");
     
-    // Turn each byte of each user input into a symbolic variable
-    let os_args_addr = get_os_args_address(&binary_path)?;
-    log!(executor.state.logger, "os.Args slice address: 0x{:x}", os_args_addr);
-    initialize_symbolic_part_args(&mut executor, os_args_addr)?;
-    
-    // TODO: adapt the execution mode according to the user's command line arguments
-    if mode == "function" { 
+    if mode == "function" {
         log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
-        let start_address_hex = format!("{:x}", start_address);
-        log!(executor.state.logger, "Start address is {:?}", start_address_hex);
-
-        if let Some(function) = executor.symbol_table.get(&start_address_hex) {
-            log!(executor.state.logger, "Located function: {:?}", function);
-        } else {
-            log!(executor.state.logger, "Function not found in symbol table.");
-        }
+        log!(executor.state.logger, "Start address is {:?}", format!("{:x}", start_address));
     
-    } else if mode == "start" {
+        let function_args_map = load_function_args_map();
+        if let Some((_, args)) = function_args_map.get(&start_address) {
+            log!(executor.state.logger, "Found {} arguments for function at 0x{:x}", args.len(), start_address);
+    
+            let mut cpu = executor.state.cpu_state.lock().unwrap();
+            let mut concrete_values_of_args = Vec::new();
+    
+            for (arg_name, reg_offset) in args {
+                let meta = cpu.register_map.get(reg_offset).cloned();
+                if let Some((reg_name, bit_width)) = meta {
+                    log!(executor.state.logger, "Assigning symbolic variable '{}' for register '{}' (offset 0x{:x}, {} bits)", arg_name, reg_name, reg_offset, bit_width);
+    
+                    if let Some(original) = cpu.get_register_by_offset(*reg_offset, bit_width) {
+                        let original_concrete = original.concrete.clone();
+                        concrete_values_of_args.push(original_concrete.clone());
+    
+                        let fresh_bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
+                        let symbolic = SymbolicVar::Int(fresh_bv);
+                        let concolic_value = ConcolicVar { concrete: original_concrete, symbolic, ctx: executor.context };
+    
+                        match cpu.set_register_value_by_offset(*reg_offset, concolic_value, bit_width) {
+                            Ok(_) => log!(executor.state.logger, "Successfully made '{}' symbolic at offset 0x{:x}", reg_name, reg_offset),
+                            Err(e) => log!(executor.state.logger, "Failed to set register '{}': {}", reg_name, e),
+                        };
+                    } else {
+                        log!(executor.state.logger, "WARNING: No concrete value found at offset 0x{:x} for '{}'", reg_offset, arg_name);
+                    }
+                } else {
+                    log!(executor.state.logger, "WARNING: Unknown register metadata for offset 0x{:x} (arg '{}')", reg_offset, arg_name);
+                }
+            }
+    
+            let register_map_snapshot = cpu.register_map.clone();
+            for (offset, (reg_name, bit_width)) in register_map_snapshot.iter() {
+                if let Some(existing) = cpu.get_register_by_offset(*offset, *bit_width) {
+                    if concrete_values_of_args.contains(&existing.concrete) {
+                        let fresh_bv = BV::fresh_const(&executor.context, &format!("match_{}_reg", reg_name), *bit_width);
+                        let symbolic = SymbolicVar::Int(fresh_bv);
+                        let concolic_value = ConcolicVar { concrete: existing.concrete.clone(), symbolic, ctx: executor.context };
+
+                        match cpu.set_register_value_by_offset(*offset, concolic_value, *bit_width) {
+                            Ok(_) => log!(executor.state.logger, "Also made '{}' symbolic at offset 0x{:x} due to value match", reg_name, offset),
+                            Err(e) => log!(executor.state.logger, "Failed to set matching register '{}': {}", reg_name, e),
+                        };
+                    }
+                }
+            }
+        } else {
+            log!(executor.state.logger, "No known function signature found for 0x{:x}. Skipping argument initialization.", start_address);
+        }
+    } else if mode == "start" || mode == "main" {
+        let os_args_addr = get_os_args_address(&binary_path)?;
+        log!(executor.state.logger, "os.Args slice address: 0x{:x}", os_args_addr);
+        initialize_symbolic_part_args(&mut executor, os_args_addr)?;
         log!(executor.state.logger, "Updating argc and argv on the stack");
         update_argc_argv(&mut executor, &arguments)?;
-        
-    } else { // when mode is main, start or custom, no additional modification has to be done
-        log!(executor.state.logger, "Continuing execution without modification.");
-    }
-
+    } else {
+        log!(executor.state.logger, "[WARNING] Custom mode used : Be aware that the arguments of the binary are not 'fresh symbolic' in that mode, the concolic exploration might not work correctly.");
+    }    
+    
     // *****************************
     // CORE COMMAND
     execute_instructions_from(&mut executor, start_address, &instructions_map, &binary_path);
@@ -745,7 +784,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 
                                 // store these results or exit:
                                 //process::exit(0);
-                                
+
                             z3::SatResult::Unsat => {
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                                 log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");
@@ -1004,7 +1043,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let register0x30 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x30 - RSI is {:x}", register0x30.concrete);
             let register0x38 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0x38 - RDI is {:x}", register0x38.concrete);
+            log!(executor.state.logger,  "The value of register at offset 0x38 - RDI is {:x} and symbolic {:?}", register0x38.concrete, register0x38.symbolic.simplify());
             let register0x80 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x80, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0x80 - R8 is {:x}", register0x80.concrete);
             let register0x88 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x88, 64).unwrap();
@@ -1016,7 +1055,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             let register0xa0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa0, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0xa0 - R12 is {:x}", register0xa0.concrete);
             let register0xb0 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
-            log!(executor.state.logger,  "The value of register at offset 0xb0 - R14 is {:x}", register0xb0.concrete);
+            log!(executor.state.logger,  "The value of register at offset 0xb0 - R14 is {:x} and symbolic {:?}", register0xb0.concrete, register0xb0.symbolic.simplify());
             let register0xb8 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb8, 64).unwrap();
             log!(executor.state.logger,  "The value of register at offset 0xb8 - R15 is {:x}", register0xb8.concrete);
             let register0x1200 = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x1200, 256).unwrap();
