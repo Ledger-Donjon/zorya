@@ -12,7 +12,6 @@ from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 
 def main():
-    # This version requires one argument: the ZORYA directory.
     script_args = getScriptArgs()
     if len(script_args) < 1:
         print("Usage: <script> <zorya_dir>")
@@ -26,10 +25,8 @@ def main():
     results_dir = os.path.join(zorya_dir, "results")
     json_file = os.path.join(results_dir, "function_signature.json")
 
-    # Ensure the results directory exists.
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
-    # (Re)create the output file.
     open(json_file, "w").close()
 
     print("Function signature JSON will be saved at: {}".format(json_file))
@@ -40,30 +37,51 @@ def main():
         print("No program loaded!")
         exit(1)
 
-    listing = currentProgram.getListing()
     fm = currentProgram.getFunctionManager()
     functions = fm.getFunctions(True)
     count = 0
     for func in functions:
-        entry_point = func.getEntryPoint().toString()  # e.g., "00212710"
+        entry_point = "0x" + func.getEntryPoint().toString()
         function_name = func.getName()
         params = func.getParameters()
         arguments = []
+
         for param in params:
             name = param.getName()
+            datatype = param.getDataType().getName()
             storage = param.getVariableStorage()
+
             if storage.isRegisterStorage():
                 register_name = storage.getRegister().getName()
-                arguments.append({"name": name, "register": register_name})
+                arguments.append({
+                    "name": name,
+                    "type": datatype,
+                    "register": register_name
+                })
+
             elif storage.isStackStorage():
                 varnode = storage.getFirstVarnode()
                 if varnode:
                     offset = varnode.getAddress().getOffset()
-                    arguments.append({"name": name, "register": "Stack_0x{:x}".format(offset)})
+                    arguments.append({
+                        "name": name,
+                        "type": datatype,
+                        "location": f"Stack[{offset}]"
+                    })
                 else:
-                    arguments.append({"name": name, "register": "Stack_Unknown"})
+                    arguments.append({
+                        "name": name,
+                        "type": datatype,
+                        "location": "Stack[Unknown]"
+                    })
+
         if len(arguments) == 0:
-            arguments.append({"name": "NoArgs", "register": "None"})
+            arguments.append({
+                "name": "NoArgs",
+                "type": "void",
+                "location": "None"
+            })
+
         signatures.append({
             "address": entry_point,
             "function_name": function_name,
@@ -72,7 +90,8 @@ def main():
         count += 1
 
     with open(json_file, "w") as f:
-        json.dump(signatures, f, indent=2)
+        json.dump({"functions": signatures}, f, indent=2)
+
     print("Wrote {} function signatures to {}".format(count, json_file))
 
 main()

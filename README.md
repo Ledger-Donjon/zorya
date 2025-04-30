@@ -20,7 +20,6 @@ cd zorya
 make all
 ```
 
-
 ## :wrench: Usage
 
 ### A. Interactive Usage (prefered)
@@ -51,6 +50,13 @@ FLAG:
 OPTION:
     --arg          Specifies arguments to pass to the binary, if any (default is 'none').
 ```
+
+## How to build your binary?
+Zorya needs the binary to have the debug symbols to perform the complete analysis. Striped binaries could be also analyzed, but it required to disable many functionnalities of the tool.
+
+For Go:
+- ```tinygo build -gc=conservative -opt=0 .```
+- ```go build -gcflags=all="-N -l" .```
 
 ## :mag_right: Try it out with our test binaries
 You can run Zorya on precompiled binaries with TinyGo located in ```tests/programs```.

@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use parser::parser::{Inst, Opcode};
-use serde::Deserialize;
 use z3::ast::{Ast, Int, BV};
 use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
 use zorya::state::explore_ast::explore_ast_for_panic;
+use zorya::state::types::FunctionSigWrapper;
 use zorya::state::memory_x86_64::MemoryValue;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
@@ -50,6 +50,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     log!(executor.state.logger, "Binary path: {}", binary_path);
     let pcode_file_path_str = pcode_file_path.to_str().expect("The file path contains invalid Unicode characters.");
 
+    // Adapt scenaris according to the chosen mode in the command
+    let mode = env::var("MODE").expect("MODE environment variable is not set");
+    let arguments = env::var("ARGS").expect("MODE environment variable is not set");
+    let source_lang = std::env::var("SOURCE_LANG").expect("SOURCE_LANG environment variable is not set");
+    
     // Populate the symbol table
     let elf_data = fs::read(binary_path.clone())?;
     executor.populate_symbol_table(&elf_data)?;
@@ -63,75 +68,92 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the tables of cross references of potential panics in the programs (for bug detetcion)
     get_cross_references(&binary_path)?;
 
-    // Precompute all function signatures using Ghidra headless
-    log!(executor.state.logger, "Precomputing function signatures using Ghidra headless...");
-    precompute_function_signatures(&binary_path, &mut executor)?;
-
-    // Now load the JSON file with the function signatures
-    let function_args_map = load_function_args_map();
-    log!(executor.state.logger, "Loaded {} function signatures.", function_args_map.len());
-
     let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
 
-    // Adapt scenaris according to the chosen mode in the command
-    let mode = env::var("MODE").expect("MODE environment variable is not set");
-    let arguments = env::var("ARGS").expect("MODE environment variable is not set");
-    
     if mode == "function" {
         log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
         log!(executor.state.logger, "Start address is {:?}", format!("{:x}", start_address));
     
+        match source_lang.to_lowercase().as_str() {
+            "c" | "c++" => {
+                // Precompute all function signatures using Ghidra headless
+                log!(executor.state.logger, "Precomputing function signatures using Ghidra headless...");
+                precompute_function_signatures(&binary_path, &mut executor)?;
+            }
+            "go" => {                
+                log!(executor.state.logger, "Calling dwarf_get_all_function_args.py to extract Go function signatures...");
+
+                let python_script = format!("{}/scripts/dwarf_get_all_function_args.py", env::var("ZORYA_DIR").unwrap());
+                let compiler = std::env::var("COMPILER").expect("COMPILER environment variable is not set");
+
+                let output = std::process::Command::new("python3")
+                    .arg(python_script)
+                    .arg(&binary_path)
+                    .arg(&compiler)
+                    .output()
+                    .expect("Failed to run sigrecover.py");
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(format!("dwarf_get_all_function_args.py failed: {}", stderr).into());
+                }
+
+                log!(executor.state.logger, "Successfully extracted function signatures to results/function_signature.json.");              
+            }
+            _other => {
+                log!(executor.state.logger, "WARNING: Unrecognized source language.");
+                
+            }
+        }
+
+        // Now load the JSON file with the function signatures
         let function_args_map = load_function_args_map();
+        log!(executor.state.logger, "Loaded {} function signatures.", function_args_map.len());
+
         if let Some((_, args)) = function_args_map.get(&start_address) {
             log!(executor.state.logger, "Found {} arguments for function at 0x{:x}", args.len(), start_address);
-    
+
             let mut cpu = executor.state.cpu_state.lock().unwrap();
             let mut concrete_values_of_args = Vec::new();
-    
-            for (arg_name, reg_offset) in args {
+
+            for (arg_name, reg_offset, arg_type) in args {
                 let meta = cpu.register_map.get(reg_offset).cloned();
                 if let Some((reg_name, bit_width)) = meta {
-                    log!(executor.state.logger, "Assigning symbolic variable '{}' for register '{}' (offset 0x{:x}, {} bits)", arg_name, reg_name, reg_offset, bit_width);
-    
+                    log!(executor.state.logger, "Assigning symbolic variable '{}' for register '{}' (offset 0x{:x}, {} bits, type {})", arg_name, reg_name, reg_offset, bit_width, arg_type);
+            
                     if let Some(original) = cpu.get_register_by_offset(*reg_offset, bit_width) {
                         let original_concrete = original.concrete.clone();
                         concrete_values_of_args.push(original_concrete.clone());
-    
-                        let fresh_bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
-                        let symbolic = SymbolicVar::Int(fresh_bv);
+            
+                        let symbolic = match arg_type.to_lowercase().as_str() {
+                            "int" | "int32" | "int64" | "uint" | "uint32" | "uint64" => {
+                                let bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
+                                SymbolicVar::Int(bv)
+                            }
+                            _ => {
+                                let bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
+                                SymbolicVar::Int(bv)
+                            }
+                        };
+            
                         let concolic_value = ConcolicVar { concrete: original_concrete, symbolic, ctx: executor.context };
-    
+            
                         match cpu.set_register_value_by_offset(*reg_offset, concolic_value, bit_width) {
                             Ok(_) => log!(executor.state.logger, "Successfully made '{}' symbolic at offset 0x{:x}", reg_name, reg_offset),
                             Err(e) => log!(executor.state.logger, "Failed to set register '{}': {}", reg_name, e),
-                        };
+                        }
                     } else {
                         log!(executor.state.logger, "WARNING: No concrete value found at offset 0x{:x} for '{}'", reg_offset, arg_name);
                     }
                 } else {
                     log!(executor.state.logger, "WARNING: Unknown register metadata for offset 0x{:x} (arg '{}')", reg_offset, arg_name);
                 }
-            }
-    
-            let register_map_snapshot = cpu.register_map.clone();
-            for (offset, (reg_name, bit_width)) in register_map_snapshot.iter() {
-                if let Some(existing) = cpu.get_register_by_offset(*offset, *bit_width) {
-                    if concrete_values_of_args.contains(&existing.concrete) {
-                        let fresh_bv = BV::fresh_const(&executor.context, &format!("match_{}_reg", reg_name), *bit_width);
-                        let symbolic = SymbolicVar::Int(fresh_bv);
-                        let concolic_value = ConcolicVar { concrete: existing.concrete.clone(), symbolic, ctx: executor.context };
-
-                        match cpu.set_register_value_by_offset(*offset, concolic_value, *bit_width) {
-                            Ok(_) => log!(executor.state.logger, "Also made '{}' symbolic at offset 0x{:x} due to value match", reg_name, offset),
-                            Err(e) => log!(executor.state.logger, "Failed to set matching register '{}': {}", reg_name, e),
-                        };
-                    }
-                }
-            }
+            }            
         } else {
             log!(executor.state.logger, "No known function signature found for 0x{:x}. Skipping argument initialization.", start_address);
-        }
+        }            
+        
     } else if mode == "start" || mode == "main" {
         let os_args_addr = get_os_args_address(&binary_path)?;
         log!(executor.state.logger, "os.Args slice address: 0x{:x}", os_args_addr);
@@ -361,7 +383,7 @@ fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExe
     let project_path = "results/ghidra-project";
     let project_name = "ghidra-project"; 
     // Use the new script that processes all functions.
-    let post_script_path = "scripts/get_all_function_args.py";
+    let post_script_path = "scripts/ghidra_get_all_function_args.py";
     let trace_file = "results/function_signature.txt";
 
     // Ensure the Ghidra project directory exists; create it if it doesn't.
@@ -419,54 +441,85 @@ fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExe
 }
 
 // Load the function arguments map from the precomputed file.
-fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64)>)> {
+fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64, String)>)> {
     let json_file = "results/function_signature.json";
-    let mut function_args_map: HashMap<u64, (String, Vec<(String, u64)>)> = HashMap::new();
+    let mut function_args_map: HashMap<u64, (String, Vec<(String, u64, String)>)> = HashMap::new();
 
     if Path::new(json_file).exists() {
         let file = File::open(json_file).expect("Failed to open function signature JSON file");
         let reader = BufReader::new(file);
-        let signatures: Vec<FunctionSignature> = serde_json::from_reader(reader)
+        let wrapper: FunctionSigWrapper = serde_json::from_reader(reader)
             .expect("Failed to parse JSON file");
+        let signatures = wrapper.functions;
 
         for sig in signatures {
-            // Parse the address as hexadecimal.
             let address = u64::from_str_radix(sig.address.trim_start_matches("0x"), 16)
-                .unwrap_or(0);
-            let function_name = sig.function_name;
+                .unwrap_or_else(|_| {
+                    println!("Warning: Failed to parse address: {}", sig.address);
+                    0
+                });
+            let function_name = sig.name;
             let mut args = Vec::new();
+
             for arg in sig.arguments {
-                // Convert known register names to offsets.
-                let register_offset = match arg.register.as_str() {
-                    "RAX" => 0x0,
-                    "RCX" => 0x8,
-                    "RDX" => 0x10,
-                    "RBX" => 0x18,
-                    "RSI" => 0x30,
-                    "RDI" => 0x38,
-                    "R8"  => 0x80,
-                    "R9"  => 0x88,
-                    "R10" => 0x90,
-                    "R11" => 0x98,
-                    "R12" => 0xa0,
-                    "R13" => 0xa8,
-                    "R14" => 0xb0,
-                    "R15" => 0xb8,
-                    _ => continue, // Skip non-standard register names.
-                };
-                args.push((arg.name, register_offset));
+                if let Some(reg) = arg.register.as_deref() {
+                    let register_offset = match reg {
+                        "RAX" => 0x0,
+                        "RCX" => 0x8,
+                        "RDX" => 0x10,
+                        "RBX" => 0x18,
+                        "RSI" => 0x30,
+                        "RDI" => 0x38,
+                        "R8"  => 0x80,
+                        "R9"  => 0x88,
+                        "R10" => 0x90,
+                        "R11" => 0x98,
+                        "R12" => 0xa0,
+                        "R13" => 0xa8,
+                        "R14" => 0xb0,
+                        "R15" => 0xb8,
+                        _ => continue,
+                    };
+                    args.push((arg.name.clone(), register_offset, arg.arg_type.clone()));
+                } else if let Some(regs) = &arg.registers {
+                    // Handle multi-register values — just take the first one for now
+                    if let Some(first) = regs.first() {
+                        let register_offset = match first.as_str() {
+                            "RAX" => 0x0,
+                            "RCX" => 0x8,
+                            "RDX" => 0x10,
+                            "RBX" => 0x18,
+                            "RSI" => 0x30,
+                            "RDI" => 0x38,
+                            "R8"  => 0x80,
+                            "R9"  => 0x88,
+                            "R10" => 0x90,
+                            "R11" => 0x98,
+                            "R12" => 0xa0,
+                            "R13" => 0xa8,
+                            "R14" => 0xb0,
+                            "R15" => 0xb8,
+                            _ => continue,
+                        };
+                        args.push((arg.name.clone(), register_offset, arg.arg_type.clone()));
+                    }
+                } else if let Some(_loc) = &arg.location {
+                    // You can skip these or assign a synthetic offset if needed
+                    continue;
+                }
             }
-            // Only insert if we found valid arguments.
+            
             if !args.is_empty() {
                 function_args_map.insert(address, (function_name, args));
             }
         }
     } else {
         println!(
-            "Warning: {} not found. Please precompute the function signatures using Ghidra.",
+            "Warning: {} not found. Please precompute the function signatures using Ghidra or Delve.",
             json_file
         );
     }
+
     function_args_map
 }
 
@@ -598,7 +651,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
         if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {
             if let Some((_, args)) = function_args_map.get(&current_rip) {
                 let mut arg_values = Vec::new();
-                for (arg_name, register_offset) in args {
+                for (arg_name, register_offset, _arg_type) in args {
                     if let Some(value) = executor.state.cpu_state.lock().unwrap().get_register_by_offset(*register_offset, 64) {
                         arg_values.push(format!("{}=0x{:x} (reg=0x{:x})", arg_name, value.concrete, register_offset));
                     }
@@ -1239,18 +1292,5 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             }
         }
     }
-}
-
-#[derive(Deserialize)]
-struct FunctionSignature {
-    address: String,
-    function_name: String,
-    arguments: Vec<FunctionArgument>,
-}
-
-#[derive(Deserialize)]
-struct FunctionArgument {
-    name: String,
-    register: String,
 }
 

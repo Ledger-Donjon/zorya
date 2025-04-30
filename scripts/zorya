@@ -101,6 +101,23 @@ get_main_address() {
 
 print_banner
 
+# 0) Ask the user for the source code language
+echo ""
+echo "What is the source language of the binary? (go, c or c++)"
+read -p "[go]: " SOURCE_LANG
+SOURCE_LANG="${SOURCE_LANG:-Go}"  # Default to "Go" if empty
+echo ""
+export SOURCE_LANG="$SOURCE_LANG"
+
+if [[ "${SOURCE_LANG,,}" == "go" ]]; then
+  echo "Which Go compiler was used to build the binary? (tinygo / gc)"
+  read -p "[tinygo]: " COMPILER
+  COMPILER="${COMPILER:-tinygo}"  # Default to tinygo
+  export COMPILER="$COMPILER"
+fi
+
+section_divider
+
 ENTRY_POINT=$(get_entry_point "$BIN_PATH")
 
 # 1) Ask the user "Where to begin the analysis?" (start/main/function/custom)
