@@ -6,7 +6,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0xd7",
+          "type": "unresolved@0xd7",
           "register": "RCX"
         }
       ]
@@ -22,7 +22,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x72",
+          "type": "unresolved@0x72",
           "register": "RCX"
         }
       ]
@@ -33,12 +33,12 @@
       "arguments": [
         {
           "name": "envp",
-          "type": "type@0x434",
+          "type": "unresolved@0x434",
           "register": "RCX"
         },
         {
           "name": "pn",
-          "type": "type@0x439",
+          "type": "*void",
           "register": "RDX"
         }
       ]
@@ -54,32 +54,32 @@
       "arguments": [
         {
           "name": "main",
-          "type": "type@0x43e",
+          "type": "unresolved@0x43e",
           "register": "RCX"
         },
         {
           "name": "argc",
-          "type": "type@0x3e1",
+          "type": "unresolved@0x3e1",
           "register": "RDX"
         },
         {
           "name": "argv",
-          "type": "type@0x434",
+          "type": "unresolved@0x434",
           "register": "RSI"
         },
         {
           "name": "init_dummy",
-          "type": "type@0x458",
+          "type": "*unresolved@0x96",
           "register": "RDI"
         },
         {
           "name": "fini_dummy",
-          "type": "type@0x458",
+          "type": "*unresolved@0x96",
           "register": "R8"
         },
         {
           "name": "ldso_dummy",
-          "type": "type@0x458",
+          "type": "*unresolved@0x96",
           "register": "R9"
         }
       ]
@@ -90,17 +90,17 @@
       "arguments": [
         {
           "name": "main",
-          "type": "type@0x43e",
+          "type": "unresolved@0x43e",
           "register": "RCX"
         },
         {
           "name": "argc",
-          "type": "type@0x3e1",
+          "type": "unresolved@0x3e1",
           "register": "RDX"
         },
         {
           "name": "argv",
-          "type": "type@0x434",
+          "type": "unresolved@0x434",
           "register": "RSI"
         }
       ]
@@ -111,7 +111,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0xb6",
+          "type": "unresolved@0xb6",
           "register": "RCX"
         }
       ]
@@ -122,7 +122,7 @@
       "arguments": [
         {
           "name": "mem",
-          "type": "type@0x2d2",
+          "type": "unresolved@0x2d2",
           "register": "RCX"
         }
       ]
@@ -133,7 +133,7 @@
       "arguments": [
         {
           "name": "aux",
-          "type": "type@0x686",
+          "type": "unresolved@0x686",
           "register": "RCX"
         }
       ]
@@ -149,7 +149,7 @@
       "arguments": [
         {
           "name": "ec",
-          "type": "type@0xdc",
+          "type": "unresolved@0xdc",
           "register": "RCX"
         }
       ]
@@ -170,7 +170,7 @@
       "arguments": [
         {
           "name": "code",
-          "type": "type@0xd4",
+          "type": "unresolved@0xd4",
           "register": "RCX"
         }
       ]
@@ -186,32 +186,32 @@
       "arguments": [
         {
           "name": "start",
-          "type": "type@0x2a",
+          "type": "unresolved@0x2a",
           "register": "RCX"
         },
         {
           "name": "len",
-          "type": "type@0x203",
+          "type": "unresolved@0x203",
           "register": "RDX"
         },
         {
           "name": "prot",
-          "type": "type@0x1eb",
+          "type": "unresolved@0x1eb",
           "register": "RSI"
         },
         {
           "name": "flags",
-          "type": "type@0x1eb",
+          "type": "unresolved@0x1eb",
           "register": "RDI"
         },
         {
           "name": "fd",
-          "type": "type@0x1eb",
+          "type": "unresolved@0x1eb",
           "register": "R8"
         },
         {
           "name": "off",
-          "type": "type@0x20e",
+          "type": "unresolved@0x20e",
           "register": "R9"
         }
       ]
@@ -227,7 +227,7 @@
       "arguments": [
         {
           "name": "r",
-          "type": "type@0x81",
+          "type": "unresolved@0x81",
           "register": "RCX"
         }
       ]
@@ -238,7 +238,7 @@
       "arguments": [
         {
           "name": "set",
-          "type": "type@0x204",
+          "type": "unresolved@0x204",
           "register": "RCX"
         }
       ]
@@ -249,7 +249,7 @@
       "arguments": [
         {
           "name": "set",
-          "type": "type@0x204",
+          "type": "unresolved@0x204",
           "register": "RCX"
         }
       ]
@@ -260,7 +260,7 @@
       "arguments": [
         {
           "name": "set",
-          "type": "type@0x204",
+          "type": "unresolved@0x204",
           "register": "RCX"
         }
       ]
@@ -271,7 +271,7 @@
       "arguments": [
         {
           "name": "sig",
-          "type": "type@0x1eb",
+          "type": "unresolved@0x1eb",
           "register": "RCX"
         }
       ]
@@ -282,7 +282,7 @@
       "arguments": [
         {
           "name": "set",
-          "type": "type@0xa8",
+          "type": "unresolved@0xa8",
           "register": "RCX"
         }
       ]
@@ -293,17 +293,17 @@
       "arguments": [
         {
           "name": "sig",
-          "type": "type@0x46",
+          "type": "unresolved@0x46",
           "register": "RCX"
         },
         {
           "name": "sa",
-          "type": "type@0x4a5",
+          "type": "unresolved@0x4a5",
           "register": "RDX"
         },
         {
           "name": "old",
-          "type": "type@0x765",
+          "type": "unresolved@0x765",
           "register": "RSI"
         }
       ]
@@ -314,17 +314,17 @@
       "arguments": [
         {
           "name": "sig",
-          "type": "type@0x46",
+          "type": "unresolved@0x46",
           "register": "RCX"
         },
         {
           "name": "sa",
-          "type": "type@0x4a5",
+          "type": "unresolved@0x4a5",
           "register": "RDX"
         },
         {
           "name": "old",
-          "type": "type@0x765",
+          "type": "unresolved@0x765",
           "register": "RSI"
         }
       ]
@@ -345,17 +345,17 @@
       "arguments": [
         {
           "name": "dest",
-          "type": "type@0xde",
+          "type": "unresolved@0xde",
           "register": "RCX"
         },
         {
           "name": "src",
-          "type": "type@0xe3",
+          "type": "unresolved@0xe3",
           "register": "RDX"
         },
         {
           "name": "n",
-          "type": "type@0xee",
+          "type": "unresolved@0xee",
           "register": "RSI"
         }
       ]
@@ -366,17 +366,17 @@
       "arguments": [
         {
           "name": "dest",
-          "type": "type@0x101",
+          "type": "unresolved@0x101",
           "register": "RCX"
         },
         {
           "name": "c",
-          "type": "type@0x102",
+          "type": "unresolved@0x102",
           "register": "RDX"
         },
         {
           "name": "n",
-          "type": "type@0x109",
+          "type": "unresolved@0x109",
           "register": "RSI"
         }
       ]
@@ -387,7 +387,7 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x9d",
+          "type": "unresolved@0x9d",
           "register": "RCX"
         }
       ]
@@ -398,7 +398,7 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x66",
+          "type": "unresolved@0x66",
           "register": "RCX"
         }
       ]
@@ -409,7 +409,7 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x66",
+          "type": "unresolved@0x66",
           "register": "RCX"
         }
       ]
@@ -420,12 +420,12 @@
       "arguments": [
         {
           "name": "clk",
-          "type": "type@0xa9",
+          "type": "unresolved@0xa9",
           "register": "RCX"
         },
         {
           "name": "ts",
-          "type": "type@0xb4",
+          "type": "unresolved@0xb4",
           "register": "RDX"
         }
       ]
@@ -436,12 +436,12 @@
       "arguments": [
         {
           "name": "clk",
-          "type": "type@0xa9",
+          "type": "unresolved@0xa9",
           "register": "RCX"
         },
         {
           "name": "ts",
-          "type": "type@0xb4",
+          "type": "unresolved@0xb4",
           "register": "RDX"
         }
       ]
@@ -452,12 +452,12 @@
       "arguments": [
         {
           "name": "vername",
-          "type": "type@0x187",
+          "type": "unresolved@0x187",
           "register": "RCX"
         },
         {
           "name": "name",
-          "type": "type@0x187",
+          "type": "unresolved@0x187",
           "register": "RDX"
         }
       ]
@@ -468,12 +468,12 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x75",
+          "type": "unresolved@0x75",
           "register": "RCX"
         },
         {
           "name": "r",
-          "type": "type@0x75",
+          "type": "unresolved@0x75",
           "register": "RDX"
         }
       ]
@@ -484,7 +484,7 @@
       "arguments": [
         {
           "name": "useconds",
-          "type": "type@0xda",
+          "type": "unresolved@0xda",
           "register": "RCX"
         }
       ]
@@ -495,12 +495,12 @@
       "arguments": [
         {
           "name": "req",
-          "type": "type@0xc7",
+          "type": "unresolved@0xc7",
           "register": "RCX"
         },
         {
           "name": "rem",
-          "type": "type@0x104",
+          "type": "unresolved@0x104",
           "register": "RDX"
         }
       ]
@@ -511,22 +511,22 @@
       "arguments": [
         {
           "name": "clk",
-          "type": "type@0xde",
+          "type": "unresolved@0xde",
           "register": "RCX"
         },
         {
           "name": "flags",
-          "type": "type@0xd7",
+          "type": "unresolved@0xd7",
           "register": "RDX"
         },
         {
           "name": "req",
-          "type": "type@0xe9",
+          "type": "unresolved@0xe9",
           "register": "RSI"
         },
         {
           "name": "rem",
-          "type": "type@0x11f",
+          "type": "unresolved@0x11f",
           "register": "RDI"
         }
       ]
@@ -537,37 +537,37 @@
       "arguments": [
         {
           "name": "nr",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RCX"
         },
         {
           "name": "u",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RDX"
         },
         {
           "name": "v",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RSI"
         },
         {
           "name": "w",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RDI"
         },
         {
           "name": "x",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "R8"
         },
         {
           "name": "y",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "R9"
         },
         {
           "name": "z",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "location": "Stack[0]"
         }
       ]
@@ -578,37 +578,37 @@
       "arguments": [
         {
           "name": "nr",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RCX"
         },
         {
           "name": "u",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RDX"
         },
         {
           "name": "v",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RSI"
         },
         {
           "name": "w",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "RDI"
         },
         {
           "name": "x",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "R8"
         },
         {
           "name": "y",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "register": "R9"
         },
         {
           "name": "z",
-          "type": "type@0x21d",
+          "type": "unresolved@0x21d",
           "location": "Stack[0]"
         }
       ]
@@ -619,17 +619,17 @@
       "arguments": [
         {
           "name": "fd",
-          "type": "type@0x10b",
+          "type": "unresolved@0x10b",
           "register": "RCX"
         },
         {
           "name": "buf",
-          "type": "type@0x112",
+          "type": "unresolved@0x112",
           "register": "RDX"
         },
         {
           "name": "count",
-          "type": "type@0x118",
+          "type": "unresolved@0x118",
           "register": "RSI"
         }
       ]
@@ -640,17 +640,17 @@
       "arguments": [
         {
           "name": "dest",
-          "type": "type@0xbc",
+          "type": "unresolved@0xbc",
           "register": "RCX"
         },
         {
           "name": "src",
-          "type": "type@0xbd",
+          "type": "unresolved@0xbd",
           "register": "RDX"
         },
         {
           "name": "n",
-          "type": "type@0x4c",
+          "type": "unresolved@0x4c",
           "register": "RSI"
         }
       ]
@@ -775,7 +775,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x62",
+          "type": "unresolved@0x62",
           "register": "RCX"
         }
       ]
@@ -797,7 +797,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x4b6",
+          "type": "a2",
           "register": "RCX"
         }
       ]
@@ -833,7 +833,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x4b6",
+          "type": "a2",
           "register": "RCX"
         },
         {
@@ -849,7 +849,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x4b6",
+          "type": "a2",
           "register": "RCX"
         },
         {
@@ -865,7 +865,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x4b6",
+          "type": "a2",
           "register": "RCX"
         },
         {
@@ -881,7 +881,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x4b6",
+          "type": "a2",
           "register": "RCX"
         }
       ]
@@ -917,7 +917,7 @@
       "arguments": [
         {
           "name": "i",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RCX"
         }
       ]
@@ -928,7 +928,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -939,7 +939,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -950,7 +950,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -961,7 +961,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -972,7 +972,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -983,7 +983,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -994,7 +994,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1005,7 +1005,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x53",
+          "type": "unresolved@0x53",
           "register": "RCX"
         }
       ]
@@ -1016,7 +1016,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1027,7 +1027,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1038,7 +1038,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         },
         {
@@ -1054,7 +1054,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1065,7 +1065,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1076,7 +1076,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1087,7 +1087,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1098,7 +1098,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1109,7 +1109,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1120,7 +1120,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1131,7 +1131,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         },
         {
@@ -1161,7 +1161,7 @@
       "arguments": [
         {
           "name": "data",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         }
       ]
@@ -1172,17 +1172,17 @@
       "arguments": [
         {
           "name": "descriptor",
-          "type": "type@0x2612",
+          "type": "unresolved@0x2612",
           "register": "RCX"
         },
         {
           "name": "fieldType",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RDX"
         },
         {
           "name": "data",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RSI"
         },
         {
@@ -1211,7 +1211,7 @@
       "arguments": [
         {
           "name": "k",
-          "type": "type@0x26a4",
+          "type": "unresolved@0x26a4",
           "register": "RCX"
         }
       ]
@@ -1266,7 +1266,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1277,7 +1277,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1288,7 +1288,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1299,7 +1299,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1310,7 +1310,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         },
         {
@@ -1326,7 +1326,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1337,7 +1337,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1348,7 +1348,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1359,7 +1359,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1370,7 +1370,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         },
         {
@@ -1386,7 +1386,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1397,7 +1397,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1408,7 +1408,7 @@
       "arguments": [
         {
           "name": "typ",
-          "type": "type@0x83ab",
+          "type": "reflect.Type",
           "register": "RCX"
         }
       ]
@@ -1419,7 +1419,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1430,7 +1430,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1441,7 +1441,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x206",
+          "type": "unresolved@0x206",
           "register": "RCX"
         }
       ]
@@ -1457,7 +1457,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x26e4",
+          "type": "unresolved@0x26e4",
           "register": "RCX"
         }
       ]
@@ -1468,7 +1468,7 @@
       "arguments": [
         {
           "name": "i",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RCX"
         }
       ]
@@ -1479,7 +1479,7 @@
       "arguments": [
         {
           "name": "ptr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -1516,7 +1516,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26db",
+          "type": "r",
           "register": "RCX"
         }
       ]
@@ -1527,7 +1527,7 @@
       "arguments": [
         {
           "name": "arg0",
-          "type": "type@0x52e",
+          "type": "unresolved@0x52e",
           "register": "RCX"
         }
       ]
@@ -1543,7 +1543,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1554,7 +1554,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1565,7 +1565,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1576,7 +1576,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1587,7 +1587,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1598,7 +1598,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1609,7 +1609,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1620,7 +1620,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1631,7 +1631,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1642,7 +1642,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1653,7 +1653,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1664,7 +1664,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1675,7 +1675,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1686,7 +1686,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1697,7 +1697,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x26ad",
+          "type": "unresolved@0x26ad",
           "register": "RCX"
         }
       ]
@@ -1708,7 +1708,7 @@
       "arguments": [
         {
           "name": "it",
-          "type": "type@0x2710",
+          "type": "unresolved@0x2710",
           "register": "RCX"
         }
       ]
@@ -1719,7 +1719,7 @@
       "arguments": [
         {
           "name": "it",
-          "type": "type@0x2710",
+          "type": "unresolved@0x2710",
           "register": "RCX"
         }
       ]
@@ -1730,7 +1730,7 @@
       "arguments": [
         {
           "name": "it",
-          "type": "type@0x2710",
+          "type": "unresolved@0x2710",
           "register": "RCX"
         }
       ]
@@ -1741,7 +1741,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x32f",
+          "type": "*unresolved@0xb7",
           "register": "RCX"
         }
       ]
@@ -1766,7 +1766,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x350",
+          "type": "unresolved@0x350",
           "register": "RCX"
         }
       ]
@@ -1777,7 +1777,7 @@
       "arguments": [
         {
           "name": "gcd",
-          "type": "type@0x666",
+          "type": "unresolved@0x666",
           "register": "RCX"
         }
       ]
@@ -1788,7 +1788,7 @@
       "arguments": [
         {
           "name": "q",
-          "type": "type@0x66f",
+          "type": "tag:None",
           "register": "RCX"
         }
       ]
@@ -1799,7 +1799,7 @@
       "arguments": [
         {
           "name": "q",
-          "type": "type@0x66f",
+          "type": "tag:None",
           "register": "RCX"
         }
       ]
@@ -1810,12 +1810,12 @@
       "arguments": [
         {
           "name": "q",
-          "type": "type@0x66f",
+          "type": "tag:None",
           "register": "RCX"
         },
         {
           "name": "t",
-          "type": "type@0x8d",
+          "type": "unresolved@0x8d",
           "register": "RDX"
         }
       ]
@@ -1826,7 +1826,7 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x69b",
+          "type": "unresolved@0x69b",
           "register": "RCX"
         }
       ]
@@ -1837,12 +1837,12 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x69b",
+          "type": "unresolved@0x69b",
           "register": "RCX"
         },
         {
           "name": "t",
-          "type": "type@0x8d",
+          "type": "unresolved@0x8d",
           "register": "RDX"
         }
       ]
@@ -1853,7 +1853,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x8d",
+          "type": "unresolved@0x8d",
           "register": "RCX"
         }
       ]
@@ -1864,7 +1864,7 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x6bc",
+          "type": "unresolved@0x6bc",
           "register": "RCX"
         }
       ]
@@ -1875,12 +1875,12 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x6bc",
+          "type": "unresolved@0x6bc",
           "register": "RCX"
         },
         {
           "name": "r",
-          "type": "type@0x6c5",
+          "type": "fini_dummy",
           "register": "RDX"
         },
         {
@@ -1890,7 +1890,7 @@
         },
         {
           "name": "args",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDI"
         }
       ]
@@ -1901,7 +1901,7 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x6bc",
+          "type": "unresolved@0x6bc",
           "register": "RCX"
         },
         {
@@ -1911,7 +1911,7 @@
         },
         {
           "name": "args",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RSI"
         },
         {
@@ -1927,7 +1927,7 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x6bc",
+          "type": "unresolved@0x6bc",
           "register": "RCX"
         }
       ]
@@ -1958,7 +1958,7 @@
         },
         {
           "name": "args",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -1984,12 +1984,12 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x96dd",
+          "type": "**void",
           "register": "RCX"
         },
         {
           "name": "val",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         }
       ]
@@ -2005,7 +2005,7 @@
         },
         {
           "name": "layout",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         }
       ]
@@ -2027,7 +2027,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -2056,7 +2056,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2067,7 +2067,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2108,7 +2108,7 @@
       "arguments": [
         {
           "name": "n",
-          "type": "type@0x9bd",
+          "type": "unresolved@0x9bd",
           "register": "RCX"
         }
       ]
@@ -2124,12 +2124,12 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         },
         {
           "name": "newState",
-          "type": "type@0x3b34",
+          "type": "unresolved@0x3b34",
           "register": "RDX"
         }
       ]
@@ -2140,7 +2140,7 @@
       "arguments": [
         {
           "name": "ptr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -2192,7 +2192,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2219,12 +2219,12 @@
       "arguments": [
         {
           "name": "dst",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "src",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -2261,7 +2261,7 @@
       "arguments": [
         {
           "name": "found",
-          "type": "type@0x1f6",
+          "type": "unresolved@0x1f6",
           "register": "RCX"
         }
       ]
@@ -2303,7 +2303,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2314,7 +2314,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2347,7 +2347,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2358,7 +2358,7 @@
       "arguments": [
         {
           "name": "root",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2369,7 +2369,7 @@
       "arguments": [
         {
           "name": "block",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2380,7 +2380,7 @@
       "arguments": [
         {
           "name": "scanner",
-          "type": "type@0x391a",
+          "type": "unresolved@0x391a",
           "register": "RCX"
         }
       ]
@@ -2391,7 +2391,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x254",
+          "type": "unresolved@0x254",
           "register": "RCX"
         }
       ]
@@ -2402,7 +2402,7 @@
       "arguments": [
         {
           "name": "scanner",
-          "type": "type@0x391a",
+          "type": "unresolved@0x391a",
           "register": "RCX"
         },
         {
@@ -2469,7 +2469,7 @@
       "arguments": [
         {
           "name": "ptr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -2490,7 +2490,7 @@
       "arguments": [
         {
           "name": "c",
-          "type": "type@0x395c",
+          "type": "unresolved@0x395c",
           "register": "RCX"
         }
       ]
@@ -2501,7 +2501,7 @@
       "arguments": [
         {
           "name": "message",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RCX"
         }
       ]
@@ -2512,7 +2512,7 @@
       "arguments": [
         {
           "name": "msg",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RCX"
         }
       ]
@@ -2545,7 +2545,7 @@
       "arguments": [
         {
           "name": "n",
-          "type": "type@0x3a6a",
+          "type": "unresolved@0x3a6a",
           "register": "RCX"
         }
       ]
@@ -2556,7 +2556,7 @@
       "arguments": [
         {
           "name": "n",
-          "type": "type@0x85d",
+          "type": "unresolved@0x85d",
           "register": "RCX"
         }
       ]
@@ -2622,7 +2622,7 @@
       "arguments": [
         {
           "name": "c",
-          "type": "type@0x3a71",
+          "type": "unresolved@0x3a71",
           "register": "RCX"
         }
       ]
@@ -2633,7 +2633,7 @@
       "arguments": [
         {
           "name": "c",
-          "type": "type@0x3a78",
+          "type": "unresolved@0x3a78",
           "register": "RCX"
         }
       ]
@@ -2655,7 +2655,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0xc6",
+          "type": "unresolved@0xc6",
           "register": "RCX"
         }
       ]
@@ -2688,12 +2688,12 @@
       "arguments": [
         {
           "name": "dst",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "src",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -2724,12 +2724,12 @@
       "arguments": [
         {
           "name": "dst",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "src",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -2830,7 +2830,7 @@
       "arguments": [
         {
           "name": "alg",
-          "type": "type@0x3a7f",
+          "type": "unresolved@0x3a7f",
           "register": "RCX"
         }
       ]
@@ -2841,7 +2841,7 @@
       "arguments": [
         {
           "name": "alg",
-          "type": "type@0x3a7f",
+          "type": "unresolved@0x3a7f",
           "register": "RCX"
         }
       ]
@@ -2852,12 +2852,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "y",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -2873,12 +2873,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "y",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -2894,12 +2894,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "y",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -2915,12 +2915,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RCX"
         },
         {
           "name": "y",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RDX"
         }
       ]
@@ -2931,12 +2931,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RCX"
         },
         {
           "name": "y",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RDX"
         }
       ]
@@ -2947,7 +2947,7 @@
       "arguments": [
         {
           "name": "sptr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -2968,7 +2968,7 @@
       "arguments": [
         {
           "name": "iptr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -2989,7 +2989,7 @@
       "arguments": [
         {
           "name": "itf",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RCX"
         },
         {
@@ -3005,7 +3005,7 @@
       "arguments": [
         {
           "name": "ptr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -3021,7 +3021,7 @@
       "arguments": [
         {
           "name": "ptr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -3056,7 +3056,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         }
       ]
@@ -3067,12 +3067,12 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
           "name": "buckets",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -3088,7 +3088,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         }
       ]
@@ -3099,7 +3099,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
@@ -3115,12 +3115,12 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
           "name": "bucket",
-          "type": "type@0x3c37",
+          "type": "unresolved@0x3c37",
           "register": "RDX"
         },
         {
@@ -3136,12 +3136,12 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
           "name": "bucket",
-          "type": "type@0x3c37",
+          "type": "unresolved@0x3c37",
           "register": "RDX"
         },
         {
@@ -3157,17 +3157,17 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
           "name": "key",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
           "name": "value",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RSI"
         },
         {
@@ -3183,7 +3183,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         }
       ]
@@ -3194,17 +3194,17 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
           "name": "key",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
           "name": "value",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RSI"
         },
         {
@@ -3220,22 +3220,22 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
           "name": "it",
-          "type": "type@0x3c63",
+          "type": "unresolved@0x3c63",
           "register": "RDX"
         },
         {
           "name": "key",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RSI"
         },
         {
           "name": "value",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDI"
         }
       ]
@@ -3246,17 +3246,17 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
           "name": "key",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
           "name": "value",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RSI"
         },
         {
@@ -3282,7 +3282,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
@@ -3295,7 +3295,7 @@
         },
         {
           "name": "value",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDI"
         }
       ]
@@ -3306,7 +3306,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0xedd4",
+          "type": "*unresolved@0x1dd",
           "register": "RCX"
         },
         {
@@ -3319,7 +3319,7 @@
         },
         {
           "name": "value",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDI"
         },
         {
@@ -3335,12 +3335,12 @@
       "arguments": [
         {
           "name": "typecode",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "value",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         }
       ]
@@ -3351,7 +3351,7 @@
       "arguments": [
         {
           "name": "i",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RCX"
         }
       ]
@@ -3373,12 +3373,12 @@
       "arguments": [
         {
           "name": "frame",
-          "type": "type@0x3a88",
+          "type": "unresolved@0x3a88",
           "register": "RCX"
         },
         {
           "name": "jumpSP",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         }
       ]
@@ -3389,7 +3389,7 @@
       "arguments": [
         {
           "name": "frame",
-          "type": "type@0x3a88",
+          "type": "unresolved@0x3a88",
           "register": "RCX"
         }
       ]
@@ -3441,7 +3441,7 @@
       "arguments": [
         {
           "name": "ticks",
-          "type": "type@0x9b4",
+          "type": "unresolved@0x9b4",
           "register": "RCX"
         }
       ]
@@ -3457,7 +3457,7 @@
       "arguments": [
         {
           "name": "clock",
-          "type": "type@0x85d",
+          "type": "unresolved@0x85d",
           "register": "RCX"
         }
       ]
@@ -3468,12 +3468,12 @@
       "arguments": [
         {
           "name": "clk_id",
-          "type": "type@0x85d",
+          "type": "unresolved@0x85d",
           "register": "RCX"
         },
         {
           "name": "ts",
-          "type": "type@0x3cb0",
+          "type": "unresolved@0x3cb0",
           "register": "RDX"
         }
       ]
@@ -3489,12 +3489,12 @@
         },
         {
           "name": "p",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
           "name": "n",
-          "type": "type@0x85d",
+          "type": "unresolved@0x85d",
           "register": "RSI"
         }
       ]
@@ -3505,12 +3505,12 @@
       "arguments": [
         {
           "name": "argc",
-          "type": "type@0x85d",
+          "type": "unresolved@0x85d",
           "register": "RCX"
         },
         {
           "name": "argv",
-          "type": "type@0x87e",
+          "type": "unresolved@0x87e",
           "register": "RDX"
         }
       ]
@@ -3568,7 +3568,7 @@
         },
         {
           "name": "t",
-          "type": "type@0xc6",
+          "type": "unresolved@0xc6",
           "register": "RSI"
         }
       ]
@@ -3579,7 +3579,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x9de",
+          "type": "unresolved@0x9de",
           "register": "RCX"
         }
       ]
@@ -3595,7 +3595,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x9b4",
+          "type": "unresolved@0x9b4",
           "register": "RCX"
         }
       ]
@@ -3606,7 +3606,7 @@
       "arguments": [
         {
           "name": "ns",
-          "type": "type@0x9bd",
+          "type": "unresolved@0x9bd",
           "register": "RCX"
         }
       ]
@@ -3627,7 +3627,7 @@
       "arguments": [
         {
           "name": "sig",
-          "type": "type@0x85d",
+          "type": "unresolved@0x85d",
           "register": "RCX"
         },
         {
@@ -3648,12 +3648,12 @@
       "arguments": [
         {
           "name": "srcBuf",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
           "name": "elemsBuf",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RDX"
         },
         {
@@ -3684,7 +3684,7 @@
       "arguments": [
         {
           "name": "oldBuf",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -3742,12 +3742,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x3aec",
+          "type": "tag:DW_TAG_GNU_call_site_parameter",
           "register": "RCX"
         },
         {
           "name": "y",
-          "type": "type@0x3aec",
+          "type": "tag:DW_TAG_GNU_call_site_parameter",
           "register": "RDX"
         }
       ]
@@ -3758,7 +3758,7 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x3b0f",
+          "type": "unresolved@0x3b0f",
           "register": "RCX"
         }
       ]
@@ -3769,7 +3769,7 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x3aec",
+          "type": "tag:DW_TAG_GNU_call_site_parameter",
           "register": "RCX"
         }
       ]
@@ -3799,7 +3799,7 @@
         },
         {
           "name": "it",
-          "type": "type@0x3cdc",
+          "type": "unresolved@0x3cdc",
           "register": "RSI"
         }
       ]
@@ -3851,7 +3851,7 @@
       "arguments": [
         {
           "name": "mapValue",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RCX"
         }
       ]
@@ -3862,12 +3862,12 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x8a0",
+          "type": "unresolved@0x8a0",
           "register": "RCX"
         },
         {
           "name": "b",
-          "type": "type@0x8a0",
+          "type": "unresolved@0x8a0",
           "register": "RDX"
         }
       ]
@@ -3878,12 +3878,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x8c3",
+          "type": "unresolved@0x8c3",
           "register": "RCX"
         },
         {
           "name": "cmp",
-          "type": "type@0x9055",
+          "type": "struct",
           "register": "RDX"
         }
       ]
@@ -3894,7 +3894,7 @@
       "arguments": [
         {
           "name": "data",
-          "type": "type@0x8cc",
+          "type": "unresolved@0x8cc",
           "register": "RCX"
         },
         {
@@ -3904,7 +3904,7 @@
         },
         {
           "name": "cmp",
-          "type": "type@0x9055",
+          "type": "struct",
           "register": "RSI"
         }
       ]
@@ -3915,7 +3915,7 @@
       "arguments": [
         {
           "name": "data",
-          "type": "type@0x8cc",
+          "type": "unresolved@0x8cc",
           "register": "RCX"
         },
         {
@@ -3930,7 +3930,7 @@
         },
         {
           "name": "cmp",
-          "type": "type@0x9055",
+          "type": "struct",
           "register": "RDI"
         }
       ]
@@ -3941,7 +3941,7 @@
       "arguments": [
         {
           "name": "data",
-          "type": "type@0x8cc",
+          "type": "unresolved@0x8cc",
           "register": "RCX"
         },
         {
@@ -3961,7 +3961,7 @@
         },
         {
           "name": "cmp",
-          "type": "type@0x9055",
+          "type": "struct",
           "register": "R8"
         }
       ]
@@ -3972,7 +3972,7 @@
       "arguments": [
         {
           "name": "data",
-          "type": "type@0x8cc",
+          "type": "unresolved@0x8cc",
           "register": "RCX"
         },
         {
@@ -3992,7 +3992,7 @@
         },
         {
           "name": "cmp",
-          "type": "type@0x9055",
+          "type": "struct",
           "register": "R8"
         }
       ]
@@ -4003,7 +4003,7 @@
       "arguments": [
         {
           "name": "data",
-          "type": "type@0x8cc",
+          "type": "unresolved@0x8cc",
           "register": "RCX"
         },
         {
@@ -4023,7 +4023,7 @@
         },
         {
           "name": "cmp",
-          "type": "type@0x9055",
+          "type": "struct",
           "register": "R8"
         }
       ]
@@ -4034,12 +4034,12 @@
       "arguments": [
         {
           "name": "aVal",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RCX"
         },
         {
           "name": "bVal",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RDX"
         }
       ]
@@ -4136,12 +4136,12 @@
       "arguments": [
         {
           "name": "aVal",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RCX"
         },
         {
           "name": "bVal",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RDX"
         }
       ]
@@ -4210,7 +4210,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x66b",
+          "type": "unresolved@0x66b",
           "register": "RCX"
         }
       ]
@@ -4221,7 +4221,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x66b",
+          "type": "unresolved@0x66b",
           "register": "RCX"
         }
       ]
@@ -4232,7 +4232,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x66b",
+          "type": "unresolved@0x66b",
           "register": "RCX"
         }
       ]
@@ -4243,7 +4243,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x66b",
+          "type": "unresolved@0x66b",
           "register": "RCX"
         },
         {
@@ -4270,7 +4270,7 @@
       "arguments": [
         {
           "name": "rw",
-          "type": "type@0x707",
+          "type": "unresolved@0x707",
           "register": "RCX"
         }
       ]
@@ -4281,7 +4281,7 @@
       "arguments": [
         {
           "name": "rw",
-          "type": "type@0x707",
+          "type": "unresolved@0x707",
           "register": "RCX"
         }
       ]
@@ -4292,7 +4292,7 @@
       "arguments": [
         {
           "name": "rw",
-          "type": "type@0x707",
+          "type": "unresolved@0x707",
           "register": "RCX"
         }
       ]
@@ -4303,12 +4303,12 @@
       "arguments": [
         {
           "name": "o",
-          "type": "type@0x73e",
+          "type": "unresolved@0x73e",
           "register": "RCX"
         },
         {
           "name": "f",
-          "type": "type@0x9055",
+          "type": "struct",
           "register": "RDX"
         }
       ]
@@ -4319,7 +4319,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0xf6e7",
+          "type": "*sync.Pool",
           "register": "RCX"
         }
       ]
@@ -4330,12 +4330,12 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0xf6e7",
+          "type": "*sync.Pool",
           "register": "RCX"
         },
         {
           "name": "x",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RDX"
         }
       ]
@@ -4346,7 +4346,7 @@
       "arguments": [
         {
           "name": "arg0",
-          "type": "type@0x6fa",
+          "type": "unresolved@0x6fa",
           "register": "RCX"
         },
         {
@@ -4370,7 +4370,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x703",
+          "type": "unresolved@0x703",
           "register": "RCX"
         },
         {
@@ -4427,7 +4427,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x21c",
+          "type": "unresolved@0x21c",
           "register": "RCX"
         }
       ]
@@ -4438,7 +4438,7 @@
       "arguments": [
         {
           "name": "arg0",
-          "type": "type@0xa03",
+          "type": "unresolved@0xa03",
           "register": "RCX"
         },
         {
@@ -4457,7 +4457,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x2284",
+          "type": "unresolved@0x2284",
           "register": "RCX"
         }
       ]
@@ -4473,7 +4473,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x2284",
+          "type": "unresolved@0x2284",
           "register": "RCX"
         }
       ]
@@ -4494,7 +4494,7 @@
         },
         {
           "name": "rlim",
-          "type": "type@0xfdf",
+          "type": "unresolved@0xfdf",
           "register": "RDX"
         }
       ]
@@ -4505,12 +4505,12 @@
       "arguments": [
         {
           "name": "x",
-          "type": "type@0x228d",
+          "type": "unresolved@0x228d",
           "register": "RCX"
         },
         {
           "name": "val",
-          "type": "type@0xfdf",
+          "type": "unresolved@0xfdf",
           "register": "RDX"
         }
       ]
@@ -4521,7 +4521,7 @@
       "arguments": [
         {
           "name": "lim",
-          "type": "type@0xfdf",
+          "type": "unresolved@0xfdf",
           "register": "RCX"
         }
       ]
@@ -4537,7 +4537,7 @@
         },
         {
           "name": "rlim",
-          "type": "type@0xfdf",
+          "type": "unresolved@0xfdf",
           "register": "RDX"
         }
       ]
@@ -4721,7 +4721,7 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x127b",
+          "type": "unresolved@0x127b",
           "register": "RCX"
         }
       ]
@@ -4976,7 +4976,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x3971",
+          "type": "unresolved@0x3971",
           "register": "RCX"
         },
         {
@@ -4992,7 +4992,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x397a",
+          "type": "unresolved@0x397a",
           "register": "RCX"
         }
       ]
@@ -5003,7 +5003,7 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x785",
+          "type": "unresolved@0x785",
           "register": "RCX"
         },
         {
@@ -5019,7 +5019,7 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x785",
+          "type": "unresolved@0x785",
           "register": "RCX"
         }
       ]
@@ -5115,7 +5115,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x39b1",
+          "type": "unresolved@0x39b1",
           "register": "RCX"
         },
         {
@@ -5131,7 +5131,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x39b1",
+          "type": "unresolved@0x39b1",
           "register": "RCX"
         }
       ]
@@ -5142,7 +5142,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x39b1",
+          "type": "unresolved@0x39b1",
           "register": "RCX"
         }
       ]
@@ -5153,7 +5153,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x39b1",
+          "type": "unresolved@0x39b1",
           "register": "RCX"
         }
       ]
@@ -5178,7 +5178,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x39b1",
+          "type": "unresolved@0x39b1",
           "register": "RCX"
         }
       ]
@@ -5213,7 +5213,7 @@
       "arguments": [
         {
           "name": "zones",
-          "type": "type@0x68f",
+          "type": "unresolved@0x68f",
           "register": "RCX"
         },
         {
@@ -5316,7 +5316,7 @@
         },
         {
           "name": "r",
-          "type": "type@0x39ef",
+          "type": "unresolved@0x39ef",
           "register": "RDX"
         },
         {
@@ -5458,7 +5458,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x39dd",
+          "type": "unresolved@0x39dd",
           "register": "RCX"
         }
       ]
@@ -5526,7 +5526,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x397a",
+          "type": "unresolved@0x397a",
           "register": "RCX"
         }
       ]
@@ -5537,7 +5537,7 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x785",
+          "type": "unresolved@0x785",
           "register": "RCX"
         }
       ]
@@ -5548,7 +5548,7 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x785",
+          "type": "unresolved@0x785",
           "register": "RCX"
         }
       ]
@@ -5564,7 +5564,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x397a",
+          "type": "unresolved@0x397a",
           "register": "RCX"
         }
       ]
@@ -5575,7 +5575,7 @@
       "arguments": [
         {
           "name": "l",
-          "type": "type@0x785",
+          "type": "unresolved@0x785",
           "register": "RCX"
         }
       ]
@@ -5586,7 +5586,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         }
       ]
@@ -5597,7 +5597,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         }
       ]
@@ -5608,7 +5608,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         },
         {
@@ -5643,7 +5643,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         }
       ]
@@ -5654,7 +5654,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         },
         {
@@ -5681,7 +5681,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x3971",
+          "type": "unresolved@0x3971",
           "register": "RCX"
         }
       ]
@@ -5703,7 +5703,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x39e6",
+          "type": "unresolved@0x39e6",
           "register": "RCX"
         }
       ]
@@ -5733,7 +5733,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         }
       ]
@@ -5744,7 +5744,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         }
       ]
@@ -5755,7 +5755,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         },
         {
@@ -5774,7 +5774,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         },
         {
@@ -5801,7 +5801,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         }
       ]
@@ -5812,7 +5812,7 @@
       "arguments": [
         {
           "name": "t",
-          "type": "type@0x3983",
+          "type": "unresolved@0x3983",
           "register": "RCX"
         }
       ]
@@ -5833,7 +5833,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x6e8",
+          "type": "unresolved@0x6e8",
           "register": "RCX"
         }
       ]
@@ -5844,7 +5844,7 @@
       "arguments": [
         {
           "name": "dir",
-          "type": "type@0x6f1",
+          "type": "unresolved@0x6f1",
           "register": "RCX"
         }
       ]
@@ -5855,7 +5855,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x6e8",
+          "type": "unresolved@0x6e8",
           "register": "RCX"
         }
       ]
@@ -5866,7 +5866,7 @@
       "arguments": [
         {
           "name": "m",
-          "type": "type@0x6e8",
+          "type": "unresolved@0x6e8",
           "register": "RCX"
         }
       ]
@@ -5877,7 +5877,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x6fa",
+          "type": "unresolved@0x6fa",
           "register": "RCX"
         }
       ]
@@ -5888,7 +5888,7 @@
       "arguments": [
         {
           "name": "di",
-          "type": "type@0x731",
+          "type": "unresolved@0x731",
           "register": "RCX"
         }
       ]
@@ -5899,7 +5899,7 @@
       "arguments": [
         {
           "name": "di",
-          "type": "type@0x731",
+          "type": "unresolved@0x731",
           "register": "RCX"
         }
       ]
@@ -5910,7 +5910,7 @@
       "arguments": [
         {
           "name": "di",
-          "type": "type@0x731",
+          "type": "unresolved@0x731",
           "register": "RCX"
         }
       ]
@@ -5921,7 +5921,7 @@
       "arguments": [
         {
           "name": "di",
-          "type": "type@0x731",
+          "type": "unresolved@0x731",
           "register": "RCX"
         }
       ]
@@ -6237,7 +6237,7 @@
         },
         {
           "name": "swaps",
-          "type": "type@0x1091c",
+          "type": "*int",
           "register": "RDI"
         }
       ]
@@ -6271,7 +6271,7 @@
         },
         {
           "name": "swaps",
-          "type": "type@0x1091c",
+          "type": "*int",
           "register": "R9"
         }
       ]
@@ -6300,7 +6300,7 @@
         },
         {
           "name": "swaps",
-          "type": "type@0x1091c",
+          "type": "*int",
           "register": "R8"
         }
       ]
@@ -6340,7 +6340,7 @@
       "arguments": [
         {
           "name": "w",
-          "type": "type@0x469",
+          "type": "unresolved@0x469",
           "register": "RCX"
         },
         {
@@ -6359,7 +6359,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x17d7",
+          "type": "unresolved@0x17d7",
           "register": "RCX"
         }
       ]
@@ -6413,7 +6413,7 @@
       "arguments": [
         {
           "name": "err",
-          "type": "type@0x4cca",
+          "type": "error",
           "register": "RCX"
         }
       ]
@@ -6424,7 +6424,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x1917",
+          "type": "unresolved@0x1917",
           "register": "RCX"
         },
         {
@@ -6458,7 +6458,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x1920",
+          "type": "unresolved@0x1920",
           "register": "RCX"
         }
       ]
@@ -6469,7 +6469,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x1920",
+          "type": "unresolved@0x1920",
           "register": "RCX"
         }
       ]
@@ -6480,7 +6480,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x1920",
+          "type": "unresolved@0x1920",
           "register": "RCX"
         }
       ]
@@ -6491,7 +6491,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x1962",
+          "type": "unresolved@0x1962",
           "register": "RCX"
         }
       ]
@@ -6513,7 +6513,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2b5",
+          "type": "unresolved@0x2b5",
           "register": "RCX"
         },
         {
@@ -6554,7 +6554,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x2f38",
+          "type": "unresolved@0x2f38",
           "register": "RCX"
         }
       ]
@@ -6701,7 +6701,7 @@
       "arguments": [
         {
           "name": "s",
-          "type": "type@0x69f",
+          "type": "unresolved@0x69f",
           "register": "RCX"
         },
         {
@@ -6758,7 +6758,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
@@ -6774,7 +6774,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
@@ -6790,12 +6790,12 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
           "name": "k",
-          "type": "type@0x64a",
+          "type": "unresolved@0x64a",
           "register": "RDX"
         }
       ]
@@ -6806,12 +6806,12 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
           "name": "k",
-          "type": "type@0x64a",
+          "type": "unresolved@0x64a",
           "register": "RDX"
         }
       ]
@@ -6822,7 +6822,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         }
       ]
@@ -7136,7 +7136,7 @@
         },
         {
           "name": "flt",
-          "type": "type@0x3005",
+          "type": "unresolved@0x3005",
           "register": "R9"
         }
       ]
@@ -7180,7 +7180,7 @@
         },
         {
           "name": "flt",
-          "type": "type@0x3005",
+          "type": "unresolved@0x3005",
           "location": "Stack[8]"
         }
       ]
@@ -7191,7 +7191,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x2fce",
+          "type": "unresolved@0x2fce",
           "register": "RCX"
         },
         {
@@ -7206,7 +7206,7 @@
         },
         {
           "name": "flt",
-          "type": "type@0x3005",
+          "type": "unresolved@0x3005",
           "register": "RDI"
         }
       ]
@@ -7235,7 +7235,7 @@
         },
         {
           "name": "digs",
-          "type": "type@0x2fd7",
+          "type": "unresolved@0x2fd7",
           "register": "R8"
         },
         {
@@ -7289,7 +7289,7 @@
         },
         {
           "name": "flt",
-          "type": "type@0x3005",
+          "type": "unresolved@0x3005",
           "location": "Stack[8]"
         }
       ]
@@ -7300,7 +7300,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x2fce",
+          "type": "unresolved@0x2fce",
           "register": "RCX"
         },
         {
@@ -7326,7 +7326,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x2fce",
+          "type": "unresolved@0x2fce",
           "register": "RCX"
         },
         {
@@ -7400,7 +7400,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x2fce",
+          "type": "unresolved@0x2fce",
           "register": "RCX"
         },
         {
@@ -7463,7 +7463,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
@@ -7479,7 +7479,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
@@ -7494,7 +7494,7 @@
         },
         {
           "name": "flt",
-          "type": "type@0x3005",
+          "type": "unresolved@0x3005",
           "register": "RDI"
         }
       ]
@@ -7505,7 +7505,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
@@ -7521,7 +7521,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
@@ -7537,7 +7537,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2f6f",
+          "type": "unresolved@0x2f6f",
           "register": "RCX"
         },
         {
@@ -7566,7 +7566,7 @@
         },
         {
           "name": "d",
-          "type": "type@0x2fd7",
+          "type": "unresolved@0x2fd7",
           "register": "RDI"
         },
         {
@@ -7600,7 +7600,7 @@
         },
         {
           "name": "d",
-          "type": "type@0x2fd7",
+          "type": "unresolved@0x2fd7",
           "register": "RDI"
         },
         {
@@ -7616,7 +7616,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x2fce",
+          "type": "unresolved@0x2fce",
           "register": "RCX"
         },
         {
@@ -7662,7 +7662,7 @@
         },
         {
           "name": "flt",
-          "type": "type@0x3005",
+          "type": "unresolved@0x3005",
           "register": "RSI"
         }
       ]
@@ -7684,7 +7684,7 @@
       "arguments": [
         {
           "name": "d",
-          "type": "type@0x2fce",
+          "type": "unresolved@0x2fce",
           "register": "RCX"
         },
         {
@@ -7894,7 +7894,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x2d8d",
+          "type": "unresolved@0x2d8d",
           "register": "RCX"
         },
         {
@@ -7913,7 +7913,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x2d8d",
+          "type": "unresolved@0x2d8d",
           "register": "RCX"
         },
         {
@@ -7929,7 +7929,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x2d8d",
+          "type": "unresolved@0x2d8d",
           "register": "RCX"
         },
         {
@@ -7945,7 +7945,7 @@
       "arguments": [
         {
           "name": "b",
-          "type": "type@0x2d8d",
+          "type": "unresolved@0x2d8d",
           "register": "RCX"
         },
         {
@@ -7964,7 +7964,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         }
       ]
@@ -7975,7 +7975,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -7991,7 +7991,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8010,7 +8010,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8037,7 +8037,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8053,7 +8053,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8084,7 +8084,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8120,7 +8120,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8139,7 +8139,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8155,7 +8155,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8174,7 +8174,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8206,7 +8206,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8233,7 +8233,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8249,12 +8249,12 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
           "name": "buf",
-          "type": "type@0x2d8d",
+          "type": "unresolved@0x2d8d",
           "register": "RDX"
         }
       ]
@@ -8265,7 +8265,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8284,7 +8284,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8303,7 +8303,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8322,7 +8322,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8341,7 +8341,7 @@
       "arguments": [
         {
           "name": "f",
-          "type": "type@0x2d9f",
+          "type": "unresolved@0x2d9f",
           "register": "RCX"
         },
         {
@@ -8362,7 +8362,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8381,7 +8381,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8415,7 +8415,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8431,7 +8431,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8447,12 +8447,12 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
           "name": "arg",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RDX"
         },
         {
@@ -8476,7 +8476,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8489,7 +8489,7 @@
         },
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RDI"
         }
       ]
@@ -8500,12 +8500,12 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RDX"
         }
       ]
@@ -8516,7 +8516,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8537,7 +8537,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8558,7 +8558,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8590,7 +8590,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8616,7 +8616,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8642,7 +8642,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8668,12 +8668,12 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
           "name": "value",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RDX"
         },
         {
@@ -8689,7 +8689,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8713,7 +8713,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         }
       ]
@@ -8724,7 +8724,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8740,7 +8740,7 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
@@ -8756,12 +8756,12 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
           "name": "arg",
-          "type": "type@0x4cd3",
+          "type": "runtime._interface",
           "register": "RDX"
         },
         {
@@ -8777,12 +8777,12 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
           "name": "value",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RDX"
         },
         {
@@ -8803,12 +8803,12 @@
       "arguments": [
         {
           "name": "p",
-          "type": "type@0x2e68",
+          "type": "unresolved@0x2e68",
           "register": "RCX"
         },
         {
           "name": "v",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RDX"
         }
       ]
@@ -8819,7 +8819,7 @@
       "arguments": [
         {
           "name": "v",
-          "type": "type@0x80a6",
+          "type": "reflect.Value",
           "register": "RCX"
         },
         {
@@ -8835,7 +8835,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RCX"
         },
         {
@@ -8908,7 +8908,7 @@
         },
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RSI"
         }
       ]
@@ -8924,7 +8924,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x2f15",
+          "type": "unresolved@0x2f15",
           "register": "RCX"
         }
       ]
@@ -8935,7 +8935,7 @@
       "arguments": [
         {
           "name": "e",
-          "type": "type@0x2f41",
+          "type": "tag:DW_TAG_const_type",
           "register": "RCX"
         }
       ]
@@ -8946,7 +8946,7 @@
       "arguments": [
         {
           "name": "w",
-          "type": "type@0xdddd",
+          "type": "io.Writer",
           "register": "RCX"
         },
         {
@@ -8959,7 +8959,7 @@
         },
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RDI"
         }
       ]
@@ -8978,7 +8978,7 @@
         },
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RSI"
         }
       ]
@@ -8989,12 +8989,12 @@
       "arguments": [
         {
           "name": "w",
-          "type": "type@0xdddd",
+          "type": "io.Writer",
           "register": "RCX"
         },
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RDX"
         }
       ]
@@ -9005,7 +9005,7 @@
       "arguments": [
         {
           "name": "a",
-          "type": "type@0x2eec",
+          "type": "unresolved@0x2eec",
           "register": "RCX"
         }
       ]
@@ -9150,7 +9150,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         }
       ]
@@ -9161,7 +9161,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         }
       ]
@@ -9172,7 +9172,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -9188,7 +9188,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -9209,7 +9209,7 @@
       "arguments": [
         {
           "name": "state",
-          "type": "type@0x83",
+          "type": "unresolved@0x83",
           "register": "RCX"
         }
       ]
@@ -9225,7 +9225,7 @@
       "arguments": [
         {
           "name": "r",
-          "type": "type@0x80",
+          "type": "unresolved@0x80",
           "register": "RCX"
         }
       ]
@@ -9247,7 +9247,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4ac7",
+          "type": "*uint8",
           "register": "RCX"
         }
       ]
@@ -9258,7 +9258,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4ac7",
+          "type": "*uint8",
           "register": "RCX"
         },
         {
@@ -9288,7 +9288,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -9304,7 +9304,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -9320,7 +9320,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -9336,7 +9336,7 @@
       "arguments": [
         {
           "name": "addr",
-          "type": "type@0x4cf6",
+          "type": "*void",
           "register": "RCX"
         },
         {
@@ -9357,17 +9357,17 @@
       "arguments": [
         {
           "name": "sig",
-          "type": "type@0x123",
+          "type": "unresolved@0x123",
           "register": "RCX"
         },
         {
           "name": "info",
-          "type": "type@0x140",
+          "type": "unresolved@0x140",
           "register": "RDX"
         },
         {
           "name": "context",
-          "type": "type@0x37a",
+          "type": "unresolved@0x37a",
           "register": "RSI"
         }
       ]

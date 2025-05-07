@@ -13,7 +13,7 @@ use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
 use zorya::state::explore_ast::explore_ast_for_panic;
-use zorya::state::types::FunctionSigWrapper;
+use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra, TypeDescCompat};
 use zorya::state::memory_x86_64::MemoryValue;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
@@ -75,13 +75,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         log!(executor.state.logger, "Mode is 'function'. Adapting the context...");
         log!(executor.state.logger, "Start address is {:?}", format!("{:x}", start_address));
     
-        match source_lang.to_lowercase().as_str() {
+        // Making the difference between Go and the rest because Ghidra's ABI has issues with Go
+        // Both methods create a file called function_signature.json in the results directory
+        let function_args_map = match source_lang.to_lowercase().as_str() {
+            // Using Ghidra to extract function signatures
             "c" | "c++" => {
                 // Precompute all function signatures using Ghidra headless
                 log!(executor.state.logger, "Precomputing function signatures using Ghidra headless...");
-                precompute_function_signatures(&binary_path, &mut executor)?;
+                precompute_function_signatures_via_ghidra(&binary_path, &mut executor)?;
+
+                // Now load the JSON file with the function signatures
+                let function_args_map = load_function_args_map();
+                log!(executor.state.logger, "Loaded {} function signatures.", function_args_map.len());
+                function_args_map
             }
-            "go" => {                
+            // Using DWARF to extract function signatures
+            "go" => {
                 log!(executor.state.logger, "Calling dwarf_get_all_function_args.py to extract Go function signatures...");
 
                 let python_script = format!("{}/scripts/dwarf_get_all_function_args.py", env::var("ZORYA_DIR").unwrap());
@@ -92,24 +101,79 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .arg(&binary_path)
                     .arg(&compiler)
                     .output()
-                    .expect("Failed to run sigrecover.py");
+                    .expect("Failed to run dwarf_get_all_function_args.py");
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     return Err(format!("dwarf_get_all_function_args.py failed: {}", stderr).into());
                 }
 
-                log!(executor.state.logger, "Successfully extracted function signatures to results/function_signature.json.");              
-            }
-            _other => {
-                log!(executor.state.logger, "WARNING: Unrecognized source language.");
-                
-            }
-        }
+                log!(executor.state.logger, "Successfully extracted registers to results/function_signature_arg_registers.json.");
 
-        // Now load the JSON file with the function signatures
-        let function_args_map = load_function_args_map();
-        log!(executor.state.logger, "Loaded {} function signatures.", function_args_map.len());
+                log!(executor.state.logger, "Calling get-funct-arg-types to extract Go function argument types...");
+
+                let go_script_binary = format!("{}/scripts/get-funct-arg-types/main", env::var("ZORYA_DIR").unwrap());
+                let output_path = "results/function_signature_arg_types.json";
+
+                let output = std::process::Command::new(&go_script_binary)
+                    .arg(&binary_path)
+                    .arg(output_path)
+                    .output()
+                    .expect("Failed to run get-funct-arg-types");
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    return Err(format!("get-funct-arg-types failed: {}", stderr).into());
+                }
+
+                log!(executor.state.logger, "Successfully extracted types to results/function_signature_arg_types.json.");
+
+                // Convert merged Go function signatures to the unified map format
+                let raw_map = load_function_args_map_go();
+                let mut final_map = HashMap::new();
+
+                for (addr_str, sig) in raw_map {
+                    if let Ok(addr) = u64::from_str_radix(addr_str.trim_start_matches("0x"), 16) {
+                        let mut args = Vec::new();
+                        for arg in sig.arguments {
+                            let reg_offset = match arg.register.as_deref() {
+                                Some("RAX") => 0x0,
+                                Some("RCX") => 0x8,
+                                Some("RDX") => 0x10,
+                                Some("RBX") => 0x18,
+                                Some("RSI") => 0x30,
+                                Some("RDI") => 0x38,
+                                Some("R8")  => 0x80,
+                                Some("R9")  => 0x88,
+                                Some("R10") => 0x90,
+                                Some("R11") => 0x98,
+                                Some("R12") => 0xa0,
+                                Some("R13") => 0xa8,
+                                Some("R14") => 0xb0,
+                                Some("R15") => 0xb8,
+                                _ => continue,
+                            };
+
+                            let typ = match arg.arg_type {
+                                TypeDescCompat::Typed(t) => format!("{:?}", t),
+                                TypeDescCompat::Raw(s) => s,
+                            };
+
+                            args.push((arg.name, reg_offset, typ));
+                        }
+
+                        final_map.insert(addr, (sig.name, args));
+                    }
+                }
+
+                log!(executor.state.logger, "Loaded {} merged Go function signatures.", final_map.len());
+                final_map
+            }
+            _ => {
+                log!(executor.state.logger, "Unsupported source language: {}", source_lang);
+                return Err("Unsupported source language".into());
+            }
+        };
 
         if let Some((_, args)) = function_args_map.get(&start_address) {
             log!(executor.state.logger, "Found {} arguments for function at 0x{:x}", args.len(), start_address);
@@ -356,173 +420,6 @@ fn read_panic_addresses(executor: &mut ConcolicExecutor, filename: &str) -> io::
     Ok(addresses)
 }
 
-// Function to clean the Ghidra project directory
-fn clean_ghidra_project_dir(project_path: &str) {
-    if Path::new(project_path).exists() {
-        println!("Cleaning Ghidra project directory: {}", project_path);
-        for entry in fs::read_dir(project_path).expect("Failed to read Ghidra project directory") {
-            let entry = entry.expect("Failed to read directory entry");
-            let path = entry.path();
-
-            if path.is_file() {
-                fs::remove_file(&path).expect("Failed to remove Ghidra project file");
-            } else if path.is_dir() {
-                fs::remove_dir_all(&path).expect("Failed to remove Ghidra project subdirectory");
-            }
-        }
-    }
-}
-
-// Precompute all function signatures using Ghidra headless once.
-fn precompute_function_signatures(binary_path: &str, _executor: &mut ConcolicExecutor) -> Result<(), Box<dyn Error>> {
-    // Read GHIDRA_INSTALL_DIR from environment (or use fallback).
-    let ghidra_path = env::var("GHIDRA_INSTALL_DIR")
-        .unwrap_or_else(|_| String::from("~/ghidra_11.0.3_PUBLIC/"));
-    print!("Using Ghidra path: {}", ghidra_path);
-
-    let project_path = "results/ghidra-project";
-    let project_name = "ghidra-project"; 
-    // Use the new script that processes all functions.
-    let post_script_path = "scripts/ghidra_get_all_function_args.py";
-    let trace_file = "results/function_signature.txt";
-
-    // Ensure the Ghidra project directory exists; create it if it doesn't.
-    if !Path::new(project_path).exists() {
-        println!("Project directory '{}' not found. Creating it...", project_path);
-        fs::create_dir_all(project_path)?;
-    }
-
-    // Clean the Ghidra project directory.
-    clean_ghidra_project_dir(project_path);
-    // Remove any existing signature file.
-    if Path::new(trace_file).exists() {
-        println!("Removing old function signature file.");
-        fs::remove_file(trace_file)?;
-    }
-
-    // Get the ZORYA directory.
-    let zorya_dir = env::var("ZORYA_DIR")
-        .expect("ZORYA_DIR environment variable is not set");
-
-    // Build the full path to the Ghidra headless executable.
-    let ghidra_executable = format!("{}/support/analyzeHeadless", ghidra_path);
-    // Construct the arguments as a vector.
-    let args = vec![
-        project_path,           // Project path (e.g., "results/ghidra-project")
-        project_name,           // Project name
-        "-import",
-        binary_path,            // Binary to import
-        "-processor",
-        "x86:LE:64:default",
-        "-cspec",
-        "golang",
-        "-postScript",
-        post_script_path,       // Script to process all functions
-        &zorya_dir,             // ZORYA directory (used by the script)
-    ];
-
-    println!("Running Ghidra command: {} {:?}", ghidra_executable, args);
-
-    // Execute the command without invoking a shell.
-    let output = Command::new(ghidra_executable)
-        .args(&args)
-        .output()
-        .expect("Failed to execute Ghidra Headless");
-
-    if !output.status.success() {
-        eprintln!(
-            "Ghidra Headless execution failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return Err(Box::from("Ghidra analysis failed"));
-    }
-    println!("Ghidra analysis complete. Function signatures written to {}", trace_file);
-    Ok(())
-}
-
-// Load the function arguments map from the precomputed file.
-fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64, String)>)> {
-    let json_file = "results/function_signature.json";
-    let mut function_args_map: HashMap<u64, (String, Vec<(String, u64, String)>)> = HashMap::new();
-
-    if Path::new(json_file).exists() {
-        let file = File::open(json_file).expect("Failed to open function signature JSON file");
-        let reader = BufReader::new(file);
-        let wrapper: FunctionSigWrapper = serde_json::from_reader(reader)
-            .expect("Failed to parse JSON file");
-        let signatures = wrapper.functions;
-
-        for sig in signatures {
-            let address = u64::from_str_radix(sig.address.trim_start_matches("0x"), 16)
-                .unwrap_or_else(|_| {
-                    println!("Warning: Failed to parse address: {}", sig.address);
-                    0
-                });
-            let function_name = sig.name;
-            let mut args = Vec::new();
-
-            for arg in sig.arguments {
-                if let Some(reg) = arg.register.as_deref() {
-                    let register_offset = match reg {
-                        "RAX" => 0x0,
-                        "RCX" => 0x8,
-                        "RDX" => 0x10,
-                        "RBX" => 0x18,
-                        "RSI" => 0x30,
-                        "RDI" => 0x38,
-                        "R8"  => 0x80,
-                        "R9"  => 0x88,
-                        "R10" => 0x90,
-                        "R11" => 0x98,
-                        "R12" => 0xa0,
-                        "R13" => 0xa8,
-                        "R14" => 0xb0,
-                        "R15" => 0xb8,
-                        _ => continue,
-                    };
-                    args.push((arg.name.clone(), register_offset, arg.arg_type.clone()));
-                } else if let Some(regs) = &arg.registers {
-                    // Handle multi-register values — just take the first one for now
-                    if let Some(first) = regs.first() {
-                        let register_offset = match first.as_str() {
-                            "RAX" => 0x0,
-                            "RCX" => 0x8,
-                            "RDX" => 0x10,
-                            "RBX" => 0x18,
-                            "RSI" => 0x30,
-                            "RDI" => 0x38,
-                            "R8"  => 0x80,
-                            "R9"  => 0x88,
-                            "R10" => 0x90,
-                            "R11" => 0x98,
-                            "R12" => 0xa0,
-                            "R13" => 0xa8,
-                            "R14" => 0xb0,
-                            "R15" => 0xb8,
-                            _ => continue,
-                        };
-                        args.push((arg.name.clone(), register_offset, arg.arg_type.clone()));
-                    }
-                } else if let Some(_loc) = &arg.location {
-                    // You can skip these or assign a synthetic offset if needed
-                    continue;
-                }
-            }
-            
-            if !args.is_empty() {
-                function_args_map.insert(address, (function_name, args));
-            }
-        }
-    } else {
-        println!(
-            "Warning: {} not found. Please precompute the function signatures using Ghidra or Delve.",
-            json_file
-        );
-    }
-
-    function_args_map
-}
-
 // Function to add the arguments of the target binary from the user's command 
 fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<(), Box<dyn std::error::Error>> {
     let cpu_state_guard = executor.state.cpu_state.lock().unwrap();
@@ -751,93 +648,106 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                 
-                                // 5) get_model
+                                // grab the Z3 model
                                 let model = executor.solver.get_model().unwrap();
+                                // lock the CPU state once
+                                let cpu = executor.state.cpu_state.lock().unwrap();
 
-                                    // 5.1) get address of os.Args
-                                    let os_args_addr = get_os_args_address(binary_path).unwrap();
+                                // build a name->offset map from your initialized register_map:
+                                let name_to_off: std::collections::HashMap<String, u64> = cpu
+                                    .register_map
+                                    .iter()
+                                    .map(|(off, (name, _))| (name.clone(), *off))
+                                    .collect();
 
-                                    // 5.2) read the slice's pointer and length from memory, then evaluate them in the model
-                                    let slice_ptr_bv = executor
-                                        .state
-                                        .memory
-                                        .read_u64(os_args_addr)
-                                        .unwrap()
-                                        .symbolic
-                                        .to_bv(executor.context);
-                                    let slice_ptr_val = model.eval(&slice_ptr_bv, true).unwrap().as_u64().unwrap();
+                                // load your JSON-based signature map
+                                let sigs = load_function_args_map();
+                                if let Some((_, args)) = sigs.get(&start_address) {
+                                    for (i, (arg_name, reg_off, arg_type)) in args.iter().enumerate() {
+                                        // find the register names in the JSON: we stored only offsets, 
+                                        // but now we reverse by offset -> name -> we re-lookup by name:
+                                        let reg_name = cpu
+                                            .register_map
+                                            .get(reg_off)
+                                            .map(|(n, _)| n.clone())
+                                            .unwrap_or_else(|| "<unknown>".into());
 
-                                    let slice_len_bv = executor
-                                        .state
-                                        .memory
-                                        .read_u64(os_args_addr + 8)
-                                        .unwrap()
-                                        .symbolic
-                                        .to_bv(executor.context);
-                                    let slice_len_val = model.eval(&slice_len_bv, true).unwrap().as_u64().unwrap();
+                                        match arg_type.as_str() {
+                                            "int" => {
+                                                // single register
+                                                let off = *reg_off;
+                                                if let Some(rv) = cpu.get_register_by_offset(off, 64) {
+                                                    let bv = rv.symbolic.to_bv(executor.context).simplify();
+                                                    if let Some(v) = model.eval(&bv, true).and_then(|ast| ast.as_u64()) {
+                                                        log!(executor.state.logger,
+                                                            "Argument {} ('{}' in {}) => {} (raw {:?})",
+                                                            i+1, arg_name, reg_name, v, bv);
+                                                    } else {
+                                                        log!(executor.state.logger,
+                                                            "WARNING: could not eval '{}'", arg_name);
+                                                    }
+                                                } else {
+                                                    log!(executor.state.logger,
+                                                        "WARNING: no value for register '{}'", reg_name);
+                                                }
+                                            }
+                                            "string" => {
+                                                // JSON gave one offset; real Go ABI uses two regs for string:
+                                                // the JSON loader should have stored only the first one, 
+                                                // so look up both names by offset name:
+                                                // e.g. JSON had register="RDX" or registers=["RDX","RSI"]
+                                                //
+                                                // Let's reconstruct the two register names:
+                                                let ptr_name = reg_name.clone();
+                                                // find the next ABI string reg: if ptr==RDX then "RSI", else "RDX"
+                                                let len_name = match ptr_name.as_str() {
+                                                    "RDX" => "RSI",
+                                                    "RSI" => "RDX",
+                                                    _other => {
+                                                        // fallback: we assume the next in memory map is at offset+8
+                                                        let off = *reg_off + 8;
+                                                        &cpu.register_map.get(&off).map(|(n,_)|n.clone()).unwrap_or_else(||"<len?>".into())
+                                                    }
+                                                };
+                                                // lookup offsets
+                                                let ptr_off = *reg_off;
+                                                let len_off = *name_to_off.get(len_name).unwrap_or(&0);
 
-                                    log!(executor.state.logger, "To take the panic-branch => os.Args ptr=0x{:x}, len={}", slice_ptr_val, slice_len_val);
-
-                                    // 5.3) For each argument in os.Args, read the string struct (ptr, len), then read each byte
-                                    // starting the loop from 1 to skip the first argument (binary name)
-                                    for i in 1..slice_len_val {
-                                        // Each string struct is 16 bytes: [8-byte ptr][8-byte len]
-                                        let string_struct_addr = slice_ptr_val + i * 16;
-
-                                        // Evaluate the pointer field
-                                        let str_data_ptr_bv = executor
-                                            .state
-                                            .memory
-                                            .read_u64(string_struct_addr)
-                                            .unwrap()
-                                            .symbolic
-                                            .to_bv(executor.context);
-                                        let str_data_ptr_val = model.eval(&str_data_ptr_bv, true).unwrap().as_u64().unwrap();
-
-                                        // Evaluate the length field
-                                        let str_data_len_bv = executor
-                                            .state
-                                            .memory
-                                            .read_u64(string_struct_addr + 8)
-                                            .unwrap()
-                                            .symbolic
-                                            .to_bv(executor.context);
-                                        let str_data_len_val = model.eval(&str_data_len_bv, true).unwrap().as_u64().unwrap();
-
-                                        // If pointer or length is zero, skip
-                                        if str_data_ptr_val == 0 || str_data_len_val == 0 {
-                                            log!(executor.state.logger, "Arg[{}] => (empty or null)", i);
-                                            continue;
+                                                if let (Some(prv), Some(lrv)) = (
+                                                    cpu.get_register_by_offset(ptr_off,64),
+                                                    cpu.get_register_by_offset(len_off,64),
+                                                ) {
+                                                    let ptr_bv = prv.symbolic.to_bv(executor.context).simplify();
+                                                    let len_bv = lrv.symbolic.to_bv(executor.context).simplify();
+                                                    let ptr = model.eval(&ptr_bv,true).and_then(|ast| ast.as_u64()).unwrap_or(0);
+                                                    let len = model.eval(&len_bv,true).and_then(|ast| ast.as_u64()).unwrap_or(0) as usize;
+                                                    let mut bytes = Vec::new();
+                                                    for j in 0..len {
+                                                        let byte_bv = executor.state.memory.read_byte(ptr + j as u64).unwrap()
+                                                                        .symbolic.to_bv(executor.context).simplify();
+                                                        let b = model.eval(&byte_bv,true).and_then(|ast| ast.as_u64()).unwrap_or(0) as u8;
+                                                        bytes.push(b);
+                                                    }
+                                                    let s = String::from_utf8_lossy(&bytes);
+                                                    log!(executor.state.logger,
+                                                        "Argument {} ('{}' in {}+{}) => \"{}\" (raw {:?})",
+                                                        i+1, arg_name, ptr_name, len_name, s, bytes);
+                                                } else {
+                                                    log!(executor.state.logger,
+                                                        "WARNING: missing ptr/len registers for '{}'", arg_name);
+                                                }
+                                            }
+                                            other => {
+                                                log!(executor.state.logger,
+                                                    "Argument {} ('{}' type {}) unhandled", i+1, arg_name, other);
+                                            }
                                         }
-
-                                        // 5.4) read each symbolic byte from memory, evaluate in the model, and collect
-                                        let mut arg_bytes = Vec::new();
-                                        for j in 0..str_data_len_val {
-                                            let byte_read = executor
-                                                .state
-                                                .memory
-                                                .read_byte(str_data_ptr_val + j)
-                                                .map_err(|e| format!("Could not read arg[{}][{}]: {}", i, j, e))
-                                                .unwrap();
-
-                                            let byte_bv = byte_read.symbolic.to_bv(executor.context);
-                                            let byte_val = model.eval(&byte_bv, true).unwrap().as_u64().unwrap() as u8;
-
-                                            arg_bytes.push(byte_val);
-                                        }
-
-                                        // Convert the collected bytes into a String (falling back to lossy if invalid UTF-8)
-                                        let arg_str = String::from_utf8_lossy(&arg_bytes);
-
-                                        log!(executor.state.logger, "The user input nr.{} must be => \"{}\", the raw value beeing {:?} (len={})", i, arg_str, arg_bytes, str_data_len_val);
                                     }
-
-                                    log!(executor.state.logger, "~~~~~~~~~~~");
+                                } else {
+                                    log!(executor.state.logger,
+                                        "ERROR: no signature for start_address 0x{:x}", start_address);
                                 }
-                
-                                // store these results or exit:
-                                //process::exit(0);
-
+                            }
                             z3::SatResult::Unsat => {
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                                 log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");

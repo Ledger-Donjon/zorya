@@ -10,3 +10,5 @@
 /results/xref_addresses.txt
 /results/function_signature.json
 /results/initialization_data/*
+/results/function_signature_arg_types.json
+/results/function_signature_arg_registers.json

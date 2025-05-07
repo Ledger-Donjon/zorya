@@ -50,6 +50,12 @@ setup:
 	@echo "Building Zorya..."
 	cargo build
 
+	@echo "Building Go DWARF function extractor..."
+	@GO_SCRIPT_SRC="$(ZORYA_DIR)/scripts/get-funct-arg-types/main.go"; \
+	GO_SCRIPT_BIN="$(ZORYA_DIR)/scripts/get-funct-arg-types"; \
+	GOOS=linux GOARCH=amd64 go build -o $$GO_SCRIPT_BIN $$GO_SCRIPT_SRC && chmod +x $$GO_SCRIPT_BIN
+
+
 install:
 	@echo "Installing zorya command..."
 	@sed 's|^ZORYA_DIR="__ZORYA_DIR__"|ZORYA_DIR="$(CURDIR)"|' scripts/zorya > /tmp/zorya
