@@ -11,10 +11,11 @@ use parser::parser::{Inst, Opcode};
 use z3::ast::{Ast, Int, BV};
 use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
-use zorya::executor::{ConcolicExecutor, SymbolicVar};
+use zorya::executor::{self, ConcolicExecutor, SymbolicVar};
 use zorya::state::explore_ast::explore_ast_for_panic;
-use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra, TypeDescCompat};
+use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra, Argument, TypeDesc, TypeDescCompat};
 use zorya::state::memory_x86_64::MemoryValue;
+use zorya::state::{CpuState, FunctionSignature};
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
@@ -129,7 +130,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 log!(executor.state.logger, "Successfully extracted types to results/function_signature_arg_types.json.");
 
                 // Convert merged Go function signatures to the unified map format
-                let raw_map = load_function_args_map_go();
+                let raw_map = load_function_args_map_go(executor.clone());
                 let mut final_map = HashMap::new();
 
                 for (addr_str, sig) in raw_map {
@@ -647,107 +648,198 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                                 log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
                                 log!(executor.state.logger, "~~~~~~~~~~~");
-                
-                                // grab the Z3 model
+                        
                                 let model = executor.solver.get_model().unwrap();
-                                // lock the CPU state once
                                 let cpu = executor.state.cpu_state.lock().unwrap();
-
-                                // build a name->offset map from your initialized register_map:
-                                let name_to_off: std::collections::HashMap<String, u64> = cpu
-                                    .register_map
-                                    .iter()
-                                    .map(|(off, (name, _))| (name.clone(), *off))
-                                    .collect();
-
-                                // load your JSON-based signature map
-                                let sigs = load_function_args_map();
-                                if let Some((_, args)) = sigs.get(&start_address) {
-                                    for (i, (arg_name, reg_off, arg_type)) in args.iter().enumerate() {
-                                        // find the register names in the JSON: we stored only offsets, 
-                                        // but now we reverse by offset -> name -> we re-lookup by name:
-                                        let reg_name = cpu
-                                            .register_map
-                                            .get(reg_off)
-                                            .map(|(n, _)| n.clone())
-                                            .unwrap_or_else(|| "<unknown>".into());
-
-                                        match arg_type.as_str() {
-                                            "int" => {
-                                                // single register
-                                                let off = *reg_off;
-                                                if let Some(rv) = cpu.get_register_by_offset(off, 64) {
-                                                    let bv = rv.symbolic.to_bv(executor.context).simplify();
-                                                    if let Some(v) = model.eval(&bv, true).and_then(|ast| ast.as_u64()) {
-                                                        log!(executor.state.logger,
-                                                            "Argument {} ('{}' in {}) => {} (raw {:?})",
-                                                            i+1, arg_name, reg_name, v, bv);
-                                                    } else {
-                                                        log!(executor.state.logger,
-                                                            "WARNING: could not eval '{}'", arg_name);
-                                                    }
+                        
+                                let source_lang = std::env::var("SOURCE_LANG").unwrap_or_else(|_| "c".to_string());
+                        
+                                let result: Option<(String, Vec<(Argument, u64)>)> = match source_lang.to_lowercase().as_str() {
+                                    "go" => {
+                                        log!(executor.state.logger, "Loading function arguments map for Go...");
+                                        let sigs = load_function_args_map_go(executor.clone());
+                                        let key = format!("0x{:x}", start_address);
+                                        sigs.get(&key).map(|sig| {
+                                            let args: Vec<(Argument, u64)> = sig.arguments.iter().filter_map(|arg| {
+                                                let offset = if let Some(reg) = &arg.register {
+                                                    cpu.register_map.iter().find_map(|(off, (name, _))| {
+                                                        if name == reg { Some(*off) } else { None }
+                                                    })
+                                                } else if let Some(regs) = &arg.registers {
+                                                    regs.first().and_then(|r| {
+                                                        cpu.register_map.iter().find_map(|(off, (name, _))| {
+                                                            if name == r { Some(*off) } else { None }
+                                                        })
+                                                    })
                                                 } else {
-                                                    log!(executor.state.logger,
-                                                        "WARNING: no value for register '{}'", reg_name);
-                                                }
-                                            }
-                                            "string" => {
-                                                // JSON gave one offset; real Go ABI uses two regs for string:
-                                                // the JSON loader should have stored only the first one, 
-                                                // so look up both names by offset name:
-                                                // e.g. JSON had register="RDX" or registers=["RDX","RSI"]
-                                                //
-                                                // Let's reconstruct the two register names:
-                                                let ptr_name = reg_name.clone();
-                                                // find the next ABI string reg: if ptr==RDX then "RSI", else "RDX"
-                                                let len_name = match ptr_name.as_str() {
-                                                    "RDX" => "RSI",
-                                                    "RSI" => "RDX",
-                                                    _other => {
-                                                        // fallback: we assume the next in memory map is at offset+8
-                                                        let off = *reg_off + 8;
-                                                        &cpu.register_map.get(&off).map(|(n,_)|n.clone()).unwrap_or_else(||"<len?>".into())
-                                                    }
+                                                    None
                                                 };
-                                                // lookup offsets
-                                                let ptr_off = *reg_off;
-                                                let len_off = *name_to_off.get(len_name).unwrap_or(&0);
-
-                                                if let (Some(prv), Some(lrv)) = (
-                                                    cpu.get_register_by_offset(ptr_off,64),
-                                                    cpu.get_register_by_offset(len_off,64),
-                                                ) {
-                                                    let ptr_bv = prv.symbolic.to_bv(executor.context).simplify();
-                                                    let len_bv = lrv.symbolic.to_bv(executor.context).simplify();
-                                                    let ptr = model.eval(&ptr_bv,true).and_then(|ast| ast.as_u64()).unwrap_or(0);
-                                                    let len = model.eval(&len_bv,true).and_then(|ast| ast.as_u64()).unwrap_or(0) as usize;
-                                                    let mut bytes = Vec::new();
-                                                    for j in 0..len {
-                                                        let byte_bv = executor.state.memory.read_byte(ptr + j as u64).unwrap()
-                                                                        .symbolic.to_bv(executor.context).simplify();
-                                                        let b = model.eval(&byte_bv,true).and_then(|ast| ast.as_u64()).unwrap_or(0) as u8;
-                                                        bytes.push(b);
+                                            
+                                                offset.map(|off| {
+                                                    (
+                                                        Argument {
+                                                            name: arg.name.clone(),
+                                                            arg_type: arg.arg_type.clone(),
+                                                            register: arg.register.clone(),
+                                                            registers: arg.registers.clone(),
+                                                            location: Some(format!("0x{:x}", off)),
+                                                        },
+                                                        off,
+                                                    )
+                                                })
+                                            }).collect();                                                                             
+                                            (sig.name.clone(), args)
+                                        })
+                                    }
+                                    _ => {
+                                        let sigs = load_function_args_map();
+                                        sigs.get(&start_address).map(|(name, args)| {
+                                            let args = args.iter().map(|(n, off, ty)| {
+                                                let arg = Argument {
+                                                    name: n.clone(),
+                                                    arg_type: TypeDescCompat::Raw(ty.clone()),
+                                                    register: None,
+                                                    registers: None,
+                                                    location: Some(format!("0x{:x}", off)),
+                                                };                                                
+                                                (arg, *off)
+                                            }).collect();
+                                            (name.clone(), args)
+                                        })
+                                    }
+                                };                                
+                        
+                                if let Some((_, args)) = result {
+                                    for (i, (arg, reg_off)) in args.iter().enumerate() {
+                                        let reg_name = cpu.register_map.get(reg_off).map(|(n, _)| n.clone()).unwrap_or_else(|| "<unknown>".into());
+                                
+                                        match &arg.arg_type {
+                                            TypeDescCompat::Raw(s) | TypeDescCompat::Typed(TypeDesc::Primitive(s)) => match s.as_str() {
+                                                "int" | "uintptr" => {
+                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off, 64) {
+                                                        let bv = rv.symbolic.to_bv(executor.context).simplify();
+                                                        if let Some(v) = model.eval(&bv, true).and_then(|ast| ast.as_u64()) {
+                                                            log!(executor.state.logger, "Arg {} '{}' ({}): {} (raw {:?})", i + 1, arg.name, reg_name, v, bv);
+                                                        }
                                                     }
-                                                    let s = String::from_utf8_lossy(&bytes);
-                                                    log!(executor.state.logger,
-                                                        "Argument {} ('{}' in {}+{}) => \"{}\" (raw {:?})",
-                                                        i+1, arg_name, ptr_name, len_name, s, bytes);
-                                                } else {
-                                                    log!(executor.state.logger,
-                                                        "WARNING: missing ptr/len registers for '{}'", arg_name);
+                                                }
+                                                "float64" => {
+                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off, 64) {
+                                                        let bv = rv.symbolic.to_bv(executor.context).simplify();
+                                                        if let Some(bits) = model.eval(&bv, true).and_then(|ast| ast.as_u64()) {
+                                                            let f = f64::from_bits(bits);
+                                                            log!(executor.state.logger, "Arg {} '{}' ({}): {} (f64 raw 0x{:x})", i + 1, arg.name, reg_name, f, bits);
+                                                        }
+                                                    }
+                                                }
+                                                "bool" => {
+                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off, 8) {
+                                                        let bv = rv.symbolic.to_bv(executor.context).simplify();
+                                                        let b = model.eval(&bv, true).and_then(|ast| ast.as_u64()).unwrap_or(0) != 0;
+                                                        log!(executor.state.logger, "Arg {} '{}' ({}): {}", i + 1, arg.name, reg_name, b);
+                                                    }
+                                                }
+                                                "string" => {
+                                                    if let Some(registers) = &arg.registers {
+                                                        if registers.len() >= 2 {
+                                                            let ptr_name = &registers[0];
+                                                            let len_name = &registers[1];
+                                
+                                                            if let (Some(ptr_off), Some(len_off)) = (
+                                                                cpu.resolve_offset_from_register_name(ptr_name),
+                                                                cpu.resolve_offset_from_register_name(len_name),
+                                                            ) {
+                                                                if let (Some(prv), Some(lrv)) = (
+                                                                    cpu.get_register_by_offset(ptr_off, 64),
+                                                                    cpu.get_register_by_offset(len_off, 64),
+                                                                ) {
+                                                                    let p = model.eval(&prv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a| a.as_u64()).unwrap_or(0);
+                                                                    let l = model.eval(&lrv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a| a.as_u64()).unwrap_or(0) as usize;
+                                
+                                                                    let mut buf = Vec::new();
+                                                                    for j in 0..l {
+                                                                        if let Ok(cv) = executor.state.memory.read_byte(p + j as u64) {
+                                                                            let b = model.eval(&cv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a| a.as_u64()).unwrap_or(0) as u8;
+                                                                            buf.push(b);
+                                                                        }
+                                                                    }
+                                
+                                                                    let s = String::from_utf8_lossy(&buf);
+                                                                    log!(executor.state.logger, "Arg {} '{}' ({}+{}): \"{}\" (raw {:?})", i + 1, arg.name, ptr_name, len_name, s, buf);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                other => {
+                                                    log!(executor.state.logger, "Unhandled primitive arg {} '{}': {}", i+1, arg.name, other);
+                                                }
+                                            },
+                                
+                                            // pointer types
+                                            TypeDescCompat::Typed(TypeDesc::Pointer { to }) => match &**to {
+                                                TypeDesc::Primitive(s) if s=="byte" => {
+                                                    // slice: ptr, len, cap
+                                                    let ptr_off = *reg_off;
+                                                    let len_off = ptr_off + 8;
+                                                    let cap_off = ptr_off + 16;
+                                                    if let (Some(prv), Some(lrv), Some(crv)) = (
+                                                        cpu.get_register_by_offset(ptr_off,64),
+                                                        cpu.get_register_by_offset(len_off,64),
+                                                        cpu.get_register_by_offset(cap_off,64),
+                                                    ) {
+                                                        let p = model.eval(&prv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0);
+                                                        let l = model.eval(&lrv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0) as usize;
+                                                        let c = model.eval(&crv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0);
+                                                        let mut buf = Vec::new();
+                                                        for j in 0..l {
+                                                            if let Ok(cv) = executor.state.memory.read_byte(p + j as u64) {
+                                                                let b = model.eval(&cv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0) as u8;
+                                                                buf.push(b);
+                                                            }
+                                                        }
+                                                        let s = String::from_utf8_lossy(&buf);
+                                                        log!(executor.state.logger, "Arg {} '{}' ({}+{} cap {}): {:?} (raw {:?})", i+1, arg.name, reg_name, len_off, c, s, buf);
+                                                    }
+                                                }
+                                                TypeDesc::Struct { members: _ } => {
+                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off,64) {
+                                                        let addr = model.eval(&rv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0);
+                                                        log!(executor.state.logger, "Arg {} '{}' pointer->struct at 0x{:x}", i+1, arg.name, addr);
+                                                    }
+                                                }
+                                                other => {
+                                                    log!(executor.state.logger, "Unhandled pointer arg {} '{}': {:?}", i+1, arg.name, other);
+                                                }
+                                            },
+                                
+                                            // struct by value
+                                            TypeDescCompat::Typed(TypeDesc::Struct { members }) => {
+                                                log!(executor.state.logger, "Arg {} '{}' struct with {} fields", i+1, arg.name, members.len());
+                                                for m in members {
+                                                    if let (Some(n), Some(off)) = (&m.name, m.offset) {
+                                                        log!(executor.state.logger, "  field '{}' @{}: {:?}", n, off, m.typ);
+                                                    }
                                                 }
                                             }
-                                            other => {
-                                                log!(executor.state.logger,
-                                                    "Argument {} ('{}' type {}) unhandled", i+1, arg_name, other);
+                                
+                                            TypeDescCompat::Typed(TypeDesc::Union { .. }) => {
+                                                log!(executor.state.logger, "Arg {} '{}' union (unhandled)", i+1, arg.name);
+                                            }
+                                
+                                            TypeDescCompat::Typed(TypeDesc::Array { .. }) => {
+                                                log!(executor.state.logger, "Arg {} '{}' array (unhandled)", i+1, arg.name);
+                                            }
+                                
+                                            TypeDescCompat::Typed(TypeDesc::Unknown(s)) => {
+                                                log!(executor.state.logger, "Arg {} '{}' unknown type '{}'", i+1, arg.name, s);
                                             }
                                         }
                                     }
                                 } else {
-                                    log!(executor.state.logger,
-                                        "ERROR: no signature for start_address 0x{:x}", start_address);
-                                }
-                            }
+                                    log!(executor.state.logger, "ERROR: no signature for start_address 0x{:x}", start_address);
+                                }                                
+                            }                                            
                             z3::SatResult::Unsat => {
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                                 log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");

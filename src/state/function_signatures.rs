@@ -8,21 +8,27 @@ use std::{env, fs};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
-
+use std::io::Write;
 
 use gimli::{
     AttributeValue, DebuggingInformationEntry, Dwarf, EndianSlice, LittleEndian, Operation, Reader,
     Unit, DwTag,
     DW_AT_location, DW_AT_low_pc,
-    DW_AT_name, DW_AT_type, DW_TAG_array_type, DW_TAG_base_type, DW_TAG_const_type,
-    DW_TAG_formal_parameter, DW_TAG_member, DW_TAG_pointer_type,
-    DW_TAG_restrict_type, DW_TAG_structure_type, DW_TAG_subprogram, DW_TAG_typedef,
-    DW_TAG_union_type, DW_TAG_volatile_type, DW_TAG_subrange_type,
+    DW_AT_name, DW_AT_type, DW_TAG_array_type, DW_TAG_const_type,
+    DW_TAG_formal_parameter, DW_TAG_pointer_type,
+    DW_TAG_restrict_type, DW_TAG_subprogram, DW_TAG_typedef,
+    DW_TAG_volatile_type, DW_TAG_subrange_type,
 };
 use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use serde::{Deserialize, Serialize};
 use crate::concolic::ConcolicExecutor;
+
+macro_rules! log {
+    ($logger:expr, $($arg:tt)*) => {{
+        writeln!($logger, $($arg)*).unwrap();
+    }};
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -469,7 +475,7 @@ pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64, Strin
     function_args_map
 }
 
-pub fn load_function_args_map_go() -> HashMap<String, FunctionSignature> {
+pub fn load_function_args_map_go(mut executor: ConcolicExecutor) -> HashMap<String, FunctionSignature> {
     let types_path = "results/function_signature_arg_types.json";
     let registers_path = "results/function_signature_arg_registers.json";
 
@@ -486,7 +492,6 @@ pub fn load_function_args_map_go() -> HashMap<String, FunctionSignature> {
         .expect("Failed to parse function_signature_arg_registers.json");
 
     let mut reg_map: HashMap<String, Vec<Argument>> = HashMap::new();
-
     for f in register_wrapper.functions {
         reg_map.insert(f.address.clone(), f.arguments);
     }
@@ -495,15 +500,15 @@ pub fn load_function_args_map_go() -> HashMap<String, FunctionSignature> {
     for func in &mut type_signatures {
         if let Some(reg_args) = reg_map.get(&func.address) {
             for arg in &mut func.arguments {
-                // Match based on argument name
                 if let Some(reg_arg) = reg_args.iter().find(|ra| ra.name == arg.name) {
                     arg.register = reg_arg.register.clone();
+                    arg.registers = reg_arg.registers.clone(); // <--- this was missing!
                 }
             }
         }
     }
 
-    // Build the final map: address → FunctionSignature
+    // Build the final map
     let mut result_map = HashMap::new();
     for func in type_signatures {
         result_map.insert(func.address.clone(), func);

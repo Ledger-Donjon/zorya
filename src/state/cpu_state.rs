@@ -289,6 +289,18 @@ impl<'ctx> CpuState<'ctx> {
         Ok(())
     }
 
+    pub fn resolve_offset_from_register_name(&self, reg_name: &str) -> Option<u64> {
+        self.register_map
+            .iter()
+            .find_map(|(offset, (name, _))| {
+                if name == reg_name {
+                    Some(*offset)
+                } else {
+                    None
+                }
+            })
+    }
+
     // Function to check if a given offset corresponds to a valid x86-64 register from the x86-64.sla file
     pub fn is_valid_register_offset(&self, name: &str, offset: u64) -> bool {
         let path = Path::new("src/concolic/specfiles/x86-64.sla");
