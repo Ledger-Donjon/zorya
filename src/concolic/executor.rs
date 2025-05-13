@@ -46,6 +46,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub initialiazed_var : BTreeMap<String, u64>, // check if the variable has been initialized before using it
     pub inside_jump_table: bool, // check if the current instruction is handling a jump table
     pub trace_logger: Logger,
+    pub function_symbolic_arguments: BTreeMap<String, BV<'ctx>>, // in "function" mode, this is used to store the symbolic arguments of the function
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -64,6 +65,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             initialiazed_var: BTreeMap::new(),
             inside_jump_table: false,
             trace_logger,
+            function_symbolic_arguments: BTreeMap::new(),
          })
     }
 

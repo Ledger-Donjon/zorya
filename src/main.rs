@@ -7,15 +7,15 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+
 use parser::parser::{Inst, Opcode};
 use z3::ast::{Ast, Int, BV};
 use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
-use zorya::executor::{self, ConcolicExecutor, SymbolicVar};
+use zorya::executor::{ConcolicExecutor, SymbolicVar};
 use zorya::state::explore_ast::explore_ast_for_panic;
-use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra, Argument, TypeDesc, TypeDescCompat};
+use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra, TypeDescCompat};
 use zorya::state::memory_x86_64::MemoryValue;
-use zorya::state::{CpuState, FunctionSignature};
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
@@ -130,7 +130,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 log!(executor.state.logger, "Successfully extracted types to results/function_signature_arg_types.json.");
 
                 // Convert merged Go function signatures to the unified map format
-                let raw_map = load_function_args_map_go(executor.clone());
+                let raw_map = load_function_args_map_go();
                 let mut final_map = HashMap::new();
 
                 for (addr_str, sig) in raw_map {
@@ -177,6 +177,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
 
         if let Some((_, args)) = function_args_map.get(&start_address) {
+            log!(executor.state.logger, "Map of the functions and their signatures {:?}", function_args_map);
+         
             log!(executor.state.logger, "Found {} arguments for function at 0x{:x}", args.len(), start_address);
 
             let mut cpu = executor.state.cpu_state.lock().unwrap();
@@ -194,13 +196,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                         let symbolic = match arg_type.to_lowercase().as_str() {
                             "int" | "int32" | "int64" | "uint" | "uint32" | "uint64" => {
                                 let bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
+                                
+                                // Store symbolic var to evaluate it later with z3
+                                executor.function_symbolic_arguments.insert(arg_name.clone(), bv.clone());
+                                
                                 SymbolicVar::Int(bv)
                             }
                             _ => {
                                 let bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
+                                executor.function_symbolic_arguments.insert(arg_name.clone(), bv.clone());
                                 SymbolicVar::Int(bv)
                             }
-                        };
+                        };                        
             
                         let concolic_value = ConcolicVar { concrete: original_concrete, symbolic, ctx: executor.context };
             
@@ -650,196 +657,17 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                         
                                 let model = executor.solver.get_model().unwrap();
-                                let cpu = executor.state.cpu_state.lock().unwrap();
                         
-                                let source_lang = std::env::var("SOURCE_LANG").unwrap_or_else(|_| "c".to_string());
-                        
-                                let result: Option<(String, Vec<(Argument, u64)>)> = match source_lang.to_lowercase().as_str() {
-                                    "go" => {
-                                        log!(executor.state.logger, "Loading function arguments map for Go...");
-                                        let sigs = load_function_args_map_go(executor.clone());
-                                        let key = format!("0x{:x}", start_address);
-                                        sigs.get(&key).map(|sig| {
-                                            let args: Vec<(Argument, u64)> = sig.arguments.iter().filter_map(|arg| {
-                                                let offset = if let Some(reg) = &arg.register {
-                                                    cpu.register_map.iter().find_map(|(off, (name, _))| {
-                                                        if name == reg { Some(*off) } else { None }
-                                                    })
-                                                } else if let Some(regs) = &arg.registers {
-                                                    regs.first().and_then(|r| {
-                                                        cpu.register_map.iter().find_map(|(off, (name, _))| {
-                                                            if name == r { Some(*off) } else { None }
-                                                        })
-                                                    })
-                                                } else {
-                                                    None
-                                                };
-                                            
-                                                offset.map(|off| {
-                                                    (
-                                                        Argument {
-                                                            name: arg.name.clone(),
-                                                            arg_type: arg.arg_type.clone(),
-                                                            register: arg.register.clone(),
-                                                            registers: arg.registers.clone(),
-                                                            location: Some(format!("0x{:x}", off)),
-                                                        },
-                                                        off,
-                                                    )
-                                                })
-                                            }).collect();                                                                             
-                                            (sig.name.clone(), args)
-                                        })
+                                log!(executor.state.logger, "To enter a panic function, the following conditions must be satisfied:");
+                                for (arg_name, bv) in executor.function_symbolic_arguments.iter() {
+                                    if let Some(val) = model.eval(bv, true).and_then(|v| v.as_u64()) {
+                                        log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);
+                                    } else {
+                                        log!(executor.state.logger, "Could not evaluate symbolic input '{}'", arg_name);
                                     }
-                                    _ => {
-                                        let sigs = load_function_args_map();
-                                        sigs.get(&start_address).map(|(name, args)| {
-                                            let args = args.iter().map(|(n, off, ty)| {
-                                                let arg = Argument {
-                                                    name: n.clone(),
-                                                    arg_type: TypeDescCompat::Raw(ty.clone()),
-                                                    register: None,
-                                                    registers: None,
-                                                    location: Some(format!("0x{:x}", off)),
-                                                };                                                
-                                                (arg, *off)
-                                            }).collect();
-                                            (name.clone(), args)
-                                        })
-                                    }
-                                };                                
-                        
-                                if let Some((_, args)) = result {
-                                    for (i, (arg, reg_off)) in args.iter().enumerate() {
-                                        let reg_name = cpu.register_map.get(reg_off).map(|(n, _)| n.clone()).unwrap_or_else(|| "<unknown>".into());
-                                
-                                        match &arg.arg_type {
-                                            TypeDescCompat::Raw(s) | TypeDescCompat::Typed(TypeDesc::Primitive(s)) => match s.as_str() {
-                                                "int" | "uintptr" => {
-                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off, 64) {
-                                                        let bv = rv.symbolic.to_bv(executor.context).simplify();
-                                                        if let Some(v) = model.eval(&bv, true).and_then(|ast| ast.as_u64()) {
-                                                            log!(executor.state.logger, "Arg {} '{}' ({}): {} (raw {:?})", i + 1, arg.name, reg_name, v, bv);
-                                                        }
-                                                    }
-                                                }
-                                                "float64" => {
-                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off, 64) {
-                                                        let bv = rv.symbolic.to_bv(executor.context).simplify();
-                                                        if let Some(bits) = model.eval(&bv, true).and_then(|ast| ast.as_u64()) {
-                                                            let f = f64::from_bits(bits);
-                                                            log!(executor.state.logger, "Arg {} '{}' ({}): {} (f64 raw 0x{:x})", i + 1, arg.name, reg_name, f, bits);
-                                                        }
-                                                    }
-                                                }
-                                                "bool" => {
-                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off, 8) {
-                                                        let bv = rv.symbolic.to_bv(executor.context).simplify();
-                                                        let b = model.eval(&bv, true).and_then(|ast| ast.as_u64()).unwrap_or(0) != 0;
-                                                        log!(executor.state.logger, "Arg {} '{}' ({}): {}", i + 1, arg.name, reg_name, b);
-                                                    }
-                                                }
-                                                "string" => {
-                                                    if let Some(registers) = &arg.registers {
-                                                        if registers.len() >= 2 {
-                                                            let ptr_name = &registers[0];
-                                                            let len_name = &registers[1];
-                                
-                                                            if let (Some(ptr_off), Some(len_off)) = (
-                                                                cpu.resolve_offset_from_register_name(ptr_name),
-                                                                cpu.resolve_offset_from_register_name(len_name),
-                                                            ) {
-                                                                if let (Some(prv), Some(lrv)) = (
-                                                                    cpu.get_register_by_offset(ptr_off, 64),
-                                                                    cpu.get_register_by_offset(len_off, 64),
-                                                                ) {
-                                                                    let p = model.eval(&prv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a| a.as_u64()).unwrap_or(0);
-                                                                    let l = model.eval(&lrv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a| a.as_u64()).unwrap_or(0) as usize;
-                                
-                                                                    let mut buf = Vec::new();
-                                                                    for j in 0..l {
-                                                                        if let Ok(cv) = executor.state.memory.read_byte(p + j as u64) {
-                                                                            let b = model.eval(&cv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a| a.as_u64()).unwrap_or(0) as u8;
-                                                                            buf.push(b);
-                                                                        }
-                                                                    }
-                                
-                                                                    let s = String::from_utf8_lossy(&buf);
-                                                                    log!(executor.state.logger, "Arg {} '{}' ({}+{}): \"{}\" (raw {:?})", i + 1, arg.name, ptr_name, len_name, s, buf);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                other => {
-                                                    log!(executor.state.logger, "Unhandled primitive arg {} '{}': {}", i+1, arg.name, other);
-                                                }
-                                            },
-                                
-                                            // pointer types
-                                            TypeDescCompat::Typed(TypeDesc::Pointer { to }) => match &**to {
-                                                TypeDesc::Primitive(s) if s=="byte" => {
-                                                    // slice: ptr, len, cap
-                                                    let ptr_off = *reg_off;
-                                                    let len_off = ptr_off + 8;
-                                                    let cap_off = ptr_off + 16;
-                                                    if let (Some(prv), Some(lrv), Some(crv)) = (
-                                                        cpu.get_register_by_offset(ptr_off,64),
-                                                        cpu.get_register_by_offset(len_off,64),
-                                                        cpu.get_register_by_offset(cap_off,64),
-                                                    ) {
-                                                        let p = model.eval(&prv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0);
-                                                        let l = model.eval(&lrv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0) as usize;
-                                                        let c = model.eval(&crv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0);
-                                                        let mut buf = Vec::new();
-                                                        for j in 0..l {
-                                                            if let Ok(cv) = executor.state.memory.read_byte(p + j as u64) {
-                                                                let b = model.eval(&cv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0) as u8;
-                                                                buf.push(b);
-                                                            }
-                                                        }
-                                                        let s = String::from_utf8_lossy(&buf);
-                                                        log!(executor.state.logger, "Arg {} '{}' ({}+{} cap {}): {:?} (raw {:?})", i+1, arg.name, reg_name, len_off, c, s, buf);
-                                                    }
-                                                }
-                                                TypeDesc::Struct { members: _ } => {
-                                                    if let Some(rv) = cpu.get_register_by_offset(*reg_off,64) {
-                                                        let addr = model.eval(&rv.symbolic.to_bv(executor.context).simplify(), true).and_then(|a|a.as_u64()).unwrap_or(0);
-                                                        log!(executor.state.logger, "Arg {} '{}' pointer->struct at 0x{:x}", i+1, arg.name, addr);
-                                                    }
-                                                }
-                                                other => {
-                                                    log!(executor.state.logger, "Unhandled pointer arg {} '{}': {:?}", i+1, arg.name, other);
-                                                }
-                                            },
-                                
-                                            // struct by value
-                                            TypeDescCompat::Typed(TypeDesc::Struct { members }) => {
-                                                log!(executor.state.logger, "Arg {} '{}' struct with {} fields", i+1, arg.name, members.len());
-                                                for m in members {
-                                                    if let (Some(n), Some(off)) = (&m.name, m.offset) {
-                                                        log!(executor.state.logger, "  field '{}' @{}: {:?}", n, off, m.typ);
-                                                    }
-                                                }
-                                            }
-                                
-                                            TypeDescCompat::Typed(TypeDesc::Union { .. }) => {
-                                                log!(executor.state.logger, "Arg {} '{}' union (unhandled)", i+1, arg.name);
-                                            }
-                                
-                                            TypeDescCompat::Typed(TypeDesc::Array { .. }) => {
-                                                log!(executor.state.logger, "Arg {} '{}' array (unhandled)", i+1, arg.name);
-                                            }
-                                
-                                            TypeDescCompat::Typed(TypeDesc::Unknown(s)) => {
-                                                log!(executor.state.logger, "Arg {} '{}' unknown type '{}'", i+1, arg.name, s);
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    log!(executor.state.logger, "ERROR: no signature for start_address 0x{:x}", start_address);
-                                }                                
-                            }                                            
+                                }
+                                log!(executor.state.logger, "~~~~~~~~~~~");
+                            }
                             z3::SatResult::Unsat => {
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                                 log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");
@@ -849,7 +677,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 log!(executor.state.logger, "Solver => Unknown feasibility");
                             }
                         }
-                
                         // 6) pop the solver context
                         executor.solver.pop(1);
                     } else {
@@ -1049,9 +876,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             
                     // 6) pop the solver context
                     executor.solver.pop(1);
-                } else {
-                    log!(executor.state.logger, "No panic function found in the speculative exploration with the current max depth exploration");
-                }
+                } 
             }
             
             // Calculate the potential next address taken by RIP, for the purpose of updating the symbolic part of CBRANCH
@@ -1158,7 +983,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
             log!(executor.state.logger, "local_line_number: {}, instructions.len()-1: {}", local_line_number, (instructions.len() - 1) as i64);
 
             // Check if there is a new RIP to set, beeing aware that all the instructions in the block have been executed, except for case with CBranch
-            // FYI, the two blocks can not be put in a function because the varibales that are modified ar enot global, TODO: optimize this
+            // FYI, the two blocks can not be put in a function because the varibales that are modified are not global, TODO: optimize this
             if inst.opcode == Opcode::CBranch {
                 if possible_new_rip != current_rip {
                     log!(executor.state.logger, "Control flow change detected, new RIP: 0x{:x}", possible_new_rip);

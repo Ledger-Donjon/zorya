@@ -8,7 +8,6 @@ use std::{env, fs};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
-use std::io::Write;
 
 use gimli::{
     AttributeValue, DebuggingInformationEntry, Dwarf, EndianSlice, LittleEndian, Operation, Reader,
@@ -23,12 +22,6 @@ use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use serde::{Deserialize, Serialize};
 use crate::concolic::ConcolicExecutor;
-
-macro_rules! log {
-    ($logger:expr, $($arg:tt)*) => {{
-        writeln!($logger, $($arg)*).unwrap();
-    }};
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -89,10 +82,7 @@ fn format_register(reg: gimli::Register) -> String {
     format!("DW_OP_reg{}", reg.0)
 }
 
-fn parse_location<R: Reader>(
-    attr_val: AttributeValue<R>,
-    unit: &Unit<R>,
-) -> Result<(String, Vec<String>), gimli::Error> {
+fn parse_location<R: Reader>(attr_val: AttributeValue<R>, unit: &Unit<R>) -> Result<(String, Vec<String>), gimli::Error> {
     let mut loc = "complex".to_string();
     let mut regs = vec![];
     if let AttributeValue::Exprloc(expr) = attr_val {
@@ -115,11 +105,8 @@ fn parse_location<R: Reader>(
     Ok((loc, regs))
 }
 
-fn resolve_type<R: Reader>(
-    dwarf: &Dwarf<R>,
-    unit: &Unit<R>,
-    entry: &DebuggingInformationEntry<R>,
-) -> Option<TypeDesc> {
+// Home made parse function for DWARF location expressions in Go binaries
+fn resolve_type<R: Reader>(dwarf: &Dwarf<R>, unit: &Unit<R>, entry: &DebuggingInformationEntry<R>) -> Option<TypeDesc> {
     match entry.tag() {
         DwTag(0x24) => Some(TypeDesc::Unknown("unspecified_parameters".into())),
         // DW_TAG_base_type => {
@@ -200,10 +187,8 @@ fn resolve_type<R: Reader>(
     }
 }
 
-pub fn precompute_function_signatures_via_gimli(
-    binary_path: &str,
-    output_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+// This function is used to precompute function signatures from a binary file using the Gimli library.
+pub fn precompute_function_signatures_via_gimli(binary_path: &str, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(binary_path)?;
     let mmap = unsafe { Mmap::map(&file)? };
     let object = object::File::parse(&*mmap)?;
@@ -220,14 +205,18 @@ pub fn precompute_function_signatures_via_gimli(
         ))
     };
 
+    // Load the DWARF data from the binary file.
     let dwarf = Dwarf::load(&load_section)?;
     let mut functions = vec![];
 
     let mut iter = dwarf.units();
+
+    // Iterate over the compilation units in the DWARF data.
     while let Some(header) = iter.next()? {
         let unit = dwarf.unit(header)?;
         let mut entries = unit.entries();
 
+        // Iterate over the entries in the compilation unit.
         while let Some((_, entry)) = entries.next_dfs()? {
             if entry.tag() != DW_TAG_subprogram {
                 continue;
@@ -250,6 +239,7 @@ pub fn precompute_function_signatures_via_gimli(
 
             let mut arguments = vec![];
 
+            // Parse the function's arguments.
             if let Ok(mut tree) = unit.entries_tree(Some(entry.offset())) {
                 if let Ok(root) = tree.root() {
                     let mut children = root.children();
@@ -475,7 +465,7 @@ pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64, Strin
     function_args_map
 }
 
-pub fn load_function_args_map_go(mut executor: ConcolicExecutor) -> HashMap<String, FunctionSignature> {
+pub fn load_function_args_map_go() -> HashMap<String, FunctionSignature> {
     let types_path = "results/function_signature_arg_types.json";
     let registers_path = "results/function_signature_arg_registers.json";
 

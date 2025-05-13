@@ -74,6 +74,13 @@ $ zorya /absolute/path/to/zorya/tests/programs/crashme/crashme
 ╚══════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝
     Next Generation Concolic Analysis
 
+What is the source language of the binary? (go, c or c++)
+[go]: 
+
+Which Go compiler was used to build the binary? (tinygo / gc)
+[tinygo]: 
+***********************************************************************
+
 Where to begin the analysis? (start / main / function / custom)
 [main]: 
 
@@ -112,11 +119,13 @@ Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya
 ### Invariants writing
 - Has integrated Z3 capabilities for writing invariants over the instructions and CPU registers, through the Rust crate.
 
-## :spiral_calendar: Roadmap 
-Incoming
-
 ## :movie_camera: Demo video
 Incoming
+
+## :spiral_calendar: Roadmap 
+<div align="left">
+  <img src="doc/roadmap-zorya_may-2025.png" alt="Roadmap" width="700"/>
+</div>
 
 ## :memo: Academic work
 Incoming

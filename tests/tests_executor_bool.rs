@@ -29,6 +29,7 @@ mod tests {
             initialiazed_var: BTreeMap::new(),
             inside_jump_table: false,
             trace_logger,
+            function_symbolic_arguments: BTreeMap::new(),
         }
     }
     

@@ -30,7 +30,8 @@ mod tests {
             pcode_internal_lines_to_be_jumped: current_lines_number,
             initialiazed_var: BTreeMap::new(),
             inside_jump_table: false,   
-            trace_logger,    
+            trace_logger, 
+            function_symbolic_arguments: BTreeMap::new(),   
         }
     }
 
