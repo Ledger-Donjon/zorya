@@ -8,6 +8,8 @@ use std::{env, fs};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
+use std::io::Write;
+
 
 use gimli::{
     AttributeValue, DebuggingInformationEntry, Dwarf, EndianSlice, LittleEndian, Operation, Reader,
@@ -22,6 +24,12 @@ use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use serde::{Deserialize, Serialize};
 use crate::concolic::ConcolicExecutor;
+
+macro_rules! log {
+    ($logger:expr, $($arg:tt)*) => {{
+        writeln!($logger, $($arg)*).unwrap();
+    }};
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -465,44 +473,79 @@ pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64, Strin
     function_args_map
 }
 
-pub fn load_function_args_map_go() -> HashMap<String, FunctionSignature> {
+/// Loads and merges Go function signatures from DWARF types and register info,
+/// returning a map from function address to (function name, argument list).
+/// Each argument is (name, Vec<register names>, type_string).
+pub fn load_function_args_map_go() -> HashMap<u64, (String, Vec<(String, Vec<String>, String)>)> {
     let types_path = "results/function_signature_arg_types.json";
     let registers_path = "results/function_signature_arg_registers.json";
 
-    // Load types
-    let types_file = File::open(types_path).expect("Failed to open arg_types.json");
+    // 1. Read types JSON file
+    let types_file = File::open(types_path)
+        .expect("Failed to open function_signature_arg_types.json");
     let type_reader = BufReader::new(types_file);
-    let mut type_signatures: Vec<FunctionSignature> = serde_json::from_reader(type_reader)
-        .expect("Failed to parse function_signature_arg_types.json");
+    let mut type_sigs: Vec<FunctionSignature> = serde_json::from_reader(type_reader)
+        .expect("Invalid JSON in function_signature_arg_types.json");
 
-    // Load registers
-    let registers_file = File::open(registers_path).expect("Failed to open arg_registers.json");
-    let reg_reader = BufReader::new(registers_file);
-    let register_wrapper: RegisterJsonWrapper = serde_json::from_reader(reg_reader)
-        .expect("Failed to parse function_signature_arg_registers.json");
+    // 2. Read registers JSON file
+    let reg_file = File::open(registers_path)
+        .expect("Failed to open function_signature_arg_registers.json");
+    let reg_reader = BufReader::new(reg_file);
+    let reg_wrapper: RegisterJsonWrapper = serde_json::from_reader(reg_reader)
+        .expect("Invalid JSON in function_signature_arg_registers.json");
 
+    // 3. Build map: address_str -> Vec<Argument> from register data
     let mut reg_map: HashMap<String, Vec<Argument>> = HashMap::new();
-    for f in register_wrapper.functions {
+    for f in reg_wrapper.functions {
         reg_map.insert(f.address.clone(), f.arguments);
     }
 
-    // Merge register info into type-based data
-    for func in &mut type_signatures {
-        if let Some(reg_args) = reg_map.get(&func.address) {
-            for arg in &mut func.arguments {
-                if let Some(reg_arg) = reg_args.iter().find(|ra| ra.name == arg.name) {
+    // 4. Merge register info into type-based signatures
+    for sig in &mut type_sigs {
+        if let Some(reg_args) = reg_map.get(&sig.address) {
+            for reg_arg in reg_args {
+                if let Some(arg) = sig.arguments.iter_mut().find(|a| a.name == reg_arg.name) {
+                    // Copy both single- and multi-register fields
                     arg.register = reg_arg.register.clone();
-                    arg.registers = reg_arg.registers.clone(); // <--- this was missing!
+                    arg.registers = reg_arg.registers.clone();
+                } else {
+                    // Argument missing in types.json: inject with unknown type
+                    sig.arguments.push(Argument {
+                        name: reg_arg.name.clone(),
+                        arg_type: TypeDescCompat::Raw("unknown".into()),
+                        register: reg_arg.register.clone(),
+                        registers: reg_arg.registers.clone(),
+                        location: None,
+                    });
                 }
             }
         }
     }
 
-    // Build the final map
-    let mut result_map = HashMap::new();
-    for func in type_signatures {
-        result_map.insert(func.address.clone(), func);
+    // 5. Build final map: parse hex addresses and collect register names & types
+    let mut final_map = HashMap::new();
+    for sig in type_sigs {
+        if let Ok(addr) = u64::from_str_radix(sig.address.trim_start_matches("0x"), 16) {
+            let args: Vec<(String, Vec<String>, String)> = sig.arguments.into_iter().map(|arg| {
+                // Consolidate register names
+                let regs = if let Some(r) = arg.register {
+                    vec![r]
+                } else if let Some(rs) = arg.registers {
+                    rs
+                } else {
+                    Vec::new()
+                };
+                // Convert TypeDescCompat to string
+                let typ = match arg.arg_type {
+                    TypeDescCompat::Raw(s) => s,
+                    TypeDescCompat::Typed(t) => format!("{:?}", t),
+                };
+                (arg.name, regs, typ)
+            }).collect();
+
+            final_map.insert(addr, (sig.name, args));
+        }
     }
 
-    result_map
+    final_map
 }

@@ -14,7 +14,7 @@ use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
 use zorya::state::explore_ast::explore_ast_for_panic;
-use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra, TypeDescCompat};
+use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra};
 use zorya::state::memory_x86_64::MemoryValue;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
@@ -79,153 +79,139 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Making the difference between Go and the rest because Ghidra's ABI has issues with Go
         // Both methods create a file called function_signature.json in the results directory
         let function_args_map = match source_lang.to_lowercase().as_str() {
-            // Using Ghidra to extract function signatures
+            // --- C / C++ branch ---
             "c" | "c++" => {
-                // Precompute all function signatures using Ghidra headless
                 log!(executor.state.logger, "Precomputing function signatures using Ghidra headless...");
                 precompute_function_signatures_via_ghidra(&binary_path, &mut executor)?;
 
-                // Now load the JSON file with the function signatures
-                let function_args_map = load_function_args_map();
-                log!(executor.state.logger, "Loaded {} function signatures.", function_args_map.len());
-                function_args_map
-            }
-            // Using DWARF to extract function signatures
-            "go" => {
-                log!(executor.state.logger, "Calling dwarf_get_all_function_args.py to extract Go function signatures...");
+                log!(executor.state.logger, "Loading raw C signatures...");
+                let raw = load_function_args_map(); // HashMap<u64,(String,Vec<(String,u64,String)>)>
+                log!(executor.state.logger, "Loaded {} raw C signatures.", raw.len());
 
-                let python_script = format!("{}/scripts/dwarf_get_all_function_args.py", env::var("ZORYA_DIR").unwrap());
-                let compiler = std::env::var("COMPILER").expect("COMPILER environment variable is not set");
+                let cpu = executor.state.cpu_state.lock().unwrap();
+                let mut unified = HashMap::new();
 
-                let output = std::process::Command::new("python3")
-                    .arg(python_script)
-                    .arg(&binary_path)
-                    .arg(&compiler)
-                    .output()
-                    .expect("Failed to run dwarf_get_all_function_args.py");
-
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("dwarf_get_all_function_args.py failed: {}", stderr).into());
-                }
-
-                log!(executor.state.logger, "Successfully extracted registers to results/function_signature_arg_registers.json.");
-
-                log!(executor.state.logger, "Calling get-funct-arg-types to extract Go function argument types...");
-
-                let go_script_binary = format!("{}/scripts/get-funct-arg-types/main", env::var("ZORYA_DIR").unwrap());
-                let output_path = "results/function_signature_arg_types.json";
-
-                let output = std::process::Command::new(&go_script_binary)
-                    .arg(&binary_path)
-                    .arg(output_path)
-                    .output()
-                    .expect("Failed to run get-funct-arg-types");
-
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("get-funct-arg-types failed: {}", stderr).into());
-                }
-
-                log!(executor.state.logger, "Successfully extracted types to results/function_signature_arg_types.json.");
-
-                // Convert merged Go function signatures to the unified map format
-                let raw_map = load_function_args_map_go();
-                let mut final_map = HashMap::new();
-
-                for (addr_str, sig) in raw_map {
-                    if let Ok(addr) = u64::from_str_radix(addr_str.trim_start_matches("0x"), 16) {
-                        let mut args = Vec::new();
-                        for arg in sig.arguments {
-                            let reg_offset = match arg.register.as_deref() {
-                                Some("RAX") => 0x0,
-                                Some("RCX") => 0x8,
-                                Some("RDX") => 0x10,
-                                Some("RBX") => 0x18,
-                                Some("RSI") => 0x30,
-                                Some("RDI") => 0x38,
-                                Some("R8")  => 0x80,
-                                Some("R9")  => 0x88,
-                                Some("R10") => 0x90,
-                                Some("R11") => 0x98,
-                                Some("R12") => 0xa0,
-                                Some("R13") => 0xa8,
-                                Some("R14") => 0xb0,
-                                Some("R15") => 0xb8,
-                                _ => continue,
-                            };
-
-                            let typ = match arg.arg_type {
-                                TypeDescCompat::Typed(t) => format!("{:?}", t),
-                                TypeDescCompat::Raw(s) => s,
-                            };
-
-                            args.push((arg.name, reg_offset, typ));
+                for (addr, (fn_name, raw_args)) in raw {
+                    let mut args = Vec::new();
+                    for (arg_name, offset, typ) in raw_args {
+                        if let Some((reg_name, _size)) = cpu.register_map.get(&offset) {
+                            args.push((arg_name, reg_name.clone(), typ));
+                        } else {
+                            log!(executor.state.logger,
+                                "WARNING: no register metadata for offset 0x{:x}, skipping '{}'", 
+                                offset, arg_name);
                         }
-
-                        final_map.insert(addr, (sig.name, args));
                     }
+                    unified.insert(addr, (fn_name, args));
                 }
 
-                log!(executor.state.logger, "Loaded {} merged Go function signatures.", final_map.len());
-                final_map
+                log!(executor.state.logger, "Unified {} C signatures.", unified.len());
+                unified
             }
-            _ => {
-                log!(executor.state.logger, "Unsupported source language: {}", source_lang);
+
+            // --- Go branch ---
+            "go" => {
+                log!(executor.state.logger, "Calling dwarf_get_all_function_args.py to extract registers...");
+                let py = format!("{}/scripts/dwarf_get_all_function_args.py", env::var("ZORYA_DIR")?);
+                let compiler = env::var("COMPILER")?;
+                let out = std::process::Command::new("python3")
+                    .arg(&py).arg(&binary_path).arg(&compiler)
+                    .output()?;
+                if !out.status.success() {
+                    return Err(format!("dwarf script failed: {}", String::from_utf8_lossy(&out.stderr)).into());
+                }
+
+                log!(executor.state.logger, "Calling get-funct-arg-types to extract types...");
+                let go_bin = format!("{}/scripts/get-funct-arg-types/main", env::var("ZORYA_DIR")?);
+                let types_path = "results/function_signature_arg_types.json";
+                let out = std::process::Command::new(&go_bin)
+                    .arg(&binary_path).arg(types_path)
+                    .output()?;
+                if !out.status.success() {
+                    return Err(format!("go script failed: {}", String::from_utf8_lossy(&out.stderr)).into());
+                }
+
+                log!(executor.state.logger, "Loading merged Go signatures...");
+                // This returns HashMap<u64,(String,Vec<(String,Vec<String>,String)>)>
+                let raw_go = load_function_args_map_go();
+                log!(executor.state.logger, "Loaded {} merged Go signatures.", raw_go.len());
+
+                let mut unified = HashMap::new();
+                for (addr, (fn_name, go_args)) in raw_go {
+                    // Flatten multi-register cases into multiple entries if you like,
+                    // or just join them into one tuple per argument:
+                    let mut args = Vec::new();
+                    for (arg_name, regs, typ) in go_args {
+                        // If you want each register separately:
+                        // for reg in regs {
+                        //     args.push((arg_name.clone(), reg, typ.clone()));
+                        // }
+                        // Or keep them as a comma-separated string:
+                        let reg_list = regs.join(","); 
+                        args.push((arg_name, reg_list, typ));
+                    }
+                    unified.insert(addr, (fn_name, args));
+                }
+
+                log!(executor.state.logger, "Unified {} Go signatures.", unified.len());
+                unified
+            }
+
+            // --- unsupported ---
+            other => {
+                log!(executor.state.logger, "Unsupported language: {}", other);
                 return Err("Unsupported source language".into());
             }
         };
 
         if let Some((_, args)) = function_args_map.get(&start_address) {
-            log!(executor.state.logger, "Map of the functions and their signatures {:?}", function_args_map);
-         
             log!(executor.state.logger, "Found {} arguments for function at 0x{:x}", args.len(), start_address);
 
             let mut cpu = executor.state.cpu_state.lock().unwrap();
             let mut concrete_values_of_args = Vec::new();
 
-            for (arg_name, reg_offset, arg_type) in args {
-                let meta = cpu.register_map.get(reg_offset).cloned();
-                if let Some((reg_name, bit_width)) = meta {
-                    log!(executor.state.logger, "Assigning symbolic variable '{}' for register '{}' (offset 0x{:x}, {} bits, type {})", arg_name, reg_name, reg_offset, bit_width, arg_type);
-            
-                    if let Some(original) = cpu.get_register_by_offset(*reg_offset, bit_width) {
-                        let original_concrete = original.concrete.clone();
-                        concrete_values_of_args.push(original_concrete.clone());
-            
-                        let symbolic = match arg_type.to_lowercase().as_str() {
-                            "int" | "int32" | "int64" | "uint" | "uint32" | "uint64" => {
-                                let bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
-                                
-                                // Store symbolic var to evaluate it later with z3
-                                executor.function_symbolic_arguments.insert(arg_name.clone(), bv.clone());
-                                
-                                SymbolicVar::Int(bv)
-                            }
-                            _ => {
-                                let bv = BV::fresh_const(&executor.context, &format!("{}_reg", arg_name), bit_width);
-                                executor.function_symbolic_arguments.insert(arg_name.clone(), bv.clone());
-                                SymbolicVar::Int(bv)
-                            }
-                        };                        
-            
-                        let concolic_value = ConcolicVar { concrete: original_concrete, symbolic, ctx: executor.context };
-            
-                        match cpu.set_register_value_by_offset(*reg_offset, concolic_value, bit_width) {
-                            Ok(_) => log!(executor.state.logger, "Successfully made '{}' symbolic at offset 0x{:x}", reg_name, reg_offset),
-                            Err(e) => log!(executor.state.logger, "Failed to set register '{}': {}", reg_name, e),
+            for (arg_name, reg_name, arg_type) in args {
+                log!(executor.state.logger, "Assigning symbolic var '{}' to register '{}' of type {}", arg_name, reg_name, arg_type);
+
+                if let Some(offset) = cpu.resolve_offset_from_register_name(reg_name) {
+                    // Extract bit width without holding borrow
+                    let bit_width = match cpu.register_map.get(&offset) {
+                        Some((_, w)) => *w,
+                        None => {
+                            log!(executor.state.logger, "WARNING: no metadata for register '{}' at offset 0x{:x}", reg_name, offset);
+                            continue;
+                        }
+                    };
+
+                    // Grab original concolic
+                    if let Some(original) = cpu.get_register_by_offset(offset, bit_width) {
+                        let orig_concrete = original.concrete.clone();
+                        concrete_values_of_args.push(orig_concrete.clone());
+
+                        // Fresh symbolic BV
+                        let bv = BV::fresh_const(&executor.context, &format!("{}_{}", arg_name, reg_name), bit_width);
+
+                        // Store in global map for later SAT evaluation
+                        executor.function_symbolic_arguments.insert(arg_name.clone(), bv.clone());
+
+                        let symbolic = SymbolicVar::Int(bv.clone());
+                        let concolic_value = ConcolicVar { concrete: orig_concrete, symbolic, ctx: executor.context };
+
+                        // Update CPU state
+                        match cpu.set_register_value_by_offset(offset, concolic_value, bit_width) {
+                            Ok(()) => log!(executor.state.logger, "Initialized '{}' => {} (0x{:x}) as symbolic", arg_name, reg_name, offset),
+                            Err(e) => log!(executor.state.logger, "Failed to set {}: {}", reg_name, e),
                         }
                     } else {
-                        log!(executor.state.logger, "WARNING: No concrete value found at offset 0x{:x} for '{}'", reg_offset, arg_name);
+                        log!(executor.state.logger, "WARNING: no existing value at offset 0x{:x} for {}", offset, reg_name);
                     }
                 } else {
-                    log!(executor.state.logger, "WARNING: Unknown register metadata for offset 0x{:x} (arg '{}')", reg_offset, arg_name);
+                    log!(executor.state.logger, "WARNING: unknown register '{}' for arg {}", reg_name, arg_name);
                 }
-            }            
+            }
         } else {
-            log!(executor.state.logger, "No known function signature found for 0x{:x}. Skipping argument initialization.", start_address);
-        }            
-        
+            log!(executor.state.logger, "No signature at start_address 0x{:x}, skipping symbolic init", start_address);
+        }
     } else if mode == "start" || mode == "main" {
         let os_args_addr = get_os_args_address(&binary_path)?;
         log!(executor.state.logger, "os.Args slice address: 0x{:x}", os_args_addr);
@@ -659,6 +645,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 let model = executor.solver.get_model().unwrap();
                         
                                 log!(executor.state.logger, "To enter a panic function, the following conditions must be satisfied:");
+
                                 for (arg_name, bv) in executor.function_symbolic_arguments.iter() {
                                     if let Some(val) = model.eval(bv, true).and_then(|v| v.as_u64()) {
                                         log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);

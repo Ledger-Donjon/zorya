@@ -119,12 +119,18 @@ Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya
 ### Invariants writing
 - Has integrated Z3 capabilities for writing invariants over the instructions and CPU registers, through the Rust crate.
 
+### Strategies to find bugs/panics/vuln
+<div align="left">
+  <img src="doc/github_zorya_panic-exploration_strategies.png" alt="Strategies" width="1000"/>
+</div>
+
+
 ## :movie_camera: Demo video
 Incoming
 
 ## :spiral_calendar: Roadmap 
 <div align="left">
-  <img src="doc/roadmap-zorya_may-2025.png" alt="Roadmap" width="700"/>
+  <img src="doc/roadmap-zorya_may-2025.png" alt="Roadmap" width="900"/>
 </div>
 
 ## :memo: Academic work
