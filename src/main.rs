@@ -164,6 +164,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         };
 
+        // In function mode: initialize symbolic arguments
         if let Some((_, args)) = function_args_map.get(&start_address) {
             log!(executor.state.logger, "Found {} arguments for function at 0x{:x}", args.len(), start_address);
 
@@ -171,39 +172,67 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut concrete_values_of_args = Vec::new();
 
             for (arg_name, reg_name, arg_type) in args {
-                log!(executor.state.logger, "Assigning symbolic var '{}' to register '{}' of type {}", arg_name, reg_name, arg_type);
+                log!(executor.state.logger,
+                    "Assigning symbolic var '{}' to register '{}' of type {}", arg_name, reg_name, arg_type);
 
-                if let Some(offset) = cpu.resolve_offset_from_register_name(reg_name) {
-                    // Extract bit width without holding borrow
-                    let bit_width = match cpu.register_map.get(&offset) {
-                        Some((_, w)) => *w,
-                        None => {
-                            log!(executor.state.logger, "WARNING: no metadata for register '{}' at offset 0x{:x}", reg_name, offset);
-                            continue;
+                // Special handling for Go strings: two registers (ptr, len)
+                if arg_type == "string" && reg_name.contains(',') {
+                    let regs: Vec<&str> = reg_name.split(',').collect();
+                    if regs.len() == 2 {
+                        // Pointer register
+                        let ptr_reg = regs[0];
+                        if let Some(ptr_offset) = cpu.resolve_offset_from_register_name(ptr_reg) {
+                            let ptr_width = cpu.register_map.get(&ptr_offset).map(|(_, w)| *w).unwrap_or(64);
+                            if let Some(orig) = cpu.get_register_by_offset(ptr_offset, ptr_width) {
+                                let orig_conc = orig.concrete.clone();
+                                concrete_values_of_args.push(orig_conc.clone());
+                                let bv_ptr = BV::fresh_const(&executor.context, &format!("{}__ptr", arg_name), ptr_width);
+                                executor.function_symbolic_arguments.insert(format!("{}__ptr", arg_name), bv_ptr.clone());
+                                let sym_ptr = SymbolicVar::Int(bv_ptr.clone());
+                                let conc_ptr = ConcolicVar { concrete: orig_conc, symbolic: sym_ptr, ctx: executor.context };
+                                match cpu.set_register_value_by_offset(ptr_offset, conc_ptr, ptr_width) {
+                                    Ok(()) => log!(executor.state.logger, "Initialized '{}__ptr' => {} (0x{:x}) as symbolic", arg_name, ptr_reg, ptr_offset),
+                                    Err(e) => log!(executor.state.logger, "Failed to set {}: {}", ptr_reg, e),
+                                }
+                            }
                         }
-                    };
+                        // Length register
+                        let len_reg = regs[1];
+                        if let Some(len_offset) = cpu.resolve_offset_from_register_name(len_reg) {
+                            let len_width = cpu.register_map.get(&len_offset).map(|(_, w)| *w).unwrap_or(64);
+                            if let Some(orig) = cpu.get_register_by_offset(len_offset, len_width) {
+                                let orig_conc = orig.concrete.clone();
+                                concrete_values_of_args.push(orig_conc.clone());
+                                let bv_len = BV::fresh_const(&executor.context, &format!("{}__len", arg_name), len_width);
+                                executor.function_symbolic_arguments.insert(format!("{}__len", arg_name), bv_len.clone());
+                                let sym_len = SymbolicVar::Int(bv_len.clone());
+                                let conc_len = ConcolicVar { concrete: orig_conc, symbolic: sym_len, ctx: executor.context };
+                                match cpu.set_register_value_by_offset(len_offset, conc_len, len_width) {
+                                    Ok(()) => log!(executor.state.logger, "Initialized '{}__len' => {} (0x{:x}) as symbolic", arg_name, len_reg, len_offset),
+                                    Err(e) => log!(executor.state.logger, "Failed to set {}: {}", len_reg, e),
+                                }
+                            }
+                        }
+                    } else {
+                        log!(executor.state.logger, "WARNING: unexpected registers '{}' for string '{}', skipping", reg_name, arg_name);
+                    }
+                    continue;
+                }
 
-                    // Grab original concolic
+                // General case: single-register arguments
+                if let Some(offset) = cpu.resolve_offset_from_register_name(reg_name) {
+                    let bit_width = cpu.register_map.get(&offset).map(|(_, w)| *w).unwrap_or(64);
                     if let Some(original) = cpu.get_register_by_offset(offset, bit_width) {
-                        let orig_concrete = original.concrete.clone();
-                        concrete_values_of_args.push(orig_concrete.clone());
-
-                        // Fresh symbolic BV
+                        let orig_conc = original.concrete.clone();
+                        concrete_values_of_args.push(orig_conc.clone());
                         let bv = BV::fresh_const(&executor.context, &format!("{}_{}", arg_name, reg_name), bit_width);
-
-                        // Store in global map for later SAT evaluation
                         executor.function_symbolic_arguments.insert(arg_name.clone(), bv.clone());
-
-                        let symbolic = SymbolicVar::Int(bv.clone());
-                        let concolic_value = ConcolicVar { concrete: orig_concrete, symbolic, ctx: executor.context };
-
-                        // Update CPU state
-                        match cpu.set_register_value_by_offset(offset, concolic_value, bit_width) {
+                        let sym = SymbolicVar::Int(bv.clone());
+                        let conc = ConcolicVar { concrete: orig_conc, symbolic: sym, ctx: executor.context };
+                        match cpu.set_register_value_by_offset(offset, conc, bit_width) {
                             Ok(()) => log!(executor.state.logger, "Initialized '{}' => {} (0x{:x}) as symbolic", arg_name, reg_name, offset),
                             Err(e) => log!(executor.state.logger, "Failed to set {}: {}", reg_name, e),
                         }
-                    } else {
-                        log!(executor.state.logger, "WARNING: no existing value at offset 0x{:x} for {}", offset, reg_name);
                     }
                 } else {
                     log!(executor.state.logger, "WARNING: unknown register '{}' for arg {}", reg_name, arg_name);
@@ -647,12 +676,28 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 log!(executor.state.logger, "To enter a panic function, the following conditions must be satisfied:");
 
                                 for (arg_name, bv) in executor.function_symbolic_arguments.iter() {
-                                    if let Some(val) = model.eval(bv, true).and_then(|v| v.as_u64()) {
-                                        log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);
+                                    if let Some(model_val) = model.eval(bv, true) {
+                                        // check if the variable is actually forced to that value
+                                        executor.solver.push();
+                                        executor.solver.assert(&bv._eq(&model_val).not());   // “could it be different?”
+                                        let fixed = matches!(executor.solver.check(), z3::SatResult::Unsat);
+                                        executor.solver.pop(1);
+
+                                        if fixed {
+                                            // render as u64 when possible, otherwise print the bit-vector
+                                            if let Some(v) = model_val.as_u64() {
+                                                log!(executor.state.logger, "The argument {} should have the value {}", arg_name, v);
+                                            } else {
+                                                log!(executor.state.logger, "The argument {} should have the value {}", arg_name, model_val);
+                                            }
+                                        } else {
+                                            log!(executor.state.logger, "The argument {} is unconstrained (model picked {})", arg_name, model_val);
+                                        }
                                     } else {
                                         log!(executor.state.logger, "Could not evaluate symbolic input '{}'", arg_name);
                                     }
                                 }
+
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                             }
                             z3::SatResult::Unsat => {

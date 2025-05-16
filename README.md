@@ -130,7 +130,7 @@ Incoming
 
 ## :spiral_calendar: Roadmap 
 <div align="left">
-  <img src="doc/roadmap-zorya_may-2025.png" alt="Roadmap" width="900"/>
+  <img src="doc/github_roadmap-zorya_may-2025.png" alt="Roadmap" width="900"/>
 </div>
 
 ## :memo: Academic work
