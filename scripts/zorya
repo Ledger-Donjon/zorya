@@ -1,19 +1,13 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 ##############################################################################
-#                          SCRIPT STYLING / LAYOUT
+#                             Z O R Y A  wrapper
+#   Interactive by default – but any missing info can be supplied via flags.
 ##############################################################################
 
-# Simple color/bold definitions (optional)
-RESET="\033[0m"
-BOLD="\033[1m"
-CYAN="\033[36m"
-GREEN="\033[32m"
+RESET="\033[0m"; BOLD="\033[1m"; CYAN="\033[36m"; GREEN="\033[32m"
 
-echo ""
-# Simple banner replacement
 print_banner() {
-  cat << "EOF"
+  cat << 'EOF'
 ███████╗ ██████╗ ██████╗ ██╗   ██╗ █████╗ 
 ╚══███╔╝██╔═══██╗██╔══██╗╚██╗ ██╔╝██╔══██╗
   ███╔╝ ██║   ██║██████╔╝ ╚████╔╝ ███████║
@@ -23,191 +17,132 @@ print_banner() {
 EOF
   echo -e "    ${CYAN}${BOLD}Next Generation Concolic Analysis${RESET}"
 }
-
-# Section divider
-section_divider() {
-  echo -e "${CYAN}***********************************************************************${RESET}"
-}
+divider() { echo -e "${CYAN}***********************************************************************${RESET}"; }
 
 ##############################################################################
-#                          INITIAL SETUP
+#                         INSTALL-TIME PATHS
 ##############################################################################
-
-# ZORYA_DIR will be replaced during installation
 ZORYA_DIR="__ZORYA_DIR__"
-
-if [ "$ZORYA_DIR" == "__ZORYA_DIR__" ]; then
-    echo "Error: ZORYA_DIR is not set. Please reinstall the zorya command."
-    exit 1
-fi
+[[ "$ZORYA_DIR" == "__ZORYA_DIR__" ]] && { echo "Reinstall required"; exit 1; }
 
 PCODE_GENERATOR_DIR="$ZORYA_DIR/external/pcode-generator"
 INIT_DATA_DIR="$ZORYA_DIR/results/initialization_data"
-TARGET_INFO_RS="$ZORYA_DIR/src/target_info.rs"
-
-if [ ! -d "$PCODE_GENERATOR_DIR" ]; then
-  echo "Error: Pcode generator directory not found at $PCODE_GENERATOR_DIR."
-  exit 1
-fi
-
-if [ ! -d "$INIT_DATA_DIR" ]; then
-  echo "Error: Initialization data directory not found at $INIT_DATA_DIR."
-  exit 1
-fi
-
-# Check if user provided a binary path
-if [ -z "$1" ]; then
-    echo "Usage: zorya /path/to/bin"
-    exit 1
-fi
-BIN_PATH="$1"
-
-export ZORYA_DIR="$ZORYA_DIR"
-export BIN_PATH="$BIN_PATH"
+[[ ! -d "$PCODE_GENERATOR_DIR" || ! -d "$INIT_DATA_DIR" ]] && { echo "Run: make all"; exit 1; }
 
 ##############################################################################
-#                          HELPER FUNCTIONS
+#                         HELPER FUNCTIONS
 ##############################################################################
+get_entry_point() { readelf -h "$1" | awk '/Entry point address:/ {print $NF}'; }
 
-get_entry_point() {
-    local bin_file="$1"
-    readelf -h "$bin_file" | awk '/Entry point address:/ {print $NF}'
-}
-
-get_main_address() {
-    local bin_file="$1"
-    local main_addr=""
-    
-    while IFS= read -r line; do
-        symbol=$(echo "$line" | awk '{print $NF}')
-        address=$(echo "$line" | awk '{print "0x"$1}')
-        
-        if [[ "$symbol" == "main.main" ]]; then
-            echo "$address"
-            return
-        elif [[ "$symbol" == "main" ]]; then
-            main_addr="$address"
-        fi
-    done < <(nm "$bin_file")
-    
-    if [[ -n "$main_addr" ]]; then
-        echo "$main_addr"
-    fi
+get_main_addr() {
+  nm "$1" | awk '
+      / main.main$/     {print "0x"$1; exit}
+      / main$/          {m="0x"$1}
+      END{if(m)print m}'
 }
 
 ##############################################################################
-#                          MAIN SCRIPT FLOW
+#                         BASIC ARG PARSER
 ##############################################################################
+if [[ -z "$1" || "$1" == -* ]]; then
+  echo "Usage: zorya <binary> [--lang go|c|c++] [--compiler tinygo|gc] \\"
+  echo "                [--mode start|main|function|custom <addr>] [--arg …]"
+  exit 1
+fi
+BIN_PATH="$1"; shift || true
 
+SOURCE_LANG=""; COMPILER=""; MODE=""; ADDR=""; ARGS="none"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --lang)      SOURCE_LANG="$2"; shift 2 ;;
+    --compiler)  COMPILER="$2";    shift 2 ;;
+    --mode)      MODE="$2";        shift 2
+                 if [[ "$MODE" =~ ^(function|custom)$ && $# -gt 0 && "$1" != "--"* ]]; then
+                     ADDR="$1"; shift
+                 fi ;;
+    --arg)       shift; ARGS="$*"; break ;;
+    --help|-h)   exec "$0" -h ;;
+    *)           echo "Unknown flag: $1"; exit 1 ;;
+  esac
+done
+
+##############################################################################
+#                        INTERACTIVE QUESTIONS (fallback)
+##############################################################################
 print_banner
 
-# 0) Ask the user for the source code language
-echo ""
-echo "What is the source language of the binary? (go, c or c++)"
-read -p "[go]: " SOURCE_LANG
-SOURCE_LANG="${SOURCE_LANG:-Go}"  # Default to "Go" if empty
-echo ""
-export SOURCE_LANG="$SOURCE_LANG"
+# 0. language
+if [[ -z "$SOURCE_LANG" ]]; then
+  echo ""; echo "What is the source language of the binary? (go, c or c++)"
+  read -rp "[go]: " SOURCE_LANG; SOURCE_LANG="${SOURCE_LANG:-go}"
+fi; export SOURCE_LANG
 
-if [[ "${SOURCE_LANG,,}" == "go" ]]; then
-  echo "Which Go compiler was used to build the binary? (tinygo / gc)"
-  read -p "[tinygo]: " COMPILER
-  COMPILER="${COMPILER:-tinygo}"  # Default to tinygo
-  export COMPILER="$COMPILER"
-fi
-
-section_divider
+# 0b. Go compiler
+if [[ "${SOURCE_LANG,,}" == "go" && -z "$COMPILER" ]]; then
+  echo ""; echo "Which Go compiler was used? (tinygo / gc)"
+  read -rp "[tinygo]: " COMPILER; COMPILER="${COMPILER:-tinygo}"
+fi; export COMPILER
+divider
 
 ENTRY_POINT=$(get_entry_point "$BIN_PATH")
 
-# 1) Ask the user "Where to begin the analysis?" (start/main/function/custom)
-echo ""
-echo "Where to begin the analysis? (start / main / function / custom)"
-read -p "[main]: " MODE
-MODE="${MODE:-main}"   # Default to "main" if empty
-echo ""
-
-ARGS="none"
-ADDR=""
-
-# 2) Determine address based on mode
-case "$MODE" in
-  main)
-    ADDR=$(get_main_address "$BIN_PATH")
-    if [ -z "$ADDR" ]; then
-      echo "Error: Could not find the main function address."
-      exit 1
-    fi
-    echo -e "${GREEN}Automatically detected main function address: $ADDR${RESET}"
-    section_divider
-    ;;
-  start)
-    ADDR="$ENTRY_POINT"
-    echo -e "${GREEN}Automatically detected entry point: $ADDR${RESET}"
-    section_divider
-    ;;
-  function|custom)
-    while true; do
-      echo ""
-      read -p "What address does this correspond to? (hex e.g., 0x123): " user_addr
-      user_addr="$(echo "$user_addr" | tr -d '\r' | xargs)"  # Trim whitespace, strip \r
-      section_divider
-      if [[ "$user_addr" =~ ^0x[0-9A-Fa-f]+$ || "$user_addr" =~ ^[0-9]+$ ]]; then
-        ADDR="$user_addr"
-        break
-      else
-        echo "Invalid address. Please enter a valid hexadecimal (e.g. 0x123) or decimal format."
-      fi
-    done
-    ;;
-  *)
-    echo "Error: Unknown mode selected."
-    exit 1
-    ;;
-esac
-
-# 3) Ask for binary arguments
-echo ""
-echo "Does the binary expect any arguments? (none / e.g., x y z)"
-read -p "[none]: " ARGS
-ARGS="${ARGS:-none}"
-echo ""
-section_divider
-
-# 4) Export environment variables for Rust usage
-export MODE="$MODE"
-export ARGS="$ARGS"
-export START_POINT="$ADDR"
-
-COMMAND="$ZORYA_DIR/zorya $BIN_PATH --mode $MODE $ADDR"
-if [ "$ARGS" != "none" ]; then
-  COMMAND="$COMMAND --arg $ARGS"
+# 1. mode
+if [[ -z "$MODE" ]]; then
+  echo ""; echo "Where to begin the analysis? (start / main / function / custom)"
+  read -rp "[main]: " MODE; MODE="${MODE:-main}"
 fi
 
-echo "Running command: $COMMAND"
-echo ""
-echo "Generating Pcode for $BIN_PATH..."
+# 2. address selection by mode (if still missing)
+case "$MODE" in
+  start) [[ -z "$ADDR" ]] && ADDR="$ENTRY_POINT"
+         echo -e "${GREEN}Entry point: $ADDR${RESET}" ;;
+  main)  [[ -z "$ADDR" ]] && ADDR=$(get_main_addr "$BIN_PATH")
+         [[ -z "$ADDR" ]] && { echo "Could not locate main"; exit 1; }
+         echo -e "${GREEN}Main address: $ADDR${RESET}" ;;
+  function|custom)
+         while [[ -z "$ADDR" ]]; do
+             echo ""; read -rp "At what address should the analysis begin? (hex e.g. 0x123): " ADDR
+             [[ "$ADDR" =~ ^0x[0-9a-fA-F]+$ || "$ADDR" =~ ^[0-9]+$ ]] || ADDR=""
+         done ;;
+  *) echo "Unknown mode"; exit 1 ;;
+esac
+divider
 
-cd "$PCODE_GENERATOR_DIR" || exit
+# 3. runtime arguments
+if [[ "$ARGS" == "none" ]]; then
+  echo ""; echo "Does the binary expect any arguments? (none / e.g., x y z)"
+  read -rp "[none]: " ARGS; ARGS="${ARGS:-none}"
+fi
+divider
+
+##############################################################################
+#                        ENV EXPORTS & COMMAND LINE
+##############################################################################
+export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH
+
+CMD="$ZORYA_DIR/zorya $BIN_PATH --mode $MODE $ADDR"
+[[ -n "$SOURCE_LANG" ]] && CMD+=" --lang $SOURCE_LANG"
+[[ -n "$COMPILER"     ]] && CMD+=" --compiler $COMPILER"
+[[ "$ARGS" != "none"  ]] && CMD+=" --arg $ARGS"
+
+echo "Running command: $CMD"
+echo ""; echo "Generating Pcode…"
+
+cd "$PCODE_GENERATOR_DIR" || exit 1
 cargo run "$BIN_PATH" --low-pcode
 
 PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
-if [ ! -f "$PCODE_FILE" ]; then
-  echo "Failed to generate Pcode."
-  exit 1
-fi
+[[ ! -f "$PCODE_FILE" ]] && { echo "Pcode generation failed."; exit 1; }
 
-echo ""
-echo "Generating memory and CPU register dumps..."
+echo ""; echo "Generating memory and CPU register dumps…"
 chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
 "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS"
 
-if [ "$ARGS" != "none" ]; then
-  echo ""
-  echo "Writing argc and argv to memory..."
-  cd "$ZORYA_DIR" || exit
+if [[ "$ARGS" != "none" ]]; then
+  echo ""; echo "Writing argc/argv to memory…"
+  cd "$ZORYA_DIR" || exit 1
   RUSTFLAGS="-Awarnings" cargo run -- --write-args "$ARGS"
 fi
 
-echo ""
-echo -e "${GREEN}${BOLD}All tasks completed successfully.${RESET}"
+echo ""; echo -e "${GREEN}${BOLD}All tasks completed.${RESET}"

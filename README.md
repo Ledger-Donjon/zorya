@@ -33,14 +33,21 @@ Given the absolute path to the binary you want to analyze ```<path>```, simply r
 ```
 zorya <path>
 ```
-Zorya will then guide you through the execution setup.
+The prompt will ask you for the:
+1. Source code language: go, c, or c++
+2. Go compiler: tinygo or gc (only when go is selected)
+3. Analysis mode: start, main, function, or custom
+4. Function address: If you chose function or custom modes
+5. Binary arguments: If the binary expects arguments (optional)
 
-### B. Basic Usage
+### B. Basic Command-Line Usage
 To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or custom) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
 ```
-zorya <path> --mode <mode> <addr> --arg <arg1> <arg2>
+zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg <arg1> <arg2>
 
 FLAG:
+    --lang         Specifies the language used in the source code (go/c/c++)
+    --compiler     When Go was chosen as 'lang', specifies the used compiler (tinygo or gc)
     --mode         Specifies the strategy mode to determine the starting address for binary analysis. Options include:
                       start → Use the binary's entry point
                       main → Analyze the main function (main.main preferred in Go binaries)
@@ -50,6 +57,11 @@ FLAG:
 OPTION:
     --arg          Specifies arguments to pass to the binary, if any (default is 'none').
 ```
+
+Notes:
+- If any flag is missing, Zorya will prompt you interactively to ask for it.
+- The address (<addr>) is mandatory when using function or custom modes.
+- Arguments (--arg) are optional.
 
 ## How to build your binary?
 Zorya needs the binary to have the debug symbols to perform the complete analysis. Striped binaries could be also analyzed, but it required to disable many functionnalities of the tool.
