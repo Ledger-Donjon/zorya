@@ -60,7 +60,7 @@ OPTION:
 
 Notes:
 - If any flag is missing, Zorya will prompt you interactively to ask for it.
-- The address (<addr>) is mandatory when using function or custom modes.
+- The address ()```<addr>```) is mandatory when using function or custom modes.
 - Arguments (--arg) are optional.
 
 ## How to build your binary?
@@ -103,7 +103,7 @@ Does the binary expect any arguments? (none / e.g., x y z)
 [none]: a
 
 ***********************************************************************
-Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya/tests/programs/crashme/crashme --mode main 0x000000000022b1d0 --arg a
+Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya/tests/programs/crashme/crashme --mode main 0x000000000022b1d0 --lang go --compiler tinygo --arg a
 ...
 ```
 

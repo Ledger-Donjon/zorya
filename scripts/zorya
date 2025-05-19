@@ -34,12 +34,14 @@ INIT_DATA_DIR="$ZORYA_DIR/results/initialization_data"
 ##############################################################################
 get_entry_point() { readelf -h "$1" | awk '/Entry point address:/ {print $NF}'; }
 
+# Be abale to find main() in C/C++ binaries and main.main() in Go binaries
 get_main_addr() {
   nm "$1" | awk '
-      / main.main$/     {print "0x"$1; exit}
+      / main.main$/     {print "0x"$1; found=1; exit}
       / main$/          {m="0x"$1}
-      END{if(m)print m}'
+      END{if(!found && m)print m}'
 }
+
 
 ##############################################################################
 #                         BASIC ARG PARSER
