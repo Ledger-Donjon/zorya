@@ -387,90 +387,61 @@ fn clean_ghidra_project_dir(project_path: &str) {
 }
 
 // Load a map from function address -> (name, [(arg_name, register_offset, arg_type)])
-pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, u64, String)>)> {
+pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, Vec<String>, String)>)> {
     let json_file = "results/function_signature.json";
-    let mut function_args_map = HashMap::new();
+    let mut map = HashMap::new();
 
-    if Path::new(json_file).exists() {
-        let file = File::open(json_file).expect("Failed to open function signature JSON file");
-        let reader = BufReader::new(file);
-        let wrapper: FunctionSigWrapper =
-            serde_json::from_reader(reader).expect("Failed to parse JSON file");
-
-        for sig in wrapper.functions {
-            let addr = u64::from_str_radix(sig.address.trim_start_matches("0x"), 16)
-                .unwrap_or_else(|_| {
-                    eprintln!("Warning: invalid address {}", sig.address);
-                    0
-                });
-
-            let mut args = Vec::new();
-            for arg in sig.arguments {
-                if let Some(reg) = arg.register.as_deref() {
-                    let off = match reg {
-                        "RAX" => 0x0,
-                        "RCX" => 0x8,
-                        "RDX" => 0x10,
-                        "RBX" => 0x18,
-                        "RSI" => 0x30,
-                        "RDI" => 0x38,
-                        "R8" => 0x80,
-                        "R9" => 0x88,
-                        "R10" => 0x90,
-                        "R11" => 0x98,
-                        "R12" => 0xa0,
-                        "R13" => 0xa8,
-                        "R14" => 0xb0,
-                        "R15" => 0xb8,
-                        _ => continue,
-                    };
-                    let arg_type_str = match &arg.arg_type {
-                        TypeDescCompat::Typed(t) => format!("{:?}", t),
-                        TypeDescCompat::Raw(s) => s.clone(),
-                    };
-                    args.push((arg.name.clone(), off, arg_type_str));                    
-                } else if let Some(regs) = &arg.registers {
-                    // multi-register (e.g. string), take the first
-                    if let Some(first) = regs.first().map(String::as_str) {
-                        let off = match first {
-                            "RAX" => 0x0,
-                            "RCX" => 0x8,
-                            "RDX" => 0x10,
-                            "RBX" => 0x18,
-                            "RSI" => 0x30,
-                            "RDI" => 0x38,
-                            "R8" => 0x80,
-                            "R9" => 0x88,
-                            "R10" => 0x90,
-                            "R11" => 0x98,
-                            "R12" => 0xa0,
-                            "R13" => 0xa8,
-                            "R14" => 0xb0,
-                            "R15" => 0xb8,
-                            _ => continue,
-                        };
-                        let arg_type_str = match &arg.arg_type {
-                            TypeDescCompat::Typed(t) => format!("{:?}", t),
-                            TypeDescCompat::Raw(s) => s.clone(),
-                        };
-                        args.push((arg.name.clone(), off, arg_type_str));                        
-                    }
-                }
-                // otherwise: no register info -> skip
-            }
-
-            if !args.is_empty() {
-                function_args_map.insert(addr, (sig.name, args));
-            }
-        }
-    } else {
+    if !Path::new(json_file).exists() {
         eprintln!(
-            "Warning: {} not found. Precompute signatures with Ghidra/Delve first.",
+            "Warning: {} not found. Pre-compute signatures with Ghidra/Delve first.",
             json_file
         );
+        return map;
     }
 
-    function_args_map
+    let reader = BufReader::new(
+        File::open(json_file).expect("Failed to open function signature JSON file"),
+    );
+    let wrapper: FunctionSigWrapper =
+        serde_json::from_reader(reader).expect("Failed to parse JSON file");
+
+    for sig in wrapper.functions {
+        let addr = u64::from_str_radix(sig.address.trim_start_matches("0x"), 16).unwrap_or(0);
+
+        let mut args: Vec<(String, Vec<String>, String)> = Vec::new();
+        for arg in sig.arguments {
+            let arg_type_str = match &arg.arg_type {
+                TypeDescCompat::Typed(t) => format!("{:?}", t),
+                TypeDescCompat::Raw(s) => s.clone(),
+            };
+
+            // single-register argument
+            if let Some(reg) = arg.register.as_deref() {
+                args.push((
+                    arg.name.clone(),
+                    vec![reg.to_string()],
+                    arg_type_str.clone(),
+                ));
+            }
+            // multi-register argument (e.g., Go string: ptr,len)
+            else if let Some(regs) = &arg.registers {
+                if !regs.is_empty() {
+                    args.push((
+                        arg.name.clone(),
+                        regs.clone(), // already Vec<String>
+                        arg_type_str.clone(),
+                    ));
+                }
+            }
+            // if neither `register` nor `registers` present → skip
+        }
+
+        if !args.is_empty() {
+            map.insert(addr, (sig.name, args));
+        }
+    }
+
+    map
 }
 
 /// Loads and merges Go function signatures from DWARF types and register info,

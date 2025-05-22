@@ -81,26 +81,39 @@ fn main() -> Result<(), Box<dyn Error>> {
         let function_args_map = match source_lang.to_lowercase().as_str() {
             // --- C / C++ branch ---
             "c" | "c++" => {
-                log!(executor.state.logger, "Precomputing function signatures using Ghidra headless...");
+                log!(executor.state.logger, "Precomputing function signatures using Ghidra headless…");
                 precompute_function_signatures_via_ghidra(&binary_path, &mut executor)?;
 
-                log!(executor.state.logger, "Loading raw C signatures...");
-                let raw = load_function_args_map(); // HashMap<u64,(String,Vec<(String,u64,String)>)>
+                log!(executor.state.logger, "Loading raw C signatures…");
+                // now returns HashMap<u64, (String, Vec<(arg, Vec<reg>, typ)>)>
+                let raw = load_function_args_map();
                 log!(executor.state.logger, "Loaded {} raw C signatures.", raw.len());
 
-                let cpu = executor.state.cpu_state.lock().unwrap();
                 let mut unified = HashMap::new();
+                let cpu = executor.state.cpu_state.lock().unwrap();
 
                 for (addr, (fn_name, raw_args)) in raw {
-                    let mut args = Vec::new();
-                    for (arg_name, offset, typ) in raw_args {
-                        if let Some((reg_name, _size)) = cpu.register_map.get(&offset) {
-                            args.push((arg_name, reg_name.clone(), typ));
+                    let mut args: Vec<(String, String, String)> = Vec::new();
+
+                    for (arg_name, regs, typ) in raw_args {
+                        // we expect at least one register name
+                        if regs.is_empty() { continue; }
+
+                        // keep single-register as is, multi-register joined with “,” (like we do for Go)
+                        let reg_repr = if regs.len() == 1 {
+                            regs[0].clone()
                         } else {
+                            regs.join(",")
+                        };
+
+                        // optional sanity-check against CPU register map
+                        let reg_ok = regs.iter().all(|r| cpu.resolve_offset_from_register_name(r).is_some());
+                        if !reg_ok {
                             log!(executor.state.logger,
-                                "WARNING: no register metadata for offset 0x{:x}, skipping '{}'", 
-                                offset, arg_name);
+                                "WARNING: unknown register(s) {:?} for arg '{}' @0x{:x}", regs, arg_name, addr);
                         }
+
+                        args.push((arg_name, reg_repr, typ));
                     }
                     unified.insert(addr, (fn_name, args));
                 }
@@ -108,7 +121,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 log!(executor.state.logger, "Unified {} C signatures.", unified.len());
                 unified
             }
-
             // --- Go branch ---
             "go" => {
                 log!(executor.state.logger, "Calling dwarf_get_all_function_args.py to extract registers...");
@@ -553,8 +565,18 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
     // Load the function arguments map
     log!(executor.state.logger, "Loading function arguments map...");
-    let function_args_map = load_function_args_map();
+    let lang = env::var("SOURCE_LANG").expect("SOURCE_LANG environment variable is not set");
 
+    let function_args_map = if lang == "go" {
+        log!(executor.state.logger, "Loading Go function arguments map...");
+        let function_args_map = load_function_args_map_go();
+        function_args_map
+    } else {
+        log!(executor.state.logger, "Loading C function arguments map...");
+        let function_args_map = load_function_args_map();
+        function_args_map
+    };
+    
     while let Some(instructions) = instructions_map.get(&current_rip) {
         if current_rip == end_address {
             log!(executor.state.logger, "END ADDRESS 0x{:x} REACHED, STOP THE EXECUTION", end_address);
@@ -567,13 +589,18 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
         let current_rip_hex = format!("{:x}", current_rip);
 
-        // This bloc is only to get data about the execution in results/execution_trace.txt
+        // This block is only to get data about the execution in results/execution_trace.txt
         if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {
             if let Some((_, args)) = function_args_map.get(&current_rip) {
                 let mut arg_values = Vec::new();
-                for (arg_name, register_offset, _arg_type) in args {
-                    if let Some(value) = executor.state.cpu_state.lock().unwrap().get_register_by_offset(*register_offset, 64) {
-                        arg_values.push(format!("{}=0x{:x} (reg=0x{:x})", arg_name, value.concrete, register_offset));
+                let cpu = executor.state.cpu_state.lock().unwrap();
+                for (arg_name, reg_names, _arg_type) in args {
+                    for reg_name in reg_names {
+                        if let Some(offset) = cpu.resolve_offset_from_register_name(reg_name) {
+                            if let Some(value) = cpu.get_register_by_offset(offset, 64) {
+                                arg_values.push(format!("{}=0x{:x} (reg={} @0x{:x})", arg_name, value.concrete, reg_name, offset));
+                            }
+                        }
                     }
                 }
                 if !arg_values.is_empty() {
@@ -624,7 +651,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     *addr
                 };
 
-                if current_rip == 0x22edeb {
+                if current_rip == 0x22f068 {
                     let r14_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
                     let r14_bv = r14_reg.symbolic.to_bv(executor.context).simplify();
                     log!(executor.state.logger, "Symbolic R14 before CMP at current RIP 0x{:?}: {:?}", current_rip, r14_bv);
