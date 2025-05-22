@@ -132,6 +132,7 @@ Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya
 - Has integrated Z3 capabilities for writing invariants over the instructions and CPU registers, through the Rust crate.
 
 ### Strategies to find bugs/panics/vuln
+For more explanation about the bugs/panics/vuln research strategies, read here : [Strategies.md](doc/Strategies.md).
 <div align="left">
   <img src="doc/github_zorya_panic-exploration_strategies.png" alt="Strategies" width="1000"/>
 </div>
@@ -141,6 +142,7 @@ Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya
 Incoming
 
 ## :spiral_calendar: Roadmap 
+Zorya has been developeped and tested for now on Linux Ubuntu as the execution environement with x86-64 binaries targets. The roadmap below details the features that have been added over time and those that are planned:
 <div align="left">
   <img src="doc/github_roadmap-zorya_may-2025.png" alt="Roadmap" width="900"/>
 </div>

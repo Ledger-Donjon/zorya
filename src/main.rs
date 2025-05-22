@@ -624,7 +624,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     *addr
                 };
 
-                if current_rip == 0x22f068 {
+                if current_rip == 0x22edeb {
                     let r14_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
                     let r14_bv = r14_reg.symbolic.to_bv(executor.context).simplify();
                     log!(executor.state.logger, "Symbolic R14 before CMP at current RIP 0x{:?}: {:?}", current_rip, r14_bv);
@@ -674,24 +674,31 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 let model = executor.solver.get_model().unwrap();
                         
                                 log!(executor.state.logger, "To enter a panic function, the following conditions must be satisfied:");
-
                                 for (arg_name, bv) in executor.function_symbolic_arguments.iter() {
                                     if let Some(model_val) = model.eval(bv, true) {
-                                        // check if the variable is actually forced to that value
-                                        executor.solver.push();
-                                        executor.solver.assert(&bv._eq(&model_val).not());   // “could it be different?”
-                                        let fixed = matches!(executor.solver.check(), z3::SatResult::Unsat);
-                                        executor.solver.pop(1);
+                                        let model_ast = model_val.get_z3_ast();
+                                        let original_ast = bv.get_z3_ast();
 
-                                        if fixed {
-                                            // render as u64 when possible, otherwise print the bit-vector
-                                            if let Some(v) = model_val.as_u64() {
-                                                log!(executor.state.logger, "The argument {} should have the value {}", arg_name, v);
+                                        // If Z3 just echoed back the variable, it means it's not concretely fixed
+                                        let is_unconstrained = model_ast == original_ast;
+
+                                        if !is_unconstrained {
+                                            executor.solver.push();
+                                            executor.solver.assert(&bv._eq(&model_val).not());
+                                            let fixed = matches!(executor.solver.check(), z3::SatResult::Unsat);
+                                            executor.solver.pop(1);
+
+                                            if fixed {
+                                                if let Some(val) = model_val.as_u64() {
+                                                    log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);
+                                                } else {
+                                                    log!(executor.state.logger, "The argument {} is fixed but not convertible to u64", arg_name);
+                                                }
                                             } else {
-                                                log!(executor.state.logger, "The argument {} should have the value {}", arg_name, model_val);
+                                                log!(executor.state.logger, "The argument {} is unconstrained (model picked {:?})", arg_name, model_val);
                                             }
                                         } else {
-                                            log!(executor.state.logger, "The argument {} is unconstrained (model picked {})", arg_name, model_val);
+                                            log!(executor.state.logger, "The argument {} is unconstrained (model picked {:?})", arg_name, model_val);
                                         }
                                     } else {
                                         log!(executor.state.logger, "Could not evaluate symbolic input '{}'", arg_name);
