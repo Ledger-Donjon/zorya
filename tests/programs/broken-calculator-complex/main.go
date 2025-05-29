@@ -27,7 +27,7 @@ func coreEngine(num1 int, operator string, num2 int) (int, error) {
 	}
 
 	// Intentional panic trigger
-	if (num1 + num2) == 7 {
+	if num1 == 5 && (num1 + num2) <= 8 {
 		var p *int
 		*p = 0
 	}

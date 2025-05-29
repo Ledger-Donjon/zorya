@@ -697,34 +697,24 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                                 log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
                                 log!(executor.state.logger, "~~~~~~~~~~~");
-                        
+
                                 let model = executor.solver.get_model().unwrap();
-                        
+
                                 log!(executor.state.logger, "To enter a panic function, the following conditions must be satisfied:");
+
+                                let flag_expr_str = conditional_flag.symbolic.simplify().to_string();
+
                                 for (arg_name, bv) in executor.function_symbolic_arguments.iter() {
                                     if let Some(model_val) = model.eval(bv, true) {
-                                        let model_ast = model_val.get_z3_ast();
-                                        let original_ast = bv.get_z3_ast();
-
-                                        // If Z3 just echoed back the variable, it means it's not concretely fixed
-                                        let is_unconstrained = model_ast == original_ast;
-
-                                        if !is_unconstrained {
-                                            executor.solver.push();
-                                            executor.solver.assert(&bv._eq(&model_val).not());
-                                            let fixed = matches!(executor.solver.check(), z3::SatResult::Unsat);
-                                            executor.solver.pop(1);
-
-                                            if fixed {
-                                                if let Some(val) = model_val.as_u64() {
-                                                    log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);
-                                                } else {
-                                                    log!(executor.state.logger, "The argument {} is fixed but not convertible to u64", arg_name);
-                                                }
+                                        if flag_expr_str.contains(arg_name) {
+                                            // Considered "constrained" because it influenced the branch condition
+                                            if let Some(val) = model_val.as_u64() {
+                                                log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);
                                             } else {
-                                                log!(executor.state.logger, "The argument {} is unconstrained (model picked {:?})", arg_name, model_val);
+                                                log!(executor.state.logger, "The argument {} is constrained (model value: {:?})", arg_name, model_val);
                                             }
                                         } else {
+                                            // Not in conditional expression => unconstrained
                                             log!(executor.state.logger, "The argument {} is unconstrained (model picked {:?})", arg_name, model_val);
                                         }
                                     } else {
@@ -734,6 +724,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                             }
+
                             z3::SatResult::Unsat => {
                                 log!(executor.state.logger, "~~~~~~~~~~~");
                                 log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");

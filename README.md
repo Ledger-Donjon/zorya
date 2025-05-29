@@ -148,7 +148,17 @@ Zorya has been developeped and tested for now on Linux Ubuntu as the execution e
 </div>
 
 ## :memo: Academic work
-Incoming
+You can find the preprint of our first paper on ArXiv under the title : [Exposing Go's Hidden Bugs: A Novel Concolic Framework](https://arxiv.org/abs/2505.20183v1).
+
+```
+@article{gorna2025zorya,
+  title={Exposing Go's Hidden Bugs: A Novel Concolic Framework},
+  author={Karolina Gorna and Nicolas Iooss and Yannick Seurin and Rida Khatoun},
+  journal={arXiv preprint arXiv:2505.20183},
+  year={2025},
+  note={Accepted at the 23rd IEEE/ACIS International Conference on Software Engineering, Management and Applications (SERA 2025)}
+}
+```
 
 ## Troubleshooting
 When building the project, if you have issues related to C++, it might be necessary to also specify the path to ```libclang.so```:

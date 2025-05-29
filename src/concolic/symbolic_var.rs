@@ -93,7 +93,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         }
     }
 
-    pub fn to_str(&self) -> String {
+    pub fn to_string(&self) -> String {
         match self {
             SymbolicVar::Int(bv) => bv.to_string(),
             SymbolicVar::LargeInt(vec) => vec.iter().map(|bv| bv.to_string()).collect::<Vec<_>>().join("|"),
