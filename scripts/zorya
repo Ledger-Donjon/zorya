@@ -17,7 +17,7 @@ print_banner() {
 EOF
   echo -e "    ${CYAN}${BOLD}Next Generation Concolic Analysis${RESET}"
 }
-divider() { echo -e "${CYAN}***********************************************************************${RESET}"; }
+divider() { echo -e "${CYAN}*************************************************************************************${RESET}"; }
 
 ##############################################################################
 #                         INSTALL-TIME PATHS
@@ -53,7 +53,7 @@ if [[ -z "$1" || "$1" == -* ]]; then
 fi
 BIN_PATH="$1"; shift || true
 
-SOURCE_LANG=""; COMPILER=""; MODE=""; ADDR=""; ARGS="none"
+SOURCE_LANG=""; COMPILER=""; MODE=""; ADDR=""; ARGS="none"; NEGATE_FLAG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,14 +64,19 @@ while [[ $# -gt 0 ]]; do
                      ADDR="$1"; shift
                  fi ;;
     --arg)       shift; ARGS="$*"; break ;;
+    --negate)    NEGATE_FLAG="true"; shift ;;
+    --no-negate) NEGATE_FLAG="false"; shift ;;
     --help|-h)   exec "$0" -h ;;
     *)           echo "Unknown flag: $1"; exit 1 ;;
   esac
 done
 
+
 ##############################################################################
 #                        INTERACTIVE QUESTIONS (fallback)
 ##############################################################################
+
+echo ""
 print_banner
 
 # 0. language
@@ -118,15 +123,28 @@ if [[ "$ARGS" == "none" ]]; then
 fi
 divider
 
+# 4. Enable negating path exploration (if not set via flag)
+if [[ -z "$NEGATE_PATH_FLAG" ]]; then
+  echo ""; echo "Do you want to activate the negating path execution to cover symbolically more paths?"
+  read -rp "[Y/n]: " ENABLE_NEGATING; ENABLE_NEGATING="${ENABLE_NEGATING,,}"  # to lowercase
+  if [[ "$ENABLE_NEGATING" == "n" || "$ENABLE_NEGATING" == "no" ]]; then
+    NEGATE_PATH_FLAG="false"
+  else
+    NEGATE_PATH_FLAG="true"
+  fi
+fi
+divider
+
 ##############################################################################
 #                        ENV EXPORTS & COMMAND LINE
 ##############################################################################
-export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH
+export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH NEGATE_PATH_FLAG="$NEGATE_PATH_FLAG"
 
 CMD="$ZORYA_DIR/zorya $BIN_PATH --mode $MODE $ADDR"
 [[ -n "$SOURCE_LANG" ]] && CMD+=" --lang $SOURCE_LANG"
 [[ -n "$COMPILER"     ]] && CMD+=" --compiler $COMPILER"
 [[ "$ARGS" != "none"  ]] && CMD+=" --arg $ARGS"
+[[ "$NEGATE_PATH_FLAG" == "true" ]] && CMD+=" --negate-path-exploration" || CMD+=" --no-negate-path-exploration"
 
 echo "Running command: $CMD"
 echo ""; echo "Generating Pcode…"
@@ -146,5 +164,3 @@ if [[ "$ARGS" != "none" ]]; then
   cd "$ZORYA_DIR" || exit 1
   RUSTFLAGS="-Awarnings" cargo run -- --write-args "$ARGS"
 fi
-
-echo ""; echo -e "${GREEN}${BOLD}All tasks completed.${RESET}"

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="doc/zorya_logo.jpg" alt="Logo" width="300"/>
+  <img src="doc/zorya_logo.png" alt="Logo" width="250"/>
 </div>
 
 <br><br>
@@ -39,20 +39,23 @@ The prompt will ask you for the:
 3. Analysis mode: start, main, function, or custom
 4. Function address: If you chose function or custom modes
 5. Binary arguments: If the binary expects arguments (optional)
+6. Negating path execution: Whether to symbolically explore alternate branches (defaults to yes)
 
 ### B. Basic Command-Line Usage
 To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or custom) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
 ```
-zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg <arg1> <arg2>
+zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg <arg1> <arg2> [--negate | --no-negate]
 
 FLAG:
-    --lang         Specifies the language used in the source code (go/c/c++)
-    --compiler     When Go was chosen as 'lang', specifies the used compiler (tinygo or gc)
-    --mode         Specifies the strategy mode to determine the starting address for binary analysis. Options include:
+    --lang        Specifies the language used in the source code (go/c/c++)
+    --compiler    When Go was chosen as 'lang', specifies the used compiler (tinygo or gc)
+    --mode        Specifies the strategy mode to determine the starting address for binary analysis. Options include:
                       start → Use the binary's entry point
                       main → Analyze the main function (main.main preferred in Go binaries)
                       function → Specify a function address manually
                       custom → Define an arbitrary execution address
+    --negate      Enables symbolic exploration of alternate paths (default behavior)
+    --no-negate   Disables alternate path exploration
 
 OPTION:
     --arg          Specifies arguments to pass to the binary, if any (default is 'none').
@@ -62,6 +65,7 @@ Notes:
 - If any flag is missing, Zorya will prompt you interactively to ask for it.
 - The address ()```<addr>```) is mandatory when using function or custom modes.
 - Arguments (--arg) are optional.
+- The ```--negate``` flag enables alternate path exploration (symbolic branch negation) to increase code coverage. It is enabled by default unless explicitly disabled using ```--no-negate```, if the execution takes too much time for instance.
 
 ## How to build your binary?
 Zorya needs the binary to have the debug symbols to perform the complete analysis. Striped binaries could be also analyzed, but it required to disable many functionnalities of the tool.
@@ -151,11 +155,11 @@ Zorya has been developeped and tested for now on Linux Ubuntu as the execution e
 You can find the preprint of our first paper on ArXiv under the title : [Exposing Go's Hidden Bugs: A Novel Concolic Framework](https://arxiv.org/abs/2505.20183v1).
 
 ```
-@article{gorna2025zorya,
+@article{gorna2025exposing,
   title={Exposing Go's Hidden Bugs: A Novel Concolic Framework},
-  author={Karolina Gorna and Nicolas Iooss and Yannick Seurin and Rida Khatoun},
+  author={Gorna, Karolina and Iooss, Nicolas and Seurin, Yannick and Khatoun, Rida},
   journal={arXiv preprint arXiv:2505.20183},
-  year={2025},
+  year={2025}
   note={Accepted at the 23rd IEEE/ACIS International Conference on Software Engineering, Management and Applications (SERA 2025)}
 }
 ```
