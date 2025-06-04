@@ -534,6 +534,290 @@ fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<
     Ok(())
 }
 
+pub fn evaluate_args_z3(executor: &mut ConcolicExecutor, inst: &Inst, binary_path: &str, address_of_negated_path_exploration: u64, conditional_flag: ConcolicVar) -> Result<(), Box<dyn std::error::Error>> {
+    
+    let mode = env::var("MODE").expect("MODE environment variable is not set");
+
+    if mode == "main" {
+        let cf_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 64).unwrap();
+            let cf_bv = cf_reg.symbolic.to_bv(executor.context).simplify();
+            log!(executor.state.logger, "CF BV simplified: {:?}", cf_bv);
+            
+            // 1) Push the solver context.
+            executor.solver.push();
+
+            // 2) Process the branch condition.
+            let cond_varnode = &inst.inputs[1];
+            let cond_concolic = executor.varnode_to_concolic(cond_varnode)
+                .map_err(|e| e.to_string())
+                .unwrap()
+                .to_concolic_var()
+                .unwrap();
+            let cond_bv = cond_concolic.symbolic.to_bv(executor.context); 
+
+            // we want to assert that the condition is non zero.
+            let zero_bv = z3::ast::BV::from_u64(executor.context, 0, cond_bv.get_size());
+            let branch_condition = cond_bv._eq(&zero_bv).not();
+
+            // 3) Assert the branch condition.
+            executor.solver.assert(&branch_condition);
+    
+            // 4) check feasibility
+            match executor.solver.check() {
+                z3::SatResult::Sat => {
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+                    log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+    
+                    // 5) get_model
+                    let model = executor.solver.get_model().unwrap();
+
+                    // broken-calculator-bis : 22def7 / crashme : 22b21a / broken-calculator: 22f06e
+                    //if current_rip == 0x22f06e || current_rip == 0x22f068 || current_rip == 0x22b21a || current_rip == 0x22def7 {
+                        // 5.1) get address of os.Args
+                        let os_args_addr = get_os_args_address(binary_path).unwrap();
+
+                        // 5.2) read the slice's pointer and length from memory, then evaluate them in the model
+                        let slice_ptr_bv = executor
+                            .state
+                            .memory
+                            .read_u64(os_args_addr)
+                            .unwrap()
+                            .symbolic
+                            .to_bv(executor.context);
+                        let slice_ptr_val = model.eval(&slice_ptr_bv, true).unwrap().as_u64().unwrap();
+
+                        let slice_len_bv = executor
+                            .state
+                            .memory
+                            .read_u64(os_args_addr + 8)
+                            .unwrap()
+                            .symbolic
+                            .to_bv(executor.context);
+                        let slice_len_val = model.eval(&slice_len_bv, true).unwrap().as_u64().unwrap();
+
+                        log!(executor.state.logger, "To take the panic-branch => os.Args ptr=0x{:x}, len={}", slice_ptr_val, slice_len_val);
+
+                        // 5.3) For each argument in os.Args, read the string struct (ptr, len), then read each byte
+                        // starting the loop from 1 to skip the first argument (binary name)
+                        for i in 1..slice_len_val {
+                            // Each string struct is 16 bytes: [8-byte ptr][8-byte len]
+                            let string_struct_addr = slice_ptr_val + i * 16;
+
+                            // Evaluate the pointer field
+                            let str_data_ptr_bv = executor
+                                .state
+                                .memory
+                                .read_u64(string_struct_addr)
+                                .unwrap()
+                                .symbolic
+                                .to_bv(executor.context);
+                            let str_data_ptr_val = model.eval(&str_data_ptr_bv, true).unwrap().as_u64().unwrap();
+
+                            // Evaluate the length field
+                            let str_data_len_bv = executor
+                                .state
+                                .memory
+                                .read_u64(string_struct_addr + 8)
+                                .unwrap()
+                                .symbolic
+                                .to_bv(executor.context);
+                            let str_data_len_val = model.eval(&str_data_len_bv, true).unwrap().as_u64().unwrap();
+
+                            // If pointer or length is zero, skip
+                            if str_data_ptr_val == 0 || str_data_len_val == 0 {
+                                log!(executor.state.logger, "Arg[{}] => (empty or null)", i);
+                                continue;
+                            }
+
+                            // 5.4) read each symbolic byte from memory, evaluate in the model, and collect
+                            let mut arg_bytes = Vec::new();
+                            for j in 0..str_data_len_val {
+                                let byte_read = executor
+                                    .state
+                                    .memory
+                                    .read_byte(str_data_ptr_val + j)
+                                    .map_err(|e| format!("Could not read arg[{}][{}]: {}", i, j, e))
+                                    .unwrap();
+
+                                let byte_bv = byte_read.symbolic.to_bv(executor.context);
+                                let byte_val = model.eval(&byte_bv, true).unwrap().as_u64().unwrap() as u8;
+
+                                arg_bytes.push(byte_val);
+                            }
+
+                            // Convert the collected bytes into a String (falling back to lossy if invalid UTF-8)
+                            let arg_str = String::from_utf8_lossy(&arg_bytes);
+
+                            log!(executor.state.logger, "The user input nr.{} must be => \"{}\", the raw value beeing {:?} (len={})", i, arg_str, arg_bytes, str_data_len_val);
+                        }
+
+                        // Retrieve others registers values
+                        let rax_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rax_val = model.eval(&rax_sym_bv, true).unwrap().as_u64().unwrap();
+                        let rcx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rcx_val = model.eval(&rcx_sym_bv, true).unwrap().as_u64().unwrap();
+                        let rdx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rdx_val = model.eval(&rdx_sym_bv, true).unwrap().as_u64().unwrap();
+                        let rbx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rbx_val = model.eval(&rbx_sym_bv, true).unwrap().as_u64().unwrap();
+                        let rsp_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rsp_val = model.eval(&rsp_sym_bv, true).unwrap().as_u64().unwrap();
+                        let rbp_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x28, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rbp_val = model.eval(&rbp_sym_bv, true).unwrap().as_u64().unwrap();
+                        let rsi_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rsi_val = model.eval(&rsi_sym_bv, true).unwrap().as_u64().unwrap();
+                        let rdi_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap().symbolic.to_bv(executor.context);
+                        let rdi_val = model.eval(&rdi_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r8_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x80, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r8_val = model.eval(&r8_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r9_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x88, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r9_val = model.eval(&r9_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r10_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x90, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r10_val = model.eval(&r10_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r11_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r11_val = model.eval(&r11_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r12_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa0, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r12_val = model.eval(&r12_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r13_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa8, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r13_val = model.eval(&r13_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r14_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r14_val = model.eval(&r14_sym_bv, true).unwrap().as_u64().unwrap();
+                        let r15_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb8, 64).unwrap().symbolic.to_bv(executor.context);
+                        let r15_val = model.eval(&r15_sym_bv, true).unwrap().as_u64().unwrap();
+                        let zf_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 1).unwrap().symbolic.to_bv(executor.context);
+                        let zf_val = model.eval(&zf_sym_bv, true).unwrap().as_u64().unwrap();
+                        let cf_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 1).unwrap().symbolic.to_bv(executor.context);
+                        let cf_val = model.eval(&cf_sym_bv, true).unwrap().as_u64().unwrap();
+
+                        log!(executor.state.logger, "Register evaluations:");
+                        log!(executor.state.logger, "RAX: 0x{:x}", rax_val);
+                        log!(executor.state.logger, "RCX: 0x{:x}", rcx_val);
+                        log!(executor.state.logger, "RDX: 0x{:x}", rdx_val);
+                        log!(executor.state.logger, "RBX: 0x{:x}", rbx_val);
+                        log!(executor.state.logger, "RSP: 0x{:x}", rsp_val);
+                        log!(executor.state.logger, "RBP: 0x{:x}", rbp_val);
+                        log!(executor.state.logger, "RSI: 0x{:x}", rsi_val);
+                        log!(executor.state.logger, "RDI: 0x{:x}", rdi_val);
+                        log!(executor.state.logger, "R8: 0x{:x}", r8_val);
+                        log!(executor.state.logger, "R9: 0x{:x}", r9_val);
+                        log!(executor.state.logger, "R10: 0x{:x}", r10_val);
+                        log!(executor.state.logger, "R11: 0x{:x}", r11_val);
+                        log!(executor.state.logger, "R12: 0x{:x}", r12_val);
+                        log!(executor.state.logger, "R13: 0x{:x}", r13_val);
+                        log!(executor.state.logger, "R14: 0x{:x}", r14_val);
+                        log!(executor.state.logger, "R15: 0x{:x}", r15_val);
+                        log!(executor.state.logger, "ZF: 0x{:x}", zf_val);
+                        log!(executor.state.logger, "CF: 0x{:x}", cf_val);
+
+                        log!(executor.state.logger, "~~~~~~~~~~~");
+                    }
+    
+                    // store these results or exit:
+                    //process::exit(0);
+                //}
+                z3::SatResult::Unsat => {
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+                    log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+                }
+                z3::SatResult::Unknown => {
+                    log!(executor.state.logger, "Solver => Unknown feasibility");
+                }
+            }
+    
+            // 6) pop the solver context
+            executor.solver.pop(1);
+                   
+    } else if mode == "function" {
+        let zf_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
+        let zf_bv = zf_reg.symbolic.to_bv(executor.context).simplify();
+        log!(executor.state.logger, "ZF BV simplified: {:?}", zf_bv);
+
+        // CALL TO THE AST EXPLORATION FOR A PANIC FUNCTION
+        let ast_panic_result = explore_ast_for_panic(executor, address_of_negated_path_exploration, binary_path);
+
+        // If the AST exploration indicates a potential panic function...
+        if ast_panic_result.starts_with("FOUND_PANIC_XREF_AT 0x") { 
+            if let Some(panic_addr_str) = ast_panic_result.trim().split_whitespace().last() {
+                if let Some(stripped) = panic_addr_str.strip_prefix("0x") {
+                    if let Ok(parsed_addr) = u64::from_str_radix(stripped, 16) {
+                        log!(executor.state.logger, ">>> The speculative AST exploration found a potential call to a panic address at 0x{:x}", parsed_addr);
+                    } else {
+                        log!(executor.state.logger, "Could not parse panic address from AST result: '{}'", panic_addr_str);
+                    }
+                }
+            }
+                                
+            // 1) Push the solver context.
+            executor.solver.push();
+
+            // 2) Define the condition to explore the path not taken.
+            let negative_conditional_flag_u64 = conditional_flag.concrete.to_u64() ^ 1;
+            let conditional_flag_bv = conditional_flag.symbolic.to_bv(executor.context);
+            log!(executor.state.logger, "Conditional flag BV simplified: {:?}", conditional_flag_bv.simplify());
+
+            let bit_width = conditional_flag_bv.get_size();
+            let expected_val = BV::from_u64(executor.context, negative_conditional_flag_u64, bit_width);
+            let condition = conditional_flag_bv._eq(&expected_val);
+
+            // 3) Assert the condition in the solver.
+            executor.solver.assert(&condition);
+    
+            // 4) check feasibility
+            match executor.solver.check() {
+                z3::SatResult::Sat => {
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+                    log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+
+                    let model = executor.solver.get_model().unwrap();
+
+                    log!(executor.state.logger, "To enter a panic function, the following conditions must be satisfied:");
+
+                    let flag_expr_str = conditional_flag.symbolic.simplify().to_string();
+
+                    for (arg_name, bv) in executor.function_symbolic_arguments.iter() {
+                        if let Some(model_val) = model.eval(bv, true) {
+                            if flag_expr_str.contains(arg_name) {
+                                // Considered "constrained" because it influenced the branch condition
+                                if let Some(val) = model_val.as_u64() {
+                                    log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);
+                                } else {
+                                    log!(executor.state.logger, "The argument {} is constrained (model value: {:?})", arg_name, model_val);
+                                }
+                            } else {
+                                // Not in conditional expression => unconstrained
+                                log!(executor.state.logger, "The argument {} is unconstrained (model picked {:?})", arg_name, model_val);
+                            }
+                        } else {
+                            log!(executor.state.logger, "Could not evaluate symbolic input '{}'", arg_name);
+                        }
+                    }
+
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+                }
+
+                z3::SatResult::Unsat => {
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+                    log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");
+                    log!(executor.state.logger, "~~~~~~~~~~~");
+                }
+                z3::SatResult::Unknown => {
+                    log!(executor.state.logger, "Solver => Unknown feasibility");
+                }
+            }
+            // 6) pop the solver context
+            executor.solver.pop(1);
+        } else {
+            log!(executor.state.logger, ">>> No panic function found in the speculative exploration with the current max depth exploration");
+        }
+    } else {
+        log!(executor.state.logger, "Unsupported mode for evaluating arguments: {}", mode);
+    }
+    Ok(())
+}
+
 // Function to execute the instructions from the map of addresses to instructions
 fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64, instructions_map: &BTreeMap<u64, Vec<Inst>>, binary_path: &str) {
     let mut current_rip = start_address;
@@ -639,7 +923,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     .unwrap();
                 let conditional_flag_u64 = conditional_flag.concrete.to_u64();
 
-                let address_of_speculative_exploration = if conditional_flag_u64 == 0 {
+                let address_of_negated_path_exploration = if conditional_flag_u64 == 0 {
                     // We want to explore the branch that is not taken
                     log!(executor.state.logger, ">>> Branch condition is false (0x{:x}), performing the speculative exploration on the other branch...", conditional_flag_u64);
                     let addr = branch_target_address;
@@ -651,288 +935,27 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     *addr
                 };
 
-                if current_rip == 0x22f068 {
-                    let r14_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap();
-                    let r14_bv = r14_reg.symbolic.to_bv(executor.context).simplify();
-                    log!(executor.state.logger, "Symbolic R14 before CMP at current RIP 0x{:?}: {:?}", current_rip, r14_bv);
-
-
-                    let zf_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 64).unwrap();
-                    let zf_bv = zf_reg.symbolic.to_bv(executor.context).simplify();
-                    log!(executor.state.logger, "ZF BV simplified: {:?}", zf_bv);
-
-                    // CALL TO THE AST EXPLORATION FOR A PANIC FUNCTION
-                    let ast_panic_result = explore_ast_for_panic(executor, address_of_speculative_exploration, binary_path);
-
-                    // If the AST exploration indicates a potential panic function...
-                    if ast_panic_result.starts_with("FOUND_PANIC_XREF_AT 0x") { 
-                        if let Some(panic_addr_str) = ast_panic_result.trim().split_whitespace().last() {
-                            if let Some(stripped) = panic_addr_str.strip_prefix("0x") {
-                                if let Ok(parsed_addr) = u64::from_str_radix(stripped, 16) {
-                                    log!(executor.state.logger, ">>> The speculative AST exploration found a potential call to a panic address at 0x{:x}", parsed_addr);
-                                } else {
-                                    log!(executor.state.logger, "Could not parse panic address from AST result: '{}'", panic_addr_str);
-                                }
-                            }
-                        }
-                                            
-                        // 1) Push the solver context.
-                        executor.solver.push();
-
-                        // 2) Define the condition to explore the path not taken.
-                        let negative_conditional_flag_u64 = conditional_flag_u64 ^ 1;
-                        let conditional_flag_bv = conditional_flag.symbolic.to_bv(executor.context);
-                        log!(executor.state.logger, "Conditional flag BV simplified: {:?}", conditional_flag_bv.simplify());
-
-                        let bit_width = conditional_flag_bv.get_size();
-                        let expected_val = BV::from_u64(executor.context, negative_conditional_flag_u64, bit_width);
-                        let condition = conditional_flag_bv._eq(&expected_val);
-
-                        // 3) Assert the condition in the solver.
-                        executor.solver.assert(&condition);
-                
-                        // 4) check feasibility
-                        match executor.solver.check() {
-                            z3::SatResult::Sat => {
-                                log!(executor.state.logger, "~~~~~~~~~~~");
-                                log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
-                                log!(executor.state.logger, "~~~~~~~~~~~");
-
-                                let model = executor.solver.get_model().unwrap();
-
-                                log!(executor.state.logger, "To enter a panic function, the following conditions must be satisfied:");
-
-                                let flag_expr_str = conditional_flag.symbolic.simplify().to_string();
-
-                                for (arg_name, bv) in executor.function_symbolic_arguments.iter() {
-                                    if let Some(model_val) = model.eval(bv, true) {
-                                        if flag_expr_str.contains(arg_name) {
-                                            // Considered "constrained" because it influenced the branch condition
-                                            if let Some(val) = model_val.as_u64() {
-                                                log!(executor.state.logger, "The argument {} should have the value {}", arg_name, val);
-                                            } else {
-                                                log!(executor.state.logger, "The argument {} is constrained (model value: {:?})", arg_name, model_val);
-                                            }
-                                        } else {
-                                            // Not in conditional expression => unconstrained
-                                            log!(executor.state.logger, "The argument {} is unconstrained (model picked {:?})", arg_name, model_val);
-                                        }
-                                    } else {
-                                        log!(executor.state.logger, "Could not evaluate symbolic input '{}'", arg_name);
-                                    }
-                                }
-
-                                log!(executor.state.logger, "~~~~~~~~~~~");
-                            }
-
-                            z3::SatResult::Unsat => {
-                                log!(executor.state.logger, "~~~~~~~~~~~");
-                                log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");
-                                log!(executor.state.logger, "~~~~~~~~~~~");
-                            }
-                            z3::SatResult::Unknown => {
-                                log!(executor.state.logger, "Solver => Unknown feasibility");
-                            }
-                        }
-                        // 6) pop the solver context
-                        executor.solver.pop(1);
-                    } else {
-                        log!(executor.state.logger, ">>> No panic function found in the speculative exploration with the current max depth exploration");
+                // This flag indicates whether we want to explore th negated (not taken) path to explor eit symbolically 
+                let negate_path_flag = std::env::var("NEGATE_PATH_FLAG").expect("NEGATE_PATH_FLAG environment variable is not set");
+                    
+                if negate_path_flag == "true" {
+                    log!(executor.state.logger, "NEGATE_PATH_FLAG is set to true, exploring the negated path at address 0x{:x}", address_of_negated_path_exploration);
+                    if current_rip == 0x22f068 {
+                        log!(executor.state.logger, ">>> Special case for broken-calculator at 0x22f068: evaluating arguments for the negated path exploration.");
+                        evaluate_args_z3(executor, inst, binary_path, address_of_negated_path_exploration, conditional_flag.clone()).unwrap_or_else(|e| {
+                            log!(executor.state.logger, "Error evaluating arguments for branch at 0x{:x}: {}", branch_target_address, e);
+                        });
                     }
+                } else {
+                    log!(executor.state.logger, "NEGATE_PATH_FLAG is set to false, so the execution doesn't explore the negated path.");
                 }
                 
                 if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
                     log!(executor.state.logger, "Potential branching to a panic function at 0x{:x}", branch_target_address);
 
-                    let cf_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 64).unwrap();
-                    let cf_bv = cf_reg.symbolic.to_bv(executor.context).simplify();
-                    log!(executor.state.logger, "CF BV simplified: {:?}", cf_bv);
-                    
-                    // 1) Push the solver context.
-                    executor.solver.push();
-
-                    // 2) Process the branch condition.
-                    let cond_varnode = &inst.inputs[1];
-                    let cond_concolic = executor.varnode_to_concolic(cond_varnode)
-                        .map_err(|e| e.to_string())
-                        .unwrap()
-                        .to_concolic_var()
-                        .unwrap();
-                    let cond_bv = cond_concolic.symbolic.to_bv(executor.context); 
-
-                    // we want to assert that the condition is non zero.
-                    let zero_bv = z3::ast::BV::from_u64(executor.context, 0, cond_bv.get_size());
-                    let branch_condition = cond_bv._eq(&zero_bv).not();
-
-                    // 3) Assert the branch condition.
-                    executor.solver.assert(&branch_condition);
-            
-                    // 4) check feasibility
-                    match executor.solver.check() {
-                        z3::SatResult::Sat => {
-                            log!(executor.state.logger, "~~~~~~~~~~~");
-                            log!(executor.state.logger, "SATISFIABLE: Symbolic execution can lead to a panic function.");
-                            log!(executor.state.logger, "~~~~~~~~~~~");
-            
-                            // 5) get_model
-                            let model = executor.solver.get_model().unwrap();
-
-                            // broken-calculator-bis : 22def7 / crashme : 22b21a / broken-calculator: 22f06e
-                            //if current_rip == 0x22f06e || current_rip == 0x22f068 || current_rip == 0x22b21a || current_rip == 0x22def7 {
-                                // 5.1) get address of os.Args
-                                let os_args_addr = get_os_args_address(binary_path).unwrap();
-
-                                // 5.2) read the slice's pointer and length from memory, then evaluate them in the model
-                                let slice_ptr_bv = executor
-                                    .state
-                                    .memory
-                                    .read_u64(os_args_addr)
-                                    .unwrap()
-                                    .symbolic
-                                    .to_bv(executor.context);
-                                let slice_ptr_val = model.eval(&slice_ptr_bv, true).unwrap().as_u64().unwrap();
-
-                                let slice_len_bv = executor
-                                    .state
-                                    .memory
-                                    .read_u64(os_args_addr + 8)
-                                    .unwrap()
-                                    .symbolic
-                                    .to_bv(executor.context);
-                                let slice_len_val = model.eval(&slice_len_bv, true).unwrap().as_u64().unwrap();
-
-                                log!(executor.state.logger, "To take the panic-branch => os.Args ptr=0x{:x}, len={}", slice_ptr_val, slice_len_val);
-
-                                // 5.3) For each argument in os.Args, read the string struct (ptr, len), then read each byte
-                                // starting the loop from 1 to skip the first argument (binary name)
-                                for i in 1..slice_len_val {
-                                    // Each string struct is 16 bytes: [8-byte ptr][8-byte len]
-                                    let string_struct_addr = slice_ptr_val + i * 16;
-
-                                    // Evaluate the pointer field
-                                    let str_data_ptr_bv = executor
-                                        .state
-                                        .memory
-                                        .read_u64(string_struct_addr)
-                                        .unwrap()
-                                        .symbolic
-                                        .to_bv(executor.context);
-                                    let str_data_ptr_val = model.eval(&str_data_ptr_bv, true).unwrap().as_u64().unwrap();
-
-                                    // Evaluate the length field
-                                    let str_data_len_bv = executor
-                                        .state
-                                        .memory
-                                        .read_u64(string_struct_addr + 8)
-                                        .unwrap()
-                                        .symbolic
-                                        .to_bv(executor.context);
-                                    let str_data_len_val = model.eval(&str_data_len_bv, true).unwrap().as_u64().unwrap();
-
-                                    // If pointer or length is zero, skip
-                                    if str_data_ptr_val == 0 || str_data_len_val == 0 {
-                                        log!(executor.state.logger, "Arg[{}] => (empty or null)", i);
-                                        continue;
-                                    }
-
-                                    // 5.4) read each symbolic byte from memory, evaluate in the model, and collect
-                                    let mut arg_bytes = Vec::new();
-                                    for j in 0..str_data_len_val {
-                                        let byte_read = executor
-                                            .state
-                                            .memory
-                                            .read_byte(str_data_ptr_val + j)
-                                            .map_err(|e| format!("Could not read arg[{}][{}]: {}", i, j, e))
-                                            .unwrap();
-
-                                        let byte_bv = byte_read.symbolic.to_bv(executor.context);
-                                        let byte_val = model.eval(&byte_bv, true).unwrap().as_u64().unwrap() as u8;
-
-                                        arg_bytes.push(byte_val);
-                                    }
-
-                                    // Convert the collected bytes into a String (falling back to lossy if invalid UTF-8)
-                                    let arg_str = String::from_utf8_lossy(&arg_bytes);
-
-                                    log!(executor.state.logger, "The user input nr.{} must be => \"{}\", the raw value beeing {:?} (len={})", i, arg_str, arg_bytes, str_data_len_val);
-                                }
-
-                                // Retrieve others registers values
-                                let rax_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rax_val = model.eval(&rax_sym_bv, true).unwrap().as_u64().unwrap();
-                                let rcx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rcx_val = model.eval(&rcx_sym_bv, true).unwrap().as_u64().unwrap();
-                                let rdx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rdx_val = model.eval(&rdx_sym_bv, true).unwrap().as_u64().unwrap();
-                                let rbx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rbx_val = model.eval(&rbx_sym_bv, true).unwrap().as_u64().unwrap();
-                                let rsp_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rsp_val = model.eval(&rsp_sym_bv, true).unwrap().as_u64().unwrap();
-                                let rbp_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x28, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rbp_val = model.eval(&rbp_sym_bv, true).unwrap().as_u64().unwrap();
-                                let rsi_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rsi_val = model.eval(&rsi_sym_bv, true).unwrap().as_u64().unwrap();
-                                let rdi_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap().symbolic.to_bv(executor.context);
-                                let rdi_val = model.eval(&rdi_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r8_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x80, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r8_val = model.eval(&r8_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r9_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x88, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r9_val = model.eval(&r9_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r10_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x90, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r10_val = model.eval(&r10_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r11_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r11_val = model.eval(&r11_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r12_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa0, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r12_val = model.eval(&r12_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r13_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa8, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r13_val = model.eval(&r13_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r14_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r14_val = model.eval(&r14_sym_bv, true).unwrap().as_u64().unwrap();
-                                let r15_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb8, 64).unwrap().symbolic.to_bv(executor.context);
-                                let r15_val = model.eval(&r15_sym_bv, true).unwrap().as_u64().unwrap();
-                                let zf_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 1).unwrap().symbolic.to_bv(executor.context);
-                                let zf_val = model.eval(&zf_sym_bv, true).unwrap().as_u64().unwrap();
-                                let cf_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 1).unwrap().symbolic.to_bv(executor.context);
-                                let cf_val = model.eval(&cf_sym_bv, true).unwrap().as_u64().unwrap();
-
-                                log!(executor.state.logger, "Register evaluations:");
-                                log!(executor.state.logger, "RAX: 0x{:x}", rax_val);
-                                log!(executor.state.logger, "RCX: 0x{:x}", rcx_val);
-                                log!(executor.state.logger, "RDX: 0x{:x}", rdx_val);
-                                log!(executor.state.logger, "RBX: 0x{:x}", rbx_val);
-                                log!(executor.state.logger, "RSP: 0x{:x}", rsp_val);
-                                log!(executor.state.logger, "RBP: 0x{:x}", rbp_val);
-                                log!(executor.state.logger, "RSI: 0x{:x}", rsi_val);
-                                log!(executor.state.logger, "RDI: 0x{:x}", rdi_val);
-                                log!(executor.state.logger, "R8: 0x{:x}", r8_val);
-                                log!(executor.state.logger, "R9: 0x{:x}", r9_val);
-                                log!(executor.state.logger, "R10: 0x{:x}", r10_val);
-                                log!(executor.state.logger, "R11: 0x{:x}", r11_val);
-                                log!(executor.state.logger, "R12: 0x{:x}", r12_val);
-                                log!(executor.state.logger, "R13: 0x{:x}", r13_val);
-                                log!(executor.state.logger, "R14: 0x{:x}", r14_val);
-                                log!(executor.state.logger, "R15: 0x{:x}", r15_val);
-                                log!(executor.state.logger, "ZF: 0x{:x}", zf_val);
-                                log!(executor.state.logger, "CF: 0x{:x}", cf_val);
-
-                                log!(executor.state.logger, "~~~~~~~~~~~");
-                            }
-            
-                            // store these results or exit:
-                            //process::exit(0);
-                        //}
-                        z3::SatResult::Unsat => {
-                            log!(executor.state.logger, "~~~~~~~~~~~");
-                            log!(executor.state.logger, "Branch to panic is UNSAT => no input can make that branch lead to panic");
-                            log!(executor.state.logger, "~~~~~~~~~~~");
-                        }
-                        z3::SatResult::Unknown => {
-                            log!(executor.state.logger, "Solver => Unknown feasibility");
-                        }
-                    }
-            
-                    // 6) pop the solver context
-                    executor.solver.pop(1);
+                    evaluate_args_z3(executor, inst, binary_path, address_of_negated_path_exploration, conditional_flag).unwrap_or_else(|e| {
+                        log!(executor.state.logger, "Error evaluating arguments for branch at 0x{:x}: {}", branch_target_address, e);
+                    });
                 } 
             }
             

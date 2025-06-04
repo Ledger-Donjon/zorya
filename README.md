@@ -3,6 +3,7 @@
 </div>
 
 <br><br>
+
 Zorya is a **concolic execution framework** designed to detect **logic-related bugs, language-specific vulnerabilities, and identify new patterns of security issues mainly in Go binaries**. The analysis begins by generating CPU register and memory dumps using ```gdb```. Zorya loads these dumps to initialize execution from a specified starting address, ensuring a realistic and accurate representation of the program state.
 
 The core methodology involves **translating binary code into Ghidra's raw P-Code**, a low-level intermediate representation, which is subsequently parsed for precise execution path analysis. Other programs like C programs can also be translated to P-Code.
@@ -10,6 +11,9 @@ The core methodology involves **translating binary code into Ghidra's raw P-Code
 Zorya's engine, implemented in Rust, uses the **Z3 SMT solver** and includes a state manager, CPU state, memory model, and virtual file system. It emulates P-Code instructions to track the execution and detect vulnerabilities in the analyzed binaries.
 
 Zorya supports both concrete and symbolic data types, x86-64 instructions and syscalls, and manages the program counter. Currently, Zorya analyzes single-threaded Go programs compiled with TinyGo, with plans to address multithreading and goroutines in future work.
+
+> The owl sees what darkness keeps —
+> Zorya comes, and nothing sleeps.
 
 ## :inbox_tray: Install
 Make sure to have Rust, Golang and Python properly installed.
@@ -44,28 +48,28 @@ The prompt will ask you for the:
 ### B. Basic Command-Line Usage
 To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or custom) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
 ```
-zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg <arg1> <arg2> [--negate | --no-negate]
+zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg <arg1> <arg2> [--negate-path-exploration | --no-negate-path-exploration]
 
 FLAG:
-    --lang        Specifies the language used in the source code (go/c/c++)
-    --compiler    When Go was chosen as 'lang', specifies the used compiler (tinygo or gc)
-    --mode        Specifies the strategy mode to determine the starting address for binary analysis. Options include:
-                      start → Use the binary's entry point
-                      main → Analyze the main function (main.main preferred in Go binaries)
-                      function → Specify a function address manually
-                      custom → Define an arbitrary execution address
-    --negate      Enables symbolic exploration of alternate paths (default behavior)
-    --no-negate   Disables alternate path exploration
+  --lang                        Specifies the language used in the source code (go/c/c++)
+  --compiler                    When Go was chosen as 'lang', specifies the used compiler (tinygo or gc)
+  --mode                        Specifies the strategy mode to determine the starting address for binary analysis. Options include:
+                                    start → Use the binary's entry point
+                                    main → Analyze the main function (main.main preferred in Go binaries)
+                                    function → Specify a function address manually
+                                    custom → Define an arbitrary execution address
+  --negate-path-exploration     Enables symbolic exploration of alternate paths (default behavior)
+  --no-negate-path-exploration  Disables alternate path exploration
 
 OPTION:
-    --arg          Specifies arguments to pass to the binary, if any (default is 'none').
+  --arg                         Specifies arguments to pass to the binary, if any (default is 'none').
 ```
 
 Notes:
 - If any flag is missing, Zorya will prompt you interactively to ask for it.
 - The address ()```<addr>```) is mandatory when using function or custom modes.
 - Arguments (--arg) are optional.
-- The ```--negate``` flag enables alternate path exploration (symbolic branch negation) to increase code coverage. It is enabled by default unless explicitly disabled using ```--no-negate```, if the execution takes too much time for instance.
+- The ```--negate-path-exploration``` flag enables alternate path exploration (symbolic branch negation) to increase code coverage. It is enabled by default unless explicitly disabled using ```--no-negate-path-exploration```, if the execution takes too much time for instance.
 
 ## How to build your binary?
 Zorya needs the binary to have the debug symbols to perform the complete analysis. Striped binaries could be also analyzed, but it required to disable many functionnalities of the tool.
@@ -95,19 +99,21 @@ What is the source language of the binary? (go, c or c++)
 
 Which Go compiler was used to build the binary? (tinygo / gc)
 [tinygo]: 
-***********************************************************************
-
+*************************************************************************************
 Where to begin the analysis? (start / main / function / custom)
 [main]: 
 
 Automatically detected main function address: 0x000000000022b1d0
-***********************************************************************
+*************************************************************************************
 
 Does the binary expect any arguments? (none / e.g., x y z)
 [none]: a
+*************************************************************************************
 
-***********************************************************************
-Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya/tests/programs/crashme/crashme --mode main 0x000000000022b1d0 --lang go --compiler tinygo --arg a
+Do you want to activate the negating path execution to cover symbolically more paths?
+[Y/n]: 
+*************************************************************************************
+Running command: /home/kgorna/Documents/zorya/zorya /home/kgorna/Documents/zorya/tests/programs/crashme/crashme --mode main 0x000000000022b1d0 --lang go --compiler tinygo --arg a --negate-path-exploration
 ...
 ```
 
