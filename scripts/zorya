@@ -159,8 +159,12 @@ echo ""; echo "Generating memory and CPU register dumps…"
 chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
 "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS"
 
-if [[ "$ARGS" != "none" ]]; then
-  echo ""; echo "Writing argc/argv to memory…"
-  cd "$ZORYA_DIR" || exit 1
-  RUSTFLAGS="-Awarnings" cargo run -- --write-args "$ARGS"
-fi
+echo ""; 
+echo "*********************************************************************************************"
+echo "Completed the generation of memory and CPU register dumps, and the P-Code file of the binary."
+echo "Launching Zorya now..."
+echo "*********************************************************************************************"
+echo "";
+cd "$ZORYA_DIR" || exit 1
+RUSTFLAGS="-Awarnings" cargo run -- --write-args "$ARGS"
+

@@ -102,7 +102,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Dump commands executed successfully in GDB. Logs available in $GDB_LOG."
-echo "All tasks completed. Output available in $RESULTS_DIR/initialization_data."
+echo "Outputs available in $RESULTS_DIR/initialization_data."
 
 
 # SCRIPT IF YOU WANT TO USE QEMU WITGH ANOTHER CPU MODEL 

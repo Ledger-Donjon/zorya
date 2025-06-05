@@ -58,25 +58,35 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
     pub fn new(ctx: &'a Context, logger: Logger) -> Result<Self, Box<dyn std::error::Error>> {
+        println!("\n************************************************");
+        println!("Initializing Zorya with the CPU and memory dumps");
+        println!("************************************************");
+
         log!(logger.clone(), "Initializing State...\n");
+        println!("Initializing State...\n");
 
         // Initialize CPU state in a shared and thread-safe manner
         log!(logger.clone(), "Initializing mock CPU state...\n");
+        println!("Initializing mock CPU state...\n");
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
 
         log!(logger.clone(), "Uploading dumps to CPU registers...\n");
+        println!("Uploading dumps to CPU registers...\n");
         cpu_state.lock().unwrap().upload_dumps_to_cpu_registers().map_err(|e| format!("Failed to upload dumps to CPU registers: {}", e))?;
 
         log!(logger.clone(), "Initializing virtual file system...\n");
+        println!("Initializing virtual file system...\n");
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
 
         log!(logger.clone(), "Initializing memory...\n");
+        println!("Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory.load_all_dumps().map_err(|e| format!("Failed to load memory dumps: {}", e))?;
         memory.initialize_cpuid_memory_variables().map_err(|e| format!("Failed to initialize cpuid memory variables: {}", e))?;     
         memory.ensure_gdb_mappings_covered("results/initialization_data/memory_mapping.txt").map_err(|e| format!("Failed to ensure gdb mappings are covered: {}", e))?;    
 	
         log!(logger.clone(), "Initializing the State...\n");
+        println!("Initializing the State...\n");
         let mut state = State {
             concolic_vars: BTreeMap::new(),
             ctx,
@@ -535,19 +545,24 @@ impl fmt::Debug for StackT {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Logger {
+#[derive(Clone, Debug)]pub struct Logger {
     file: Arc<Mutex<File>>,
-    terminal: Arc<Mutex<io::Stdout>>,
+    terminal: Option<Arc<Mutex<io::Stdout>>>,
 }
 
+// The bool is used to determine if the logger should also print to the terminal
+// This allows for both file logging and terminal output, depending on the configuration.
 impl Logger {
-    pub fn new(file_path: &str) -> io::Result<Self> {
+    pub fn new(file_path: &str, to_terminal: bool) -> io::Result<Self> {
         let file = File::create(file_path)?;
-        let terminal = io::stdout();
+        let terminal = if to_terminal {
+            Some(Arc::new(Mutex::new(io::stdout())))
+        } else {
+            None
+        };
         Ok(Logger {
             file: Arc::new(Mutex::new(file)),
-            terminal: Arc::new(Mutex::new(terminal)),
+            terminal,
         })
     }
 }
@@ -555,19 +570,21 @@ impl Logger {
 impl Write for Logger {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut file = self.file.lock().unwrap();
-        let mut terminal = self.terminal.lock().unwrap();
-
         file.write_all(buf)?;
-        terminal.write_all(buf)?;
+
+        if let Some(ref terminal) = self.terminal {
+            terminal.lock().unwrap().write_all(buf)?;
+        }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
         let mut file = self.file.lock().unwrap();
-        let mut terminal = self.terminal.lock().unwrap();
-
         file.flush()?;
-        terminal.flush()?;
+
+        if let Some(ref terminal) = self.terminal {
+            terminal.lock().unwrap().flush()?;
+        }
         Ok(())
     }
 }

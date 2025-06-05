@@ -15,8 +15,8 @@ mod tests {
     fn setup_executor() -> ConcolicExecutor<'static> {
         let cfg = Config::new();
         let ctx = Box::leak(Box::new(Context::new(&cfg)));
-        let logger = Logger::new("execution_log.txt").expect("Failed to create logger");
-        let trace_logger = Logger::new("trace_log.txt").expect("Failed to create trace logger");
+        let logger = Logger::new("execution_log.txt", false).expect("Failed to create logger");
+        let trace_logger = Logger::new("trace_log.txt", true).expect("Failed to create trace logger");
         let state = State::default_for_tests(ctx, logger).expect("Failed to create state.");
         let current_lines_number = 0;
         ConcolicExecutor {

@@ -2,7 +2,7 @@
   <img src="doc/zorya_logo.png" alt="Logo" width="250"/>
 </div>
 
-<br><br>
+<br>
 
 Zorya is a **concolic execution framework** designed to detect **logic-related bugs, language-specific vulnerabilities, and identify new patterns of security issues mainly in Go binaries**. The analysis begins by generating CPU register and memory dumps using ```gdb```. Zorya loads these dumps to initialize execution from a specified starting address, ensuring a realistic and accurate representation of the program state.
 

@@ -281,7 +281,6 @@ impl<'ctx> CpuState<'ctx> {
         
             // Create a new concolic value with a fresh symbolic BV (or vector of BVs if size > 64).
             let concolic_value = CpuConcolicValue::new_with_symbolic(self.ctx, initial_concrete, name, size);
-        
             self.registers.insert(offset, concolic_value.clone());
             self.register_map.insert(offset, (name.to_string(), size));
         }    
@@ -321,7 +320,6 @@ impl<'ctx> CpuState<'ctx> {
                 }
             }
         }
-        println!("No matching register found for {} with offset 0x{:X}", name, offset);
         false
     }
 
@@ -379,7 +377,10 @@ impl<'ctx> CpuState<'ctx> {
                 if let Some((offset, size)) = self.clone().register_map.iter().find(|&(_, (name, _))| *name == register_name).map(|(&k, (_, s))| (k, s)) {
                     let value_symbolic = BV::from_u64(&self.ctx, value_concrete, *size);
                     let value_concolic = ConcolicVar::new_concrete_and_symbolic_int(value_concrete, value_symbolic, &self.ctx, *size);
-                    let _ = self.set_register_value_by_offset(offset, value_concolic, *size);
+                    self.set_register_value_by_offset(offset, value_concolic, *size).map_err(|e| {
+                        anyhow!("Failed to set register value for {}: {}", register_name, e)
+                    })?;
+                    println!("Updated register {} at offset 0x{:x} with value 0x{:x}", register_name, offset, value_concrete);
                 }
             }
         }
@@ -388,7 +389,6 @@ impl<'ctx> CpuState<'ctx> {
         for line in gdb_output.lines() {
             if let Some(caps) = re_flags.captures(line) {
                 let flags_line = caps.get(1).unwrap().as_str();
-                println!("Parsed flags line: {}", flags_line);  // Debug statement
     
                 let flag_list = ["CF", "PF", "ZF", "SF", "TF", "IF", "DF", "OF", "NT", "RF", "AC", "ID"];
     
@@ -397,7 +397,10 @@ impl<'ctx> CpuState<'ctx> {
                     if let Some((offset, size)) = self.clone().register_map.iter().find(|&(_, (name, _))| *name == flag).map(|(&k, (_, s))| (k, s)) {
                         let flag_symbolic = BV::from_u64(&self.ctx, flag_concrete, *size);
                         let flag_concolic = ConcolicVar::new_concrete_and_symbolic_int(flag_concrete, flag_symbolic, &self.ctx, *size);
-                        let _ = self.set_register_value_by_offset(offset, flag_concolic, *size);   
+                        self.set_register_value_by_offset(offset, flag_concolic, *size).map_err(|e| {
+                            anyhow!("Failed to set flag value for {}: {}", flag, e)
+                        })?;
+                        println!("Updated flag {} at offset 0x{:x} with value {}", flag, offset, flag_concrete);
                     } else {
                         println!("Flag {} not found in register_map", flag);
                     }
@@ -438,8 +441,6 @@ impl<'ctx> CpuState<'ctx> {
                 // CONCRETE VALUE HANDLING
                 // ----------------------
                 if let ConcreteVar::LargeInt(ref mut large_concrete) = reg.concrete {
-                    println!("Handling large concrete values for large register (LargeInt)");
-
                     let mut remaining_bits = new_size as u64;
                     let mut current_bit_offset = bit_offset;
                     let mut value = new_value.concrete.to_u64();
@@ -602,11 +603,6 @@ impl<'ctx> CpuState<'ctx> {
                     }
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
                 }
-
-                println!(
-                    "Register at base offset 0x{:x} updated with size {} bits, preserving total size of {} bits.",
-                    reg_offset, new_size, full_reg_size
-                );
                 return Ok(());
             }
         }
@@ -801,7 +797,6 @@ impl<'ctx> CpuState<'ctx> {
 
     // Function to extract bits from a large symbolic value (Vec<BV<'ctx>>), returns SymbolicVar
     pub fn extract_symbolic_bits_from_large_int(ctx: &'ctx Context, bvs: &[BV<'ctx>], start_bit: u64, end_bit: u64) -> SymbolicVar<'ctx> {
-            println!("Extracting symbolic bits from large integer");
             if start_bit > end_bit {
                 // Invalid range, return zero
                 return SymbolicVar::Int(BV::from_u64(ctx, 0, 1));
@@ -809,7 +804,6 @@ impl<'ctx> CpuState<'ctx> {
         
             let total_bits = (end_bit - start_bit + 1) as u32;
             if total_bits <= 64 {
-                println!("Extracting bits within 64 bits");
                 let mut result_bv = BV::from_u64(ctx, 0, total_bits);
                 let mut current_bit = start_bit;
                 let mut result_bit_pos = 0u32;
@@ -855,7 +849,6 @@ impl<'ctx> CpuState<'ctx> {
         
                 SymbolicVar::Int(result_bv)
             } else {
-                println!("Extracting bits across multiple 64-bit chunks");
                 // Extract into a Vec<BV<'ctx>>
                 let num_bvs = ((total_bits + 63) / 64) as usize;
                 let mut result_bvs = vec![BV::from_u64(ctx, 0, 64); num_bvs];

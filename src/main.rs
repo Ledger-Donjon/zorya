@@ -37,8 +37,8 @@ const IGNORED_TINYGO_FUNCS: &[&str] = &[
 fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::new();
     let context = Context::new(&config);
-    let logger = Logger::new("results/execution_log.txt").expect("Failed to create logger"); // get the instruction handling detailed log
-    let trace_logger = Logger::new("results/execution_trace.txt").expect("Failed to create trace logger"); // get the trace of the executed symbols names
+    let logger = Logger::new("results/execution_log.txt", false).expect("Failed to create logger"); // get the instruction handling detailed log, log to the file only
+    let trace_logger = Logger::new("results/execution_trace.txt", true).expect("Failed to create trace logger"); // get the trace of the executed symbols names, log to the file and stdout
     let mut executor: ConcolicExecutor<'_> = ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone()).map_err(|e| e.to_string())?;
     
     log!(executor.state.logger, "Configuration and context have been initialized.");
@@ -265,6 +265,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     
     // *****************************
     // CORE COMMAND
+    println!("**************************************************************************");
+    println!("THE CONCOLIC EXECUTION OF THE BINARY HAS STARTED!");
+    println!("Find the logs in results/execution_log.txt and results/execution_trace.txt");
+    println!("**************************************************************************");
     execute_instructions_from(&mut executor, start_address, &instructions_map, &binary_path);
     // *****************************
 
@@ -535,7 +539,6 @@ fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<
 }
 
 pub fn evaluate_args_z3(executor: &mut ConcolicExecutor, inst: &Inst, binary_path: &str, address_of_negated_path_exploration: u64, conditional_flag: ConcolicVar) -> Result<(), Box<dyn std::error::Error>> {
-    
     let mode = env::var("MODE").expect("MODE environment variable is not set");
 
     if mode == "main" {
@@ -572,8 +575,6 @@ pub fn evaluate_args_z3(executor: &mut ConcolicExecutor, inst: &Inst, binary_pat
                     // 5) get_model
                     let model = executor.solver.get_model().unwrap();
 
-                    // broken-calculator-bis : 22def7 / crashme : 22b21a / broken-calculator: 22f06e
-                    //if current_rip == 0x22f06e || current_rip == 0x22f068 || current_rip == 0x22b21a || current_rip == 0x22def7 {
                         // 5.1) get address of os.Args
                         let os_args_addr = get_os_args_address(binary_path).unwrap();
 
@@ -651,65 +652,6 @@ pub fn evaluate_args_z3(executor: &mut ConcolicExecutor, inst: &Inst, binary_pat
 
                             log!(executor.state.logger, "The user input nr.{} must be => \"{}\", the raw value beeing {:?} (len={})", i, arg_str, arg_bytes, str_data_len_val);
                         }
-
-                        // Retrieve others registers values
-                        let rax_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x0, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rax_val = model.eval(&rax_sym_bv, true).unwrap().as_u64().unwrap();
-                        let rcx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x8, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rcx_val = model.eval(&rcx_sym_bv, true).unwrap().as_u64().unwrap();
-                        let rdx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x10, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rdx_val = model.eval(&rdx_sym_bv, true).unwrap().as_u64().unwrap();
-                        let rbx_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x18, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rbx_val = model.eval(&rbx_sym_bv, true).unwrap().as_u64().unwrap();
-                        let rsp_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x20, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rsp_val = model.eval(&rsp_sym_bv, true).unwrap().as_u64().unwrap();
-                        let rbp_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x28, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rbp_val = model.eval(&rbp_sym_bv, true).unwrap().as_u64().unwrap();
-                        let rsi_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x30, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rsi_val = model.eval(&rsi_sym_bv, true).unwrap().as_u64().unwrap();
-                        let rdi_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x38, 64).unwrap().symbolic.to_bv(executor.context);
-                        let rdi_val = model.eval(&rdi_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r8_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x80, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r8_val = model.eval(&r8_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r9_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x88, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r9_val = model.eval(&r9_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r10_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x90, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r10_val = model.eval(&r10_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r11_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x98, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r11_val = model.eval(&r11_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r12_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa0, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r12_val = model.eval(&r12_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r13_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xa8, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r13_val = model.eval(&r13_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r14_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb0, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r14_val = model.eval(&r14_sym_bv, true).unwrap().as_u64().unwrap();
-                        let r15_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0xb8, 64).unwrap().symbolic.to_bv(executor.context);
-                        let r15_val = model.eval(&r15_sym_bv, true).unwrap().as_u64().unwrap();
-                        let zf_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x206, 1).unwrap().symbolic.to_bv(executor.context);
-                        let zf_val = model.eval(&zf_sym_bv, true).unwrap().as_u64().unwrap();
-                        let cf_sym_bv = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 1).unwrap().symbolic.to_bv(executor.context);
-                        let cf_val = model.eval(&cf_sym_bv, true).unwrap().as_u64().unwrap();
-
-                        log!(executor.state.logger, "Register evaluations:");
-                        log!(executor.state.logger, "RAX: 0x{:x}", rax_val);
-                        log!(executor.state.logger, "RCX: 0x{:x}", rcx_val);
-                        log!(executor.state.logger, "RDX: 0x{:x}", rdx_val);
-                        log!(executor.state.logger, "RBX: 0x{:x}", rbx_val);
-                        log!(executor.state.logger, "RSP: 0x{:x}", rsp_val);
-                        log!(executor.state.logger, "RBP: 0x{:x}", rbp_val);
-                        log!(executor.state.logger, "RSI: 0x{:x}", rsi_val);
-                        log!(executor.state.logger, "RDI: 0x{:x}", rdi_val);
-                        log!(executor.state.logger, "R8: 0x{:x}", r8_val);
-                        log!(executor.state.logger, "R9: 0x{:x}", r9_val);
-                        log!(executor.state.logger, "R10: 0x{:x}", r10_val);
-                        log!(executor.state.logger, "R11: 0x{:x}", r11_val);
-                        log!(executor.state.logger, "R12: 0x{:x}", r12_val);
-                        log!(executor.state.logger, "R13: 0x{:x}", r13_val);
-                        log!(executor.state.logger, "R14: 0x{:x}", r14_val);
-                        log!(executor.state.logger, "R15: 0x{:x}", r15_val);
-                        log!(executor.state.logger, "ZF: 0x{:x}", zf_val);
-                        log!(executor.state.logger, "CF: 0x{:x}", cf_val);
-
                         log!(executor.state.logger, "~~~~~~~~~~~");
                     }
     
@@ -939,7 +881,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 let negate_path_flag = std::env::var("NEGATE_PATH_FLAG").expect("NEGATE_PATH_FLAG environment variable is not set");
                     
                 if negate_path_flag == "true" {
-                    log!(executor.state.logger, "NEGATE_PATH_FLAG is set to true, exploring the negated path at address 0x{:x}", address_of_negated_path_exploration);
                     if current_rip == 0x22f068 {
                         log!(executor.state.logger, ">>> Special case for broken-calculator at 0x22f068: evaluating arguments for the negated path exploration.");
                         evaluate_args_z3(executor, inst, binary_path, address_of_negated_path_exploration, conditional_flag.clone()).unwrap_or_else(|e| {
