@@ -541,7 +541,7 @@ fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<
 pub fn evaluate_args_z3(executor: &mut ConcolicExecutor, inst: &Inst, binary_path: &str, address_of_negated_path_exploration: u64, conditional_flag: ConcolicVar) -> Result<(), Box<dyn std::error::Error>> {
     let mode = env::var("MODE").expect("MODE environment variable is not set");
 
-    if mode == "main" {
+    if mode == "start" || mode == "main" {
         let cf_reg = executor.state.cpu_state.lock().unwrap().get_register_by_offset(0x200, 64).unwrap();
             let cf_bv = cf_reg.symbolic.to_bv(executor.context).simplify();
             log!(executor.state.logger, "CF BV simplified: {:?}", cf_bv);
@@ -893,7 +893,6 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                 
                 if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
                     log!(executor.state.logger, "Potential branching to a panic function at 0x{:x}", branch_target_address);
-
                     evaluate_args_z3(executor, inst, binary_path, address_of_negated_path_exploration, conditional_flag).unwrap_or_else(|e| {
                         log!(executor.state.logger, "Error evaluating arguments for branch at 0x{:x}: {}", branch_target_address, e);
                     });

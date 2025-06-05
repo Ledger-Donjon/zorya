@@ -48,7 +48,7 @@ setup:
 	$(MAKE) -C $(PCODE_GENERATOR_DIR) all
 
 	@echo "Building Zorya..."
-	cargo build
+	RUSTFLAGS="--cap-lints=allow" cargo build --release
 
 	@echo "Building Go DWARF function extractor..."
 	@GO_SCRIPT_SRC="$(ZORYA_DIR)/scripts/get-funct-arg-types/main.go"; \

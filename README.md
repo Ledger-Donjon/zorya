@@ -54,12 +54,12 @@ FLAG:
   --lang                        Specifies the language used in the source code (go/c/c++)
   --compiler                    When Go was chosen as 'lang', specifies the used compiler (tinygo or gc)
   --mode                        Specifies the strategy mode to determine the starting address for binary analysis. Options include:
-                                    start → Use the binary's entry point
-                                    main → Analyze the main function (main.main preferred in Go binaries)
-                                    function → Specify a function address manually
-                                    custom → Define an arbitrary execution address
-  --negate-path-exploration     Enables symbolic exploration of alternate paths (default behavior)
-  --no-negate-path-exploration  Disables alternate path exploration
+                                      start → Use the binary's entry point
+                                      main → Analyze the main function (main.main preferred in Go binaries)
+                                      function → Specify a function address manually
+                                      custom → Define an arbitrary execution address
+  --negate-path-exploration    Enables symbolic exploration of negated paths (default behavior)
+  --no-negate-path-exploration  Disables negated path exploration
 
 OPTION:
   --arg                         Specifies arguments to pass to the binary, if any (default is 'none').

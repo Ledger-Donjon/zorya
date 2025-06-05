@@ -147,10 +147,10 @@ CMD="$ZORYA_DIR/zorya $BIN_PATH --mode $MODE $ADDR"
 [[ "$NEGATE_PATH_FLAG" == "true" ]] && CMD+=" --negate-path-exploration" || CMD+=" --no-negate-path-exploration"
 
 echo "Running command: $CMD"
-echo ""; echo "Generating Pcode…"
+echo "";
 
 cd "$PCODE_GENERATOR_DIR" || exit 1
-cargo run "$BIN_PATH" --low-pcode
+RUSTFLAGS="--cap-lints=allow" cargo run --release "$BIN_PATH" --low-pcode
 
 PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
 [[ ! -f "$PCODE_FILE" ]] && { echo "Pcode generation failed."; exit 1; }
@@ -166,5 +166,5 @@ echo "Launching Zorya now..."
 echo "*********************************************************************************************"
 echo "";
 cd "$ZORYA_DIR" || exit 1
-RUSTFLAGS="-Awarnings" cargo run -- --write-args "$ARGS"
+RUSTFLAGS="--cap-lints=allow" cargo run --release -- --write-args "$ARGS"
 
