@@ -31,7 +31,7 @@ macro_rules! log {
     }};
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind")]
 pub enum TypeDesc {
     Primitive(String),
@@ -49,7 +49,7 @@ pub enum TypeDescCompat {
     Raw(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StructMember {
     pub name: Option<String>,
     pub offset: Option<u64>,

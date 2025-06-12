@@ -7,17 +7,6 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "results"))
 
-# Select the ABI register ordering based on the compiler used
-def get_abi_registers(compiler):
-    compiler = compiler.lower()
-    if compiler == "tinygo":
-        return ["RCX", "RDX", "RSI", "RDI", "R8", "R9"]
-    elif compiler == "gc":
-        return ["RDI", "RSI", "RDX", "RCX", "R8", "R9"]
-    else:
-        print(f"ERROR: Unknown compiler '{compiler}'. Must be 'tinygo' or 'gc'.")
-        sys.exit(1)
-
 def safe_decode(attr):
     try:
         return attr.value.decode()
@@ -136,7 +125,6 @@ def extract_signatures(dwarfinfo, die_index, abi_registers):
                 continue
 
             args = []
-
             for child in DIE.iter_children():
                 if child.tag == "DW_TAG_formal_parameter":
                     pname = child.attributes.get("DW_AT_name")
@@ -152,7 +140,10 @@ def extract_signatures(dwarfinfo, die_index, abi_registers):
 
             abi_map = []
             reg_cursor = 0
+            stack_base = 0x8  # Correct: Go ABI stack-passed args start at SP + 0x8
+
             for name, ty in args:
+                # Arguments that take two registers
                 if ty == "string" or ty.startswith("[]") or ty == "interface":
                     if reg_cursor + 1 < len(abi_registers):
                         abi_map.append({
@@ -162,10 +153,11 @@ def extract_signatures(dwarfinfo, die_index, abi_registers):
                         })
                         reg_cursor += 2
                     else:
+                        offset = stack_base + 8 * (reg_cursor - len(abi_registers))
                         abi_map.append({
                             "name": name,
                             "type": ty,
-                            "location": f"Stack[{8 * (reg_cursor - len(abi_registers))}]"
+                            "location": f"SP+{offset:#x}"
                         })
                         reg_cursor += 2
                 else:
@@ -177,10 +169,11 @@ def extract_signatures(dwarfinfo, die_index, abi_registers):
                         })
                         reg_cursor += 1
                     else:
+                        offset = stack_base + 8 * (reg_cursor - len(abi_registers))
                         abi_map.append({
                             "name": name,
                             "type": ty,
-                            "location": f"Stack[{8 * (reg_cursor - len(abi_registers))}]"
+                            "location": f"SP+{offset:#x}"
                         })
                         reg_cursor += 1
 
@@ -193,6 +186,7 @@ def extract_signatures(dwarfinfo, die_index, abi_registers):
     print(f"[i] Found {total} functions, {matched} had parameters.")
     return functions
 
+
 # Main entry point
 def main():
     if len(sys.argv) != 3:
@@ -201,7 +195,9 @@ def main():
 
     binary_path = sys.argv[1]
     compiler = sys.argv[2]
-    abi_registers = get_abi_registers(compiler)
+    # The Go ABI comes from L.277 of Ghidra's spec:
+    # ghidra/Ghidra/Processors/x86/data/languages/x86-64-golang.cspec
+    abi_registers = ["RDI", "RSI", "RDX", "RCX", "R8", "R9"]
 
     with open(binary_path, "rb") as f:
         elf = ELFFile(f)
