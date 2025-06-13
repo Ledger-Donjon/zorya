@@ -14,8 +14,9 @@ use z3::{Config, Context};
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{self, ConcolicExecutor, ConcreteVar, SymbolicVar};
 use zorya::state::explore_ast::explore_ast_for_panic;
-use zorya::state::function_signatures::{load_function_args_map, load_function_args_map_go, precompute_function_signatures_via_ghidra, TypeDesc};
+use zorya::state::function_signatures::{load_function_args_map, load_go_function_args_map, precompute_function_signatures_via_ghidra, GoFunctionArg, TypeDesc};
 use zorya::state::memory_x86_64::MemoryValue;
+use zorya::state::{CpuState, MemoryX86_64};
 use zorya::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
@@ -123,46 +124,47 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             // --- Go branch ---
             "go" => {
-                log!(executor.state.logger, "Calling dwarf_get_all_function_args.py to extract registers...");
-                let py = format!("{}/scripts/dwarf_get_all_function_args.py", env::var("ZORYA_DIR")?);
-                let compiler = env::var("COMPILER")?;
-                let out = std::process::Command::new("python3")
-                    .arg(&py).arg(&binary_path).arg(&compiler)
-                    .output()?;
-                if !out.status.success() {
-                    return Err(format!("dwarf script failed: {}", String::from_utf8_lossy(&out.stderr)).into());
-                }
-
-                log!(executor.state.logger, "Calling get-funct-arg-types to extract types...");
+                log!(executor.state.logger, "Calling get-funct-arg-types to extract Go function info...");
                 let go_bin = format!("{}/scripts/get-funct-arg-types/main", env::var("ZORYA_DIR")?);
-                let types_path = "results/function_signature_arg_types.json";
+                let func_signatures_path = "results/function_signatures_go.json";
                 let out = std::process::Command::new(&go_bin)
-                    .arg(&binary_path).arg(types_path)
+                    .arg(&binary_path)
+                    .arg(func_signatures_path)
                     .output()?;
                 if !out.status.success() {
                     return Err(format!("go script failed: {}", String::from_utf8_lossy(&out.stderr)).into());
                 }
 
-                log!(executor.state.logger, "Loading merged Go signatures...");
-                // This returns HashMap<u64,(String,Vec<(String,Vec<String>,String)>)>
-                let raw_go = load_function_args_map_go();
-                log!(executor.state.logger, "Loaded {} merged Go signatures.", raw_go.len());
+                log!(executor.state.logger, "Loading Go signatures from {}...", func_signatures_path);
+                
+                // Read and parse the Go JSON file directly
+                let file = std::fs::File::open(func_signatures_path)
+                    .map_err(|e| format!("Failed to open {}: {}", func_signatures_path, e))?;
+                let reader = std::io::BufReader::new(file);
+                let functions: Vec<GoFunctionArg> = serde_json::from_reader(reader)
+                    .map_err(|e| format!("Failed to parse JSON from {}: {}", func_signatures_path, e))?;
 
-                let mut unified = HashMap::new();
-                for (addr, (fn_name, go_args)) in raw_go {
-                    // Flatten multi-register cases into multiple entries 
-                    let mut args = Vec::new();
-                    for (arg_name, regs, typ) in go_args {
-                        let reg_list = regs.join(","); 
-                        args.push((arg_name, reg_list, typ));
+                log!(executor.state.logger, "Loaded {} functions from JSON.", functions.len());
+
+                // Build the final HashMap directly
+                let mut go_signatures = HashMap::new();
+                for func in functions {
+                    // Parse hex address
+                    if let Ok(addr) = u64::from_str_radix(func.address.trim_start_matches("0x"), 16) {
+                        let mut args = Vec::new();
+                        for arg in func.arguments {
+                            let reg_list = arg.registers.join(",");
+                            args.push((arg.name, reg_list, arg.arg_type));
+                        }
+                        go_signatures.insert(addr, (func.name, args));
+                    } else {
+                        log!(executor.state.logger, "Warning: Failed to parse address {} for function {}", func.address, func.name);
                     }
-                    unified.insert(addr, (fn_name, args));
                 }
 
-                log!(executor.state.logger, "Unified {} Go signatures.", unified.len());
-                unified
+                log!(executor.state.logger, "Processed {} Go signatures.", go_signatures.len());
+                go_signatures
             }
-
             // --- unsupported ---
             other => {
                 log!(executor.state.logger, "Unsupported language: {}", other);
@@ -269,14 +271,18 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
 
     let function_args_map = if lang == "go" {
         log!(executor.state.logger, "Loading Go function arguments map...");
-        let function_args_map = load_function_args_map_go();
+        let function_args_map = load_go_function_args_map(binary_path, executor)
+            .unwrap_or_else(|e| {
+                log!(executor.state.logger, "Error loading Go function arguments map: {}", e);
+                HashMap::new() // Return an empty map if loading fails
+            });
         function_args_map
     } else {
         log!(executor.state.logger, "Loading C function arguments map...");
         let function_args_map = load_function_args_map();
         function_args_map
     };
-    
+
     while let Some(instructions) = instructions_map.get(&current_rip) {
         if current_rip == end_address {
             log!(executor.state.logger, "END ADDRESS 0x{:x} REACHED, STOP THE EXECUTION", end_address);
@@ -356,7 +362,7 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     
                 if negate_path_flag == "true" {
                     // broken-calculator 22f068 // omni-vuln4 0x2300b7
-                    if current_rip == 0x22f068 {
+                    if current_rip == 0x2300b7 {
                         log!(executor.state.logger, ">>> Evaluating arguments for the negated path exploration.");
                         evaluate_args_z3(executor, inst, binary_path, address_of_negated_path_exploration, conditional_flag.clone()).unwrap_or_else(|e| {
                             log!(executor.state.logger, "Error evaluating arguments for branch at 0x{:x}: {}", branch_target_address, e);
@@ -366,12 +372,12 @@ fn execute_instructions_from(executor: &mut ConcolicExecutor, start_address: u64
                     log!(executor.state.logger, "NEGATE_PATH_FLAG is set to false, so the execution doesn't explore the negated path.");
                 }
                 
-                if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
-                    log!(executor.state.logger, "Potential branching to a panic function at 0x{:x}", branch_target_address);
-                    evaluate_args_z3(executor, inst, binary_path, address_of_negated_path_exploration, conditional_flag).unwrap_or_else(|e| {
-                        log!(executor.state.logger, "Error evaluating arguments for branch at 0x{:x}: {}", branch_target_address, e);
-                    });
-                } 
+                // if panic_address_ints.contains(&z3::ast::Int::from_u64(executor.context, branch_target_address)) {
+                //     log!(executor.state.logger, "Potential branching to a panic function at 0x{:x}", branch_target_address);
+                //     evaluate_args_z3(executor, inst, binary_path, address_of_negated_path_exploration, conditional_flag).unwrap_or_else(|e| {
+                //         log!(executor.state.logger, "Error evaluating arguments for branch at 0x{:x}: {}", branch_target_address, e);
+                //     });
+                // } 
             }
             
             // Calculate the potential next address taken by RIP, for the purpose of updating the symbolic part of CBRANCH
@@ -882,61 +888,6 @@ fn update_argc_argv(executor: &mut ConcolicExecutor, arguments: &str) -> Result<
     Ok(())
 }
 
-/// Recursively logs the details of a SymbolicVar using the solver's model.
-fn log_symbolic_var<'a>(
-    model: &z3::Model<'a>,
-    var_name: &str,
-    sym_var: &SymbolicVar<'a>,
-    logger: &mut Logger, // Assuming your logger type is `Logger`
-    indent: &str,    // For pretty-printing
-) {
-    match sym_var {
-        SymbolicVar::Int(bv) => {
-            if let Some(val) = model.eval(bv, true) {
-                log!(logger, "{}{}: {}", indent, var_name, val);
-            }
-        }
-        SymbolicVar::Bool(b) => {
-            if let Some(val) = model.eval(b, true) {
-                log!(logger, "{}{}: {}", indent, var_name, val);
-            }
-        }
-        SymbolicVar::Float(f) => {
-            if let Some(val) = model.eval(f, true) {
-                log!(logger, "{}{}: {}", indent, var_name, val);
-            }
-        }
-        SymbolicVar::LargeInt(parts) => {
-            log!(logger, "{}{}: LargeInt with {} parts", indent, var_name, parts.len());
-            for (i, part) in parts.iter().enumerate() {
-                if let Some(part_val) = model.eval(part, true) {
-                    log!(logger, "{}  part[{}]: {}", indent, i, part_val);
-                }
-            }
-        }
-        SymbolicVar::Slice(slice_data) => {
-            // Log the header for this slice
-            log!(logger, "{}{}: Slice", indent, var_name);
-            let new_indent = format!("{}  ", indent);
-
-            // Log its pointer and length
-            if let Some(ptr_val) = model.eval(&slice_data.pointer, true) {
-                 log!(logger, "{}pointer: 0x{:x}", &new_indent, ptr_val.as_u64().unwrap_or(0));
-            }
-            if let Some(len_val) = model.eval(&slice_data.length, true) {
-                log!(logger, "{}length: {}", &new_indent, len_val);
-            }
-
-            // Recursively log each element of the slice
-            for (i, element) in slice_data.elements.iter().enumerate() {
-                let element_name = format!("{}[{}]", var_name, i);
-                // THIS IS THE RECURSIVE CALL
-                log_symbolic_var(model, &element_name, element, logger, &new_indent);
-            }
-        }
-    }
-}
-
 pub fn evaluate_args_z3(executor: &mut ConcolicExecutor, inst: &Inst, binary_path: &str, address_of_negated_path_exploration: u64, conditional_flag: ConcolicVar) -> Result<(), Box<dyn std::error::Error>> {
     let mode = env::var("MODE").expect("MODE environment variable is not set");
 
@@ -1262,98 +1213,64 @@ fn initialize_string_argument<'a>(
 fn initialize_slice_argument<'a>(
     arg_name: &str,
     arg_type: &str,
-    regs: &[&str],                 // ["RCX","RDX"]  or  ["RDX","RSI"]  etc.
+    regs: &[&str],
     conc: &mut Vec<ConcreteVar>,
-    exec: &mut ConcolicExecutor<'a>,
+    executor: &mut ConcolicExecutor<'a>,
 ) {
     if regs.len() < 2 {
-        log!(exec.state.logger, "Slice '{}' has <2 registers: {:?}", arg_name, regs);
+        log!(executor.state.logger, "Slice '{}' has <2 registers: {:?}", arg_name, regs);
         return;
     }
 
-    let ctx    = exec.context;
-    let solver = &mut exec.solver;
-    let cpu    = &mut exec.state.cpu_state.lock().unwrap();
-    let log    = &mut exec.state.logger;
+    let ctx = executor.context;
+    let ptr_reg = regs[0];
+    let len_reg = regs[1];
 
-
-    // 1. Determine ptr-register and len-register (optional swap heuristic)
-    let (ptr_reg, len_reg) = {
-        // OPTIONAL: if the first reg is RDX/R8/R10, treat slice words as (len, ptr)
-        let first = regs[0];
-        if ["RDX", "R8", "R10"].contains(&first) && regs.len() >= 2 {
-            (regs[1], regs[0])
-        } else {
-            (regs[0], regs[1])
-        }
-    };
-
-    // 2. Build a SymbolicVar::Slice with a small default length
-    let inner_ty  = &arg_type[2..];             // strip leading "[]"
+    let inner_ty = &arg_type[2..];
     let elem_desc = if inner_ty.starts_with('[') {
-        TypeDesc::Unknown(inner_ty.to_string()) // e.g. [32]byte
+        TypeDesc::Unknown(inner_ty.to_string())
     } else {
         TypeDesc::Primitive(inner_ty.to_string())
     };
-    let default_len = if arg_name == "indices" { 3 } else { 2 };
-    let slice_sv    = SymbolicVar::make_symbolic_slice(ctx, arg_name, &elem_desc, default_len);
-    exec.function_symbolic_arguments.insert(arg_name.into(), slice_sv.clone());
 
+    let default_len = 3;
+    let slice_sv = SymbolicVar::make_symbolic_slice(ctx, arg_name, &elem_desc, default_len);
+    executor.function_symbolic_arguments.insert(arg_name.into(), slice_sv.clone());
 
-    // 3. Add constraints and write pointer/length into CPU registers
     if let SymbolicVar::Slice(slice) = &slice_sv {
-        // ptr non-zero and 8-byte aligned
-        solver.assert(&slice.pointer._eq(&BV::from_u64(ctx, 0, 64)).not());
-        solver.assert(&slice.pointer.bvand(&BV::from_u64(ctx, 7, 64))
-                                   ._eq(&BV::from_u64(ctx, 0, 64)));
-
-        // length ≥ 2 for indices, ≥ 1 otherwise
-        let min_len = if arg_name == "indices" { 2 } else { 1 };
-        solver.assert(&slice.length.bvuge(&BV::from_u64(ctx, min_len, 64)));
-
-        // force tree.len ≥ 2 so index 1 is a valid leaf
-        if arg_name == "tree" {
-            solver.assert(&slice.length.bvuge(&BV::from_u64(ctx, 2, 64)));
+        // Handle solver assertions
+        {
+            let solver = &mut executor.solver;
+            solver.assert(&slice.pointer._eq(&BV::from_u64(ctx, 0, 64)).not());
+            solver.assert(&slice.pointer.bvand(&BV::from_u64(ctx, 7, 64))._eq(&BV::from_u64(ctx, 0, 64)));
+            solver.assert(&slice.length.bvuge(&BV::from_u64(ctx, 1, 64)));
         }
 
-        // indices[0] = 1 to reach out-of-range panic quickly
-        if arg_name == "indices" {
-            if let SymbolicVar::Int(idx0_bv) = &slice.elements[0] {
-                solver.assert(&idx0_bv._eq(&BV::from_u64(ctx, 1, 64)));
-            }
+        // Handle CPU state writes
+        {
+            let cpu = &mut executor.state.cpu_state.lock().unwrap();
+            let memory = &mut executor.state.memory;
+            write_value_to_reg_or_stack(ptr_reg, arg_name, "uintptr", cpu, conc, memory, ctx);
+            write_value_to_reg_or_stack(len_reg, &format!("{}_len", arg_name), "int", cpu, conc, memory, ctx);
         }
 
-        // helper: write a BV into a CPU register
-        let mut write_reg = |reg: &str, bv: &BV<'a>| {
-            if let Some(off) = cpu.resolve_offset_from_register_name(reg) {
-                let width = cpu.register_map.get(&off).map(|(_, w)| *w).unwrap_or(64);
-                if let Some(orig) = cpu.get_register_by_offset(off, width) {
-                    conc.push(orig.concrete.clone());
-                    let cv = ConcolicVar {
-                        concrete: orig.concrete.clone(),
-                        symbolic: SymbolicVar::Int(bv.clone()),
-                        ctx,
-                    };
-                    cpu.set_register_value_by_offset(off, cv, width).ok();
-                }
-            } else {
-                log!(log, "WARN: unknown register '{}' for '{}'", reg, arg_name);
-            }
-        };
-
-        write_reg(ptr_reg, &slice.pointer);
-        write_reg(len_reg, &slice.length);
-
-        // optional third register = capacity
+        // Handle capacity register if present
         if regs.len() >= 3 {
             let cap_bv = BV::fresh_const(ctx, &format!("{}_cap", arg_name), 64);
-            solver.assert(&cap_bv.bvuge(&slice.length));
-            write_reg(regs[2], &cap_bv);
-            exec.function_symbolic_arguments
+            {
+                let solver = &mut executor.solver;
+                solver.assert(&cap_bv.bvuge(&slice.length));
+            }
+            {
+                let cpu = &mut executor.state.cpu_state.lock().unwrap();
+                let memory = &mut executor.state.memory;
+                write_value_to_reg_or_stack(regs[2], &format!("{}_cap", arg_name), "int", cpu, conc, memory, ctx);
+            }
+            executor.function_symbolic_arguments
                 .insert(format!("{}_cap", arg_name), SymbolicVar::Int(cap_bv));
         }
 
-        log!(log, "Init slice '{}'  ptr:{}  len:{}", arg_name, ptr_reg, len_reg);
+        log!(executor.state.logger, "Initialized slice '{}' ptr:{} len:{}", arg_name, ptr_reg, len_reg);
     }
 }
 
@@ -1361,34 +1278,142 @@ fn initialize_slice_argument<'a>(
 //  Single-register slice (rare)
 // ────────────────────────────────────────────────────────────
 fn initialize_single_register_slice<'a>(
-    arg_name:&str,arg_type:&str,reg:&str,
-    conc:&mut Vec<ConcreteVar>,exec:&mut ConcolicExecutor<'a>,
-){
-    let ctx=exec.context;
-    let cpu=&mut exec.state.cpu_state.lock().unwrap();
-    let log=&mut exec.state.logger;
-    let solver=&mut exec.solver;
+    arg_name: &str,
+    arg_type: &str,
+    reg: &str,
+    conc: &mut Vec<ConcreteVar>,
+    exec: &mut ConcolicExecutor<'a>,
+) {
+    let ctx = exec.context;
 
-    let elem_td=TypeDesc::Primitive(arg_type[2..].to_string());
-    let sv=SymbolicVar::make_symbolic_slice(ctx,arg_name,&elem_td,2);
-    exec.function_symbolic_arguments.insert(arg_name.into(),sv.clone());
+    let elem_td = TypeDesc::Primitive(arg_type[2..].to_string());
+    let sv = SymbolicVar::make_symbolic_slice(ctx, arg_name, &elem_td, 2);
+    exec.function_symbolic_arguments.insert(arg_name.into(), sv.clone());
 
-    if let SymbolicVar::Slice(slice)=&sv {
-        solver.assert(&slice.pointer.bvand(&BV::from_u64(ctx,7,64))
-                               ._eq(&BV::from_u64(ctx,0,64)));
-        solver.assert(&slice.pointer._eq(&BV::from_u64(ctx,0,64)).not());
-        solver.assert(&slice.length.bvuge(&BV::from_u64(ctx,1,64)));
+    if let SymbolicVar::Slice(slice) = &sv {
+        // Handle solver assertions
+        {
+            let solver = &mut exec.solver;
+            solver.assert(&slice.pointer.bvand(&BV::from_u64(ctx, 7, 64))
+                           ._eq(&BV::from_u64(ctx, 0, 64)));
+            solver.assert(&slice.pointer._eq(&BV::from_u64(ctx, 0, 64)).not());
+            solver.assert(&slice.length.bvuge(&BV::from_u64(ctx, 1, 64)));
+        }
 
-        if let Some(off)=cpu.resolve_offset_from_register_name(reg){
-            let w=cpu.register_map.get(&off).map(|(_,w)|*w).unwrap_or(64);
-            if let Some(orig)=cpu.get_register_by_offset(off,w){
-                conc.push(orig.concrete.clone());
-                let cv=ConcolicVar{concrete:orig.concrete.clone(),
-                                   symbolic:SymbolicVar::Int(slice.pointer.clone()),ctx};
-                cpu.set_register_value_by_offset(off,cv,w).ok();
+        // Handle CPU state
+        {
+            let cpu = &mut exec.state.cpu_state.lock().unwrap();
+            if let Some(off) = cpu.resolve_offset_from_register_name(reg) {
+                let w = cpu.register_map.get(&off).map(|(_, w)| *w).unwrap_or(64);
+                if let Some(orig) = cpu.get_register_by_offset(off, w) {
+                    conc.push(orig.concrete.clone());
+                    let cv = ConcolicVar {
+                        concrete: orig.concrete.clone(),
+                        symbolic: SymbolicVar::Int(slice.pointer.clone()),
+                        ctx,
+                    };
+                    cpu.set_register_value_by_offset(off, cv, w).ok();
+                }
+            } else {
+                log!(exec.state.logger, "WARN: unknown reg '{}' for '{}'", reg, arg_name);
             }
-        } else {
-            log!(log,"WARN: unknown reg '{}' for '{}'",reg,arg_name);
+        }
+    }
+}
+
+fn write_value_to_reg_or_stack<'ctx>(
+    reg: &str,
+    arg_name: &str,
+    arg_type: &str,
+    cpu: &mut CpuState<'ctx>,
+    conc: &mut Vec<ConcreteVar>,
+    memory: &mut MemoryX86_64<'ctx>,
+    ctx: &'ctx z3::Context,
+) {
+    if reg.starts_with("STACK+") {
+        let offset_str = reg.trim_start_matches("STACK+0x");
+        if let Ok(offset) = u64::from_str_radix(offset_str, 16) {
+            let rsp_reg = cpu.resolve_offset_from_register_name("RSP");
+            if let Some(rsp_offset) = rsp_reg {
+                if let Some(rsp_val) = cpu.get_register_by_offset(rsp_offset, 64) {
+                    let rsp = rsp_val.concrete.to_u64();
+                    let addr = rsp + offset;
+
+                    // Create fresh symbolic constant based on the argument type
+                    let (concrete_val, symbolic_bv) = match arg_type {
+                        t if t == "int" || t == "int64" || t.contains("int") => {
+                            let fresh_bv = BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 64);
+                            let concrete = fresh_bv.as_u64().unwrap_or(0x1337_1337_1337_1337); // default concrete value
+                            (concrete, fresh_bv)
+                        },
+                        t if t == "int32" => {
+                            let fresh_bv = BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 32);
+                            let concrete = fresh_bv.as_u64().unwrap_or(0x13371337); // default concrete value
+                            (concrete, fresh_bv.zero_ext(32)) // extend to 64-bit for storage
+                        },
+                        t if t == "uint64" || t == "uintptr" => {
+                            let fresh_bv = BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 64);
+                            let concrete = fresh_bv.as_u64().unwrap_or(0x1337_1337_1337_1337);
+                            (concrete, fresh_bv)
+                        },
+                        t if t == "uint32" => {
+                            let fresh_bv = BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 32);
+                            let concrete = fresh_bv.as_u64().unwrap_or(0x13371337);
+                            (concrete, fresh_bv.zero_ext(32))
+                        },
+                        _ => {
+                            // Default to 64-bit integer for unknown types
+                            let fresh_bv = BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 64);
+                            let concrete = fresh_bv.as_u64().unwrap_or(0x1337_1337_1337_1337);
+                            (concrete, fresh_bv)
+                        }
+                    };
+
+                    // Convert to bytes for memory storage
+                    let bytes = concrete_val.to_le_bytes();
+                    
+                    // Create symbolic representation for each byte
+                    let symbolic: Vec<Option<Arc<BV>>> = bytes.iter().enumerate()
+                        .map(|(i, _)| Some(Arc::new(symbolic_bv.extract(((i + 1) * 8 - 1) as u32, (i * 8) as u32))))
+                        .collect();
+
+                    // Write to memory at the calculated stack address
+                    memory.write_memory(addr, &bytes, &symbolic)
+                        .expect("Failed to write symbolic memory");
+                }
+            }
+        }
+    } else if let Some(off) = cpu.resolve_offset_from_register_name(reg) {
+        let width = cpu.register_map.get(&off).map(|(_, w)| *w).unwrap_or(64);
+        let orig = cpu.get_register_by_offset(off, width);
+        if let Some(orig_val) = orig {
+            conc.push(orig_val.concrete.clone());
+            
+            // Create fresh symbolic constant for this register based on type
+            let symbolic_bv = match arg_type {
+                t if t == "int" || t == "int64" || t.contains("int") => {
+                    BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 64)
+                },
+                t if t == "int32" => {
+                    BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 32).zero_ext(32)
+                },
+                t if t == "uint64" || t == "uintptr" => {
+                    BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 64)
+                },
+                t if t == "uint32" => {
+                    BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 32).zero_ext(32)
+                },
+                _ => {
+                    BV::fresh_const(ctx, &format!("{}_{}", arg_name, reg), 64)
+                }
+            };
+            
+            let cv = ConcolicVar {
+                concrete: orig_val.concrete.clone(),
+                symbolic: SymbolicVar::Int(symbolic_bv),
+                ctx,
+            };
+            cpu.set_register_value_by_offset(off, cv, width).ok();
         }
     }
 }

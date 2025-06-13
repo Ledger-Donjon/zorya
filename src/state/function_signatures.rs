@@ -86,6 +86,24 @@ pub struct FunctionSigWrapper {
     pub functions: Vec<FunctionSignature>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GoFunctionArg {
+    pub name: String,
+    pub address: String,
+    pub arguments: Vec<GoArgument>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GoArgument {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub arg_type: String,
+    #[serde(default)]
+    pub registers: Vec<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+}
+
 fn format_register(reg: gimli::Register) -> String {
     format!("DW_OP_reg{}", reg.0)
 }
@@ -444,79 +462,48 @@ pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, Vec<String
     map
 }
 
-/// Loads and merges Go function signatures from DWARF types and register info,
-/// returning a map from function address to (function name, argument list).
-/// Each argument is (name, Vec<register names>, type_string).
-pub fn load_function_args_map_go() -> HashMap<u64, (String, Vec<(String, Vec<String>, String)>)> {
-    let types_path = "results/function_signature_arg_types.json";
-    let registers_path = "results/function_signature_arg_registers.json";
+pub fn load_go_function_args_map(
+    binary_path: &str, 
+    executor: &mut ConcolicExecutor
+) -> Result<HashMap<u64, (String, Vec<(String, Vec<String>, String)>)>, Box<dyn std::error::Error>> {
+    log!(executor.state.logger, "Calling get-funct-arg-types to extract Go function info...");
+    
+    let go_bin = format!("{}/scripts/get-funct-arg-types/main", env::var("ZORYA_DIR")?);
+    let func_signatures_path = "results/function_signatures_go.json";
 
-    // 1. Read types JSON file
-    let types_file = File::open(types_path)
-        .expect("Failed to open function_signature_arg_types.json");
-    let type_reader = BufReader::new(types_file);
-    let mut type_sigs: Vec<FunctionSignature> = serde_json::from_reader(type_reader)
-        .expect("Invalid JSON in function_signature_arg_types.json");
-
-    // 2. Read registers JSON file
-    let reg_file = File::open(registers_path)
-        .expect("Failed to open function_signature_arg_registers.json");
-    let reg_reader = BufReader::new(reg_file);
-    let reg_wrapper: RegisterJsonWrapper = serde_json::from_reader(reg_reader)
-        .expect("Invalid JSON in function_signature_arg_registers.json");
-
-    // 3. Build map: address_str -> Vec<Argument> from register data
-    let mut reg_map: HashMap<String, Vec<Argument>> = HashMap::new();
-    for f in reg_wrapper.functions {
-        reg_map.insert(f.address.clone(), f.arguments);
+    let out = std::process::Command::new(&go_bin)
+        .arg(binary_path)
+        .arg(func_signatures_path)
+        .output()?;
+    if !out.status.success() {
+        return Err(format!("go script failed: {}", String::from_utf8_lossy(&out.stderr)).into());
     }
 
-    // 4. Merge register info into type-based signatures
-    for sig in &mut type_sigs {
-        if let Some(reg_args) = reg_map.get(&sig.address) {
-            for reg_arg in reg_args {
-                if let Some(arg) = sig.arguments.iter_mut().find(|a| a.name == reg_arg.name) {
-                    // Copy both single- and multi-register fields
-                    arg.register = reg_arg.register.clone();
-                    arg.registers = reg_arg.registers.clone();
-                } else {
-                    // Argument missing in types.json: inject with unknown type
-                    sig.arguments.push(Argument {
-                        name: reg_arg.name.clone(),
-                        arg_type: TypeDescCompat::Raw("unknown".into()),
-                        register: reg_arg.register.clone(),
-                        registers: reg_arg.registers.clone(),
-                        location: None,
-                    });
-                }
-            }
+    log!(executor.state.logger, "Loading Go signatures from {}...", func_signatures_path);
+    
+    let file = std::fs::File::open(func_signatures_path)?;
+    let reader = std::io::BufReader::new(file);
+    let functions: Vec<GoFunctionArg> = serde_json::from_reader(reader)?;
+
+    log!(executor.state.logger, "Loaded {} functions from JSON.", functions.len());
+
+    let mut go_signatures = HashMap::new();
+    for func in functions {
+        if let Ok(addr) = u64::from_str_radix(func.address.trim_start_matches("0x"), 16) {
+            let args = func.arguments.iter()
+                .map(|arg| (
+                    arg.name.clone(), 
+                    vec![arg.registers.join(",")], // Convert to Vec<String> to match return type
+                    arg.arg_type.clone()
+                ))
+                .collect();
+            go_signatures.insert(addr, (func.name, args));
+        } else {
+            log!(executor.state.logger, "Warning: Failed to parse address {} for function {}", func.address, func.name);
         }
     }
 
-    // 5. Build final map: parse hex addresses and collect register names & types
-    let mut final_map = HashMap::new();
-    for sig in type_sigs {
-        if let Ok(addr) = u64::from_str_radix(sig.address.trim_start_matches("0x"), 16) {
-            let args: Vec<(String, Vec<String>, String)> = sig.arguments.into_iter().map(|arg| {
-                // Consolidate register names
-                let regs = if let Some(r) = arg.register {
-                    vec![r]
-                } else if let Some(rs) = arg.registers {
-                    rs
-                } else {
-                    Vec::new()
-                };
-                // Convert TypeDescCompat to string
-                let typ = match arg.arg_type {
-                    TypeDescCompat::Raw(s) => s,
-                    TypeDescCompat::Typed(t) => format!("{:?}", t),
-                };
-                (arg.name, regs, typ)
-            }).collect();
+    log!(executor.state.logger, "Processed {} Go signatures.", go_signatures.len());
 
-            final_map.insert(addr, (sig.name, args));
-        }
-    }
-
-    final_map
+    Ok(go_signatures)
 }
