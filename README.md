@@ -149,7 +149,17 @@ For more explanation about the bugs/panics/vuln research strategies, read here :
 
 
 ## :movie_camera: Demo video
-Incoming
+In this demo, we showcase how the Zorya Concolic Executor analyzes a Go binary named "broken-calculator", compiled using the TinyGo compiler. The calculator works correctly on inputs like "2 + 3", but contains an artificial vulnerability that causes a panic when both operands are "5".
+
+Zorya explores execution paths symbolically and is currently able to identify the conditions leading to the panic independently:
+operand1 == 5
+operand2 == 5
+
+This demonstrates Zorya's ability to uncover subtle conditions that trigger runtime errors in TinyGo binaries.
+
+Link to the demo : [Youtube](https://youtu.be/8PeSZFvr6WA)
+
+[![Watch the demo on YouTube](https://img.youtube.com/vi/8PeSZFvr6WA/0.jpg)](https://youtu.be/8PeSZFvr6WA)
 
 ## :spiral_calendar: Roadmap 
 Zorya has been developeped and tested for now on Linux Ubuntu as the execution environement with x86-64 binaries targets. The roadmap below details the features that have been added over time and those that are planned:
