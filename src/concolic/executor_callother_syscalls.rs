@@ -2131,9 +2131,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
                         Ok((tv_sec, tv_nsec))
                     }
-                    _ => {
-                        Err(format!("Unsupported clk_id: {}", clk_id))
-                    }
+                    _ => Err(format!("Unsupported clk_id: {}", clk_id)),
                 }
             };
 
@@ -2299,10 +2297,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     "[OVERLAY] Unhandled syscall {} in overlay mode - stopping speculative execution",
                     signed_rax
                 );
-                return Err(format!(
-                    "Unhandled syscall {} in overlay mode",
-                    signed_rax
-                ));
+                return Err(format!("Unhandled syscall {} in overlay mode", signed_rax));
             }
 
             // Print clear error message to stderr and exit

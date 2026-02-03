@@ -18,9 +18,10 @@ use z3::{
     Config, Context,
 };
 use zorya::concolic::symbolic_initialization::{
-    initialize_single_register_argument, initialize_single_register_slice,
+    init_struct_types_cache, initialize_single_register_argument, initialize_single_register_slice,
     initialize_slice_argument, initialize_slice_memory_contents, initialize_string_argument,
-    initialize_string_memory_contents, is_stack_location, parse_stack_offset,
+    initialize_string_memory_contents, initialize_struct_pointer_fields, is_stack_location,
+    is_struct_pointer_type, parse_stack_offset,
 };
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
@@ -389,6 +390,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                     functions.len()
                 );
 
+                // Load struct type definitions for struct pointer field symbolization
+                let struct_types_path = "results/function_signatures_go_structs.json";
+                init_struct_types_cache(struct_types_path);
+
                 // Build the final HashMap directly
                 let mut go_signatures = HashMap::new();
                 for func in functions {
@@ -524,6 +529,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                         &mut concrete_values_of_args,
                         &mut executor,
                     );
+
+                    // Check if this is a pointer to a struct and symbolize its fields
+                    if let Some(struct_name) = is_struct_pointer_type(arg_type) {
+                        log!(
+                            executor.state.logger,
+                            "Detected struct pointer '{}' -> '{}', symbolizing struct fields...",
+                            arg_name,
+                            struct_name
+                        );
+                        initialize_struct_pointer_fields(
+                            &mut executor,
+                            arg_name,
+                            regs[0],
+                            &struct_name,
+                        );
+                    }
                 } else if regs.is_empty() {
                     log!(
                         executor.state.logger,
@@ -544,6 +565,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                         &mut concrete_values_of_args,
                         &mut executor,
                     );
+
+                    // Check if this is a pointer to a struct and symbolize its fields
+                    if let Some(struct_name) = is_struct_pointer_type(arg_type) {
+                        log!(
+                            executor.state.logger,
+                            "Detected struct pointer '{}' -> '{}', symbolizing struct fields...",
+                            arg_name,
+                            struct_name
+                        );
+                        initialize_struct_pointer_fields(
+                            &mut executor,
+                            arg_name,
+                            regs[0],
+                            &struct_name,
+                        );
+                    }
                 }
             }
 

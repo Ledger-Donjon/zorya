@@ -2,14 +2,93 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io::Write, sync::Arc};
+use std::{collections::HashMap, fs, io::Write, path::Path, sync::Arc};
 
 use crate::{
     concolic::{ConcolicExecutor, ConcolicVar, ConcreteVar, SymbolicVar},
     state::{function_signatures::TypeDesc, memory_x86_64::MemoryValue},
 };
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use z3::ast::{Ast, BV};
+
+// ────────────────────────────────────────────────────────────
+//  Struct Type Definitions (loaded from DWARF extraction)
+// ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructMemberDef {
+    pub name: String,
+    pub offset: u64,
+    #[serde(rename = "type")]
+    pub typ: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructTypeDef {
+    pub name: String,
+    pub size: u64,
+    pub members: Vec<StructMemberDef>,
+}
+
+/// Global cache of struct type definitions
+static mut STRUCT_TYPES: Option<HashMap<String, StructTypeDef>> = None;
+
+/// Load struct type definitions from JSON file
+pub fn load_struct_types(json_path: &str) -> Result<HashMap<String, StructTypeDef>, String> {
+    let path = Path::new(json_path);
+    if !path.exists() {
+        return Err(format!("Struct types file not found: {}", json_path));
+    }
+
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read struct types file: {}", e))?;
+
+    let struct_types: HashMap<String, StructTypeDef> = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse struct types JSON: {}", e))?;
+
+    println!(
+        "[STRUCT-TYPES] Loaded {} struct type definitions",
+        struct_types.len()
+    );
+
+    Ok(struct_types)
+}
+
+/// Get struct type definition by name
+pub fn get_struct_type(struct_name: &str) -> Option<StructTypeDef> {
+    unsafe {
+        STRUCT_TYPES
+            .as_ref()
+            .and_then(|types| types.get(struct_name).cloned())
+    }
+}
+
+/// Initialize the global struct types cache
+pub fn init_struct_types_cache(json_path: &str) {
+    match load_struct_types(json_path) {
+        Ok(types) => unsafe {
+            STRUCT_TYPES = Some(types);
+        },
+        Err(e) => {
+            eprintln!("[STRUCT-TYPES] Warning: {}", e);
+            eprintln!("[STRUCT-TYPES] Struct field symbolization will be disabled");
+        }
+    }
+}
+
+/// Check if a type string represents a pointer to a struct
+pub fn is_struct_pointer_type(type_str: &str) -> Option<String> {
+    // Go struct pointer types look like: "package/path.StructName *"
+    if type_str.ends_with(" *") || type_str.ends_with("*") {
+        let struct_name = type_str.trim_end_matches(" *").trim_end_matches('*');
+        // Verify it's a struct (not a primitive pointer)
+        if struct_name.contains('.') || struct_name.contains('/') {
+            return Some(struct_name.to_string());
+        }
+    }
+    None
+}
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -1522,4 +1601,373 @@ fn initialize_slice_element_memory<'a>(
             }
         }
     }
+}
+
+// ────────────────────────────────────────────────────────────
+//  Struct Pointer Field Symbolization
+// ────────────────────────────────────────────────────────────
+
+/// Initialize struct pointer fields as symbolic
+/// When a function receives a pointer to a struct (e.g., *Block), this function
+/// symbolizes the struct's fields at their respective offsets in memory.
+pub fn initialize_struct_pointer_fields<'a>(
+    executor: &mut ConcolicExecutor<'a>,
+    arg_name: &str,
+    ptr_reg: &str,
+    struct_type_name: &str,
+) -> bool {
+    log!(
+        executor.state.logger,
+        "=== INITIALIZING STRUCT POINTER FIELDS ==="
+    );
+    log!(
+        executor.state.logger,
+        "Argument '{}' is a pointer to struct '{}'",
+        arg_name,
+        struct_type_name
+    );
+
+    // Get the struct definition
+    let struct_def = match get_struct_type(struct_type_name) {
+        Some(def) => def,
+        None => {
+            log!(
+                executor.state.logger,
+                "WARNING: Struct type '{}' not found in DWARF cache - fields will not be symbolized",
+                struct_type_name
+            );
+            return false;
+        }
+    };
+
+    log!(
+        executor.state.logger,
+        "Found struct '{}' with {} bytes and {} members",
+        struct_def.name,
+        struct_def.size,
+        struct_def.members.len()
+    );
+
+    // Get the concrete pointer value from the register
+    let ptr_value = match get_concrete_value_from_location(executor, ptr_reg) {
+        Some(val) => val,
+        None => {
+            log!(
+                executor.state.logger,
+                "WARNING: Could not read pointer value from register '{}' for struct '{}'",
+                ptr_reg,
+                arg_name
+            );
+            return false;
+        }
+    };
+
+    log!(
+        executor.state.logger,
+        "Struct pointer '{}' = 0x{:x}",
+        arg_name,
+        ptr_value
+    );
+
+    if ptr_value == 0 {
+        log!(
+            executor.state.logger,
+            "WARNING: Struct pointer is NULL - cannot symbolize fields"
+        );
+        return false;
+    }
+
+    // Check if the pointer points to valid memory
+    if !executor.state.memory.is_valid_address(ptr_value) {
+        log!(
+            executor.state.logger,
+            "WARNING: Struct pointer 0x{:x} is not in valid memory - cannot symbolize fields",
+            ptr_value
+        );
+        return false;
+    }
+
+    // Symbolize each field
+    let mut fields_symbolized = 0;
+    for member in &struct_def.members {
+        let field_addr = ptr_value + member.offset;
+        let field_var_name = format!("{}.{}", arg_name, member.name);
+
+        log!(
+            executor.state.logger,
+            "Processing field '{}' at offset {} (0x{:x}), type: '{}'",
+            member.name,
+            member.offset,
+            field_addr,
+            member.typ
+        );
+
+        // Check if this field's address is valid
+        if !executor.state.memory.is_valid_address(field_addr) {
+            log!(
+                executor.state.logger,
+                "WARNING: Field address 0x{:x} is not valid - skipping",
+                field_addr
+            );
+            continue;
+        }
+
+        // Determine field size and how to symbolize it
+        let symbolized = symbolize_struct_field(executor, &field_var_name, field_addr, &member.typ);
+
+        if symbolized {
+            fields_symbolized += 1;
+        }
+    }
+
+    log!(
+        executor.state.logger,
+        "=== STRUCT FIELD SYMBOLIZATION COMPLETE: {}/{} fields symbolized ===",
+        fields_symbolized,
+        struct_def.members.len()
+    );
+
+    fields_symbolized > 0
+}
+
+/// Symbolize a single struct field based on its type
+fn symbolize_struct_field<'a>(
+    executor: &mut ConcolicExecutor<'a>,
+    field_name: &str,
+    field_addr: u64,
+    field_type: &str,
+) -> bool {
+    // Determine field size based on type
+    let (bit_size, is_pointer) = get_field_size_and_pointer_status(field_type);
+
+    log!(
+        executor.state.logger,
+        "Symbolizing field '{}' at 0x{:x} (size: {} bits, is_pointer: {})",
+        field_name,
+        field_addr,
+        bit_size,
+        is_pointer
+    );
+
+    // For pointers, we want to allow nil values
+    // For fixed-size arrays (like [32]byte for Hash), symbolize as array
+    if field_type.starts_with('[') && field_type.contains(']') {
+        // Fixed-size array like [32]byte
+        return symbolize_fixed_array_field(executor, field_name, field_addr, field_type);
+    }
+
+    // Read current value
+    let byte_size = (bit_size / 8) as usize;
+    if byte_size > 16 {
+        // Large field - skip for now
+        log!(
+            executor.state.logger,
+            "WARNING: Field '{}' is too large ({} bytes) - skipping",
+            field_name,
+            byte_size
+        );
+        return false;
+    }
+
+    match executor
+        .state
+        .memory
+        .read_value(field_addr, bit_size, &mut executor.state.logger.clone())
+    {
+        Ok(current_value) => {
+            // Create symbolic variable
+            let field_bv =
+                BV::fresh_const(executor.context, &field_name.replace('.', "_"), bit_size);
+
+            // For pointers, explicitly allow nil (0)
+            // Don't add any constraints - let solver explore all values including 0
+            if is_pointer {
+                log!(
+                    executor.state.logger,
+                    "✓ Field '{}' is a pointer - allowing nil values",
+                    field_name
+                );
+            }
+
+            // Add to tracked symbolic arguments
+            executor
+                .function_symbolic_arguments
+                .insert(field_name.to_string(), SymbolicVar::Int(field_bv.clone()));
+
+            // Create memory value with symbolic
+            let symbolic_mem_value =
+                MemoryValue::new(current_value.concrete.to_u64(), field_bv.clone(), bit_size);
+
+            // Write back to memory
+            match executor
+                .state
+                .memory
+                .write_value(field_addr, &symbolic_mem_value)
+            {
+                Ok(()) => {
+                    log!(
+                        executor.state.logger,
+                        "✓ Successfully symbolized field '{}' at 0x{:x}",
+                        field_name,
+                        field_addr
+                    );
+                    true
+                }
+                Err(e) => {
+                    log!(
+                        executor.state.logger,
+                        "✗ Failed to write symbolic value for field '{}': {}",
+                        field_name,
+                        e
+                    );
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "✗ Failed to read field '{}' at 0x{:x}: {}",
+                field_name,
+                field_addr,
+                e
+            );
+            false
+        }
+    }
+}
+
+/// Symbolize a fixed-size array field (like [32]byte for common.Hash)
+fn symbolize_fixed_array_field<'a>(
+    executor: &mut ConcolicExecutor<'a>,
+    field_name: &str,
+    field_addr: u64,
+    field_type: &str,
+) -> bool {
+    // Parse [N]T format
+    let caps = match Regex::new(r"^\[(\d+)\](.+)$").unwrap().captures(field_type) {
+        Some(c) => c,
+        None => {
+            log!(
+                executor.state.logger,
+                "WARNING: Could not parse array type '{}'",
+                field_type
+            );
+            return false;
+        }
+    };
+
+    let array_size: u64 = caps[1].parse().unwrap_or(0);
+    let elem_type = caps[2].trim();
+    let elem_size = get_type_size(elem_type);
+    let total_bytes = array_size * elem_size;
+
+    log!(
+        executor.state.logger,
+        "Symbolizing fixed array '{}': [{}]{} ({} bytes total)",
+        field_name,
+        array_size,
+        elem_type,
+        total_bytes
+    );
+
+    if total_bytes > 256 {
+        log!(
+            executor.state.logger,
+            "WARNING: Array too large ({} bytes) - symbolizing as single variable",
+            total_bytes
+        );
+        // Fall back to symbolizing as a large bitvector
+        let bit_size = (total_bytes * 8) as u32;
+        let field_bv = BV::fresh_const(executor.context, &field_name.replace('.', "_"), bit_size);
+        executor
+            .function_symbolic_arguments
+            .insert(field_name.to_string(), SymbolicVar::Int(field_bv));
+        return true;
+    }
+
+    // Symbolize each byte of the array
+    let mut success = true;
+    for i in 0..total_bytes {
+        let byte_addr = field_addr + i;
+        let byte_var_name = format!("{}_byte_{}", field_name.replace('.', "_"), i);
+
+        if !executor.state.memory.is_valid_address(byte_addr) {
+            log!(
+                executor.state.logger,
+                "WARNING: Byte address 0x{:x} not valid - stopping",
+                byte_addr
+            );
+            break;
+        }
+
+        match executor.state.memory.read_byte(byte_addr) {
+            Ok(current_byte) => {
+                let byte_bv = BV::fresh_const(executor.context, &byte_var_name, 8);
+
+                executor
+                    .function_symbolic_arguments
+                    .insert(byte_var_name.clone(), SymbolicVar::Int(byte_bv.clone()));
+
+                let symbolic_mem = MemoryValue::new(current_byte.concrete.to_u64(), byte_bv, 8);
+
+                if let Err(e) = executor.state.memory.write_value(byte_addr, &symbolic_mem) {
+                    log!(
+                        executor.state.logger,
+                        "WARNING: Failed to write byte {}: {}",
+                        i,
+                        e
+                    );
+                    success = false;
+                }
+            }
+            Err(e) => {
+                log!(
+                    executor.state.logger,
+                    "WARNING: Failed to read byte {}: {}",
+                    i,
+                    e
+                );
+                success = false;
+            }
+        }
+    }
+
+    if success {
+        log!(
+            executor.state.logger,
+            "✓ Successfully symbolized array field '{}' ({} bytes)",
+            field_name,
+            total_bytes
+        );
+    }
+
+    success
+}
+
+/// Determine field size in bits and whether it's a pointer type
+fn get_field_size_and_pointer_status(field_type: &str) -> (u32, bool) {
+    // Check if it's a pointer type
+    if field_type.ends_with(" *") || field_type.ends_with("*") {
+        return (64, true); // Pointers are 64-bit on amd64
+    }
+
+    // Check if it's a slice type
+    if field_type.starts_with("[]") || field_type.starts_with("[]*") {
+        return (192, false); // Slices are 24 bytes (ptr + len + cap)
+    }
+
+    // Check if it's a fixed-size array
+    if field_type.starts_with('[') {
+        if let Some(caps) = Regex::new(r"^\[(\d+)\](.+)$").unwrap().captures(field_type) {
+            let array_size: u64 = caps[1].parse().unwrap_or(0);
+            let elem_type = caps[2].trim();
+            let elem_size = get_type_size(elem_type);
+            return ((array_size * elem_size * 8) as u32, false);
+        }
+    }
+
+    // Primitive types
+    let size_bytes = get_type_size(field_type);
+    ((size_bytes * 8) as u32, false)
 }

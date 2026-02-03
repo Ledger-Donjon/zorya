@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Extract function signatures from Go binaries using llvm-dwarfdump
+Extract function signatures AND struct type definitions from Go binaries using llvm-dwarfdump
 This script properly handles DWARF5 which has bugs in GNU binutils
 """
 
@@ -15,6 +15,9 @@ import sys
 import re
 import os
 from collections import defaultdict
+
+# Global struct type definitions extracted from DWARF
+struct_types = {}
 
 def run_llvm_dwarfdump(binary_path):
     """Run llvm-dwarfdump and return the output"""
@@ -52,8 +55,115 @@ def get_symbol_addresses(binary_path):
     except:
         return {}
 
+def parse_struct_types(dwarf_output):
+    """Parse llvm-dwarfdump output to extract struct type definitions"""
+    global struct_types
+    struct_types = {}
+    
+    lines = dwarf_output.split('\n')
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i]
+        
+        # Detect start of a structure type
+        if 'DW_TAG_structure_type' in line:
+            struct_name = None
+            struct_size = 0
+            members = []
+            
+            # Parse struct details
+            j = i + 1
+            while j < len(lines):
+                detail_line = lines[j]
+                
+                # Check if we've reached the end of this struct (NULL terminator or new tag at same level)
+                if detail_line.strip() == 'NULL' or (detail_line.strip().startswith('0x') and 'DW_TAG_structure_type' in detail_line):
+                    break
+                
+                # New top-level tag means end of struct
+                if re.match(r'^0x[0-9a-fA-F]+:\s+DW_TAG_', detail_line) and 'DW_TAG_member' not in detail_line:
+                    break
+                
+                # Extract struct name
+                if 'DW_AT_name' in detail_line and struct_name is None:
+                    match = re.search(r'DW_AT_name\s*\(\s*"([^"]+)"\s*\)', detail_line)
+                    if match:
+                        struct_name = match.group(1)
+                
+                # Extract struct size
+                if 'DW_AT_byte_size' in detail_line:
+                    match = re.search(r'DW_AT_byte_size\s*\(\s*(\d+)\s*\)', detail_line)
+                    if match:
+                        struct_size = int(match.group(1))
+                
+                # Detect member
+                if 'DW_TAG_member' in detail_line:
+                    member = {
+                        'name': '',
+                        'offset': 0,
+                        'type': 'unknown'
+                    }
+                    
+                    # Parse member details
+                    k = j + 1
+                    while k < len(lines):
+                        member_line = lines[k]
+                        
+                        # End of member
+                        if member_line.strip().startswith('0x') and 'DW_TAG' in member_line:
+                            break
+                        if member_line.strip() == 'NULL':
+                            break
+                        
+                        # Member name
+                        if 'DW_AT_name' in member_line:
+                            match = re.search(r'DW_AT_name\s*\(\s*"([^"]+)"\s*\)', member_line)
+                            if match:
+                                member['name'] = match.group(1)
+                        
+                        # Member offset
+                        if 'DW_AT_data_member_location' in member_line:
+                            match = re.search(r'DW_AT_data_member_location\s*\(\s*(\d+)\s*\)', member_line)
+                            if match:
+                                member['offset'] = int(match.group(1))
+                        
+                        # Member type
+                        if 'DW_AT_type' in member_line:
+                            type_match = re.search(r'DW_AT_type\s*\(\s*0x[0-9a-fA-F]+\s+"([^"]+)"\s*\)', member_line)
+                            if type_match:
+                                member['type'] = type_match.group(1)
+                        
+                        k += 1
+                    
+                    if member['name']:
+                        members.append(member)
+                    j = k
+                    continue
+                
+                j += 1
+            
+            # Store struct if it has a name
+            if struct_name and members:
+                struct_types[struct_name] = {
+                    'name': struct_name,
+                    'size': struct_size,
+                    'members': members
+                }
+            
+            i = j
+            continue
+        
+        i += 1
+    
+    return struct_types
+
+
 def parse_dwarf_output(dwarf_output, symbol_map):
     """Parse llvm-dwarfdump output to extract function signatures"""
+    # First, extract struct types
+    parse_struct_types(dwarf_output)
+    
     functions = []
     current_function = None
     current_cu_addr_base = 0
@@ -208,17 +318,28 @@ def main():
     print("Running llvm-dwarfdump (this may take a while for large binaries)...")
     dwarf_output = run_llvm_dwarfdump(binary_path)
     
-    # Parse the output
+    # Parse the output (this also extracts struct types)
     print("Parsing DWARF information...")
     functions = parse_dwarf_output(dwarf_output, symbol_map)
     
-    # Save to JSON
+    # Save functions to JSON
     print(f"Extracted {len(functions)} functions")
-    print(f"Writing to: {output_path}")
+    print(f"Writing functions to: {output_path}")
     
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, 'w') as f:
         json.dump(functions, f, indent=2)
+    
+    # Save struct types to a separate JSON file
+    struct_output_path = output_path.replace('.json', '_structs.json')
+    if struct_output_path == output_path:
+        struct_output_path = output_path.replace('.json', '') + '_structs.json'
+    
+    print(f"Extracted {len(struct_types)} struct types")
+    print(f"Writing struct types to: {struct_output_path}")
+    
+    with open(struct_output_path, 'w') as f:
+        json.dump(struct_types, f, indent=2)
     
     print("Done!")
     
@@ -227,6 +348,13 @@ def main():
         print("\nSample of extracted functions:")
         for func in functions[:5]:
             print(f"  - {func['name']} @ {func['address']} ({len(func['arguments'])} args)")
+    
+    # Show a sample of extracted structs
+    if struct_types:
+        print(f"\nSample of extracted struct types ({len(struct_types)} total):")
+        sample_structs = list(struct_types.values())[:5]
+        for struct in sample_structs:
+            print(f"  - {struct['name']} ({struct['size']} bytes, {len(struct['members'])} members)")
 
 if __name__ == '__main__':
     main()

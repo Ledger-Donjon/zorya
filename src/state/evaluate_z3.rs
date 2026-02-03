@@ -441,7 +441,7 @@ fn capture_constrained_values_section(
     for label in label_set {
         // Try to evaluate by pattern-matching against the arguments
         let rendered = if let Some(dot) = label.rfind('.') {
-            // Possibly slice comp: arg.len/cap/ptr
+            // Possibly slice comp: arg.len/cap/ptr OR struct field like b.header
             let (arg, field) = label.split_at(dot);
             let field = &field[1..];
             if let Some(SymbolicVar::Slice(slice)) = symbolic_arguments.get(arg) {
@@ -473,6 +473,35 @@ fn capture_constrained_values_section(
                         None => format!("  - The pointer '{}' has unknown value\n", label),
                     },
                     _ => String::new(),
+                }
+            } else if let Some(sym) = symbolic_arguments.get(&label) {
+                // Fallback: Try looking up the full dotted name (for struct fields like b.header)
+                match sym {
+                    SymbolicVar::Int(bv) => match model.eval(bv, true).and_then(|v| v.as_u64()) {
+                        Some(v) => {
+                            let signed = v as i64;
+                            let ascii = ascii_desc(v);
+                            // Special formatting for pointers (likely nil if 0)
+                            if v == 0 {
+                                format!("  - The pointer '{}' must be NULL (nil)\n", label)
+                            } else {
+                                format!(
+                                    "  - The input '{}' must be 0x{:x} (unsigned: {}; signed: {}; ASCII: {})\n",
+                                    label, v, v, signed, ascii
+                                )
+                            }
+                        }
+                        None => format!("  - The input '{}' has unknown value\n", label),
+                    },
+                    SymbolicVar::Bool(b) => match model.eval(b, true).and_then(|v| v.as_bool()) {
+                        Some(v) => format!("  - The input '{}' must be {}\n", label, v),
+                        None => format!("  - The input '{}' has unknown value\n", label),
+                    },
+                    SymbolicVar::Float(f) => match model.eval(f, true).map(|v| v.to_string()) {
+                        Some(s) => format!("  - The input '{}' must be {}\n", label, s),
+                        None => format!("  - The input '{}' has unknown value\n", label),
+                    },
+                    _ => format!("  - The input '{}' = <complex>\n", label),
                 }
             } else {
                 String::new()

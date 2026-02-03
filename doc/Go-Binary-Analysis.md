@@ -4,17 +4,23 @@ SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELE
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Go Runtime Offsets
+# Go Binary Analysis
 
 ## Overview
 
-Zorya extracts memory offsets of internal Go runtime structures to enable low-level analysis of Go binaries during concolic execution.
+Zorya performs low-level concolic execution of Go binaries by extracting runtime internals from DWARF debug information and executing directly from GDB memory dumps. This document describes how Zorya analyzes Go binaries and known limitations when dealing with Go runtime state.
 
-## Runtime G Offsets
+---
 
-The `runtime_g_offsets.json` file contains **byte offsets** (not values or counts) for fields in Go's internal `runtime.g` struct, which represents a goroutine.
+## Runtime Internals Extraction
 
-### Format
+Zorya automatically extracts Go runtime structures and function signatures during initialization using `scripts/get-funct-arg-types/main.go`.
+
+### Runtime G Offsets
+
+The `runtime_g_offsets.json` file contains **byte offsets** for fields in Go's internal `runtime.g` struct, which represents a goroutine.
+
+**Format:**
 
 ```json
 {
@@ -29,25 +35,22 @@ The `runtime_g_offsets.json` file contains **byte offsets** (not values or count
 }
 ```
 
-### Usage
-
-These offsets allow Zorya to:
+**Purpose:**
 - Read goroutine state directly from process memory
 - Navigate Go runtime internals without runtime API calls
 - Track goroutine scheduling and execution
 - Access thread and stack information
 
-### Important Notes
+**Important:**
+- Offsets are **version-specific** (Go runtime struct layouts change between versions)
+- Values are **byte positions**, not actual runtime values
+- Critical fields: `goid`, `stack`, `stackguard0`, `m`, `atomicstatus`
 
-- **Offsets are version-specific**: Go runtime struct layouts change between versions
-- **Values are byte positions**: Not actual runtime values or counts
-- **Critical fields**: `goid`, `stack`, `stackguard0`, `m`, `atomicstatus` are most commonly used
+### Function Signatures
 
-## Function Signatures
+Function signatures map Go function arguments to their **physical locations** (CPU registers or stack offsets).
 
-The same extraction tool (`get-funct-arg-types`) also parses Go function signatures to map arguments to their physical locations (registers or stack).
-
-### Output Format
+**Format:**
 
 ```json
 {
@@ -68,28 +71,41 @@ The same extraction tool (`get-funct-arg-types`) also parses Go function signatu
 }
 ```
 
-### How It Works
+**Extraction Process:**
 
-1. **DWARF-first approach**: Reads `DW_AT_location` attributes from DWARF to determine actual register/stack assignments
-2. **Location expressions**: Parses DWARF opcodes (`DW_OP_reg*`, `DW_OP_breg*`, `DW_OP_fbreg`) to extract register numbers and stack offsets
-3. **ABI fallback**: If DWARF lacks location info, infers registers from Go's register-based calling convention (RDI, RSI, RDX, RCX, R8, R9)
-4. **Multi-register types**: Handles compound types (slices use 3 registers, strings use 2, interfaces use 2)
+1. **DWARF-first approach**: Reads `DW_AT_location` attributes to determine register/stack assignments
+2. **Location expressions**: Parses DWARF opcodes (`DW_OP_reg*`, `DW_OP_breg*`, `DW_OP_fbreg`)
+3. **ABI fallback**: If DWARF lacks location info, infers from Go's register calling convention (RAX, RBX, RCX, RDI, RSI, R8, R9)
+4. **Multi-register types**: Handles compound types automatically
 
-### Register Mapping
-
+**Register Mapping:**
 - **Slices** (`[]T`): 3 registers (pointer, length, capacity)
 - **Strings**: 2 registers (pointer, length)
-- **Interfaces**: 2 registers (data, type)
+- **Interfaces**: 2 registers (type pointer, data pointer)
 - **Scalars**: 1 register
-- **Stack**: When registers exhausted, uses `STACK+0x<offset>` notation
+- **Stack args**: Notation `STACK+0x<offset>` when registers exhausted
 
-### Important Notes
+**Important:**
+- Result parameters (`~r0`, `~r1`) are filtered out
+- Used to initialize symbolic values for concolic execution
 
-- **Result parameters** (like `~r0`, `~r1`) are filtered out - only input parameters are extracted
-- **Register offsets are positions**, not values (e.g., `"registers": ["RDI"]` means argument is passed in RDI)
-- Used by Zorya to initialize symbolic values for function arguments during concolic execution
+---
 
-## Extraction
+## Known Current Limitations and Issues
 
-Both runtime offsets and function signatures are automatically extracted by analyzing DWARF debug info in compiled Go binaries during Zorya's initialization phase using `scripts/get-funct-arg-types/main.go`.
+### Go Runtime State Dependencies
+
+**Problem:** Certain Go runtime functions maintain complex internal state tied to the scheduler, goroutines, and processor (P) state. When Zorya executes from a **GDB memory dump**, this state may be inconsistent, causing panics or incorrect behavior.
+
+### Affected Functions
+
+| Function | Reason | Typical Symptom |
+|----------|--------|-----------------|
+| `sync.(*Pool).Get` | Accesses per-P local pools via `runtime_procPin()` | Panic in `sync.(*Pool).pinSlow` |
+| `sync.(*Pool).Put` | Same per-P state dependency | Panic or incorrect pool writes |
+| `sync.(*Pool).pin` | Calls `runtime_procPin()` which needs P state | Panic when accessing invalid P |
+| `sync.(*Pool).pinSlow` | Iterates per-P local structures | Panic or segfault |
+| `runtime.(*mcache).nextFree` | Per-P memory allocator cache | Memory corruption or panic |
+| `runtime.(*mcentral).cacheSpan` | Central span cache with runtime locks | Deadlock or panic |
+| `runtime.deferprocStack` | Manipulates goroutine defer stack | Panic during unwinding |
 

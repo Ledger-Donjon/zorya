@@ -1845,8 +1845,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     // Helper function to check if any tracked symbolic variable is present in the symbolic expression
+    // NOTE: Avoid simplify() - it can hang on complex expressions!
     fn contains_tracked_symbolic_variable(&self, symbolic_expr: &Bool<'ctx>) -> bool {
-        let expr_string = format!("{:?}", symbolic_expr.simplify());
+        // Quick check: if no symbolic arguments tracked, return false immediately
+        if self.function_symbolic_arguments.is_empty() {
+            return false;
+        }
+
+        // Format without simplify to avoid hanging
+        let expr_string = format!("{:?}", symbolic_expr);
 
         for (arg_name, _) in self.function_symbolic_arguments.iter() {
             if expr_string.contains(arg_name) {
@@ -1937,7 +1944,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
 
         // Check if condition involves tracked symbolic variables and add to constraint vector
-        if self.contains_tracked_symbolic_variable(&condition_symbolic.simplify()) {
+        // NOTE: Avoid calling simplify() - it can hang on complex expressions!
+        if self.contains_tracked_symbolic_variable(&condition_symbolic) {
             log!(
                 self.state.logger.clone(),
                 "Branch condition involves tracked symbolic variables, adding to constraint vector"
@@ -1951,17 +1959,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
             log!(
                 self.state.logger.clone(),
-                "Adding constraint to vector ({}): {:?}",
-                path_description,
-                condition_symbolic.simplify()
+                "Adding constraint to vector ({})",
+                path_description
             );
 
             self.constraint_vector.push(condition_symbolic);
         } else {
             log!(
                 self.state.logger.clone(),
-                "Branch condition does not involve tracked symbolic variables, skipping : {}",
-                condition_symbolic.simplify()
+                "Branch condition does not involve tracked symbolic variables, skipping"
             );
         }
 
