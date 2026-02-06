@@ -77,6 +77,19 @@ impl<'ctx> SymbolicVar<'ctx> {
                 SymbolicVar::Float(Float::new_const(ctx, name, 11, 53))
             }
 
+            // Go strings are 16 bytes: ptr (8 bytes) + len (8 bytes)
+            // We model them as a 128-bit LargeInt with two 64-bit components
+            TypeDesc::Primitive(s) if s == "string" => {
+                println!(
+                    "Retrieved string argument '{}' – creating symbolic Go string (ptr + len)...",
+                    name
+                );
+                let ptr_bv = BV::fresh_const(ctx, &format!("{}__ptr", name), 64);
+                let len_bv = BV::fresh_const(ctx, &format!("{}__len", name), 64);
+                // Store as LargeInt: [ptr, len] (little-endian order in memory)
+                SymbolicVar::LargeInt(vec![ptr_bv, len_bv])
+            }
+
             TypeDesc::Pointer { .. } => {
                 // model pointers as 64-bit bitvectors
                 println!(

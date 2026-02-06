@@ -1441,6 +1441,110 @@ fn initialize_slice_element_memory<'a>(
     // Handle different element sizes - read_value only supports up to 128 bits (16 bytes)
     let bit_size = (element_size * 8) as u32;
 
+    // Special handling for Go strings: decompose into ptr (8 bytes) + len (8 bytes)
+    // This allows the solver to reason about string length constraints (e.g., len == 0 for panics)
+    if element_type == "string" && element_size == 16 {
+        log!(
+            executor.state.logger,
+            "String element '{}' - decomposing into ptr + len symbolic variables",
+            element_name
+        );
+
+        let ptr_addr = element_addr;
+        let len_addr = element_addr + 8;
+
+        // Read concrete ptr value
+        let ptr_concrete =
+            match executor
+                .state
+                .memory
+                .read_value(ptr_addr, 64, &mut executor.state.logger.clone())
+            {
+                Ok(val) => val.concrete.to_u64(),
+                Err(e) => {
+                    log!(
+                        executor.state.logger,
+                        "Failed to read string ptr at 0x{:x}: {}",
+                        ptr_addr,
+                        e
+                    );
+                    return;
+                }
+            };
+
+        // Read concrete len value
+        let len_concrete =
+            match executor
+                .state
+                .memory
+                .read_value(len_addr, 64, &mut executor.state.logger.clone())
+            {
+                Ok(val) => val.concrete.to_u64(),
+                Err(e) => {
+                    log!(
+                        executor.state.logger,
+                        "Failed to read string len at 0x{:x}: {}",
+                        len_addr,
+                        e
+                    );
+                    return;
+                }
+            };
+
+        log!(
+            executor.state.logger,
+            "String '{}': concrete ptr=0x{:x}, len={}",
+            element_name,
+            ptr_concrete,
+            len_concrete
+        );
+
+        // Create separate symbolic variables for ptr and len
+        let ptr_var_name = format!("{}__ptr", element_name.replace("[", "_").replace("]", "_"));
+        let len_var_name = format!("{}__len", element_name.replace("[", "_").replace("]", "_"));
+
+        let ptr_bv = BV::fresh_const(executor.context, &ptr_var_name, 64);
+        let len_bv = BV::fresh_const(executor.context, &len_var_name, 64);
+
+        // Track both symbolic variables
+        executor.function_symbolic_arguments.insert(
+            format!("{}__ptr", element_name),
+            SymbolicVar::Int(ptr_bv.clone()),
+        );
+        executor.function_symbolic_arguments.insert(
+            format!("{}__len", element_name),
+            SymbolicVar::Int(len_bv.clone()),
+        );
+
+        // Write ptr symbolic value to memory
+        let ptr_mem_value = MemoryValue::new(ptr_concrete, ptr_bv.clone(), 64);
+        if let Err(e) = executor.state.memory.write_value(ptr_addr, &ptr_mem_value) {
+            log!(
+                executor.state.logger,
+                "Failed to write string ptr symbolic: {}",
+                e
+            );
+        }
+
+        // Write len symbolic value to memory
+        let len_mem_value = MemoryValue::new(len_concrete, len_bv.clone(), 64);
+        if let Err(e) = executor.state.memory.write_value(len_addr, &len_mem_value) {
+            log!(
+                executor.state.logger,
+                "Failed to write string len symbolic: {}",
+                e
+            );
+        }
+
+        log!(
+            executor.state.logger,
+            "✓ Initialized string element '{}' with separate ptr/len symbolic variables",
+            element_name
+        );
+
+        return;
+    }
+
     if element_size <= 16 {
         // Use read_value for small elements (≤ 128 bits)
         match executor.state.memory.read_value(

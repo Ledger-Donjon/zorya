@@ -689,15 +689,28 @@ fn capture_symbolic_arguments_evaluation(
                 if let Some(val) = model.eval(bv, true) {
                     output.push_str(&format!("Argument '{}':\n", arg_name));
 
+                    // Check if this is a string component (ptr or len)
+                    let is_string_ptr = arg_name.ends_with("__ptr");
+                    let is_string_len = arg_name.ends_with("__len");
+
                     if bv.get_size() <= 64 {
                         if let Some(val_u64) = val.as_u64() {
                             output.push_str(&format!("  {} = #x{:016x}\n", bv, val_u64));
-                            let signed_val = val_u64 as i64;
-                            output.push_str(&format!("    (unsigned: {})\n", val_u64));
-                            output.push_str(&format!("    (signed: {})\n", signed_val));
 
-                            // Add ASCII interpretation when value fits in a byte
-                            if val_u64 <= 255 {
+                            // Special display for string components
+                            if is_string_ptr {
+                                output
+                                    .push_str(&format!("    (string pointer: 0x{:x})\n", val_u64));
+                            } else if is_string_len {
+                                output.push_str(&format!("    (string length: {})\n", val_u64));
+                            } else {
+                                let signed_val = val_u64 as i64;
+                                output.push_str(&format!("    (unsigned: {})\n", val_u64));
+                                output.push_str(&format!("    (signed: {})\n", signed_val));
+                            }
+
+                            // Add ASCII interpretation when value fits in a byte (skip for string components)
+                            if !is_string_ptr && !is_string_len && val_u64 <= 255 {
                                 let byte_val = val_u64 as u8;
                                 if byte_val >= 32 && byte_val <= 126 {
                                     // Printable ASCII
@@ -721,8 +734,8 @@ fn capture_symbolic_arguments_evaluation(
                                         byte_val
                                     ));
                                 }
-                            } else {
-                                // Always provide LSB ASCII hint for larger integers
+                            } else if !is_string_ptr && !is_string_len {
+                                // Provide LSB ASCII hint for larger integers (skip for string components)
                                 let b0 = (val_u64 & 0xff) as u8;
                                 let ascii = if (32..=126).contains(&b0) {
                                     format!("'{}'", b0 as char)
@@ -749,6 +762,46 @@ fn capture_symbolic_arguments_evaluation(
 
                     output.push_str("\n");
                 }
+            }
+            SymbolicVar::LargeInt(bvs) => {
+                // Handle LargeInt, which we use for Go strings (ptr + len)
+                output.push_str(&format!("Argument '{}':\n", arg_name));
+
+                // Check if this looks like a Go string (2 x 64-bit values)
+                if bvs.len() == 2 && bvs[0].get_size() == 64 && bvs[1].get_size() == 64 {
+                    output.push_str("  Go string components:\n");
+
+                    // First BV is ptr
+                    if let Some(ptr_val) = model.eval(&bvs[0], true) {
+                        if let Some(ptr_u64) = ptr_val.as_u64() {
+                            output
+                                .push_str(&format!("    ptr ({}) = #x{:016x}\n", bvs[0], ptr_u64));
+                            output.push_str(&format!("      (hex: 0x{:x})\n", ptr_u64));
+                        } else {
+                            output.push_str(&format!("    ptr = {}\n", ptr_val));
+                        }
+                    }
+
+                    // Second BV is len
+                    if let Some(len_val) = model.eval(&bvs[1], true) {
+                        if let Some(len_u64) = len_val.as_u64() {
+                            output
+                                .push_str(&format!("    len ({}) = #x{:016x}\n", bvs[1], len_u64));
+                            output.push_str(&format!("      (decimal: {})\n", len_u64));
+                        } else {
+                            output.push_str(&format!("    len = {}\n", len_val));
+                        }
+                    }
+                } else {
+                    // Generic LargeInt display
+                    output.push_str(&format!("  LargeInt with {} components:\n", bvs.len()));
+                    for (i, bv) in bvs.iter().enumerate() {
+                        if let Some(val) = model.eval(bv, true) {
+                            output.push_str(&format!("    [{}] {} = {}\n", i, bv, val));
+                        }
+                    }
+                }
+                output.push_str("\n");
             }
             _ => {
                 output.push_str(&format!(
