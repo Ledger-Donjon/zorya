@@ -373,7 +373,8 @@ fn execute_with_overlay<'ctx>(
                             "Null pointer dereference at 0x{:x} (instruction {}): {}",
                             current_addr, idx, e
                         );
-                        executor.report_vulnerability(
+                        crate::state::evaluate_z3::report_vulnerability(
+                            &mut executor.state.logger.clone(),
                             "NULL pointer dereference (overlay execution)",
                             current_addr,
                             &[&vuln_desc],
@@ -432,7 +433,8 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                         "Null pointer dereference (LOAD) at instruction {}",
                         inst_idx
                     );
-                    executor.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut executor.state.logger.clone(),
                         "NULL pointer dereference (LOAD, overlay execution)",
                         current_addr,
                         &[&vuln_desc],
@@ -455,7 +457,8 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                 if pointer_value == 0 {
                     let vuln_desc =
                         format!("Null pointer write (STORE) at instruction {}", inst_idx);
-                    executor.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut executor.state.logger.clone(),
                         "NULL pointer dereference (STORE, overlay execution)",
                         current_addr,
                         &[&vuln_desc],
@@ -480,7 +483,8 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                 let divisor_value = divisor_concolic.get_concrete_value();
                 if divisor_value == 0 {
                     let vuln_desc = format!("Division by zero at instruction {}", inst_idx);
-                    executor.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut executor.state.logger.clone(),
                         "Division by zero (overlay execution)",
                         current_addr,
                         &[&vuln_desc],

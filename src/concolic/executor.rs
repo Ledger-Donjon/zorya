@@ -94,70 +94,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         self.overlay_state.is_some()
     }
 
-    /// Unified vulnerability reporting — writes the same formatted block to both
-    /// the log file and to stdout so that every vulnerability looks identical
-    /// regardless of where it was detected (concrete path, overlay execution, etc.).
-    pub fn report_vulnerability(&self, vuln_type: &str, address: u64, details: &[&str]) {
-        let bar = "══════════════════════════════════════════════════════════════════════";
-        let box_width = bar.len();
-        let elapsed = self.start_time.elapsed();
-        let elapsed_str = format!("{:.3}s", elapsed.as_secs_f64());
-
-        // Helper to wrap text within the box
-        let wrap_line = |text: &str| -> Vec<String> {
-            let max_content = box_width - 4; // "║ " + content + " ║" leaves box_width-4 for content
-            let mut lines = Vec::new();
-            let mut current = String::new();
-
-            for word in text.split_whitespace() {
-                if current.is_empty() {
-                    current = word.to_string();
-                } else if current.len() + 1 + word.len() <= max_content {
-                    current.push(' ');
-                    current.push_str(word);
-                } else {
-                    lines.push(current.clone());
-                    current = format!("  {}", word); // Indent continuation lines
-                }
-            }
-            if !current.is_empty() {
-                lines.push(current);
-            }
-            lines
-        };
-
-        // -- log file --
-        log!(self.state.logger.clone(), "╔{}╗", bar);
-        log!(self.state.logger.clone(), "║ VULNERABILITY: {}", vuln_type);
-        log!(self.state.logger.clone(), "║   Address: 0x{:x}", address);
-        log!(self.state.logger.clone(), "║   Elapsed: {}", elapsed_str);
-        for line in details {
-            for wrapped in wrap_line(line) {
-                log!(
-                    self.state.logger.clone(),
-                    "║   {:<width$} ║",
-                    wrapped,
-                    width = box_width - 4
-                );
-            }
-        }
-        log!(self.state.logger.clone(), "╚{}╝\n", bar);
-
-        // -- terminal (stdout) --
-        println!();
-        println!("╔{}╗", bar);
-        println!("║ VULNERABILITY: {}", vuln_type);
-        println!("║   Address: 0x{:x}", address);
-        println!("║   Elapsed: {}", elapsed_str);
-        for line in details {
-            for wrapped in wrap_line(line) {
-                println!("║   {:<width$} ║", wrapped, width = box_width - 4);
-            }
-        }
-        println!("╚{}╝", bar);
-        println!();
-    }
-
     /// Get register value with overlay support
     /// If overlay mode is active, reads from overlay first, then falls back to base
     pub fn get_register_overlay_aware(
@@ -610,7 +546,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.nilPanic — nil pointer dereference",
                         current_addr,
                         &["You are trying to dereference a nil pointer."],
@@ -629,7 +566,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.nilMapPanic — nil map access",
                         current_addr,
                         &["You are trying to add an entry to a nil map."],
@@ -648,7 +586,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime._panic — generic panic",
                         current_addr,
                         &["The Go runtime triggered a generic panic."],
@@ -656,7 +595,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     process::exit(0);
                 }
                 if symbol_name == "runtime.recordForPanic" {
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.recordForPanic (may not be a real panic)",
                         current_addr,
                         &["Encountered runtime.recordForPanic — this may be benign."],
@@ -675,7 +615,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.slicePanic — slice bounds out of range",
                         current_addr,
                         &["Slice index is out of bounds."],
@@ -694,7 +635,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.lookupPanic — index out of bounds",
                         current_addr,
                         &["You are trying to access an array or slice out of bounds."],
@@ -713,7 +655,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.runtimePanic — generic runtime panic",
                         current_addr,
                         &["The Go runtime triggered a generic runtime panic."],
@@ -732,7 +675,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.chanMakePanic — channel creation error",
                         current_addr,
                         &["You are trying to create a new channel that is too big."],
@@ -751,7 +695,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
-                    self.report_vulnerability(
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut self.state.logger.clone(),
                         "Go runtime.negativeShiftPanic — negative shift",
                         current_addr,
                         &["The shift value is negative."],
@@ -2001,17 +1946,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
                 // Also report the vulnerability here for immediate feedback
                 // (evaluate_args_z3 generates the SAT file but doesn't report to stdout)
-                self.report_vulnerability(
+                crate::state::evaluate_z3::report_vulnerability(
+                    &mut self.state.logger.clone(),
                     &format!("Symbolic NULL pointer dereference ({})", operation),
                     addr_hex,
                     &[
-                        &format!("Pointer expression: {:?}", pointer_bv.simplify()),
-                        &format!(
-                            "Concrete value: 0x{:x} (non-zero on this path, but could be zero on another)",
-                            pointer_concrete
-                        ),
-                        "The solver confirmed that a NULL value satisfies all path constraints.",
-                        "This means an input exists that would cause a nil pointer dereference here.",
+                        &format!("Pointer: {:?}", pointer_bv.simplify()),
+                        &format!("SAT condition: pointer must be 0x0 (NULL)"),
+                        &format!("Concrete value on this path: 0x{:x}", pointer_concrete),
                     ],
                 );
                 return true;
@@ -2492,7 +2434,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Check if the pointer offset is concretely NULL
         if pointer_offset_concrete == 0 {
-            self.report_vulnerability(
+            crate::state::evaluate_z3::report_vulnerability(
+                &mut self.state.logger.clone(),
                 "Concrete NULL pointer dereference (LOAD)",
                 self.current_address.unwrap_or(0),
                 &["The pointer is concretely zero — execution halted."],
@@ -2514,7 +2457,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some((func_addr, frame_rsp)) =
             self.check_dangling_pointer_access(pointer_offset_concrete)
         {
-            self.report_vulnerability(
+            crate::state::evaluate_z3::report_vulnerability(
+                &mut self.state.logger.clone(),
                 "Dangling pointer access — Use-After-Free (LOAD)",
                 self.current_address.unwrap_or(0),
                 &[
@@ -2941,7 +2885,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Validate pointer to prevent null dereference (concrete check)
         if pointer_offset_concrete == 0 {
-            self.report_vulnerability(
+            crate::state::evaluate_z3::report_vulnerability(
+                &mut self.state.logger.clone(),
                 "Concrete NULL pointer dereference (STORE)",
                 self.current_address.unwrap_or(0),
                 &["The pointer is concretely zero — execution halted."],
@@ -2961,7 +2906,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         if let Some((func_addr, frame_rsp)) =
             self.check_dangling_pointer_access(pointer_offset_concrete)
         {
-            self.report_vulnerability(
+            crate::state::evaluate_z3::report_vulnerability(
+                &mut self.state.logger.clone(),
                 "Dangling pointer write — Use-After-Free (STORE)",
                 self.current_address.unwrap_or(0),
                 &[

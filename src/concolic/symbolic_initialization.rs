@@ -2,7 +2,13 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, fs, io::Write, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    io::Write,
+    path::Path,
+    sync::{Arc, OnceLock},
+};
 
 use crate::{
     concolic::{ConcolicExecutor, ConcolicVar, ConcreteVar, SymbolicVar},
@@ -32,7 +38,7 @@ pub struct StructTypeDef {
 }
 
 /// Global cache of struct type definitions
-static mut STRUCT_TYPES: Option<HashMap<String, StructTypeDef>> = None;
+static STRUCT_TYPES: OnceLock<HashMap<String, StructTypeDef>> = OnceLock::new();
 
 /// Load struct type definitions from JSON file
 pub fn load_struct_types(json_path: &str) -> Result<HashMap<String, StructTypeDef>, String> {
@@ -57,19 +63,19 @@ pub fn load_struct_types(json_path: &str) -> Result<HashMap<String, StructTypeDe
 
 /// Get struct type definition by name
 pub fn get_struct_type(struct_name: &str) -> Option<StructTypeDef> {
-    unsafe {
-        STRUCT_TYPES
-            .as_ref()
-            .and_then(|types| types.get(struct_name).cloned())
-    }
+    STRUCT_TYPES
+        .get()
+        .and_then(|types| types.get(struct_name).cloned())
 }
 
 /// Initialize the global struct types cache
 pub fn init_struct_types_cache(json_path: &str) {
     match load_struct_types(json_path) {
-        Ok(types) => unsafe {
-            STRUCT_TYPES = Some(types);
-        },
+        Ok(types) => {
+            if STRUCT_TYPES.set(types).is_err() {
+                eprintln!("[STRUCT-TYPES] Warning: struct types cache already initialized");
+            }
+        }
         Err(e) => {
             eprintln!("[STRUCT-TYPES] Warning: {}", e);
             eprintln!("[STRUCT-TYPES] Struct field symbolization will be disabled");

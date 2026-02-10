@@ -37,6 +37,50 @@ pub fn init_sat_timer_start() {
     let _ = START_INSTANT.set(Instant::now());
 }
 
+/// Get elapsed time since Zorya started (for consistent vulnerability reporting)
+pub fn get_elapsed_since_start() -> Duration {
+    START_INSTANT
+        .get()
+        .map(|s| s.elapsed())
+        .unwrap_or_else(|| Duration::from_secs(0))
+}
+
+/// Unified vulnerability reporting — writes the same formatted block to both
+/// the log file and to stdout so that every vulnerability looks identical
+/// regardless of where it was detected (concrete path, overlay execution, CBRANCH, etc.).
+pub fn report_vulnerability(
+    logger: &mut crate::state::state_manager::Logger,
+    vuln_type: &str,
+    address: u64,
+    details: &[&str],
+) {
+    let bar = "========================================================================";
+    let elapsed = get_elapsed_since_start();
+    let elapsed_str = format!("{:.3}s", elapsed.as_secs_f64());
+
+    // -- log file --
+    log!(logger, "{}", bar);
+    log!(logger, "VULNERABILITY: {}", vuln_type);
+    log!(logger, "  Address: 0x{:x}", address);
+    log!(logger, "  Elapsed: {}", elapsed_str);
+    for line in details {
+        log!(logger, "  {}", line);
+    }
+    log!(logger, "{}\n", bar);
+
+    // -- terminal (stdout) --
+    println!();
+    println!("{}", bar);
+    println!("VULNERABILITY: {}", vuln_type);
+    println!("  Address: 0x{:x}", address);
+    println!("  Elapsed: {}", elapsed_str);
+    for line in details {
+        println!("  {}", line);
+    }
+    println!("{}", bar);
+    println!();
+}
+
 /// Initialize the recorded command line invocation including key environment variables.
 pub fn init_invocation_command_line() {
     // Try to reconstruct the full wrapper-style command
@@ -259,12 +303,13 @@ fn add_ascii_constraints_for_args<'ctx>(
     Ok(())
 }
 
-fn write_sat_state_to_file(
+pub fn log_sat_state_to_file_and_terminal(
     evaluation_content: &str,
     mode: &str,
     panic_addr: Option<u64>,
     elapsed_since_start: Option<Duration>,
     instruction_addr: Option<u64>,
+    executor: &ConcolicExecutor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create results directory if it doesn't exist
     std::fs::create_dir_all("results")?;
@@ -323,16 +368,17 @@ fn write_sat_state_to_file(
 
     file.flush()?;
 
-    println!("\n~~~~~~~~~~~");
-    println!(
-        "[*] SATISFIABLE STATE AND POTENTIAL BUG FOUND! You can find the details in: {}",
-        file_path
+    // Use unified vulnerability reporting
+    let addr = instruction_addr.or(panic_addr).unwrap_or(0);
+    report_vulnerability(
+        &mut executor.state.logger.clone(),
+        "CBRANCH condition leads to potential bug",
+        addr,
+        &[
+            &format!("Type: Satisfiable path to panic/vulnerability"),
+            &format!("More details in: {}", file_path),
+        ],
     );
-    if let Some(dur) = elapsed_since_start {
-        let secs = dur.as_secs_f64();
-        println!("[*] Elapsed since start: {:.3}s", secs);
-    }
-    println!("~~~~~~~~~~~\n");
 
     Ok(())
 }
@@ -817,10 +863,11 @@ fn capture_symbolic_arguments_evaluation(
 }
 
 /// Build a unified evaluation content string used for both file output and terminal logs
-fn build_unified_evaluation_content(
+fn build_unified_evaluation_content<'ctx>(
     model: &z3::Model,
     executor: &ConcolicExecutor,
     conditional_flag: Option<&ConcolicVar>,
+    null_check_pointer: Option<&z3::ast::BV<'ctx>>,
 ) -> String {
     let mut content = String::new();
 
@@ -832,6 +879,11 @@ fn build_unified_evaluation_content(
             SymbolicVar::Int(bv) => extra_exprs.push(format!("{:?}", bv.simplify())),
             _ => {}
         }
+    }
+
+    // Include NULL pointer expression if checking for NULL dereference
+    if let Some(pointer_bv) = null_check_pointer {
+        extra_exprs.push(format!("{:?}", pointer_bv.simplify()));
     }
 
     // Constrained values first
@@ -860,7 +912,8 @@ pub fn evaluate_args_z3<'ctx>(
     branch_target_addr: Option<u64>,
     panic_addr: Option<u64>, // Add panic address parameter to avoid re-exploration
     null_check_pointer: Option<&z3::ast::BV<'ctx>>, // NEW: for NULL pointer dereference checks (LOAD/STORE)
-) -> Result<bool, Box<dyn std::error::Error>> { // CHANGED: return bool indicating SAT
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // CHANGED: return bool indicating SAT
     use std::env;
     let mode = env::var("MODE").expect("MODE environment variable is not set");
 
@@ -1032,6 +1085,7 @@ pub fn evaluate_args_z3<'ctx>(
                         &model,
                         executor,
                         conditional_flag.as_ref(),
+                        null_check_pointer,
                     );
 
                     // Log to terminal using the same structure
@@ -1039,14 +1093,15 @@ pub fn evaluate_args_z3<'ctx>(
                         log!(executor.state.logger, "{}", line);
                     }
 
-                    // Write to file
+                    // Write to file and report to terminal
                     let elapsed = START_INSTANT.get().map(|s| s.elapsed());
-                    if let Err(e) = write_sat_state_to_file(
+                    if let Err(e) = log_sat_state_to_file_and_terminal(
                         &evaluation_content,
                         &mode,
                         panic_addr,
                         elapsed,
                         instruction_addr,
+                        executor,
                     ) {
                         log!(
                             executor.state.logger,
@@ -1056,7 +1111,7 @@ pub fn evaluate_args_z3<'ctx>(
                     }
 
                     log!(executor.state.logger, "~~~~~~~~~~~");
-                    
+
                     executor.solver.pop();
                     return Ok(true); // SAT - vulnerability found
                 }
@@ -1067,7 +1122,7 @@ pub fn evaluate_args_z3<'ctx>(
                         "Branch to panic is UNSAT => no input can make that branch lead to panic"
                     );
                     log!(executor.state.logger, "~~~~~~~~~~~");
-                    
+
                     executor.solver.pop();
                     return Ok(false); // UNSAT - no vulnerability
                 }
@@ -1154,22 +1209,27 @@ pub fn evaluate_args_z3<'ctx>(
                 let model = executor.solver.get_model().unwrap();
 
                 // Build unified evaluation content
-                let evaluation_content =
-                    build_unified_evaluation_content(&model, executor, conditional_flag.as_ref());
+                let evaluation_content = build_unified_evaluation_content(
+                    &model,
+                    executor,
+                    conditional_flag.as_ref(),
+                    null_check_pointer,
+                );
 
                 // Log to terminal using the same structure
                 for line in evaluation_content.lines() {
                     log!(executor.state.logger, "{}", line);
                 }
 
-                // Write to file
+                // Write to file and report to terminal
                 let elapsed = START_INSTANT.get().map(|s| s.elapsed());
-                if let Err(e) = write_sat_state_to_file(
+                if let Err(e) = log_sat_state_to_file_and_terminal(
                     &evaluation_content,
                     &mode,
                     branch_target_addr,
                     elapsed,
                     instruction_addr,
+                    executor,
                 ) {
                     log!(
                         executor.state.logger,
@@ -1179,7 +1239,7 @@ pub fn evaluate_args_z3<'ctx>(
                 }
 
                 log!(executor.state.logger, "~~~~~~~~~~~");
-                
+
                 // 6) pop the solver context
                 executor.solver.pop();
                 return Ok(true); // SAT - vulnerability found
@@ -1192,7 +1252,7 @@ pub fn evaluate_args_z3<'ctx>(
                     "Branch to panic is UNSAT => no input can make that branch lead to panic"
                 );
                 log!(executor.state.logger, "~~~~~~~~~~~");
-                
+
                 // 6) pop the solver context
                 executor.solver.pop();
                 return Ok(false); // UNSAT - no vulnerability
