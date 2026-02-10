@@ -309,7 +309,6 @@ pub fn log_sat_state_to_file_and_terminal(
     panic_addr: Option<u64>,
     elapsed_since_start: Option<Duration>,
     instruction_addr: Option<u64>,
-    executor: &ConcolicExecutor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create results directory if it doesn't exist
     std::fs::create_dir_all("results")?;
@@ -367,18 +366,6 @@ pub fn log_sat_state_to_file_and_terminal(
     writeln!(file, "{}", "=".repeat(80))?;
 
     file.flush()?;
-
-    // Use unified vulnerability reporting
-    let addr = instruction_addr.or(panic_addr).unwrap_or(0);
-    report_vulnerability(
-        &mut executor.state.logger.clone(),
-        "CBRANCH condition leads to potential bug",
-        addr,
-        &[
-            &format!("Type: Satisfiable path to panic/vulnerability"),
-            &format!("More details in: {}", file_path),
-        ],
-    );
 
     Ok(())
 }
@@ -1101,7 +1088,6 @@ pub fn evaluate_args_z3<'ctx>(
                         panic_addr,
                         elapsed,
                         instruction_addr,
-                        executor,
                     ) {
                         log!(
                             executor.state.logger,
@@ -1109,6 +1095,18 @@ pub fn evaluate_args_z3<'ctx>(
                             e
                         );
                     }
+
+                    // Report CBRANCH vulnerability to terminal
+                    let addr = instruction_addr.or(panic_addr).unwrap_or(0);
+                    report_vulnerability(
+                        &mut executor.state.logger.clone(),
+                        "CBRANCH condition leads to potential bug",
+                        addr,
+                        &[
+                            &format!("Type: Satisfiable path to panic/vulnerability"),
+                            "More details in: results/FOUND_SAT_STATE.txt",
+                        ],
+                    );
 
                     log!(executor.state.logger, "~~~~~~~~~~~");
 
@@ -1229,7 +1227,6 @@ pub fn evaluate_args_z3<'ctx>(
                     branch_target_addr,
                     elapsed,
                     instruction_addr,
-                    executor,
                 ) {
                     log!(
                         executor.state.logger,
@@ -1237,6 +1234,18 @@ pub fn evaluate_args_z3<'ctx>(
                         e
                     );
                 }
+
+                // Report CBRANCH vulnerability to terminal
+                let addr = instruction_addr.or(branch_target_addr).unwrap_or(0);
+                report_vulnerability(
+                    &mut executor.state.logger.clone(),
+                    "CBRANCH condition leads to potential bug",
+                    addr,
+                    &[
+                        &format!("Type: Satisfiable path to panic/vulnerability"),
+                        "More details in: results/FOUND_SAT_STATE.txt",
+                    ],
+                );
 
                 log!(executor.state.logger, "~~~~~~~~~~~");
 
