@@ -860,7 +860,7 @@ pub fn evaluate_args_z3<'ctx>(
     branch_target_addr: Option<u64>,
     panic_addr: Option<u64>, // Add panic address parameter to avoid re-exploration
     null_check_pointer: Option<&z3::ast::BV<'ctx>>, // NEW: for NULL pointer dereference checks (LOAD/STORE)
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<bool, Box<dyn std::error::Error>> { // CHANGED: return bool indicating SAT
     use std::env;
     let mode = env::var("MODE").expect("MODE environment variable is not set");
 
@@ -1056,6 +1056,9 @@ pub fn evaluate_args_z3<'ctx>(
                     }
 
                     log!(executor.state.logger, "~~~~~~~~~~~");
+                    
+                    executor.solver.pop();
+                    return Ok(true); // SAT - vulnerability found
                 }
                 SatResult::Unsat => {
                     log!(executor.state.logger, "~~~~~~~~~~~");
@@ -1064,15 +1067,19 @@ pub fn evaluate_args_z3<'ctx>(
                         "Branch to panic is UNSAT => no input can make that branch lead to panic"
                     );
                     log!(executor.state.logger, "~~~~~~~~~~~");
+                    
+                    executor.solver.pop();
+                    return Ok(false); // UNSAT - no vulnerability
                 }
                 SatResult::Unknown => {
                     log!(executor.state.logger, "Solver => Unknown feasibility");
+                    executor.solver.pop();
+                    return Ok(false); // Unknown treated as no vulnerability
                 }
             }
-
-            executor.solver.pop();
         } else {
             log!(executor.state.logger, ">>> No panic function found in the AST exploration with the current max depth exploration");
+            return Ok(false); // No panic found
         }
     } else if mode == "start" || mode == "main" {
         let binary_path = {
@@ -1172,6 +1179,10 @@ pub fn evaluate_args_z3<'ctx>(
                 }
 
                 log!(executor.state.logger, "~~~~~~~~~~~");
+                
+                // 6) pop the solver context
+                executor.solver.pop();
+                return Ok(true); // SAT - vulnerability found
             }
 
             z3::SatResult::Unsat => {
@@ -1181,21 +1192,26 @@ pub fn evaluate_args_z3<'ctx>(
                     "Branch to panic is UNSAT => no input can make that branch lead to panic"
                 );
                 log!(executor.state.logger, "~~~~~~~~~~~");
+                
+                // 6) pop the solver context
+                executor.solver.pop();
+                return Ok(false); // UNSAT - no vulnerability
             }
             z3::SatResult::Unknown => {
                 log!(executor.state.logger, "Solver => Unknown feasibility");
+                // 6) pop the solver context
+                executor.solver.pop();
+                return Ok(false); // Unknown treated as no vulnerability
             }
         }
-        // 6) pop the solver context
-        executor.solver.pop();
     } else {
         log!(
             executor.state.logger,
             "Unsupported mode for evaluating arguments: {}",
             mode
         );
+        return Ok(false);
     }
-    Ok(())
 }
 
 // Function to get the address of the os.Args slice in the target binary

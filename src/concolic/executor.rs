@@ -1994,7 +1994,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Some(addr_hex),    // use current address as "panic address" for SAT file
             Some(&pointer_bv), // NEW: pass the pointer BV for NULL check
         ) {
-            Ok(_) => {
+            Ok(true) => {
+                // SAT - vulnerability found
                 // Cache the path predicate length to avoid duplicate checks at same constraint level
                 self.path_predicate_len_at_last_null_check = Some(current_constraint_len);
 
@@ -2014,6 +2015,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     ],
                 );
                 return true;
+            }
+            Ok(false) => {
+                // UNSAT or Unknown - no vulnerability
+                log!(
+                    self.state.logger.clone(),
+                    "[NULL-CHECK] Solver result: Unsat/Unknown (NULL is impossible)"
+                );
+                return false;
             }
             Err(e) => {
                 log!(

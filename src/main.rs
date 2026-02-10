@@ -1046,7 +1046,7 @@ fn execute_instructions_from(
                                         );
 
                                     // Try to find a satisfying input
-                                    evaluate_args_z3(
+                                    let _ = evaluate_args_z3(
                                             executor,
                                             inst,
                                             Some(conditional_flag.clone()),
@@ -1062,6 +1062,7 @@ fn execute_instructions_from(
                                                 vuln_addr,
                                                 e
                                             );
+                                            false
                                         });
                                 }
                                 OverlayPathAnalysisResult::Safe => {
@@ -1142,7 +1143,7 @@ fn execute_instructions_from(
                             };
 
                             // Run only a single evaluation once panic address is known
-                            evaluate_args_z3(
+                            let _ = evaluate_args_z3(
                                 executor,
                                 inst,
                                 Some(conditional_flag.clone()),
@@ -1158,6 +1159,7 @@ fn execute_instructions_from(
                                     branch_target_address,
                                     e
                                 );
+                                false
                             });
                         } else {
                             log!(executor.state.logger, ">>> No panic function found in the AST exploration with the current max depth exploration");
