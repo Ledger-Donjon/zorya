@@ -9,10 +9,13 @@ use std::{error::Error, process::Command};
 
 // use super::explore_ast::explore_ast_for_panic;  // Removed to avoid duplication
 use crate::concolic::{ConcolicExecutor, ConcolicVar, SymbolicVar};
+/// Write SAT state details to file and log to terminal
+use crate::state::gating_stats::{get_allowed_by_xref_fallback, get_gated_by_reach};
 use crate::state::simplify_z3::add_constraints_from_vector;
 use crate::target_info::GLOBAL_TARGET_INFO;
+
 use chrono::{DateTime, Utc};
-use parser::parser::Inst;
+use parser::parser::{Inst, Opcode};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::OpenOptions;
 use std::path::Path;
@@ -255,9 +258,6 @@ fn add_ascii_constraints_for_args<'ctx>(
     }
     Ok(())
 }
-
-/// Write SAT state details to file and log to terminal
-use crate::state::gating_stats::{get_allowed_by_xref_fallback, get_gated_by_reach};
 
 fn write_sat_state_to_file(
     evaluation_content: &str,
@@ -859,6 +859,7 @@ pub fn evaluate_args_z3<'ctx>(
     instruction_addr: Option<u64>,
     branch_target_addr: Option<u64>,
     panic_addr: Option<u64>, // Add panic address parameter to avoid re-exploration
+    null_check_pointer: Option<&z3::ast::BV<'ctx>>, // NEW: for NULL pointer dereference checks (LOAD/STORE)
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::env;
     let mode = env::var("MODE").expect("MODE environment variable is not set");
@@ -874,60 +875,80 @@ pub fn evaluate_args_z3<'ctx>(
 
             executor.solver.push();
 
-            // When evaluating arguments during a CBRANCH leading to a panic, assert the simple boolean condition that leads to the panic.
-            if let Some(ref conditional_flag) = conditional_flag {
-                let panic_causing_flag_u64 = conditional_flag.concrete.to_u64().clone();
-                // Handle both Bool and BV types
-                let condition = match &conditional_flag.symbolic {
-                    SymbolicVar::Bool(bool_expr) => {
-                        log!(
-                            executor.state.logger,
-                            "Conditional flag Bool simplified: {:?}",
-                            bool_expr.simplify()
-                        );
-                        // Flip the observed condition to explore the negated branch
-                        let condition = if panic_causing_flag_u64 == 0 {
-                            // Observed false; require true
-                            bool_expr.not().not() // i.e., bool_expr == true
-                        } else {
-                            // Observed true; require false
-                            bool_expr.not()
-                        };
-                        condition
-                    }
-                    SymbolicVar::Int(bv) => {
-                        log!(
-                            executor.state.logger,
-                            "Conditional flag BV simplified: {:?}",
-                            bv.simplify()
-                        );
-                        // Extract underlying Bool from BV and assert the negation of observed path
-                        let bool_cond = crate::state::simplify_z3::bv_to_bool_smart(bv);
-                        if panic_causing_flag_u64 == 0 {
-                            bool_cond
-                        } else {
-                            bool_cond.not()
+            // The evaluation can be done for CBranch instructions, and also for Load and Store instructions
+            if inst.opcode == Opcode::CBranch {
+                // When evaluating arguments during a CBRANCH leading to a panic, assert the simple boolean condition that leads to the panic.
+                if let Some(ref conditional_flag) = conditional_flag {
+                    let panic_causing_flag_u64 = conditional_flag.concrete.to_u64().clone();
+                    // Handle both Bool and BV types
+                    let condition = match &conditional_flag.symbolic {
+                        SymbolicVar::Bool(bool_expr) => {
+                            log!(
+                                executor.state.logger,
+                                "Conditional flag Bool simplified: {:?}",
+                                bool_expr.simplify()
+                            );
+                            // Flip the observed condition to explore the negated branch
+                            let condition = if panic_causing_flag_u64 == 0 {
+                                // Observed false; require true
+                                bool_expr.not().not() // i.e., bool_expr == true
+                            } else {
+                                // Observed true; require false
+                                bool_expr.not()
+                            };
+                            condition
                         }
-                    }
-                    _ => {
-                        return Err("Unsupported symbolic variable type for conditional flag"
-                            .to_string()
-                            .into());
-                    }
-                };
-                // Assert the new condition
-                let simplified = condition.simplify();
+                        SymbolicVar::Int(bv) => {
+                            log!(
+                                executor.state.logger,
+                                "Conditional flag BV simplified: {:?}",
+                                bv.simplify()
+                            );
+                            // Extract underlying Bool from BV and assert the negation of observed path
+                            let bool_cond = crate::state::simplify_z3::bv_to_bool_smart(bv);
+                            if panic_causing_flag_u64 == 0 {
+                                bool_cond
+                            } else {
+                                bool_cond.not()
+                            }
+                        }
+                        _ => {
+                            return Err("Unsupported symbolic variable type for conditional flag"
+                                .to_string()
+                                .into());
+                        }
+                    };
+                    // Assert the new condition
+                    let simplified = condition.simplify();
+                    log!(
+                        executor.state.logger,
+                        "Asserting branch condition to the solver: {:?}",
+                        simplified
+                    );
+                    executor.solver.assert(&simplified);
+                } else {
+                    log!(
+                        executor.state.logger,
+                        "No conditional flag provided, continuing."
+                    );
+                }
+            } else if let Some(pointer_bv) = null_check_pointer {
+                // NEW: Handling NULL pointer dereference checks for LOAD/STORE operations
+                // Assert that the pointer can be NULL (== 0)
+                let null_bv = z3::ast::BV::from_u64(executor.context, 0, pointer_bv.get_size());
+                let null_condition = pointer_bv._eq(&null_bv);
+
                 log!(
                     executor.state.logger,
-                    "Asserting branch condition to the solver: {:?}",
-                    simplified
+                    "Asserting NULL pointer condition to the solver: pointer == 0"
                 );
-                executor.solver.assert(&simplified);
-            } else {
                 log!(
                     executor.state.logger,
-                    "No conditional flag provided, continuing."
+                    "Pointer expression: {:?}",
+                    pointer_bv.simplify()
                 );
+
+                executor.solver.assert(&null_condition);
             }
 
             // List constraints and assert them to solver

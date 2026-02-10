@@ -10,6 +10,7 @@ use std::fmt;
 use std::io::Write;
 use std::process;
 use std::sync::MutexGuard;
+use std::time::Instant;
 
 use super::executor_bool;
 use super::executor_callother;
@@ -32,7 +33,7 @@ use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::ast::Ast;
 use z3::ast::Bool;
 use z3::ast::BV;
-use z3::{Context, Optimize, Solver};
+use z3::{Context, Optimize};
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -57,6 +58,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub constraint_vector: Vec<Bool<'ctx>>, // Vector to collect constraints on tracked symbolic variables
     pub overlay_state: Option<crate::state::OverlayState<'ctx>>, // Overlay state for exploring untaken paths without modifying base state
     pub path_predicate_len_at_last_null_check: Option<usize>, // Number of constraints in the path predicate when the solver was last queried for NULL; if unchanged, the solver result is the same and we skip re-evaluation
+    pub start_time: Instant, // Execution start time for elapsed time tracking
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -83,6 +85,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             constraint_vector: Vec::new(),
             overlay_state: None, // No overlay by default
             path_predicate_len_at_last_null_check: None,
+            start_time: Instant::now(),
         })
     }
 
@@ -96,13 +99,47 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     /// regardless of where it was detected (concrete path, overlay execution, etc.).
     pub fn report_vulnerability(&self, vuln_type: &str, address: u64, details: &[&str]) {
         let bar = "══════════════════════════════════════════════════════════════════════";
+        let box_width = bar.len();
+        let elapsed = self.start_time.elapsed();
+        let elapsed_str = format!("{:.3}s", elapsed.as_secs_f64());
+
+        // Helper to wrap text within the box
+        let wrap_line = |text: &str| -> Vec<String> {
+            let max_content = box_width - 4; // "║ " + content + " ║" leaves box_width-4 for content
+            let mut lines = Vec::new();
+            let mut current = String::new();
+
+            for word in text.split_whitespace() {
+                if current.is_empty() {
+                    current = word.to_string();
+                } else if current.len() + 1 + word.len() <= max_content {
+                    current.push(' ');
+                    current.push_str(word);
+                } else {
+                    lines.push(current.clone());
+                    current = format!("  {}", word); // Indent continuation lines
+                }
+            }
+            if !current.is_empty() {
+                lines.push(current);
+            }
+            lines
+        };
 
         // -- log file --
         log!(self.state.logger.clone(), "╔{}╗", bar);
         log!(self.state.logger.clone(), "║ VULNERABILITY: {}", vuln_type);
         log!(self.state.logger.clone(), "║   Address: 0x{:x}", address);
+        log!(self.state.logger.clone(), "║   Elapsed: {}", elapsed_str);
         for line in details {
-            log!(self.state.logger.clone(), "║   {}", line);
+            for wrapped in wrap_line(line) {
+                log!(
+                    self.state.logger.clone(),
+                    "║   {:<width$} ║",
+                    wrapped,
+                    width = box_width - 4
+                );
+            }
         }
         log!(self.state.logger.clone(), "╚{}╝\n", bar);
 
@@ -111,8 +148,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         println!("╔{}╗", bar);
         println!("║ VULNERABILITY: {}", vuln_type);
         println!("║   Address: 0x{:x}", address);
+        println!("║   Elapsed: {}", elapsed_str);
         for line in details {
-            println!("║   {}", line);
+            for wrapped in wrap_line(line) {
+                println!("║   {:<width$} ║", wrapped, width = box_width - 4);
+            }
         }
         println!("╚{}╝", bar);
         println!();
@@ -567,6 +607,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -585,6 +626,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -603,6 +645,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -629,6 +672,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -647,6 +691,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -665,6 +710,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -683,6 +729,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -701,6 +748,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         Some(current_addr),
                         None,
                         None, // No panic addr for non-CBranch instructions
+                        None, // No NULL check for panic functions
                     )
                     .map_err(|e| e.to_string())?;
                     self.report_vulnerability(
@@ -1890,6 +1938,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         pointer_concolic: &ConcolicEnum<'ctx>,
         pointer_concrete: u64,
         operation: &str,
+        current_inst: &Inst,
     ) -> bool {
         let pointer_bv = pointer_concolic.get_symbolic_value_bv(self.context);
 
@@ -1905,54 +1954,76 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return false;
         }
 
-        // Ask the solver: can this symbolic pointer be zero given current path constraints?
-        // We use a plain Solver (not Optimize) because we only need SAT/UNSAT, not an
-        // optimal solution.  Optimize can be orders of magnitude slower on large constraint sets.
-        let null_bv = BV::from_u64(self.context, 0, pointer_bv.get_size());
-        let null_condition = pointer_bv._eq(&null_bv);
-
-        let mut params = z3::Params::new(self.context);
-        params.set_u32("timeout", 5000); // 5-second timeout to avoid hanging on complex constraints
-        let check_solver = Solver::new(self.context);
-        check_solver.set_params(&params);
-        for constraint in &self.constraint_vector {
-            check_solver.assert(constraint);
-        }
-        check_solver.assert(&null_condition);
-
-        let result = check_solver.check();
         log!(
             self.state.logger.clone(),
-            "[NULL-CHECK] Solver result for {} at 0x{:x}: {:?} ({} constraints)",
+            "[NULL-CHECK] Checking if pointer can be NULL:"
+        );
+        log!(
+            self.state.logger.clone(),
+            "  Operation: {} at 0x{:x}",
             operation,
-            self.current_address.unwrap_or(0),
-            result,
+            self.current_address.unwrap_or(0)
+        );
+        log!(
+            self.state.logger.clone(),
+            "  Pointer expression: {:?}",
+            pointer_bv.simplify()
+        );
+        log!(
+            self.state.logger.clone(),
+            "  Concrete value: 0x{:x}",
+            pointer_concrete
+        );
+        log!(
+            self.state.logger.clone(),
+            "  Path constraints: {} (empty = unconstrained, any value possible)",
             current_constraint_len
         );
 
-        if result == z3::SatResult::Sat {
-            // Cache the path predicate length only on SAT (vulnerability found).
-            // This prevents duplicate reports for the same vulnerability at the same
-            // constraint level, while still allowing different pointers to be checked
-            // when the previous result was UNSAT.
-            self.path_predicate_len_at_last_null_check = Some(current_constraint_len);
-            let addr_hex = self.current_address.unwrap_or(0);
-            self.report_vulnerability(
-                &format!("Symbolic NULL pointer dereference ({})", operation),
-                addr_hex,
-                &[
-                    &format!("Pointer expression: {:?}", pointer_bv.simplify()),
-                    &format!(
-                        "Concrete value: 0x{:x} (non-zero on this path, but could be zero on another)",
-                        pointer_concrete
-                    ),
-                    "The solver confirmed that a NULL value satisfies all path constraints.",
-                    "This means an input exists that would cause a nil pointer dereference here.",
-                ],
-            );
-            return true;
+        // Use evaluate_args_z3 to leverage the Optimize solver and generate SAT state files
+        // This will check if the pointer can be NULL and report the vulnerability if SAT
+        let addr_hex = self.current_address.unwrap_or(0);
+
+        // Call evaluate_args_z3 with the null_check_pointer parameter
+        match crate::state::evaluate_z3::evaluate_args_z3(
+            self,
+            current_inst,
+            None,              // no conditional flag for NULL checks
+            Some(addr_hex),    // instruction address
+            None,              // no branch target
+            Some(addr_hex),    // use current address as "panic address" for SAT file
+            Some(&pointer_bv), // NEW: pass the pointer BV for NULL check
+        ) {
+            Ok(_) => {
+                // Cache the path predicate length to avoid duplicate checks at same constraint level
+                self.path_predicate_len_at_last_null_check = Some(current_constraint_len);
+
+                // Also report the vulnerability here for immediate feedback
+                // (evaluate_args_z3 generates the SAT file but doesn't report to stdout)
+                self.report_vulnerability(
+                    &format!("Symbolic NULL pointer dereference ({})", operation),
+                    addr_hex,
+                    &[
+                        &format!("Pointer expression: {:?}", pointer_bv.simplify()),
+                        &format!(
+                            "Concrete value: 0x{:x} (non-zero on this path, but could be zero on another)",
+                            pointer_concrete
+                        ),
+                        "The solver confirmed that a NULL value satisfies all path constraints.",
+                        "This means an input exists that would cause a nil pointer dereference here.",
+                    ],
+                );
+                return true;
+            }
+            Err(e) => {
+                log!(
+                    self.state.logger.clone(),
+                    "[NULL-CHECK] Error during NULL check evaluation: {}",
+                    e
+                );
+                return false;
+            }
         }
-        false
     }
 
     // Handle conditional branch operation
@@ -2427,6 +2498,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             &pointer_offset_concolic,
             pointer_offset_concrete,
             "LOAD",
+            &instruction,
         );
 
         // Check for dangling pointer access (freed stack frame)
@@ -2869,7 +2941,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
 
         // Symbolic NULL check: detect if the store address could be NULL on an alternative path
-        self.check_symbolic_null_dereference(&pointer_offset_var, pointer_offset_concrete, "STORE");
+        self.check_symbolic_null_dereference(
+            &pointer_offset_var,
+            pointer_offset_concrete,
+            "STORE",
+            &instruction,
+        );
 
         // Check for dangling pointer access (freed stack frame)
         if let Some((func_addr, frame_rsp)) =

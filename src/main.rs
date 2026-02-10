@@ -1031,16 +1031,10 @@ fn execute_instructions_from(
 
                             match analysis_result {
                                 OverlayPathAnalysisResult::VulnerabilityFound(
-                                    vuln_type,
+                                    _vuln_type,
                                     vuln_addr,
-                                    desc,
+                                    _desc,
                                 ) => {
-                                    executor.report_vulnerability(
-                                        &format!("{} (overlay analysis summary)", vuln_type),
-                                        vuln_addr,
-                                        &[&desc],
-                                    );
-
                                     // Derive the path condition
                                     let cond_bv = conditional_flag.symbolic.to_bv(executor.context);
                                     let branch_taken_to_explore = conditional_flag_u64 == 0;
@@ -1059,6 +1053,7 @@ fn execute_instructions_from(
                                             Some(current_rip),
                                             Some(branch_target_address),
                                             Some(vuln_addr),
+                                            None, // no NULL check for overlay vulnerabilities
                                         )
                                         .unwrap_or_else(|e| {
                                             log!(
@@ -1154,6 +1149,7 @@ fn execute_instructions_from(
                                 Some(current_rip),
                                 Some(branch_target_address),
                                 panic_addr,
+                                None, // no NULL check for CBranch panics
                             )
                             .unwrap_or_else(|e| {
                                 log!(
