@@ -92,7 +92,7 @@ The prompt will ask you for the:
 ### B. Basic Command-Line Usage
 To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or custom) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
 ```
-zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg "<arg1> <arg2>" [--negate-path-exploration|--no-negate-path-exploration]
+zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg "<arg1> <arg2>" [--negate-path-exploration|--no-negate-path-exploration] [--force-pty]
 
 FLAG:
   --lang                        Specifies the language used in the source code (go/c/c++)
@@ -104,6 +104,9 @@ FLAG:
                                       custom → Define an arbitrary execution address
   --negate-path-exploration    Enables symbolic exploration of negated paths (default behavior)
   --no-negate-path-exploration  Disables negated path exploration
+  --force-pty                   Runs GDB inside a pseudo-terminal (PTY) so the target binary sees a real
+                                terminal on its stdin/stdout. Required when the binary uses isatty() checks
+                                that gate code paths you want to analyze (see notes below).
 
 OPTION:
   --arg                         Specifies arguments to pass to the binary, if any (default is 'none').
@@ -114,6 +117,7 @@ Notes:
 - The address ()```<addr>```) is mandatory when using function or custom modes.
 - Arguments (--arg) are optional.
 - The ```--negate-path-exploration``` flag enables alternate path exploration (symbolic branch negation) to increase code coverage. It is enabled by default unless explicitly disabled using ```--no-negate-path-exploration```, if the execution takes too much time for instance.
+- The ```--force-pty``` flag is needed when the target binary checks whether its I/O streams are connected to a real terminal (via ```isatty()``` / Go's ```term.IsTerminal()```). By default, GDB runs the child process with pipes, so ```isatty()``` returns false and terminal-dependent code paths are skipped entirely during the GDB dump phase. When ```--force-pty``` is set, Zorya wraps every GDB session inside the Linux ```script``` command, which allocates a real pseudo-terminal (```/dev/pts/N```). The child process then sees a genuine TTY, and terminal-gated initialization runs normally. A concrete example is ```kubectl exec -it```, where terminal size monitoring is only initialized when stdout is a TTY — see [Go-Binary-Analysis.md](doc/Go-Binary-Analysis.md) for details.
 
 ### C. Fuzzer Mode (Automated Test Campaigns)
 For automated testing of multiple starting addresses and configurations, use the **Zorya Fuzzer** module. The fuzzer allows you to define test campaigns in a JSON configuration file and execute them systematically with timeout management and organized result storage.

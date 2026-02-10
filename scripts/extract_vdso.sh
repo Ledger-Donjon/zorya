@@ -92,17 +92,39 @@ EOF
 VDSO_OUTPUT="$VDSO_DIR/vdso.so"
 GDB_LOG="$INIT_DATA_DIR/vdso_extraction.log"
 
-gdb -batch \
-    -ex "set auto-load safe-path /" \
-    -ex "set pagination off" \
-    -ex "set confirm off" \
-    -ex "file $BIN_PATH" \
-    -ex "set args $ARGS" \
-    -ex "break *$START_POINT" \
-    -ex "run" \
-    -ex "source $TEMP_GDB_SCRIPT" \
-    -ex "extract_vdso $VDSO_OUTPUT" \
-    -ex "quit" &> "$GDB_LOG"
+##############################################################################
+# If FORCE_PTY is set, wrap GDB in a PTY via `script` so the child process
+# sees a real terminal (needed when the binary checks isatty()).
+##############################################################################
+if [[ "${FORCE_PTY:-false}" == "true" ]]; then
+    GDB_CMD="gdb -batch"
+    GDB_CMD+=" -ex 'set auto-load safe-path /'"
+    GDB_CMD+=" -ex 'set pagination off'"
+    GDB_CMD+=" -ex 'set style enabled off'"
+    GDB_CMD+=" -ex 'set confirm off'"
+    GDB_CMD+=" -ex 'file $BIN_PATH'"
+    GDB_CMD+=" -ex 'set args $ARGS'"
+    GDB_CMD+=" -ex 'break *$START_POINT'"
+    GDB_CMD+=" -ex 'run'"
+    GDB_CMD+=" -ex 'source $TEMP_GDB_SCRIPT'"
+    GDB_CMD+=" -ex 'extract_vdso $VDSO_OUTPUT'"
+    GDB_CMD+=" -ex 'quit'"
+
+    script -qefc "$GDB_CMD" /dev/null &> "$GDB_LOG"
+else
+    gdb -batch \
+        -ex "set auto-load safe-path /" \
+        -ex "set pagination off" \
+        -ex "set style enabled off" \
+        -ex "set confirm off" \
+        -ex "file $BIN_PATH" \
+        -ex "set args $ARGS" \
+        -ex "break *$START_POINT" \
+        -ex "run" \
+        -ex "source $TEMP_GDB_SCRIPT" \
+        -ex "extract_vdso $VDSO_OUTPUT" \
+        -ex "quit" &> "$GDB_LOG"
+fi
 
 # Check if extraction was successful
 if [ -f "$VDSO_OUTPUT" ] && [ -s "$VDSO_OUTPUT" ]; then

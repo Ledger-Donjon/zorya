@@ -68,11 +68,44 @@ cd "$SCRIPTS_DUMP"
 # Redirect GDB output to log files
 GDB_LOG="$RESULTS_DIR/initialization_data/gdb_log.txt"
 
+##############################################################################
+# Helper: run_gdb – wraps GDB in a PTY via `script` when FORCE_PTY is set.
+# This makes the child process believe stdout/stdin are a real terminal, which
+# is required when the target binary (e.g. kubectl) checks isatty().
+#
+# Usage: run_gdb <redirect_mode> <gdb_args...>
+#   redirect_mode: "overwrite" (&>)  or "append" (&>>)
+##############################################################################
+run_gdb() {
+    local redirect_mode="$1"; shift
+
+    if [[ "${FORCE_PTY:-false}" == "true" ]]; then
+        # Build the full GDB command as a single string so `script -c` can run it
+        local gdb_cmd="gdb"
+        for arg in "$@"; do
+            gdb_cmd+=" $(printf '%q' "$arg")"
+        done
+
+        if [[ "$redirect_mode" == "overwrite" ]]; then
+            script -qefc "$gdb_cmd" /dev/null &> "$GDB_LOG"
+        else
+            script -qefc "$gdb_cmd" /dev/null &>> "$GDB_LOG"
+        fi
+    else
+        if [[ "$redirect_mode" == "overwrite" ]]; then
+            gdb "$@" &> "$GDB_LOG"
+        else
+            gdb "$@" &>> "$GDB_LOG"
+        fi
+    fi
+}
+
 # PHASE 1: Get memory mappings only (first GDB session)
 # This is needed to generate dump_commands.txt before we can dump memory
-gdb -batch \
+run_gdb overwrite -batch \
     -ex "set auto-load safe-path /" \
     -ex "set pagination off" \
+    -ex "set style enabled off" \
     -ex "set confirm off" \
     -ex "file $BIN_PATH" \
     -ex "set args ${ARGS}" \
@@ -83,7 +116,7 @@ gdb -batch \
     -ex "set logging enabled on" \
     -ex "info proc mappings" \
     -ex "set logging enabled off" \
-    -ex "quit" &> "$GDB_LOG"
+    -ex "quit"
 
 # Check if memory mapping was successfully created
 if [ ! -s $MEMORY_MAP_PATH ]; then
@@ -97,9 +130,10 @@ python3 parse_and_generate.py
 # PHASE 2: Single combined session for registers, memory dumps, and thread states
 # This ensures all data comes from the same process with consistent TLS addresses
 echo "Executing memory dumps, registers, and thread state capture in single GDB session..."
-gdb -batch \
+run_gdb append -batch \
     -ex "set auto-load safe-path /" \
     -ex "set pagination off" \
+    -ex "set style enabled off" \
     -ex "set confirm off" \
     -ex "file $BIN_PATH" \
     -ex "set args ${ARGS}" \
@@ -113,7 +147,7 @@ gdb -batch \
     -ex "exec $DUMP_COMMANDS_PATH" \
     -ex "source $SCRIPTS_DUMP/dump_threads.py" \
     -ex "dump-threads" \
-    -ex "quit" &>> "$GDB_LOG"
+    -ex "quit"
 
 # Check if execution was successful
 if [ $? -ne 0 ]; then

@@ -18,10 +18,11 @@ use z3::{
     Config, Context,
 };
 use zorya::concolic::symbolic_initialization::{
-    init_struct_types_cache, initialize_single_register_argument, initialize_single_register_slice,
-    initialize_slice_argument, initialize_slice_memory_contents, initialize_string_argument,
-    initialize_string_memory_contents, initialize_struct_pointer_fields, is_stack_location,
-    is_struct_pointer_type, parse_stack_offset,
+    clear_go_stack_preempt, init_struct_types_cache, initialize_single_register_argument,
+    initialize_single_register_slice, initialize_slice_argument, initialize_slice_memory_contents,
+    initialize_string_argument, initialize_string_memory_contents,
+    initialize_struct_pointer_fields, is_stack_location, is_struct_pointer_type,
+    parse_stack_offset,
 };
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
@@ -651,6 +652,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         log!(executor.state.logger, "[WARNING] Custom mode used : Be aware that the arguments of the binary are not 'fresh symbolic' in that mode, the concolic exploration might not work correctly.");
     }
 
+    // For Go binaries: clear the goroutine stackPreempt flag if set.
+    // When stackguard0 == runtime.stackPreempt, every Go function prologue
+    // triggers goroutine preemption, preventing execution of the function body.
+    if source_lang.to_lowercase() == "go" {
+        log!(
+            executor.state.logger,
+            "[GO-INIT] Checking for goroutine stackPreempt flag..."
+        );
+        clear_go_stack_preempt(&mut executor);
+    }
+
     // Precompute reverse panic reachability set (O(V+E)), then O(1) queries
     let _ = precompute_panic_reach(&binary_path)?;
 
@@ -1023,21 +1035,11 @@ fn execute_instructions_from(
                                     vuln_addr,
                                     desc,
                                 ) => {
-                                    log!(
-                                            executor.state.logger,
-                                            "╔═══════════════════════════════════════════════════════════════════"
-                                        );
-                                    log!(
-                                        executor.state.logger,
-                                        "║ VULNERABILITY DETECTED VIA CONCOLIC OVERLAY ANALYSIS"
+                                    executor.report_vulnerability(
+                                        &format!("{} (overlay analysis summary)", vuln_type),
+                                        vuln_addr,
+                                        &[&desc],
                                     );
-                                    log!(executor.state.logger, "║ Type: {}", vuln_type);
-                                    log!(executor.state.logger, "║ Location: 0x{:x}", vuln_addr);
-                                    log!(executor.state.logger, "║ Description: {}", desc);
-                                    log!(
-                                            executor.state.logger,
-                                            "╚═══════════════════════════════════════════════════════════════════"
-                                        );
 
                                     // Derive the path condition
                                     let cond_bv = conditional_flag.symbolic.to_bv(executor.context);

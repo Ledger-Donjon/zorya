@@ -109,3 +109,88 @@ Function signatures map Go function arguments to their **physical locations** (C
 | `runtime.(*mcentral).cacheSpan` | Central span cache with runtime locks | Deadlock or panic |
 | `runtime.deferprocStack` | Manipulates goroutine defer stack | Panic during unwinding |
 
+---
+
+## TTY-Dependent Code Paths and `--force-pty`
+
+### Problem
+
+Many Go CLI tools check whether their I/O streams are connected to a real terminal using calls like `term.IsTerminal()`, `term.GetFdInfo()`, or the underlying `isatty()` syscall. These checks gate entire code paths: interactive prompts, terminal size monitoring, colored output, progress bars, etc.
+
+When Zorya runs a binary under GDB to capture memory dumps, GDB connects the child process's stdin/stdout to **pipes**, not a terminal. As a result, `isatty()` returns `false`, and all terminal-dependent code paths are **skipped**. Fields that would normally be initialized in those paths remain at their zero values (nil pointers, empty structs) in the GDB dump.
+
+This means that any bug living inside a TTY-gated code path is invisible to Zorya by default — the dump never reaches a state where the relevant data structures are populated.
+
+### Concrete Example: `kubectl exec -it`
+
+In Kubernetes `kubectl`, the `exec` command with `-it` (interactive + TTY) initializes terminal size monitoring:
+
+```go
+// staging/src/k8s.io/kubectl/pkg/cmd/exec/exec.go
+var sizeQueue remotecommand.TerminalSizeQueue
+if t.Raw {
+    sizeQueue = &terminalSizeQueueAdapter{
+        delegate: t.MonitorSize(t.GetSize()),  // ← delegate set here
+    }
+}
+```
+
+The `MonitorSize` function (in `pkg/util/term/resize.go`) checks whether stdout is a terminal:
+
+```go
+func (t *TTY) MonitorSize(initialSizes ...*TerminalSize) TerminalSizeQueue {
+    outFd, isTerminal := term.GetFdInfo(t.Out)
+    if !isTerminal {
+        return nil  // ← returns nil when not a TTY
+    }
+    // ... sets up real size monitoring ...
+    return t.sizeQueue
+}
+```
+
+When GDB runs `kubectl` with pipes, `isTerminal` is `false`, so `MonitorSize()` returns `nil`, and `delegate` is **always nil** in the dump. The nil pointer dereference bug in `terminalSizeQueueAdapter.Next()` (fixed in commit `5f67574`) can only manifest when `delegate` is nil — but since the concrete dump already has `delegate == nil`, Zorya needs symbolic exploration to find the alternative path. With `--force-pty`, `delegate` is non-nil in the concrete dump, allowing Zorya to also exercise the happy path and use path negation to explore the nil case.
+
+### Solution: `--force-pty`
+
+The `--force-pty` flag wraps every GDB session inside the Linux `script` command:
+
+```bash
+script -qefc "gdb -batch -ex '...' ..." /dev/null
+```
+
+This allocates a real pseudo-terminal (`/dev/pts/N`) for the child process. When `kubectl` (or any binary) calls `isatty()`, it returns `true`, and terminal-dependent initialization proceeds normally. The GDB dump then captures the **fully initialized** state of TTY-related data structures.
+
+### When to Use
+
+| Scenario | `--force-pty` needed? |
+|----------|----------------------|
+| Binary calls `isatty()` / `term.IsTerminal()` to gate code paths | **Yes** |
+| Binary uses interactive prompts only when on a TTY | **Yes** |
+| Binary has different buffering behavior on TTY vs pipe | Maybe (if relevant state differs) |
+| Binary does not check terminal status | No |
+| Simple CLI tools, libraries, web servers | No |
+
+### Usage
+
+```bash
+zorya /path/to/binary --lang go --compiler gc --mode function 0x<addr> \
+  --arg "exec -it pod -- cmd" --negate-path-exploration --force-pty
+```
+
+### How It Works Internally
+
+1. The `scripts/zorya` wrapper parses `--force-pty` and exports `FORCE_PTY=true`.
+2. `scripts/dump_memory.sh` wraps both GDB phases (memory mapping + full dump) using:
+   ```bash
+   script -qefc "gdb -batch ..." /dev/null
+   ```
+3. `scripts/extract_vdso.sh` does the same for the VDSO extraction GDB session.
+4. The `script` command (from `util-linux`, pre-installed on virtually all Linux systems) creates a PTY pair and runs the given command with its stdin/stdout connected to the slave side.
+5. The child process (`kubectl`, etc.) sees a real `/dev/pts/N` device, so all `isatty()` checks return `true`.
+
+### Notes
+
+- The `script` command is part of `util-linux` and is available on all standard Linux distributions.
+- The `-q` flag suppresses "Script started"/"Script done" messages, `-e` preserves exit codes, `-f` flushes output, and `-c` specifies the command to run.
+- The PTY output is discarded to `/dev/null` since Zorya only needs the GDB log files and memory dumps.
+- This flag has no effect on the Zorya concolic engine itself — it only affects the GDB dump capture phase.

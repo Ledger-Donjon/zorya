@@ -137,6 +137,9 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     // Set overlay state in executor
     executor.overlay_state = Some(overlay_state);
 
+    // Reset path predicate tracker so the solver is invoked fresh in this overlay
+    executor.path_predicate_len_at_last_null_check = None;
+
     // Execute instructions using the existing executor infrastructure
     let result = execute_with_overlay(
         executor,
@@ -370,10 +373,10 @@ fn execute_with_overlay<'ctx>(
                             "Null pointer dereference at 0x{:x} (instruction {}): {}",
                             current_addr, idx, e
                         );
-                        log!(
-                            executor.state.logger,
-                            "[OVERLAY] VULNERABILITY DETECTED: {}",
-                            vuln_desc
+                        executor.report_vulnerability(
+                            "NULL pointer dereference (overlay execution)",
+                            current_addr,
+                            &[&vuln_desc],
                         );
                         return OverlayPathAnalysisResult::VulnerabilityFound(
                             "NULL_DEREF".to_string(),
@@ -422,18 +425,17 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
     // Check for LOAD with potentially null pointer
     if inst.opcode == Opcode::Load {
         if let Some(pointer_varnode) = inst.inputs.get(1) {
-            // Try to get the concrete value of the pointer
             if let Ok(pointer_concolic) = executor.varnode_to_concolic(pointer_varnode) {
                 let pointer_value = pointer_concolic.get_concrete_value();
                 if pointer_value == 0 {
                     let vuln_desc = format!(
-                        "Null pointer dereference (LOAD) at 0x{:x} (instruction {})",
-                        current_addr, inst_idx
+                        "Null pointer dereference (LOAD) at instruction {}",
+                        inst_idx
                     );
-                    log!(
-                        executor.state.logger,
-                        ">>> VULNERABILITY DETECTED in overlay: {}",
-                        vuln_desc
+                    executor.report_vulnerability(
+                        "NULL pointer dereference (LOAD, overlay execution)",
+                        current_addr,
+                        &[&vuln_desc],
                     );
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "NULL_DEREF_LOAD".to_string(),
@@ -451,14 +453,12 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
             if let Ok(pointer_concolic) = executor.varnode_to_concolic(pointer_varnode) {
                 let pointer_value = pointer_concolic.get_concrete_value();
                 if pointer_value == 0 {
-                    let vuln_desc = format!(
-                        "Null pointer write (STORE) at 0x{:x} (instruction {})",
-                        current_addr, inst_idx
-                    );
-                    log!(
-                        executor.state.logger,
-                        ">>> VULNERABILITY DETECTED in overlay: {}",
-                        vuln_desc
+                    let vuln_desc =
+                        format!("Null pointer write (STORE) at instruction {}", inst_idx);
+                    executor.report_vulnerability(
+                        "NULL pointer dereference (STORE, overlay execution)",
+                        current_addr,
+                        &[&vuln_desc],
                     );
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "NULL_DEREF_STORE".to_string(),
@@ -479,14 +479,11 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
             if let Ok(divisor_concolic) = executor.varnode_to_concolic(divisor_varnode) {
                 let divisor_value = divisor_concolic.get_concrete_value();
                 if divisor_value == 0 {
-                    let vuln_desc = format!(
-                        "Division by zero at 0x{:x} (instruction {})",
-                        current_addr, inst_idx
-                    );
-                    log!(
-                        executor.state.logger,
-                        ">>> VULNERABILITY DETECTED in overlay: {}",
-                        vuln_desc
+                    let vuln_desc = format!("Division by zero at instruction {}", inst_idx);
+                    executor.report_vulnerability(
+                        "Division by zero (overlay execution)",
+                        current_addr,
+                        &[&vuln_desc],
                     );
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "DIV_BY_ZERO".to_string(),

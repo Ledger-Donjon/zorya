@@ -73,6 +73,9 @@ if [[ -z "$1" || "$1" == -* ]]; then
   echo -e "  ${GREEN}--arg${RESET} <args...>               Binary arguments"
   echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
   echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
+  echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
+  echo -e "                                  process see a real terminal, e.g. for Go's"
+  echo -e "                                  isatty checks in kubectl)"
   echo ""
   echo -e "${BOLD}Examples:${RESET}"
   echo -e "  zorya ./myprogram --lang go --compiler tinygo --mode main --arg \"input\""
@@ -100,6 +103,7 @@ ADDR=""
 ARGS="none"
 NEGATE_PATH_FLAG=""
 THREAD_SCHEDULING=""
+FORCE_PTY="false"
 
 # Argument parsing loop
 while [[ $# -gt 0 ]]; do
@@ -117,6 +121,8 @@ while [[ $# -gt 0 ]]; do
         ADDR="$1"; shift
       fi
       ;;
+    --force-pty)
+      FORCE_PTY="true"; shift ;;
     --negate-path-exploration|--negate)
       NEGATE_PATH_FLAG="true"; shift ;;
     --no-negate-path-exploration|--no-negate)
@@ -130,6 +136,10 @@ while [[ $# -gt 0 ]]; do
           break
         elif [[ "$1" == --no-negate* ]]; then
           NEGATE_PATH_FLAG="false"
+          shift
+          break
+        elif [[ "$1" == --force-pty ]]; then
+          FORCE_PTY="true"
           shift
           break
         else
@@ -158,6 +168,8 @@ while [[ $# -gt 0 ]]; do
       echo -e "  ${GREEN}--arg${RESET} <args...>               Binary arguments"
       echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
       echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
+      echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
+      echo -e "                                  process see a real terminal)"
       echo -e "  ${GREEN}--help${RESET}, ${GREEN}-h${RESET}                    Show this help message"
       echo ""
       echo -e "${BOLD}Examples:${RESET}"
@@ -264,7 +276,7 @@ fi
 #                        ENV EXPORTS & FINAL COMMAND
 ##############################################################################
 
-export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH NEGATE_PATH_FLAG="$NEGATE_PATH_FLAG"
+export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH NEGATE_PATH_FLAG="$NEGATE_PATH_FLAG" FORCE_PTY
 
 # Build final command string (using original path for display, but actual execution uses absolute)
 CMD="$ZORYA_DIR/zorya $BIN_PATH_ORIGINAL --mode $MODE"
@@ -274,6 +286,7 @@ CMD="$ZORYA_DIR/zorya $BIN_PATH_ORIGINAL --mode $MODE"
 [[ -n "$THREAD_SCHEDULING" ]] && CMD+=" --thread-scheduling $THREAD_SCHEDULING"
 [[ "$ARGS" != "none" ]] && CMD+=" --arg \"$ARGS\""
 [[ "$NEGATE_PATH_FLAG" == "true" ]] && CMD+=" --negate-path-exploration" || CMD+=" --no-negate-path-exploration"
+[[ "$FORCE_PTY" == "true" ]] && CMD+=" --force-pty"
 
 echo "*************************************************************************************"
 echo "Running command: $CMD"

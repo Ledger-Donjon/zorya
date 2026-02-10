@@ -96,6 +96,150 @@ macro_rules! log {
     }};
 }
 
+// ────────────────────────────────────────────────────────────
+//  Go Runtime: stackPreempt clearing for function-mode analysis
+// ────────────────────────────────────────────────────────────
+
+/// Go runtime's stackPreempt sentinel value (0xfffffffffffffade on 64-bit).
+/// When a goroutine's stackguard0 has this value, the runtime wants to preempt
+/// this goroutine. Every Go function's prologue compares RSP against stackguard0;
+/// because stackPreempt is enormous, the comparison always triggers the
+/// "stack needs growth" path, which then calls runtime.gopreempt_m →
+/// runtime.goschedImpl, descheduling the goroutine. For function-mode concolic
+/// analysis this means the actual function body is never reached.
+const GO_STACK_PREEMPT: u64 = 0xfffffffffffffade;
+
+/// Default offset of stackguard0 in runtime.g struct (stable across Go versions).
+const GO_G_STACKGUARD0_OFFSET: u64 = 0x10;
+
+/// Default offset of stack.lo in runtime.g struct.
+const GO_G_STACK_LO_OFFSET: u64 = 0x0;
+
+/// Clear the Go goroutine stackPreempt flag if it is set.
+///
+/// In Go, register R14 holds the current goroutine pointer (`g`).
+/// If `g.stackguard0 == runtime.stackPreempt`, every function prologue will
+/// trigger preemption and execution never reaches the function body.
+/// This function replaces the sentinel with `g.stack.lo` (the real stack guard),
+/// allowing the function body to execute normally during concolic analysis.
+pub fn clear_go_stack_preempt<'a>(executor: &mut ConcolicExecutor<'a>) -> bool {
+    // Read R14 (the g pointer in Go gc runtime)
+    let g_ptr = {
+        let cpu_state = executor.state.cpu_state.lock().unwrap();
+        match cpu_state.get_register_by_offset(0xb0, 64) {
+            // R14
+            Some(val) => val.concrete.to_u64(),
+            None => {
+                log!(
+                    executor.state.logger,
+                    "[GO-PREEMPT] Cannot read R14 (g pointer) - skipping stackPreempt check"
+                );
+                return false;
+            }
+        }
+    };
+
+    if g_ptr == 0 {
+        log!(
+            executor.state.logger,
+            "[GO-PREEMPT] g pointer is nil - skipping stackPreempt check"
+        );
+        return false;
+    }
+
+    let stackguard0_addr = g_ptr + GO_G_STACKGUARD0_OFFSET;
+
+    // Read the current stackguard0 value
+    let stackguard0_val = match executor.state.memory.read_value(
+        stackguard0_addr,
+        64,
+        &mut executor.state.logger.clone(),
+    ) {
+        Ok(val) => val.concrete.to_u64(),
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "[GO-PREEMPT] Cannot read stackguard0 at 0x{:x}: {:?}",
+                stackguard0_addr,
+                e
+            );
+            return false;
+        }
+    };
+
+    if stackguard0_val != GO_STACK_PREEMPT {
+        log!(
+            executor.state.logger,
+            "[GO-PREEMPT] stackguard0 = 0x{:x} (not stackPreempt) - no clearing needed",
+            stackguard0_val
+        );
+        return false;
+    }
+
+    log!(
+        executor.state.logger,
+        "[GO-PREEMPT] Detected stackPreempt (0x{:x}) in goroutine g=0x{:x}",
+        GO_STACK_PREEMPT,
+        g_ptr
+    );
+
+    // Read stack.lo to get the safe replacement value
+    let stack_lo_addr = g_ptr + GO_G_STACK_LO_OFFSET;
+    let stack_lo = match executor.state.memory.read_value(
+        stack_lo_addr,
+        64,
+        &mut executor.state.logger.clone(),
+    ) {
+        Ok(val) => val.concrete.to_u64(),
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "[GO-PREEMPT] Cannot read stack.lo at 0x{:x}: {:?}",
+                stack_lo_addr,
+                e
+            );
+            return false;
+        }
+    };
+
+    log!(
+        executor.state.logger,
+        "[GO-PREEMPT] stack.lo = 0x{:x}, replacing stackguard0",
+        stack_lo
+    );
+
+    // Write stack.lo to stackguard0 (clearing the preemption flag)
+    let new_stackguard =
+        MemoryValue::new(stack_lo, BV::from_u64(executor.context, stack_lo, 64), 64);
+
+    match executor
+        .state
+        .memory
+        .write_value(stackguard0_addr, &new_stackguard)
+    {
+        Ok(()) => {
+            log!(
+                executor.state.logger,
+                "[GO-PREEMPT] ✓ Cleared stackPreempt: stackguard0 at 0x{:x} set to 0x{:x}",
+                stackguard0_addr,
+                stack_lo
+            );
+            println!(
+                "[GO-PREEMPT] Cleared goroutine stackPreempt flag (was blocking function execution)"
+            );
+            true
+        }
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "[GO-PREEMPT] Failed to write stackguard0: {:?}",
+                e
+            );
+            false
+        }
+    }
+}
+
 // Helper function to check if a register specification is a stack location
 pub fn is_stack_location(reg_spec: &str) -> bool {
     reg_spec.starts_with("STACK+") || reg_spec.starts_with("STACK-")
@@ -1714,6 +1858,9 @@ fn initialize_slice_element_memory<'a>(
 /// Initialize struct pointer fields as symbolic
 /// When a function receives a pointer to a struct (e.g., *Block), this function
 /// symbolizes the struct's fields at their respective offsets in memory.
+///
+/// Additionally, it makes the pointer itself symbolic (nullable) so that NULL
+/// pointer dereferences can be detected during execution.
 pub fn initialize_struct_pointer_fields<'a>(
     executor: &mut ConcolicExecutor<'a>,
     arg_name: &str,
@@ -1773,12 +1920,64 @@ pub fn initialize_struct_pointer_fields<'a>(
         ptr_value
     );
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEP 1: Make the pointer itself symbolic (nullable)
+    // ═══════════════════════════════════════════════════════════════════════
+    // This allows Zorya to detect potential NULL pointer dereferences even when
+    // the concrete value is non-NULL.
+
+    let ptr_sym_name = format!("{}_ptr", arg_name.replace('.', "_"));
+    let ptr_bv = BV::fresh_const(executor.context, &ptr_sym_name, 64);
+
+    // Track this symbolic variable
+    executor
+        .function_symbolic_arguments
+        .insert(ptr_sym_name.clone(), SymbolicVar::Int(ptr_bv.clone()));
+
+    // Update the register to hold the symbolic pointer
+    {
+        let cpu = &mut executor.state.cpu_state.lock().unwrap();
+        if let Some(off) = cpu.resolve_offset_from_register_name(ptr_reg) {
+            let w = cpu.register_map.get(&off).map(|(_, w)| *w).unwrap_or(64);
+            let ptr_concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                ptr_value,
+                ptr_bv.clone(),
+                executor.context,
+            );
+            if let Err(e) = cpu.set_register_value_by_offset(off, ptr_concolic, w) {
+                log!(
+                    executor.state.logger,
+                    "WARNING: Failed to set symbolic pointer in register '{}': {:?}",
+                    ptr_reg,
+                    e
+                );
+            } else {
+                log!(
+                    executor.state.logger,
+                    "✓ Made pointer '{}' symbolic (nullable) in register '{}'",
+                    arg_name,
+                    ptr_reg
+                );
+            }
+        } else {
+            log!(
+                executor.state.logger,
+                "WARNING: Could not resolve register '{}' for symbolic pointer",
+                ptr_reg
+            );
+        }
+    } // Drop the lock here
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STEP 2: Symbolize struct fields (only if pointer is non-NULL concretely)
+    // ═══════════════════════════════════════════════════════════════════════
+
     if ptr_value == 0 {
         log!(
             executor.state.logger,
-            "WARNING: Struct pointer is NULL - cannot symbolize fields"
+            "Struct pointer is NULL concretely - skipping field symbolization (but pointer itself is symbolic)"
         );
-        return false;
+        return true; // We still symbolized the pointer itself
     }
 
     // Check if the pointer points to valid memory
@@ -1788,22 +1987,33 @@ pub fn initialize_struct_pointer_fields<'a>(
             "WARNING: Struct pointer 0x{:x} is not in valid memory - cannot symbolize fields",
             ptr_value
         );
-        return false;
+        return true; // We still symbolized the pointer itself
     }
 
     // Symbolize each field
     let mut fields_symbolized = 0;
-    for member in &struct_def.members {
+    let members = &struct_def.members;
+    for (i, member) in members.iter().enumerate() {
         let field_addr = ptr_value + member.offset;
         let field_var_name = format!("{}.{}", arg_name, member.name);
 
+        // Compute the actual field size from the struct layout:
+        // - If there's a next member, size = next_member.offset - current_member.offset
+        // - If it's the last member, size = struct_size - current_member.offset
+        let actual_field_bytes = if i + 1 < members.len() {
+            members[i + 1].offset - member.offset
+        } else {
+            struct_def.size - member.offset
+        };
+
         log!(
             executor.state.logger,
-            "Processing field '{}' at offset {} (0x{:x}), type: '{}'",
+            "Processing field '{}' at offset {} (0x{:x}), type: '{}', layout_size: {} bytes",
             member.name,
             member.offset,
             field_addr,
-            member.typ
+            member.typ,
+            actual_field_bytes
         );
 
         // Check if this field's address is valid
@@ -1817,7 +2027,13 @@ pub fn initialize_struct_pointer_fields<'a>(
         }
 
         // Determine field size and how to symbolize it
-        let symbolized = symbolize_struct_field(executor, &field_var_name, field_addr, &member.typ);
+        let symbolized = symbolize_struct_field(
+            executor,
+            &field_var_name,
+            field_addr,
+            &member.typ,
+            Some(actual_field_bytes),
+        );
 
         if symbolized {
             fields_symbolized += 1;
@@ -1834,15 +2050,63 @@ pub fn initialize_struct_pointer_fields<'a>(
     fields_symbolized > 0
 }
 
-/// Symbolize a single struct field based on its type
+/// Symbolize a single struct field based on its type.
+///
+/// `layout_size_bytes`: if provided, the actual field size computed from the
+/// struct layout (offset of next field minus offset of this field). This is
+/// used to override the type-based size guess, which is critical for Go
+/// interface types that are 16 bytes but look like unknown types.
 fn symbolize_struct_field<'a>(
     executor: &mut ConcolicExecutor<'a>,
     field_name: &str,
     field_addr: u64,
     field_type: &str,
+    layout_size_bytes: Option<u64>,
 ) -> bool {
     // Determine field size based on type
-    let (bit_size, is_pointer) = get_field_size_and_pointer_status(field_type);
+    let (type_bit_size, is_pointer) = get_field_size_and_pointer_status(field_type);
+
+    // Check if this is a Go interface type:
+    // A Go interface is 16 bytes (itab pointer + data pointer).
+    // Detected when the layout says 16 bytes but the type-based guess says 8,
+    // and the type is not a recognized primitive, slice, array, or string.
+    let is_go_interface = layout_size_bytes == Some(16)
+        && type_bit_size == 64
+        && !is_pointer
+        && !field_type.starts_with('[')
+        && !field_type.starts_with("[]")
+        && field_type != "string";
+
+    if is_go_interface {
+        log!(
+            executor.state.logger,
+            "Detected Go interface field '{}' at 0x{:x} (type: '{}', 16 bytes = itab + data)",
+            field_name,
+            field_addr,
+            field_type
+        );
+        return symbolize_go_interface_field(executor, field_name, field_addr);
+    }
+
+    // Use layout-based size if it's larger than the type-based guess
+    // (the struct layout from DWARF is authoritative)
+    let bit_size = if let Some(layout_bytes) = layout_size_bytes {
+        let layout_bits = (layout_bytes * 8) as u32;
+        if layout_bits > type_bit_size {
+            log!(
+                executor.state.logger,
+                "Using layout-based size {} bits (type-based was {} bits) for field '{}'",
+                layout_bits,
+                type_bit_size,
+                field_name
+            );
+            layout_bits
+        } else {
+            type_bit_size
+        }
+    } else {
+        type_bit_size
+    };
 
     log!(
         executor.state.logger,
@@ -1854,8 +2118,18 @@ fn symbolize_struct_field<'a>(
     );
 
     // For pointers, we want to allow nil values
-    // For fixed-size arrays (like [32]byte for Hash), symbolize as array
-    if field_type.starts_with('[') && field_type.contains(']') {
+    // Check for slices BEFORE checking for fixed arrays (both start with '[')
+    if field_type.starts_with("[]") {
+        // This is a slice type ([]T or []T*), not a fixed array
+        // Slices are 24 bytes (ptr + len + cap), and we handle them as a composite symbolic value
+        log!(
+            executor.state.logger,
+            "Field '{}' is a slice type ({}), symbolizing as 24-byte composite (ptr+len+cap)",
+            field_name,
+            field_type
+        );
+        return symbolize_slice_field(executor, field_name, field_addr, field_type);
+    } else if field_type.starts_with('[') && field_type.contains(']') {
         // Fixed-size array like [32]byte
         return symbolize_fixed_array_field(executor, field_name, field_addr, field_type);
     }
@@ -1939,6 +2213,108 @@ fn symbolize_struct_field<'a>(
             false
         }
     }
+}
+
+/// Symbolize a Go interface field as two 64-bit symbolic words (itab + data).
+///
+/// A Go interface is represented in memory as:
+///   - offset +0: itab pointer (8 bytes) – points to the interface method table
+///   - offset +8: data pointer (8 bytes) – points to the underlying value
+///
+/// When the interface is nil, both words are 0. Calling a method on a nil
+/// interface dereferences the itab pointer (0), causing a nil pointer panic.
+/// By making both words symbolic, the solver can explore the nil case.
+fn symbolize_go_interface_field<'a>(
+    executor: &mut ConcolicExecutor<'a>,
+    field_name: &str,
+    field_addr: u64,
+) -> bool {
+    let mut success = true;
+
+    // Symbolize the itab pointer (first 8 bytes) - this is what gets
+    // dereferenced during method dispatch; nil here causes the panic
+    let itab_name = format!("{}.itab", field_name);
+    let itab_bv = BV::fresh_const(executor.context, &itab_name.replace('.', "_"), 64);
+
+    match executor
+        .state
+        .memory
+        .read_value(field_addr, 64, &mut executor.state.logger.clone())
+    {
+        Ok(current_itab) => {
+            executor
+                .function_symbolic_arguments
+                .insert(itab_name.clone(), SymbolicVar::Int(itab_bv.clone()));
+
+            let itab_mem = MemoryValue::new(current_itab.concrete.to_u64(), itab_bv.clone(), 64);
+            if let Err(e) = executor.state.memory.write_value(field_addr, &itab_mem) {
+                log!(
+                    executor.state.logger,
+                    "✗ Failed to write itab symbolic for '{}': {:?}",
+                    field_name,
+                    e
+                );
+                success = false;
+            }
+        }
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "✗ Failed to read itab at 0x{:x}: {:?}",
+                field_addr,
+                e
+            );
+            success = false;
+        }
+    }
+
+    // Symbolize the data pointer (second 8 bytes)
+    let data_name = format!("{}.data", field_name);
+    let data_bv = BV::fresh_const(executor.context, &data_name.replace('.', "_"), 64);
+    let data_addr = field_addr + 8;
+
+    match executor
+        .state
+        .memory
+        .read_value(data_addr, 64, &mut executor.state.logger.clone())
+    {
+        Ok(current_data) => {
+            executor
+                .function_symbolic_arguments
+                .insert(data_name.clone(), SymbolicVar::Int(data_bv.clone()));
+
+            let data_mem = MemoryValue::new(current_data.concrete.to_u64(), data_bv.clone(), 64);
+            if let Err(e) = executor.state.memory.write_value(data_addr, &data_mem) {
+                log!(
+                    executor.state.logger,
+                    "✗ Failed to write data symbolic for '{}': {:?}",
+                    field_name,
+                    e
+                );
+                success = false;
+            }
+        }
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "✗ Failed to read data pointer at 0x{:x}: {:?}",
+                data_addr,
+                e
+            );
+            success = false;
+        }
+    }
+
+    if success {
+        log!(
+            executor.state.logger,
+            "✓ Successfully symbolized Go interface field '{}' at 0x{:x} (itab + data, both nil-able)",
+            field_name,
+            field_addr
+        );
+    }
+
+    success
 }
 
 /// Symbolize a fixed-size array field (like [32]byte for common.Hash)
@@ -2043,6 +2419,163 @@ fn symbolize_fixed_array_field<'a>(
             "✓ Successfully symbolized array field '{}' ({} bytes)",
             field_name,
             total_bytes
+        );
+    }
+
+    success
+}
+
+/// Symbolize a slice field (like []byte or []T *) as ptr+len+cap
+/// A Go slice is 24 bytes: pointer (8) + length (8) + capacity (8)
+fn symbolize_slice_field<'a>(
+    executor: &mut ConcolicExecutor<'a>,
+    field_name: &str,
+    field_addr: u64,
+    field_type: &str,
+) -> bool {
+    log!(
+        executor.state.logger,
+        "Symbolizing slice field '{}': {} (24 bytes = ptr + len + cap)",
+        field_name,
+        field_type
+    );
+
+    let mut success = true;
+
+    // Symbolize the pointer (first 8 bytes)
+    let ptr_name = format!("{}.ptr", field_name);
+    let ptr_bv = BV::fresh_const(executor.context, &ptr_name.replace('.', "_"), 64);
+
+    match executor
+        .state
+        .memory
+        .read_value(field_addr, 64, &mut executor.state.logger.clone())
+    {
+        Ok(current_ptr) => {
+            executor
+                .function_symbolic_arguments
+                .insert(ptr_name.clone(), SymbolicVar::Int(ptr_bv.clone()));
+
+            let ptr_mem = MemoryValue::new(current_ptr.concrete.to_u64(), ptr_bv.clone(), 64);
+            if let Err(e) = executor.state.memory.write_value(field_addr, &ptr_mem) {
+                log!(
+                    executor.state.logger,
+                    "✗ Failed to write ptr symbolic for '{}': {:?}",
+                    field_name,
+                    e
+                );
+                success = false;
+            } else {
+                log!(
+                    executor.state.logger,
+                    "✓ Symbolized slice.ptr at 0x{:x}",
+                    field_addr
+                );
+            }
+        }
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "✗ Failed to read ptr at 0x{:x}: {:?}",
+                field_addr,
+                e
+            );
+            success = false;
+        }
+    }
+
+    // Symbolize the length (second 8 bytes)
+    let len_name = format!("{}.len", field_name);
+    let len_bv = BV::fresh_const(executor.context, &len_name.replace('.', "_"), 64);
+    let len_addr = field_addr + 8;
+
+    match executor
+        .state
+        .memory
+        .read_value(len_addr, 64, &mut executor.state.logger.clone())
+    {
+        Ok(current_len) => {
+            executor
+                .function_symbolic_arguments
+                .insert(len_name.clone(), SymbolicVar::Int(len_bv.clone()));
+
+            let len_mem = MemoryValue::new(current_len.concrete.to_u64(), len_bv.clone(), 64);
+            if let Err(e) = executor.state.memory.write_value(len_addr, &len_mem) {
+                log!(
+                    executor.state.logger,
+                    "✗ Failed to write len symbolic for '{}': {:?}",
+                    field_name,
+                    e
+                );
+                success = false;
+            } else {
+                log!(
+                    executor.state.logger,
+                    "✓ Symbolized slice.len at 0x{:x}",
+                    len_addr
+                );
+            }
+        }
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "✗ Failed to read len at 0x{:x}: {:?}",
+                len_addr,
+                e
+            );
+            success = false;
+        }
+    }
+
+    // Symbolize the capacity (third 8 bytes)
+    let cap_name = format!("{}.cap", field_name);
+    let cap_bv = BV::fresh_const(executor.context, &cap_name.replace('.', "_"), 64);
+    let cap_addr = field_addr + 16;
+
+    match executor
+        .state
+        .memory
+        .read_value(cap_addr, 64, &mut executor.state.logger.clone())
+    {
+        Ok(current_cap) => {
+            executor
+                .function_symbolic_arguments
+                .insert(cap_name.clone(), SymbolicVar::Int(cap_bv.clone()));
+
+            let cap_mem = MemoryValue::new(current_cap.concrete.to_u64(), cap_bv.clone(), 64);
+            if let Err(e) = executor.state.memory.write_value(cap_addr, &cap_mem) {
+                log!(
+                    executor.state.logger,
+                    "✗ Failed to write cap symbolic for '{}': {:?}",
+                    field_name,
+                    e
+                );
+                success = false;
+            } else {
+                log!(
+                    executor.state.logger,
+                    "✓ Symbolized slice.cap at 0x{:x}",
+                    cap_addr
+                );
+            }
+        }
+        Err(e) => {
+            log!(
+                executor.state.logger,
+                "✗ Failed to read cap at 0x{:x}: {:?}",
+                cap_addr,
+                e
+            );
+            success = false;
+        }
+    }
+
+    if success {
+        log!(
+            executor.state.logger,
+            "✓ Successfully symbolized slice field '{}' at 0x{:x} (ptr + len + cap, all symbolic)",
+            field_name,
+            field_addr
         );
     }
 

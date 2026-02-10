@@ -55,7 +55,7 @@ if [ ! -f "$VDSO_PCODE" ]; then
 fi
 
 # Move VDSO p-code to the vdso directory
-mv "$VDSO_PCODE" "$VDSO_DIR/vdso_low_pcode.txt"
+mv -f "$VDSO_PCODE" "$VDSO_DIR/vdso_low_pcode.txt"
 
 echo "VDSO P-Code generated: $VDSO_DIR/vdso_low_pcode.txt"
 
