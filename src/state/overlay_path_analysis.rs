@@ -415,43 +415,30 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                 let pointer_value = pointer_concolic.get_concrete_value();
                 if pointer_value == 0 {
                     // Concrete NULL detected during overlay execution.
-                    // Call evaluate_args_z3 to:
-                    // 1. Confirm it's SAT with Z3
-                    // 2. Generate FOUND_SAT_STATE.txt
-                    // 3. Get consistent vulnerability reporting
-                    let pointer_bv = pointer_concolic.get_symbolic_value_bv(executor.context);
-
-                    match crate::state::evaluate_z3::evaluate_args_z3(
-                        executor,
-                        inst,
-                        None,               // no conditional flag
-                        Some(current_addr), // instruction address
-                        None,               // no branch target
-                        Some(current_addr), // use current address as "panic address"
-                        Some(&pointer_bv),  // NULL check on this pointer
+                    // No Z3 evaluation needed — the pointer is concretely NULL on this path.
+                    let desc = format!(
+                        "Null pointer dereference (LOAD) at instruction {}",
+                        inst_idx
+                    );
+                    if let Err(e) = crate::state::evaluate_z3::log_vuln_to_file_and_terminal(
+                        &mut executor.state.logger.clone(),
+                        "Concrete NULL pointer dereference",
+                        current_addr,
+                        "LOAD",
+                        "Exploring the not taken path with Overlay Execution",
+                        &desc,
                     ) {
-                        Ok(true) => {
-                            // SAT confirmed - vulnerability already reported by evaluate_args_z3
-                            return Some(OverlayPathAnalysisResult::VulnerabilityFound(
-                                "NULL_DEREF_LOAD".to_string(),
-                                current_addr,
-                                format!(
-                                    "Null pointer dereference (LOAD) at instruction {}",
-                                    inst_idx
-                                ),
-                            ));
-                        }
-                        Ok(false) => {
-                            // UNSAT - not a real vulnerability (shouldn't happen for concrete NULL)
-                        }
-                        Err(e) => {
-                            log!(
-                                executor.state.logger,
-                                "[OVERLAY] Error during NULL check evaluation: {}",
-                                e
-                            );
-                        }
+                        log!(
+                            executor.state.logger,
+                            "[OVERLAY] Error logging vulnerability: {}",
+                            e
+                        );
                     }
+                    return Some(OverlayPathAnalysisResult::VulnerabilityFound(
+                        "NULL_DEREF_LOAD".to_string(),
+                        current_addr,
+                        desc,
+                    ));
                 }
             }
         }
@@ -464,37 +451,27 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                 let pointer_value = pointer_concolic.get_concrete_value();
                 if pointer_value == 0 {
                     // Concrete NULL detected during overlay execution.
-                    // Call evaluate_args_z3 to generate SAT state file and get unified reporting
-                    let pointer_bv = pointer_concolic.get_symbolic_value_bv(executor.context);
-
-                    match crate::state::evaluate_z3::evaluate_args_z3(
-                        executor,
-                        inst,
-                        None,               // no conditional flag
-                        Some(current_addr), // instruction address
-                        None,               // no branch target
-                        Some(current_addr), // use current address as "panic address"
-                        Some(&pointer_bv),  // NULL check on this pointer
+                    // No Z3 evaluation needed — the pointer is concretely NULL on this path.
+                    let desc = format!("Null pointer write (STORE) at instruction {}", inst_idx);
+                    if let Err(e) = crate::state::evaluate_z3::log_vuln_to_file_and_terminal(
+                        &mut executor.state.logger.clone(),
+                        "Concrete NULL pointer dereference",
+                        current_addr,
+                        "STORE",
+                        "Exploring the not taken path with Overlay Execution",
+                        &desc,
                     ) {
-                        Ok(true) => {
-                            // SAT confirmed - vulnerability already reported by evaluate_args_z3
-                            return Some(OverlayPathAnalysisResult::VulnerabilityFound(
-                                "NULL_DEREF_STORE".to_string(),
-                                current_addr,
-                                format!("Null pointer write (STORE) at instruction {}", inst_idx),
-                            ));
-                        }
-                        Ok(false) => {
-                            // UNSAT - not a real vulnerability (shouldn't happen for concrete NULL)
-                        }
-                        Err(e) => {
-                            log!(
-                                executor.state.logger,
-                                "[OVERLAY] Error during NULL check evaluation: {}",
-                                e
-                            );
-                        }
+                        log!(
+                            executor.state.logger,
+                            "[OVERLAY] Error logging vulnerability: {}",
+                            e
+                        );
                     }
+                    return Some(OverlayPathAnalysisResult::VulnerabilityFound(
+                        "NULL_DEREF_STORE".to_string(),
+                        current_addr,
+                        desc,
+                    ));
                 }
             }
         }

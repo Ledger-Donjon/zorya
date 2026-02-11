@@ -81,6 +81,98 @@ pub fn report_vulnerability(
     println!();
 }
 
+/// Log a concrete vulnerability (no Z3 evaluation needed) to both FOUND_SAT_STATE.txt and terminal.
+/// Used when the pointer is concretely NULL during overlay execution — Z3 is not required
+/// because the NULL dereference is certain on this path.
+pub fn log_vuln_to_file_and_terminal(
+    logger: &mut crate::state::state_manager::Logger,
+    vuln_type: &str,
+    address: u64,
+    opcode_str: &str,
+    detection_method: &str,
+    description: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let elapsed = get_elapsed_since_start();
+    let mode = std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string());
+
+    // --- Terminal report (same format as report_vulnerability) ---
+    let bar = "========================================================================";
+    let elapsed_str = format!("{:.3}s", elapsed.as_secs_f64());
+
+    log!(logger, "{}", bar);
+    log!(logger, "VULNERABILITY: {}", vuln_type);
+    log!(logger, "  Address: 0x{:x}", address);
+    log!(logger, "  Elapsed: {}", elapsed_str);
+    log!(logger, "  Opcode: {}", opcode_str);
+    log!(logger, "  Detection method: {}", detection_method);
+    log!(logger, "  {}", description);
+    log!(logger, "  More details in: results/FOUND_SAT_STATE.txt");
+    log!(logger, "{}\n", bar);
+
+    println!();
+    println!("{}", bar);
+    println!("VULNERABILITY: {}", vuln_type);
+    println!("  Address: 0x{:x}", address);
+    println!("  Elapsed: {}", elapsed_str);
+    println!("  Opcode: {}", opcode_str);
+    println!("  Detection method: {}", detection_method);
+    println!("  {}", description);
+    println!("  More details in: results/FOUND_SAT_STATE.txt");
+    println!("{}", bar);
+    println!();
+
+    // --- File report (FOUND_SAT_STATE.txt) ---
+    std::fs::create_dir_all("results")?;
+
+    let file_path = "results/FOUND_SAT_STATE.txt";
+    let file_exists = Path::new(file_path).exists();
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path)?;
+
+    let timestamp: DateTime<Utc> = Utc::now();
+    let timestamp_str = timestamp.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+
+    if file_exists {
+        writeln!(file, "\n{}", "=".repeat(80))?;
+    }
+
+    if let Some(inv) = INVOCATION_CMDLINE.get() {
+        writeln!(file, "Running command: {}", inv)?;
+    }
+    writeln!(
+        file,
+        "[*] CONCRETE VULNERABILITY FOUND (no Z3 evaluation needed)"
+    )?;
+    writeln!(file, "Timestamp: {}", timestamp_str)?;
+    writeln!(file, "Mode: {}", mode)?;
+    writeln!(
+        file,
+        "Elapsed since start: {}.{:03}s",
+        elapsed.as_secs(),
+        elapsed.subsec_millis()
+    )?;
+    writeln!(file, "Instruction Address: 0x{:x}", address)?;
+    writeln!(file, "{}", "-".repeat(60))?;
+    writeln!(file, "Vulnerability: {}", vuln_type)?;
+    writeln!(file, "Opcode: {}", opcode_str)?;
+    writeln!(file, "Detection method: {}", detection_method)?;
+    writeln!(file, "{}", description)?;
+    writeln!(file, "")?;
+    writeln!(
+        file,
+        "The pointer at this address is concretely NULL on the overlay (not-taken) path."
+    )?;
+    writeln!(file, "No symbolic variable needs a specific value — any input reaching this path will dereference NULL.")?;
+    writeln!(file, "{}", "=".repeat(80))?;
+
+    file.flush()?;
+
+    Ok(())
+}
+
 /// Initialize the recorded command line invocation including key environment variables.
 pub fn init_invocation_command_line() {
     // Try to reconstruct the full wrapper-style command
@@ -1117,13 +1209,19 @@ pub fn evaluate_args_z3<'ctx>(
                             Opcode::Store => "STORE",
                             _ => "UNKNOWN",
                         };
+                        // Choose detection method based on whether we're in overlay execution
+                        let detection_method = if executor.overlay_state.is_some() {
+                            "Detection method: Exploring the not taken path with Overlay Execution"
+                        } else {
+                            "Detection method: Exploring the current path with a symbolic check on the pointer"
+                        };
                         report_vulnerability(
                             &mut executor.state.logger.clone(),
                             "Symbolic NULL pointer dereference",
                             addr,
                             &[
                                 &format!("Opcode: {}", opcode_str),
-                                "Detection method: Exploring the current path with a symbolic check on the pointer",
+                                detection_method,
                                 "More details in: results/FOUND_SAT_STATE.txt",
                             ],
                         );
