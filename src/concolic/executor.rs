@@ -1948,12 +1948,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // (evaluate_args_z3 generates the SAT file but doesn't report to stdout)
                 crate::state::evaluate_z3::report_vulnerability(
                     &mut self.state.logger.clone(),
-                    &format!("Symbolic NULL pointer dereference ({})", operation),
+                    "Symbolic NULL pointer dereference",
                     addr_hex,
                     &[
-                        &format!("Pointer: {:?}", pointer_bv.simplify()),
-                        &format!("SAT condition: pointer must be 0x0 (NULL)"),
+                        &format!("Opcode: {}", operation),
+                        "SAT condition: pointer must be 0x0 (NULL)",
                         &format!("Concrete value on this path: 0x{:x}", pointer_concrete),
+                        "More details in: results/FOUND_SAT_STATE.txt",
                     ],
                 );
                 return true;
