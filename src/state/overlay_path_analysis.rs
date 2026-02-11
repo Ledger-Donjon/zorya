@@ -375,9 +375,13 @@ fn execute_with_overlay<'ctx>(
                         );
                         crate::state::evaluate_z3::report_vulnerability(
                             &mut executor.state.logger.clone(),
-                            "NULL pointer dereference (overlay execution)",
+                            "Concrete NULL pointer dereference (overlay execution)",
                             current_addr,
-                            &[&vuln_desc],
+                            &[
+                                "Opcode: overlay instruction",
+                                "Detection method: Exploring the not taken path with Overlay Execution",
+                                &vuln_desc,
+                            ],
                         );
                         return OverlayPathAnalysisResult::VulnerabilityFound(
                             "NULL_DEREF".to_string(),
@@ -435,9 +439,13 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                     );
                     crate::state::evaluate_z3::report_vulnerability(
                         &mut executor.state.logger.clone(),
-                        "NULL pointer dereference (LOAD, overlay execution)",
+                        "Concrete NULL pointer dereference (overlay execution)",
                         current_addr,
-                        &[&vuln_desc],
+                        &[
+                            "Opcode: LOAD",
+                            "Detection method: Exploring the not taken path with Overlay Execution",
+                            &vuln_desc,
+                        ],
                     );
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "NULL_DEREF_LOAD".to_string(),
@@ -459,9 +467,13 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                         format!("Null pointer write (STORE) at instruction {}", inst_idx);
                     crate::state::evaluate_z3::report_vulnerability(
                         &mut executor.state.logger.clone(),
-                        "NULL pointer dereference (STORE, overlay execution)",
+                        "Concrete NULL pointer dereference (overlay execution)",
                         current_addr,
-                        &[&vuln_desc],
+                        &[
+                            "Opcode: STORE",
+                            "Detection method: Exploring the not taken path with Overlay Execution",
+                            &vuln_desc,
+                        ],
                     );
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "NULL_DEREF_STORE".to_string(),
@@ -487,7 +499,11 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                         &mut executor.state.logger.clone(),
                         "Division by zero (overlay execution)",
                         current_addr,
-                        &[&vuln_desc],
+                        &[
+                            "Opcode: INT_DIV / INT_REM",
+                            "Detection method: Exploring the not taken path with Overlay Execution",
+                            &vuln_desc,
+                        ],
                     );
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "DIV_BY_ZERO".to_string(),

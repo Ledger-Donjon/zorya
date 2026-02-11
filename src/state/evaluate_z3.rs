@@ -1105,7 +1105,7 @@ pub fn evaluate_args_z3<'ctx>(
                             addr,
                             &[
                                 "Opcode: CBRANCH",
-                                "SAT condition: branch condition can lead to panic",
+                                "Detection method: Exploring the not taken path with Overlay Execution",
                                 "More details in: results/FOUND_SAT_STATE.txt",
                             ],
                         );
@@ -1247,7 +1247,7 @@ pub fn evaluate_args_z3<'ctx>(
                     addr,
                     &[
                         "Opcode: CBRANCH",
-                        "SAT condition: branch condition can lead to panic",
+                        "Detection method: Exploring the not taken path with Overlay Execution",
                         "More details in: results/FOUND_SAT_STATE.txt",
                     ],
                 );

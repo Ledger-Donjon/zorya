@@ -550,7 +550,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.nilPanic — nil pointer dereference",
                         current_addr,
-                        &["You are trying to dereference a nil pointer."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "You are trying to dereference a nil pointer.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -570,7 +573,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.nilMapPanic — nil map access",
                         current_addr,
-                        &["You are trying to add an entry to a nil map."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "You are trying to add an entry to a nil map.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -590,7 +596,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime._panic — generic panic",
                         current_addr,
-                        &["The Go runtime triggered a generic panic."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "The Go runtime triggered a generic panic.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -599,7 +608,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.recordForPanic (may not be a real panic)",
                         current_addr,
-                        &["Encountered runtime.recordForPanic — this may be benign."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "Encountered runtime.recordForPanic — this may be benign.",
+                        ],
                     );
                     // process::exit(0);
                 }
@@ -619,7 +631,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.slicePanic — slice bounds out of range",
                         current_addr,
-                        &["Slice index is out of bounds."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "Slice index is out of bounds.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -639,7 +654,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.lookupPanic — index out of bounds",
                         current_addr,
-                        &["You are trying to access an array or slice out of bounds."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "You are trying to access an array or slice out of bounds.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -659,7 +677,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.runtimePanic — generic runtime panic",
                         current_addr,
-                        &["The Go runtime triggered a generic runtime panic."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "The Go runtime triggered a generic runtime panic.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -679,7 +700,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.chanMakePanic — channel creation error",
                         current_addr,
-                        &["You are trying to create a new channel that is too big."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "You are trying to create a new channel that is too big.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -699,7 +723,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         &mut self.state.logger.clone(),
                         "Go runtime.negativeShiftPanic — negative shift",
                         current_addr,
-                        &["The shift value is negative."],
+                        &[
+                            "Detection method: Exploring the not taken path and Reaching a Panic/Abort/Fatal call site",
+                            "The shift value is negative.",
+                        ],
                     );
                     process::exit(0);
                 }
@@ -1952,8 +1979,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     addr_hex,
                     &[
                         &format!("Opcode: {}", operation),
-                        "SAT condition: pointer must be 0x0 (NULL)",
-                        &format!("Concrete value on this path: 0x{:x}", pointer_concrete),
+                        "Detection method: Exploring the current path with a symbolic check on the pointer",
                         "More details in: results/FOUND_SAT_STATE.txt",
                     ],
                 );
@@ -2439,7 +2465,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 &mut self.state.logger.clone(),
                 "Concrete NULL pointer dereference (LOAD)",
                 self.current_address.unwrap_or(0),
-                &["The pointer is concretely zero — execution halted."],
+                &[
+                    "Opcode: LOAD",
+                    "Detection method: Exploring the current path with a symbolic check on the pointer",
+                    "The pointer is concretely zero — execution halted.",
+                ],
             );
             process::exit(1);
         }
@@ -2463,6 +2493,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 "Dangling pointer access — Use-After-Free (LOAD)",
                 self.current_address.unwrap_or(0),
                 &[
+                    "Opcode: LOAD",
+                    "Detection method: Exploring the current path with a symbolic check on the pointer",
                     &format!("Accessed address: 0x{:x}", pointer_offset_concrete),
                     &format!(
                         "Memory belongs to freed stack frame from function 0x{:x} (frame RSP: 0x{:x})",
@@ -2890,7 +2922,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 &mut self.state.logger.clone(),
                 "Concrete NULL pointer dereference (STORE)",
                 self.current_address.unwrap_or(0),
-                &["The pointer is concretely zero — execution halted."],
+                &[
+                    "Opcode: STORE",
+                    "Detection method: Exploring the current path with a symbolic check on the pointer",
+                    "The pointer is concretely zero — execution halted.",
+                ],
             );
             process::exit(1);
         }
@@ -2912,6 +2948,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 "Dangling pointer write — Use-After-Free (STORE)",
                 self.current_address.unwrap_or(0),
                 &[
+                    "Opcode: STORE",
+                    "Detection method: Exploring the current path with a symbolic check on the pointer",
                     &format!("Written address: 0x{:x}", pointer_offset_concrete),
                     &format!(
                         "Memory belongs to freed stack frame from function 0x{:x} (frame RSP: 0x{:x})",
