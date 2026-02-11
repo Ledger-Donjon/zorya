@@ -57,7 +57,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub function_symbolic_arguments: BTreeMap<String, SymbolicVar<'ctx>>, // this is used to store the symbolic arguments of the binary (os.args) or the function (RSI, RDX, RCX, R8, R9 etc.)
     pub constraint_vector: Vec<Bool<'ctx>>, // Vector to collect constraints on tracked symbolic variables
     pub overlay_state: Option<crate::state::OverlayState<'ctx>>, // Overlay state for exploring untaken paths without modifying base state
-    pub path_predicate_len_at_last_null_check: Option<usize>, // Number of constraints in the path predicate when the solver was last queried for NULL; if unchanged, the solver result is the same and we skip re-evaluation
+    pub null_check_cache: std::collections::HashMap<String, usize>, // Per-variable cache: maps symbolic variable name to the constraint_vector length when it was last checked for NULL. This allows checking multiple pointers at the same constraint level (e.g., first a_ptr, then a.delegate).
     pub start_time: Instant, // Execution start time for elapsed time tracking
 }
 
@@ -84,7 +84,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             function_symbolic_arguments: BTreeMap::new(),
             constraint_vector: Vec::new(),
             overlay_state: None, // No overlay by default
-            path_predicate_len_at_last_null_check: None,
+            null_check_cache: std::collections::HashMap::new(),
             start_time: Instant::now(),
         })
     }
@@ -1964,11 +1964,23 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return false;
         }
 
-        // Skip if the path predicate hasn't changed since last check
-        //    (same constraint_vector length ⟹ same solver context ⟹ same result)
+        // Extract the variable name from the pointer expression for per-variable caching
+        let pointer_expr_str = format!("{:?}", pointer_bv.simplify());
+
+        // Skip if this specific variable was already checked at the current constraint level
+        // This allows checking different pointers (e.g., a_ptr, then a.delegate) at the same
+        // constraint level, while avoiding redundant checks of the same variable.
         let current_constraint_len = self.constraint_vector.len();
-        if self.path_predicate_len_at_last_null_check == Some(current_constraint_len) {
-            return false;
+        if let Some(&cached_len) = self.null_check_cache.get(&pointer_expr_str) {
+            if cached_len == current_constraint_len {
+                log!(
+                    self.state.logger.clone(),
+                    "[NULL-CHECK] Skipping - already checked '{}' at constraint level {}",
+                    pointer_expr_str,
+                    current_constraint_len
+                );
+                return false;
+            }
         }
 
         log!(
@@ -2013,8 +2025,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         ) {
             Ok(true) => {
                 // SAT - vulnerability found and already reported by evaluate_args_z3
-                // Cache the path predicate length to avoid duplicate checks at same constraint level
-                self.path_predicate_len_at_last_null_check = Some(current_constraint_len);
+                // Cache this specific variable at the current constraint level
+                self.null_check_cache
+                    .insert(pointer_expr_str, current_constraint_len);
                 return true;
             }
             Ok(false) => {

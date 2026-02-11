@@ -137,8 +137,8 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     // Set overlay state in executor
     executor.overlay_state = Some(overlay_state);
 
-    // Reset path predicate tracker so the solver is invoked fresh in this overlay
-    executor.path_predicate_len_at_last_null_check = None;
+    // Reset per-variable NULL check cache so the solver is invoked fresh in this overlay
+    executor.null_check_cache.clear();
 
     // Execute instructions using the existing executor infrastructure
     let result = execute_with_overlay(
