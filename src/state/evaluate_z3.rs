@@ -898,9 +898,9 @@ pub fn evaluate_args_z3<'ctx>(
     instruction_addr: Option<u64>,
     branch_target_addr: Option<u64>,
     panic_addr: Option<u64>, // Add panic address parameter to avoid re-exploration
-    null_check_pointer: Option<&z3::ast::BV<'ctx>>, // NEW: for NULL pointer dereference checks (LOAD/STORE)
+    null_check_pointer: Option<&z3::ast::BV<'ctx>>, // for NULL pointer dereference checks (LOAD/STORE)
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    // CHANGED: return bool indicating SAT
+    // return bool indicating SAT
     use std::env;
     let mode = env::var("MODE").expect("MODE environment variable is not set");
 
@@ -973,7 +973,7 @@ pub fn evaluate_args_z3<'ctx>(
                     );
                 }
             } else if let Some(pointer_bv) = null_check_pointer {
-                // NEW: Handling NULL pointer dereference checks for LOAD/STORE operations
+                // Handling NULL pointer dereference checks for LOAD/STORE operations
                 // Assert that the pointer can be NULL (== 0)
                 let null_bv = z3::ast::BV::from_u64(executor.context, 0, pointer_bv.get_size());
                 let null_condition = pointer_bv._eq(&null_bv);
@@ -1109,8 +1109,25 @@ pub fn evaluate_args_z3<'ctx>(
                                 "More details in: results/FOUND_SAT_STATE.txt",
                             ],
                         );
+                    } else if null_check_pointer.is_some() {
+                        // Report NULL pointer dereference vulnerability (LOAD/STORE)
+                        let addr = instruction_addr.or(panic_addr).unwrap_or(0);
+                        let opcode_str = match inst.opcode {
+                            Opcode::Load => "LOAD",
+                            Opcode::Store => "STORE",
+                            _ => "UNKNOWN",
+                        };
+                        report_vulnerability(
+                            &mut executor.state.logger.clone(),
+                            "Symbolic NULL pointer dereference",
+                            addr,
+                            &[
+                                &format!("Opcode: {}", opcode_str),
+                                "Detection method: Exploring the current path with a symbolic check on the pointer",
+                                "More details in: results/FOUND_SAT_STATE.txt",
+                            ],
+                        );
                     }
-                    // For NULL checks, the vulnerability report is handled by the caller
 
                     log!(executor.state.logger, "~~~~~~~~~~~");
 
@@ -1138,6 +1155,7 @@ pub fn evaluate_args_z3<'ctx>(
             log!(executor.state.logger, ">>> No panic function found in the AST exploration with the current max depth exploration");
             return Ok(false); // No panic found
         }
+    // TODO: Add detection method for NULL pointer dereference checks (LOAD/STORE) like in function mode
     } else if mode == "start" || mode == "main" {
         let binary_path = {
             let target_info = GLOBAL_TARGET_INFO.lock().unwrap();

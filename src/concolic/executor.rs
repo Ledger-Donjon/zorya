@@ -1897,6 +1897,37 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         false
     }
 
+    /// Check whether a BV expression is a **direct** tracked symbolic variable
+    /// (e.g. `t_Value_ptr!142`) as opposed to a complex derived expression
+    /// (e.g. `(concat (extract 7 0 t_Value_ptr!142) ...)`).
+    ///
+    /// A "direct" variable means the simplified expression string matches one of
+    /// the tracked argument names exactly (possibly with a Z3 index suffix like `!142`).
+    /// Complex expressions that merely *contain* a tracked variable name are rejected
+    /// because NULL-checking them produces false positives: the solver can find exotic
+    /// values for the base variable that make the derived expression zero without
+    /// representing a real nil pointer dereference.
+    fn is_direct_tracked_symbolic_bv(&self, symbolic_bv: &BV<'ctx>) -> bool {
+        if self.function_symbolic_arguments.is_empty() {
+            return false;
+        }
+        let simplified = symbolic_bv.simplify();
+        let expr_string = format!("{:?}", simplified);
+        // A direct Z3 constant looks like "arg_name!NNN" (e.g. "t_Value_ptr!142").
+        // It must NOT contain spaces, parentheses or operators — those indicate
+        // a compound expression like "(concat ...)" or "((_ extract ...) ...)".
+        if expr_string.contains('(') || expr_string.contains(' ') {
+            return false;
+        }
+        // Now verify the base name (before the '!' suffix) matches a tracked argument
+        for (arg_name, _) in self.function_symbolic_arguments.iter() {
+            if expr_string.starts_with(arg_name) {
+                return true;
+            }
+        }
+        false
+    }
+
     // Check if a symbolic pointer address could be NULL using the Z3 solver.
     // Active on both the concrete path and during overlay execution.
     // This is necessary because some bugs (e.g. Go nil pointer dereferences) have
@@ -1916,6 +1947,20 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Skip if the address doesn't involve any tracked symbolic variable
         if !self.contains_tracked_symbolic_bv(&pointer_bv) {
+            return false;
+        }
+
+        // Skip complex derived expressions (e.g. concat/extract over tracked vars).
+        // Only check pointers that ARE a direct tracked symbolic variable.
+        // Complex expressions produce false positives: the solver finds exotic values
+        // for the base variable that make the derived expression zero without
+        // representing a real nil pointer dereference.
+        if !self.is_direct_tracked_symbolic_bv(&pointer_bv) {
+            log!(
+                self.state.logger.clone(),
+                "[NULL-CHECK] Skipping complex derived pointer expression (not a direct symbolic variable): {:?}",
+                pointer_bv.simplify()
+            );
             return false;
         }
 
@@ -1967,22 +2012,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Some(&pointer_bv), // NEW: pass the pointer BV for NULL check
         ) {
             Ok(true) => {
-                // SAT - vulnerability found
+                // SAT - vulnerability found and already reported by evaluate_args_z3
                 // Cache the path predicate length to avoid duplicate checks at same constraint level
                 self.path_predicate_len_at_last_null_check = Some(current_constraint_len);
-
-                // Also report the vulnerability here for immediate feedback
-                // (evaluate_args_z3 generates the SAT file but doesn't report to stdout)
-                crate::state::evaluate_z3::report_vulnerability(
-                    &mut self.state.logger.clone(),
-                    "Symbolic NULL pointer dereference",
-                    addr_hex,
-                    &[
-                        &format!("Opcode: {}", operation),
-                        "Detection method: Exploring the current path with a symbolic check on the pointer",
-                        "More details in: results/FOUND_SAT_STATE.txt",
-                    ],
-                );
                 return true;
             }
             Ok(false) => {
