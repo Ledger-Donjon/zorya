@@ -416,6 +416,21 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                 if pointer_value == 0 {
                     // Concrete NULL detected during overlay execution.
                     // No Z3 evaluation needed — the pointer is concretely NULL on this path.
+
+                    // Try to identify the pointer name by checking if it's symbolic
+                    let ptr_bv = pointer_concolic.to_bv(executor.context);
+                    let mut pointer_name = None;
+
+                    // Try to match it against tracked symbolic variables
+                    for (arg_name, sym_var) in &executor.function_symbolic_arguments {
+                        if let crate::concolic::SymbolicVar::Int(bv) = sym_var {
+                            if ptr_bv.to_string() == bv.to_string() {
+                                pointer_name = Some(arg_name.clone());
+                                break;
+                            }
+                        }
+                    }
+
                     let desc = format!(
                         "Null pointer dereference (LOAD) at instruction {}",
                         inst_idx
@@ -427,6 +442,7 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                         "LOAD",
                         "Exploring the not taken path with Overlay Execution",
                         &desc,
+                        pointer_name.as_deref(),
                     ) {
                         log!(
                             executor.state.logger,
@@ -452,6 +468,21 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                 if pointer_value == 0 {
                     // Concrete NULL detected during overlay execution.
                     // No Z3 evaluation needed — the pointer is concretely NULL on this path.
+
+                    // Try to identify the pointer name by checking if it's symbolic
+                    let ptr_bv = pointer_concolic.to_bv(executor.context);
+                    let mut pointer_name = None;
+
+                    // Try to match it against tracked symbolic variables
+                    for (arg_name, sym_var) in &executor.function_symbolic_arguments {
+                        if let crate::concolic::SymbolicVar::Int(bv) = sym_var {
+                            if ptr_bv.to_string() == bv.to_string() {
+                                pointer_name = Some(arg_name.clone());
+                                break;
+                            }
+                        }
+                    }
+
                     let desc = format!("Null pointer write (STORE) at instruction {}", inst_idx);
                     if let Err(e) = crate::state::evaluate_z3::log_vuln_to_file_and_terminal(
                         &mut executor.state.logger.clone(),
@@ -460,6 +491,7 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                         "STORE",
                         "Exploring the not taken path with Overlay Execution",
                         &desc,
+                        pointer_name.as_deref(),
                     ) {
                         log!(
                             executor.state.logger,

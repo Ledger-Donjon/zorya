@@ -91,6 +91,7 @@ pub fn log_vuln_to_file_and_terminal(
     opcode_str: &str,
     detection_method: &str,
     description: &str,
+    pointer_name: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let elapsed = get_elapsed_since_start();
     let mode = std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string());
@@ -161,6 +162,9 @@ pub fn log_vuln_to_file_and_terminal(
     writeln!(file, "Detection method: {}", detection_method)?;
     writeln!(file, "{}", description)?;
     writeln!(file, "")?;
+    if let Some(ptr_name) = pointer_name {
+        writeln!(file, "Pointer: {}", ptr_name)?;
+    }
     writeln!(
         file,
         "The pointer at this address is concretely NULL on the overlay (not-taken) path."
