@@ -57,7 +57,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub function_symbolic_arguments: BTreeMap<String, SymbolicVar<'ctx>>, // this is used to store the symbolic arguments of the binary (os.args) or the function (RSI, RDX, RCX, R8, R9 etc.)
     pub constraint_vector: Vec<Bool<'ctx>>, // Vector to collect constraints on tracked symbolic variables
     pub overlay_state: Option<crate::state::OverlayState<'ctx>>, // Overlay state for exploring untaken paths without modifying base state
-    pub null_check_cache: std::collections::HashMap<String, usize>, // Per-variable cache: maps symbolic variable name to the constraint_vector length when it was last checked for NULL. This allows checking multiple pointers at the same constraint level (e.g., first a_ptr, then a.delegate).
+    pub null_check_cache: std::collections::HashMap<String, (bool, usize)>, // Per-variable cache: maps symbolic variable name → (was_sat, constraint_len). If was_sat=true the variable is permanently skipped (vulnerability already reported). If was_sat=false it is re-checked only when constraint_len changes.
     pub start_time: Instant, // Execution start time for elapsed time tracking
 }
 
@@ -1967,15 +1967,30 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Extract the variable name from the pointer expression for per-variable caching
         let pointer_expr_str = format!("{:?}", pointer_bv.simplify());
 
-        // Skip if this specific variable was already checked at the current constraint level
-        // This allows checking different pointers (e.g., a_ptr, then a.delegate) at the same
-        // constraint level, while avoiding redundant checks of the same variable.
+        // Per-variable caching:
+        //   • If the solver already returned SAT for this variable, skip it permanently.
+        //     Rationale: SAT with N constraints ⟹ SAT with any subset, and adding more
+        //     constraints can only make things UNSAT, never "more SAT".  The vulnerability
+        //     is already reported — re-checking would only produce duplicates.
+        //   • If the solver returned UNSAT, re-check only when the constraint level has
+        //     changed (new branch taken ⟹ new constraint added), because new constraints
+        //     could potentially make a previously-UNSAT variable SAT.
         let current_constraint_len = self.constraint_vector.len();
-        if let Some(&cached_len) = self.null_check_cache.get(&pointer_expr_str) {
-            if cached_len == current_constraint_len {
+        if let Some(&(sat, cached_len)) = self.null_check_cache.get(&pointer_expr_str) {
+            if sat {
+                // Already confirmed as nullable — no need to re-check ever
                 log!(
                     self.state.logger.clone(),
-                    "[NULL-CHECK] Skipping - already checked '{}' at constraint level {}",
+                    "[NULL-CHECK] Skipping '{}' — already confirmed SAT (nullable), vulnerability already reported",
+                    pointer_expr_str
+                );
+                return false;
+            }
+            if cached_len == current_constraint_len {
+                // Same constraint level, same UNSAT result — skip
+                log!(
+                    self.state.logger.clone(),
+                    "[NULL-CHECK] Skipping '{}' — already checked UNSAT at constraint level {}",
                     pointer_expr_str,
                     current_constraint_len
                 );
@@ -2024,14 +2039,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Some(&pointer_bv), // NEW: pass the pointer BV for NULL check
         ) {
             Ok(true) => {
-                // SAT - vulnerability found and already reported by evaluate_args_z3
-                // Cache this specific variable at the current constraint level
+                // SAT — vulnerability found and already reported by evaluate_args_z3.
+                // Cache as (sat=true, len) so this variable is never re-checked.
                 self.null_check_cache
-                    .insert(pointer_expr_str, current_constraint_len);
+                    .insert(pointer_expr_str, (true, current_constraint_len));
                 return true;
             }
             Ok(false) => {
-                // UNSAT or Unknown - no vulnerability
+                // UNSAT or Unknown — no vulnerability at this constraint level.
+                // Cache as (sat=false, len) so we re-check if constraints change.
+                self.null_check_cache
+                    .insert(pointer_expr_str, (false, current_constraint_len));
                 log!(
                     self.state.logger.clone(),
                     "[NULL-CHECK] Solver result: Unsat/Unknown (NULL is impossible)"
@@ -4186,6 +4204,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Sync primitives
                 "sync.",
                 "sync/atomic.",
+                "internal/sync.",
                 // Reflection
                 "reflect.",
                 // Common stdlib packages that manage memory/goroutines internally
