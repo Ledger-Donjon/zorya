@@ -111,6 +111,37 @@ Function signatures map Go function arguments to their **physical locations** (C
 
 ---
 
+## Struct Pointer Arguments and NULL-Check Handling
+
+### Non-Null Constraint for Go Struct Pointers
+
+When Zorya analyzes a Go function in `--mode function`, it makes each argument symbolic so the Z3 solver can reason about possible inputs.  For struct-pointer arguments (e.g. a method receiver `p *BlobPool`), Zorya adds a **non-null constraint** (`ptr ≠ 0`) to the solver.
+
+**Rationale:**
+
+- In Go, method receivers and struct-pointer arguments are virtually always non-nil at the call site.  A nil receiver is a bug in the *caller*, not inside the function itself.
+- Without the constraint, the solver trivially reports that `p` could be `NULL` at the first `LOAD` through `p`, producing a low-value finding that shadows deeper, more interesting bugs inside the function body (e.g. index-out-of-bounds panics, nil map dereferences).
+- This mirrors the existing non-null constraint already applied to Go string pointers in `initialize_string_argument`.
+
+**What is still checked:**
+
+| Pointer kind | NULL-check behavior |
+|---|---|
+| Struct-pointer args (method receivers) | Non-null constrained; NULL-check cache pre-seeded → solver never invoked |
+| Map / interface / slice pointers | Unconstrained; solver checks normally at each LOAD/STORE |
+| Derived expressions (`ptr + offset`) | Filtered out by `is_direct_tracked_symbolic_bv_internal` → skipped |
+| Concrete NULL (`ptr == 0` at runtime) | Always caught immediately (`process::exit(1)`) regardless of constraints |
+
+### NULL-Check Caching
+
+The symbolic NULL-dereference check uses a per-variable cache (`null_check_cache`) to avoid redundant solver calls:
+
+- **SAT (nullable):** Cached permanently — the vulnerability is already reported.
+- **UNSAT (non-nullable):** Cached at the current constraint level — re-checked only when new path constraints are added.
+- **Pre-seeded:** For Go struct pointers with non-null constraints, the cache is pre-seeded with `(false, 0)` at initialization time, so the check is a hash-map lookup with zero solver overhead.
+
+---
+
 ## TTY-Dependent Code Paths and `--force-pty`
 
 ### Problem

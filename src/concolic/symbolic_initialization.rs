@@ -1861,12 +1861,15 @@ fn initialize_slice_element_memory<'a>(
 //  Struct Pointer Field Symbolization
 // ────────────────────────────────────────────────────────────
 
-/// Initialize struct pointer fields as symbolic
+/// Initialize struct pointer fields as symbolic.
 /// When a function receives a pointer to a struct (e.g., *Block), this function
 /// symbolizes the struct's fields at their respective offsets in memory.
 ///
-/// Additionally, it makes the pointer itself symbolic (nullable) so that NULL
-/// pointer dereferences can be detected during execution.
+/// The pointer itself is also made symbolic.  For Go programs a **non-null**
+/// constraint is asserted (method receivers / struct-pointer arguments are
+/// never nil in practice) and the NULL-check cache is pre-seeded so that
+/// `check_symbolic_null_dereference` in LOAD/STORE skips the solver call
+/// entirely.  For other languages the pointer remains unconstrained.
 pub fn initialize_struct_pointer_fields<'a>(
     executor: &mut ConcolicExecutor<'a>,
     arg_name: &str,
@@ -1927,13 +1930,41 @@ pub fn initialize_struct_pointer_fields<'a>(
     );
 
     // ═══════════════════════════════════════════════════════════════════════
-    // STEP 1: Make the pointer itself symbolic (nullable)
+    // STEP 1: Make the pointer itself symbolic
     // ═══════════════════════════════════════════════════════════════════════
-    // This allows Zorya to detect potential NULL pointer dereferences even when
-    // the concrete value is non-NULL.
+    // The pointer is symbolic so Zorya can reason about it, but for Go
+    // programs we constrain it to be non-null: Go method receivers and
+    // struct-pointer arguments are (in practice) always non-nil.  Making
+    // them nullable leads to trivial NULL-deref findings that shadow the
+    // deeper, more interesting bugs inside the function body.
 
     let ptr_sym_name = format!("{}_ptr", arg_name.replace('.', "_"));
     let ptr_bv = BV::fresh_const(executor.context, &ptr_sym_name, 64);
+
+    // For Go programs, constrain the struct pointer to be non-null.
+    // This mirrors the non-null constraint already applied to Go string
+    // pointers in initialize_string_argument.  A nil receiver is a bug at
+    // the *call-site*, not inside the function, so excluding it lets the
+    // executor reach the real logic deeper in the function.
+    let source_lang = std::env::var("SOURCE_LANG").unwrap_or_default();
+    if source_lang.to_lowercase() == "go" {
+        let zero = BV::from_u64(executor.context, 0, 64);
+        executor.solver.assert(&ptr_bv._eq(&zero).not());
+
+        // Pre-seed the NULL-check cache so handle_load / handle_store never
+        // waste a solver call on a pointer that is known non-null.
+        // The cache key must match what check_symbolic_null_dereference
+        // computes: format!("{:?}", bv.simplify()).  For a fresh constant
+        // this is "ptr_sym_name!NNN" (Z3 appends an internal ID).
+        let cache_key = format!("{:?}", ptr_bv.simplify());
+        executor.null_check_cache.insert(cache_key, (false, 0));
+
+        log!(
+            executor.state.logger,
+            "Added non-null constraint for Go struct pointer '{}' (receiver pointers are never nil in practice)",
+            arg_name
+        );
+    }
 
     // Track this symbolic variable
     executor
@@ -1960,7 +1991,7 @@ pub fn initialize_struct_pointer_fields<'a>(
             } else {
                 log!(
                     executor.state.logger,
-                    "✓ Made pointer '{}' symbolic (nullable) in register '{}'",
+                    "Made pointer '{}' symbolic (non-null) in register '{}'",
                     arg_name,
                     ptr_reg
                 );

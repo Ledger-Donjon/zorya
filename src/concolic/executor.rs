@@ -57,7 +57,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub function_symbolic_arguments: BTreeMap<String, SymbolicVar<'ctx>>, // this is used to store the symbolic arguments of the binary (os.args) or the function (RSI, RDX, RCX, R8, R9 etc.)
     pub constraint_vector: Vec<Bool<'ctx>>, // Vector to collect constraints on tracked symbolic variables
     pub overlay_state: Option<crate::state::OverlayState<'ctx>>, // Overlay state for exploring untaken paths without modifying base state
-    pub null_check_cache: std::collections::HashMap<String, (bool, usize)>, // Per-variable cache: maps symbolic variable name → (was_sat, constraint_len). If was_sat=true the variable is permanently skipped (vulnerability already reported). If was_sat=false it is re-checked only when constraint_len changes.
+    pub null_check_cache: std::collections::HashMap<String, (bool, usize)>, // Per-variable cache: maps symbolic variable name → (was_sat, constraint_len). If was_sat=true the variable is permanently skipped (vulnerability already reported). If was_sat=false it is re-checked only when constraint_len changes. For Go struct pointers this is pre-seeded with (false, 0) at initialization so the solver is never invoked.
     pub start_time: Instant, // Execution start time for elapsed time tracking
 }
 
@@ -1897,22 +1897,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         false
     }
 
-    /// Check whether a BV expression is a **direct** tracked symbolic variable
-    /// (e.g. `t_Value_ptr!142`) as opposed to a complex derived expression
-    /// (e.g. `(concat (extract 7 0 t_Value_ptr!142) ...)`).
-    ///
-    /// A "direct" variable means the simplified expression string matches one of
-    /// the tracked argument names exactly (possibly with a Z3 index suffix like `!142`).
-    /// Complex expressions that merely *contain* a tracked variable name are rejected
-    /// because NULL-checking them produces false positives: the solver can find exotic
-    /// values for the base variable that make the derived expression zero without
-    /// representing a real nil pointer dereference.
-    fn is_direct_tracked_symbolic_bv(&self, symbolic_bv: &BV<'ctx>) -> bool {
+    /// Internal helper that takes pre-simplified BV and string to avoid redundant simplify() calls
+    fn is_direct_tracked_symbolic_bv_internal(
+        &self,
+        _simplified: &BV<'ctx>,
+        expr_string: &str,
+    ) -> bool {
         if self.function_symbolic_arguments.is_empty() {
             return false;
         }
-        let simplified = symbolic_bv.simplify();
-        let expr_string = format!("{:?}", simplified);
         // A direct Z3 constant looks like "arg_name!NNN" (e.g. "t_Value_ptr!142").
         // It must NOT contain spaces, parentheses or operators — those indicate
         // a compound expression like "(concat ...)" or "((_ extract ...) ...)".
@@ -1930,12 +1923,21 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     // Check if a symbolic pointer address could be NULL using the Z3 solver.
     // Active on both the concrete path and during overlay execution.
-    // This is necessary because some bugs (e.g. Go nil pointer dereferences) have
-    // no null check at all in the source — there is no CBRANCH to trigger overlay
-    // exploration, so the vulnerability can only be detected on the concrete path.
-    // The solver is only queried when the path predicate has changed (new constraint
-    // added since the last check); consecutive LOADs/STOREs under the same path
-    // predicate reuse the previous result, which avoids duplicate reports.
+    // This is necessary because some bugs (e.g. Go nil interface/map dereferences)
+    // have no null check at all in the source — there is no CBRANCH to trigger
+    // overlay exploration, so the vulnerability can only be detected on the
+    // concrete path.
+    //
+    // NOTE: For Go struct-pointer arguments (method receivers), a non-null
+    // constraint is asserted at initialization and the cache is pre-seeded with
+    // UNSAT, so this function short-circuits on the cache lookup without ever
+    // invoking the solver.  The check therefore only costs real solver time for
+    // unconstrained symbolic pointers (maps, interfaces, slices, etc.).
+    //
+    // The solver is only queried when the path predicate has changed (new
+    // constraint added since the last check); consecutive LOADs/STOREs under
+    // the same path predicate reuse the previous result, which avoids duplicate
+    // reports.
     fn check_symbolic_null_dereference(
         &mut self,
         pointer_concolic: &ConcolicEnum<'ctx>,
@@ -1950,22 +1952,26 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return false;
         }
 
+        // Simplify once and reuse — simplify() can be expensive for complex expressions
+        let simplified = pointer_bv.simplify();
+        let expr_string = format!("{:?}", simplified);
+
         // Skip complex derived expressions (e.g. concat/extract over tracked vars).
         // Only check pointers that ARE a direct tracked symbolic variable.
         // Complex expressions produce false positives: the solver finds exotic values
         // for the base variable that make the derived expression zero without
         // representing a real nil pointer dereference.
-        if !self.is_direct_tracked_symbolic_bv(&pointer_bv) {
+        if !self.is_direct_tracked_symbolic_bv_internal(&simplified, &expr_string) {
             log!(
                 self.state.logger.clone(),
-                "[NULL-CHECK] Skipping complex derived pointer expression (not a direct symbolic variable): {:?}",
-                pointer_bv.simplify()
+                "[NULL-CHECK] Skipping complex derived pointer expression (not a direct symbolic variable): {}",
+                expr_string
             );
             return false;
         }
 
-        // Extract the variable name from the pointer expression for per-variable caching
-        let pointer_expr_str = format!("{:?}", pointer_bv.simplify());
+        // Use the already-simplified string for caching
+        let pointer_expr_str = expr_string;
 
         // Per-variable caching:
         //   • If the solver already returned SAT for this variable, skip it permanently.
@@ -2539,7 +2545,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Symbolic NULL check: if the address is symbolic, ask the solver if it could be zero.
         // This detects cases where the concrete path is non-null but an alternative input
-        // could make the pointer NULL (e.g. Go nil interface dereferences).
+        // could make the pointer NULL (e.g. Go nil interface/map dereferences).
+        // For Go struct pointers with a non-null constraint this is a no-op (cache hit).
         self.check_symbolic_null_dereference(
             &pointer_offset_concolic,
             pointer_offset_concrete,
@@ -2994,7 +3001,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             process::exit(1);
         }
 
-        // Symbolic NULL check: detect if the store address could be NULL on an alternative path
+        // Symbolic NULL check: detect if the store address could be NULL on an alternative path.
+        // For Go struct pointers with a non-null constraint this is a no-op (cache hit).
         self.check_symbolic_null_dereference(
             &pointer_offset_var,
             pointer_offset_concrete,
