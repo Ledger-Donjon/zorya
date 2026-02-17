@@ -1882,62 +1882,22 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         false
     }
 
-    // Helper function to check if any tracked symbolic variable is present in a BV expression
-    // Used for detecting symbolic NULL dereferences in LOAD/STORE addresses
-    fn contains_tracked_symbolic_bv(&self, symbolic_bv: &BV<'ctx>) -> bool {
-        if self.function_symbolic_arguments.is_empty() {
-            return false;
-        }
-        let expr_string = format!("{:?}", symbolic_bv);
-        for (arg_name, _) in self.function_symbolic_arguments.iter() {
-            if expr_string.contains(arg_name) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Internal helper that takes pre-simplified BV and string to avoid redundant simplify() calls
-    fn is_direct_tracked_symbolic_bv_internal(
-        &self,
-        _simplified: &BV<'ctx>,
-        expr_string: &str,
-    ) -> bool {
-        if self.function_symbolic_arguments.is_empty() {
-            return false;
-        }
-        // A direct Z3 constant looks like "arg_name!NNN" (e.g. "t_Value_ptr!142").
-        // It must NOT contain spaces, parentheses or operators — those indicate
-        // a compound expression like "(concat ...)" or "((_ extract ...) ...)".
-        if expr_string.contains('(') || expr_string.contains(' ') {
-            return false;
-        }
-        // Now verify the base name (before the '!' suffix) matches a tracked argument
-        for (arg_name, _) in self.function_symbolic_arguments.iter() {
-            if expr_string.starts_with(arg_name) {
-                return true;
-            }
-        }
-        false
-    }
-
     // Check if a symbolic pointer address could be NULL using the Z3 solver.
     // Active on both the concrete path and during overlay execution.
-    // This is necessary because some bugs (e.g. Go nil interface/map dereferences)
-    // have no null check at all in the source — there is no CBRANCH to trigger
-    // overlay exploration, so the vulnerability can only be detected on the
-    // concrete path.
     //
-    // NOTE: For Go struct-pointer arguments (method receivers), a non-null
-    // constraint is asserted at initialization and the cache is pre-seeded with
-    // UNSAT, so this function short-circuits on the cache lookup without ever
-    // invoking the solver.  The check therefore only costs real solver time for
-    // unconstrained symbolic pointers (maps, interfaces, slices, etc.).
+    // DESIGN: We check the BASE tracked variable for NULL, not the derived
+    // expression.  If b_ptr can be nil, then any address derived from it
+    // (b_ptr + offset, b_ptr[index], etc.) is also an invalid memory access.
+    // This avoids false positives (solver finding exotic non-nil values that
+    // make a complex expression zero) and avoids calling simplify() entirely.
     //
-    // The solver is only queried when the path predicate has changed (new
-    // constraint added since the last check); consecutive LOADs/STOREs under
-    // the same path predicate reuse the previous result, which avoids duplicate
-    // reports.
+    // The only Z3 operation is format!("{:?}") once to find which tracked
+    // variable appears in the expression.  No simplify() is ever called.
+    //
+    // Per-variable caching ensures the solver is invoked at most once per
+    // tracked variable per constraint level.  For Go struct-pointer arguments
+    // (method receivers) the cache is pre-seeded with UNSAT at initialization,
+    // so the solver is never invoked at all.
     fn check_symbolic_null_dereference(
         &mut self,
         pointer_concolic: &ConcolicEnum<'ctx>,
@@ -1945,127 +1905,102 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         operation: &str,
         current_inst: &Inst,
     ) -> bool {
+        if self.function_symbolic_arguments.is_empty() {
+            return false;
+        }
+
         let pointer_bv = pointer_concolic.get_symbolic_value_bv(self.context);
 
-        // Skip if the address doesn't involve any tracked symbolic variable
-        if !self.contains_tracked_symbolic_bv(&pointer_bv) {
+        // Fast path: if the BV is a Z3 numeral constant, no tracked variable
+        // is involved — skip without formatting the expression tree.
+        if pointer_bv.as_u64().is_some() {
             return false;
         }
 
-        // Simplify once and reuse — simplify() can be expensive for complex expressions
-        let simplified = pointer_bv.simplify();
-        let expr_string = format!("{:?}", simplified);
+        // Format the expression ONCE to find which tracked variable appears.
+        // We intentionally NEVER call simplify() — it can be very expensive
+        // for large expression trees and is unnecessary: we check the BASE
+        // tracked variable for NULL, not the derived expression.
+        let expr_string = format!("{:?}", pointer_bv);
 
-        // Skip complex derived expressions (e.g. concat/extract over tracked vars).
-        // Only check pointers that ARE a direct tracked symbolic variable.
-        // Complex expressions produce false positives: the solver finds exotic values
-        // for the base variable that make the derived expression zero without
-        // representing a real nil pointer dereference.
-        if !self.is_direct_tracked_symbolic_bv_internal(&simplified, &expr_string) {
-            log!(
-                self.state.logger.clone(),
-                "[NULL-CHECK] Skipping complex derived pointer expression (not a direct symbolic variable): {}",
-                expr_string
-            );
-            return false;
+        // Find the first tracked symbolic variable that appears in the expression
+        let mut base_var_name: Option<String> = None;
+        for (arg_name, _) in self.function_symbolic_arguments.iter() {
+            if expr_string.contains(arg_name) {
+                base_var_name = Some(arg_name.clone());
+                break;
+            }
         }
 
-        // Use the already-simplified string for caching
-        let pointer_expr_str = expr_string;
+        let base_var_name = match base_var_name {
+            Some(name) => name,
+            None => return false, // No tracked variable — purely concrete pointer
+        };
 
-        // Per-variable caching:
-        //   • If the solver already returned SAT for this variable, skip it permanently.
-        //     Rationale: SAT with N constraints ⟹ SAT with any subset, and adding more
-        //     constraints can only make things UNSAT, never "more SAT".  The vulnerability
-        //     is already reported — re-checking would only produce duplicates.
-        //   • If the solver returned UNSAT, re-check only when the constraint level has
-        //     changed (new branch taken ⟹ new constraint added), because new constraints
-        //     could potentially make a previously-UNSAT variable SAT.
+        // Look up the base variable's BV. We check if THIS can be NULL.
+        let base_bv = match self.function_symbolic_arguments.get(&base_var_name) {
+            Some(SymbolicVar::Int(bv)) => bv.clone(),
+            _ => return false,
+        };
+
+        // Use the base variable name as cache key — all derived expressions
+        // from the same base share one NULL check result.
         let current_constraint_len = self.constraint_vector.len();
-        if let Some(&(sat, cached_len)) = self.null_check_cache.get(&pointer_expr_str) {
+        if let Some(&(sat, cached_len)) = self.null_check_cache.get(&base_var_name) {
             if sat {
-                // Already confirmed as nullable — no need to re-check ever
-                log!(
-                    self.state.logger.clone(),
-                    "[NULL-CHECK] Skipping '{}' — already confirmed SAT (nullable), vulnerability already reported",
-                    pointer_expr_str
-                );
+                // Already confirmed as nullable — vulnerability already reported
                 return false;
             }
             if cached_len == current_constraint_len {
-                // Same constraint level, same UNSAT result — skip
-                log!(
-                    self.state.logger.clone(),
-                    "[NULL-CHECK] Skipping '{}' — already checked UNSAT at constraint level {}",
-                    pointer_expr_str,
-                    current_constraint_len
-                );
+                // Already checked UNSAT at this constraint level — skip
                 return false;
             }
         }
 
         log!(
             self.state.logger.clone(),
-            "[NULL-CHECK] Checking if pointer can be NULL:"
-        );
-        log!(
-            self.state.logger.clone(),
-            "  Operation: {} at 0x{:x}",
+            "[NULL-CHECK] Checking if '{}' can be NULL ({} at 0x{:x}, concrete ptr: 0x{:x}, constraints: {})",
+            base_var_name,
             operation,
-            self.current_address.unwrap_or(0)
-        );
-        log!(
-            self.state.logger.clone(),
-            "  Pointer expression: {:?}",
-            pointer_bv.simplify()
-        );
-        log!(
-            self.state.logger.clone(),
-            "  Concrete value: 0x{:x}",
-            pointer_concrete
-        );
-        log!(
-            self.state.logger.clone(),
-            "  Path constraints: {} (empty = unconstrained, any value possible)",
+            self.current_address.unwrap_or(0),
+            pointer_concrete,
             current_constraint_len
         );
 
-        // Use evaluate_args_z3 to leverage the Optimize solver and generate SAT state files
-        // This will check if the pointer can be NULL and report the vulnerability if SAT
         let addr_hex = self.current_address.unwrap_or(0);
 
-        // Call evaluate_args_z3 with the null_check_pointer parameter
         match crate::state::evaluate_z3::evaluate_args_z3(
             self,
             current_inst,
-            None,              // no conditional flag for NULL checks
-            Some(addr_hex),    // instruction address
-            None,              // no branch target
-            Some(addr_hex),    // use current address as "panic address" for SAT file
-            Some(&pointer_bv), // NEW: pass the pointer BV for NULL check
+            None,           // no conditional flag for NULL checks
+            Some(addr_hex), // instruction address
+            None,           // no branch target
+            Some(addr_hex), // use current address as "panic address" for SAT file
+            Some(&base_bv), // check if the base variable can be NULL
         ) {
             Ok(true) => {
-                // SAT — vulnerability found and already reported by evaluate_args_z3.
-                // Cache as (sat=true, len) so this variable is never re-checked.
+                // SAT — vulnerability found and already reported by evaluate_args_z3
                 self.null_check_cache
-                    .insert(pointer_expr_str, (true, current_constraint_len));
+                    .insert(base_var_name, (true, current_constraint_len));
                 return true;
             }
             Ok(false) => {
-                // UNSAT or Unknown — no vulnerability at this constraint level.
-                // Cache as (sat=false, len) so we re-check if constraints change.
+                // UNSAT or Unknown — base variable cannot be NULL
+                let var_name_for_log = base_var_name.clone();
                 self.null_check_cache
-                    .insert(pointer_expr_str, (false, current_constraint_len));
+                    .insert(base_var_name, (false, current_constraint_len));
                 log!(
                     self.state.logger.clone(),
-                    "[NULL-CHECK] Solver result: Unsat/Unknown (NULL is impossible)"
+                    "[NULL-CHECK] '{}' cannot be NULL (UNSAT)",
+                    var_name_for_log
                 );
                 return false;
             }
             Err(e) => {
                 log!(
                     self.state.logger.clone(),
-                    "[NULL-CHECK] Error during NULL check evaluation: {}",
+                    "[NULL-CHECK] Error checking '{}': {}",
+                    base_var_name.clone(),
                     e
                 );
                 return false;

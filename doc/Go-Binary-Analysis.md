@@ -129,7 +129,7 @@ When Zorya analyzes a Go function in `--mode function`, it makes each argument s
 |---|---|
 | Struct-pointer args (method receivers) | Non-null constrained; NULL-check cache pre-seeded → solver never invoked |
 | Map / interface / slice pointers | Unconstrained; solver checks normally at each LOAD/STORE |
-| Derived expressions (`ptr + offset`) | Filtered out by `is_direct_tracked_symbolic_bv_internal` → skipped |
+| Any expression involving a tracked variable (ptr+offset, concat, etc.) | Base tracked variable checked for NULL — no simplify() overhead |
 | Concrete NULL (`ptr == 0` at runtime) | Always caught immediately (`process::exit(1)`) regardless of constraints |
 
 ### NULL-Check Caching
@@ -139,6 +139,15 @@ The symbolic NULL-dereference check uses a per-variable cache (`null_check_cache
 - **SAT (nullable):** Cached permanently — the vulnerability is already reported.
 - **UNSAT (non-nullable):** Cached at the current constraint level — re-checked only when new path constraints are added.
 - **Pre-seeded:** For Go struct pointers with non-null constraints, the cache is pre-seeded with `(false, 0)` at initialization time, so the check is a hash-map lookup with zero solver overhead.
+
+### NULL-Check Performance: No simplify(), No Expression Logging
+
+The NULL-check function (`check_symbolic_null_dereference`) is designed for zero Z3 overhead on the hot path:
+
+1. **Fast reject**: If the BV is a Z3 numeral constant (`as_u64()` succeeds), skip immediately — no formatting.
+2. **One format, no simplify**: The raw expression is formatted once to find which tracked variable appears in it. Z3 `simplify()` is **never** called — it can be extremely expensive for large expression trees.
+3. **Check the base variable, not the expression**: Instead of checking "can this derived address be zero?" (which produces false positives from exotic solver values), we check "can the base tracked variable be NULL?". If `b_ptr` is nil, then any derived address (`b_ptr + offset`, `b_ptr[i]`, etc.) is an invalid memory access.
+4. **One check per variable per constraint level**: The per-variable cache means the solver is invoked at most once per tracked variable per new path constraint. For non-null-constrained struct pointers, the cache is pre-seeded — zero solver calls ever.
 
 ---
 
