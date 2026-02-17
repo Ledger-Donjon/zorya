@@ -405,6 +405,8 @@ pub fn log_sat_state_to_file_and_terminal(
     panic_addr: Option<u64>,
     elapsed_since_start: Option<Duration>,
     instruction_addr: Option<u64>,
+    opcode_str: Option<&str>,
+    detection_method: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create results directory if it doesn't exist
     std::fs::create_dir_all("results")?;
@@ -444,6 +446,12 @@ pub fn log_sat_state_to_file_and_terminal(
     }
     if let Some(addr) = panic_addr {
         writeln!(file, "Panic Address: 0x{:x}", addr)?;
+    }
+    if let Some(opcode) = opcode_str {
+        writeln!(file, "Opcode: {}", opcode)?;
+    }
+    if let Some(method) = detection_method {
+        writeln!(file, "Detection method: {}", method)?;
     }
 
     writeln!(file, "{}", "-".repeat(60))?;
@@ -1178,12 +1186,34 @@ pub fn evaluate_args_z3<'ctx>(
 
                     // Write to file (for both CBRANCH and NULL checks)
                     let elapsed = START_INSTANT.get().map(|s| s.elapsed());
+
+                    // Determine opcode and detection method strings for file logging
+                    let opcode_str = if inst.opcode == Opcode::CBranch {
+                        "CBRANCH"
+                    } else if null_check_pointer.is_some() {
+                        match inst.opcode {
+                            Opcode::Load => "LOAD",
+                            Opcode::Store => "STORE",
+                            _ => "UNKNOWN",
+                        }
+                    } else {
+                        "UNKNOWN"
+                    };
+
+                    let detection_method = if executor.overlay_state.is_some() {
+                        "Exploring the not taken path with Overlay Execution"
+                    } else {
+                        "Exploring the current path with a symbolic check on the pointer"
+                    };
+
                     if let Err(e) = log_sat_state_to_file_and_terminal(
                         &evaluation_content,
                         &mode,
                         panic_addr,
                         elapsed,
                         instruction_addr,
+                        Some(opcode_str),
+                        Some(detection_method),
                     ) {
                         log!(
                             executor.state.logger,
@@ -1351,6 +1381,8 @@ pub fn evaluate_args_z3<'ctx>(
                     branch_target_addr,
                     elapsed,
                     instruction_addr,
+                    Some("CBRANCH"),
+                    Some("Exploring the not taken path with Overlay Execution"),
                 ) {
                     log!(
                         executor.state.logger,
