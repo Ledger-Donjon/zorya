@@ -1953,11 +1953,11 @@ pub fn initialize_struct_pointer_fields<'a>(
 
         // Pre-seed the NULL-check cache so handle_load / handle_store never
         // waste a solver call on a pointer that is known non-null.
-        // The cache key must match what check_symbolic_null_dereference
-        // computes: format!("{:?}", bv.simplify()).  For a fresh constant
-        // this is "ptr_sym_name!NNN" (Z3 appends an internal ID).
-        let cache_key = format!("{:?}", ptr_bv.simplify());
-        executor.null_check_cache.insert(cache_key, (false, 0));
+        // The cache key is the function_symbolic_arguments map key (ptr_sym_name),
+        // matching what check_symbolic_null_dereference uses as base_var_name.
+        executor
+            .null_check_cache
+            .insert(ptr_sym_name.clone(), (false, 0));
 
         log!(
             executor.state.logger,
@@ -1966,7 +1966,9 @@ pub fn initialize_struct_pointer_fields<'a>(
         );
     }
 
-    // Track this symbolic variable
+    // Track this symbolic variable and remove the ghost entry that
+    // initialize_register_argument may have inserted under arg_name alone.
+    executor.function_symbolic_arguments.remove(arg_name);
     executor
         .function_symbolic_arguments
         .insert(ptr_sym_name.clone(), SymbolicVar::Int(ptr_bv.clone()));

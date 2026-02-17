@@ -1869,8 +1869,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Format without simplify to avoid hanging
         let expr_string = format!("{:?}", symbolic_expr);
 
-        for (arg_name, _) in self.function_symbolic_arguments.iter() {
-            if expr_string.contains(arg_name) {
+        // Match on the formatted Z3 BV name (e.g. "b_ptr!141"), not the
+        // HashMap key (e.g. "b.header"), to avoid spurious substring hits.
+        for (arg_name, sym_var) in self.function_symbolic_arguments.iter() {
+            let z3_name = match sym_var {
+                SymbolicVar::Int(bv) => format!("{:?}", bv),
+                _ => arg_name.clone(),
+            };
+            if expr_string.contains(&z3_name) {
                 log!(
                     self.state.logger.clone(),
                     "Found tracked symbolic variable '{}' in expression",
@@ -1923,24 +1929,30 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // tracked variable for NULL, not the derived expression.
         let expr_string = format!("{:?}", pointer_bv);
 
-        // Find the first tracked symbolic variable that appears in the expression
+        // Find the tracked symbolic variable whose Z3 name appears in the
+        // expression.  We match on the *formatted BV* (e.g. "b_ptr!141"),
+        // NOT on the HashMap key (e.g. "b.header"), because:
+        //   • Keys may contain dots while Z3 names use underscores
+        //   • Short keys ("b") could spuriously match inside longer
+        //     Z3 names ("b_ptr!141")
+        // Using the full Z3 name eliminates both problems.
         let mut base_var_name: Option<String> = None;
-        for (arg_name, _) in self.function_symbolic_arguments.iter() {
-            if expr_string.contains(arg_name) {
-                base_var_name = Some(arg_name.clone());
-                break;
+        let mut base_bv: Option<BV<'ctx>> = None;
+
+        for (arg_name, sym_var) in self.function_symbolic_arguments.iter() {
+            if let SymbolicVar::Int(bv) = sym_var {
+                let bv_z3_name = format!("{:?}", bv);
+                if expr_string.contains(&bv_z3_name) {
+                    base_var_name = Some(arg_name.clone());
+                    base_bv = Some(bv.clone());
+                    break;
+                }
             }
         }
 
-        let base_var_name = match base_var_name {
-            Some(name) => name,
-            None => return false, // No tracked variable — purely concrete pointer
-        };
-
-        // Look up the base variable's BV. We check if THIS can be NULL.
-        let base_bv = match self.function_symbolic_arguments.get(&base_var_name) {
-            Some(SymbolicVar::Int(bv)) => bv.clone(),
-            _ => return false,
+        let (base_var_name, base_bv) = match (base_var_name, base_bv) {
+            (Some(name), Some(bv)) => (name, bv),
+            _ => return false, // No tracked variable — purely concrete or untracked expression
         };
 
         // Use the base variable name as cache key — all derived expressions

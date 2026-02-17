@@ -111,6 +111,49 @@ Function signatures map Go function arguments to their **physical locations** (C
 
 ---
 
+## Nil Receivers and Method Calls in Go
+
+### Go Allows Method Calls on Nil Pointers
+
+Unlike C/C++, Go **does not panic** when you call a method on a nil pointer — the nil pointer is simply passed as the receiver argument. The program only panics if the method body dereferences that nil pointer. This is well-documented behavior, not a bug:
+
+- [Go Language Spec — Method Sets](https://go.dev/ref/spec#Method_sets): The method set of a pointer type `*T` includes all methods with receiver `*T` or `T`. There is no restriction that the pointer be non-nil.
+- [Go Language Spec — Calls](https://go.dev/ref/spec#Calls): A method call `x.m()` is valid if `x` is addressable and `x`'s method set contains `m`. The spec makes no mention of nil checks.
+- [Go FAQ — Why is my nil error value not equal to nil?](https://go.dev/doc/faq#nil_error): Illustrates how nil interface values interact with the type system, reinforcing that nil is a first-class value in Go.
+
+**Practical consequence:** Some Go code intentionally calls methods on nil receivers:
+
+```go
+// Linked list — nil signals end-of-list
+func (n *Node) Value() int {
+    if n == nil {
+        return 0  // sentinel — no dereference, no panic
+    }
+    return n.val
+}
+```
+
+Whether a nil receiver is a bug or intentional depends on the function contract. If nil is not an expected value, the panic on dereference **is** the correct behavior. If nil is expected (linked lists, tree nodes, optional config structs), the method should guard against it explicitly.
+
+**References:**
+- [golang-nuts: "Do pointer receiver methods need to be checked for nil?"](https://groups.google.com/g/golang-nuts/c/HgmSxF85MyU)
+- [Go issue #22729 — nil receiver discussion](https://github.com/golang/go/issues/22729)
+- [Claudiu Constantin Bogdan — Nil Value vs Nil Receiver in Go (2024)](https://claudiuconstantinbogdan.me/articles/nil-value-vs-nil-receiver-go)
+
+### Implications for Zorya
+
+When Zorya reports a "Symbolic NULL pointer dereference" on a method receiver, it means the function **will panic if called with a nil receiver**. This is a true positive — the crash is real — but the severity depends on context:
+
+| Scenario | Severity | Example |
+|----------|----------|---------|
+| Public API method, receiver not checked | **High** — any caller can trigger | `func (p *Pool) Get() { p.mu.Lock() }` |
+| Internal method, all callers guarantee non-nil | **Low** — nil is caller's fault | `func (b *block) hash() { return b.header.Hash() }` |
+| Method intentionally handles nil | **False positive** — nil is expected | `func (n *Node) Next() *Node { if n == nil { return nil } }` |
+
+Zorya currently constrains struct-pointer receivers to be non-nil (see below) to focus on deeper bugs inside the function body rather than the trivial "receiver is nil" case.
+
+---
+
 ## Struct Pointer Arguments and NULL-Check Handling
 
 ### Non-Null Constraint for Go Struct Pointers
@@ -119,7 +162,7 @@ When Zorya analyzes a Go function in `--mode function`, it makes each argument s
 
 **Rationale:**
 
-- In Go, method receivers and struct-pointer arguments are virtually always non-nil at the call site.  A nil receiver is a bug in the *caller*, not inside the function itself.
+- In Go, calling a method on a nil pointer is **valid** (see above) — the nil pointer is passed as the receiver. The function only panics when it dereferences the nil pointer. This means the nil receiver panic is always possible as an input but is rarely the interesting bug.
 - Without the constraint, the solver trivially reports that `p` could be `NULL` at the first `LOAD` through `p`, producing a low-value finding that shadows deeper, more interesting bugs inside the function body (e.g. index-out-of-bounds panics, nil map dereferences).
 - This mirrors the existing non-null constraint already applied to Go string pointers in `initialize_string_argument`.
 
@@ -140,14 +183,16 @@ The symbolic NULL-dereference check uses a per-variable cache (`null_check_cache
 - **UNSAT (non-nullable):** Cached at the current constraint level — re-checked only when new path constraints are added.
 - **Pre-seeded:** For Go struct pointers with non-null constraints, the cache is pre-seeded with `(false, 0)` at initialization time, so the check is a hash-map lookup with zero solver overhead.
 
-### NULL-Check Performance: No simplify(), No Expression Logging
+### NULL-Check Performance: No simplify(), Precise Matching
 
 The NULL-check function (`check_symbolic_null_dereference`) is designed for zero Z3 overhead on the hot path:
 
 1. **Fast reject**: If the BV is a Z3 numeral constant (`as_u64()` succeeds), skip immediately — no formatting.
 2. **One format, no simplify**: The raw expression is formatted once to find which tracked variable appears in it. Z3 `simplify()` is **never** called — it can be extremely expensive for large expression trees.
-3. **Check the base variable, not the expression**: Instead of checking "can this derived address be zero?" (which produces false positives from exotic solver values), we check "can the base tracked variable be NULL?". If `b_ptr` is nil, then any derived address (`b_ptr + offset`, `b_ptr[i]`, etc.) is an invalid memory access.
-4. **One check per variable per constraint level**: The per-variable cache means the solver is invoked at most once per tracked variable per new path constraint. For non-null-constrained struct pointers, the cache is pre-seeded — zero solver calls ever.
+3. **Precise Z3 name matching**: Instead of substring matching on the HashMap key (e.g., `"b"`), the function matches on the **formatted Z3 BV name** (e.g., `"b_ptr!141"`). This eliminates spurious matches (e.g., `"b"` matching inside `"b_ptr!141"`) and handles struct field names correctly (keys use dots like `"b.header"`, Z3 names use underscores like `"b_header!145"`).
+4. **Check the base variable, not the expression**: Instead of checking "can this derived address be zero?" (which produces false positives from exotic solver values), we check "can the base tracked variable be NULL?". If `b_ptr` is nil, then any derived address (`b_ptr + offset`, `b_ptr[i]`, etc.) is an invalid memory access.
+5. **One check per variable per constraint level**: The per-variable cache means the solver is invoked at most once per tracked variable per new path constraint. For non-null-constrained struct pointers, the cache is pre-seeded — zero solver calls ever.
+6. **Ghost variable elimination**: When `initialize_struct_pointer_fields` creates a constrained pointer (e.g., `b_ptr`), it removes any unconstrained ghost variable from a prior `initialize_register_argument` call (e.g., `b_RAX` tracked as `"b"`). This prevents the solver from finding false SAT results on unreferenced variables.
 
 ---
 
