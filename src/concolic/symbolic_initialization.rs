@@ -1865,11 +1865,11 @@ fn initialize_slice_element_memory<'a>(
 /// When a function receives a pointer to a struct (e.g., *Block), this function
 /// symbolizes the struct's fields at their respective offsets in memory.
 ///
-/// The pointer itself is also made symbolic.  For Go programs a **non-null**
-/// constraint is asserted (method receivers / struct-pointer arguments are
-/// never nil in practice) and the NULL-check cache is pre-seeded so that
-/// `check_symbolic_null_dereference` in LOAD/STORE skips the solver call
-/// entirely.  For other languages the pointer remains unconstrained.
+/// The pointer itself is also made symbolic.  For Go programs, the pointer is
+/// left **nullable** (no constraints) because Go allows calling methods on nil
+/// receivers — it's the method's responsibility to check before dereferencing.
+/// This allows Zorya to detect missing nil checks on both receivers and regular
+/// parameters.  For other languages the pointer remains unconstrained.
 pub fn initialize_struct_pointer_fields<'a>(
     executor: &mut ConcolicExecutor<'a>,
     arg_name: &str,
@@ -1941,27 +1941,21 @@ pub fn initialize_struct_pointer_fields<'a>(
     let ptr_sym_name = format!("{}_ptr", arg_name.replace('.', "_"));
     let ptr_bv = BV::fresh_const(executor.context, &ptr_sym_name, 64);
 
-    // For Go programs, constrain the struct pointer to be non-null.
-    // This mirrors the non-null constraint already applied to Go string
-    // pointers in initialize_string_argument.  A nil receiver is a bug at
-    // the *call-site*, not inside the function, so excluding it lets the
-    // executor reach the real logic deeper in the function.
+    // For Go programs, leave ALL struct pointers nullable (no constraints).
+    // Unlike other languages, Go allows calling methods on nil receivers — the
+    // nil pointer is passed to the method, and it's the method's responsibility
+    // to check before dereferencing.  This applies to BOTH receivers and regular
+    // parameters.  By leaving them nullable, Zorya can detect missing nil checks.
+    //
+    // See:
+    // - https://go.dev/ref/spec#Method_sets
+    // - https://go.dev/ref/spec#Calls
+    // - https://groups.google.com/g/golang-nuts/c/HgmSxF85MyU
     let source_lang = std::env::var("SOURCE_LANG").unwrap_or_default();
     if source_lang.to_lowercase() == "go" {
-        let zero = BV::from_u64(executor.context, 0, 64);
-        executor.solver.assert(&ptr_bv._eq(&zero).not());
-
-        // Pre-seed the NULL-check cache so handle_load / handle_store never
-        // waste a solver call on a pointer that is known non-null.
-        // The cache key is the function_symbolic_arguments map key (ptr_sym_name),
-        // matching what check_symbolic_null_dereference uses as base_var_name.
-        executor
-            .null_check_cache
-            .insert(ptr_sym_name.clone(), (false, 0));
-
         log!(
             executor.state.logger,
-            "Added non-null constraint for Go struct pointer '{}' (receiver pointers are never nil in practice)",
+            "Struct pointer '{}' left nullable (Go allows nil receivers and parameters)",
             arg_name
         );
     }

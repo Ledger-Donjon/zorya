@@ -142,38 +142,39 @@ Whether a nil receiver is a bug or intentional depends on the function contract.
 
 ### Implications for Zorya
 
-When Zorya reports a "Symbolic NULL pointer dereference" on a method receiver, it means the function **will panic if called with a nil receiver**. This is a true positive — the crash is real — but the severity depends on context:
+When Zorya reports a "Symbolic NULL pointer dereference" on a method receiver or parameter, it means the function **will panic if called with a nil pointer**. This is a true positive — the crash is real — but the severity depends on context:
 
 | Scenario | Severity | Example |
 |----------|----------|---------|
-| Public API method, receiver not checked | **High** — any caller can trigger | `func (p *Pool) Get() { p.mu.Lock() }` |
+| Public API method, receiver/parameter not checked | **High** — any caller can trigger | `func (t *Tracer) OnTxEnd(receipt *Receipt) { receipt.GasUsed }` |
 | Internal method, all callers guarantee non-nil | **Low** — nil is caller's fault | `func (b *block) hash() { return b.header.Hash() }` |
-| Method intentionally handles nil | **False positive** — nil is expected | `func (n *Node) Next() *Node { if n == nil { return nil } }` |
+| Method intentionally handles nil | **Expected** — nil is part of the contract | `func (n *Node) Next() *Node { if n == nil { return nil } }` |
 
-Zorya currently constrains struct-pointer receivers to be non-nil (see below) to focus on deeper bugs inside the function body rather than the trivial "receiver is nil" case.
+Zorya leaves **all struct pointers nullable** (receivers AND parameters) to catch missing nil checks, which are a common source of bugs in Go code.
 
 ---
 
 ## Struct Pointer Arguments and NULL-Check Handling
 
-### Non-Null Constraint for Go Struct Pointers
+### Nullable Struct Pointers in Go
 
-When Zorya analyzes a Go function in `--mode function`, it makes each argument symbolic so the Z3 solver can reason about possible inputs.  For struct-pointer arguments (e.g. a method receiver `p *BlobPool`), Zorya adds a **non-null constraint** (`ptr ≠ 0`) to the solver.
+When Zorya analyzes a Go function in `--mode function`, it makes each argument symbolic so the Z3 solver can reason about possible inputs. For struct-pointer arguments (both method receivers like `t *callTracer` and regular parameters like `receipt *types.Receipt`), Zorya leaves them **nullable** — no constraints are added.
 
 **Rationale:**
 
-- In Go, calling a method on a nil pointer is **valid** (see above) — the nil pointer is passed as the receiver. The function only panics when it dereferences the nil pointer. This means the nil receiver panic is always possible as an input but is rarely the interesting bug.
-- Without the constraint, the solver trivially reports that `p` could be `NULL` at the first `LOAD` through `p`, producing a low-value finding that shadows deeper, more interesting bugs inside the function body (e.g. index-out-of-bounds panics, nil map dereferences).
-- This mirrors the existing non-null constraint already applied to Go string pointers in `initialize_string_argument`.
+- In Go, calling a method on a nil pointer is **valid** — the nil pointer is passed as the receiver or parameter. The function only panics when it **dereferences** the nil pointer. This means missing nil checks are real bugs that Zorya should detect.
+- Leaving pointers nullable allows Zorya to find cases where the code assumes a pointer is always non-nil without checking (e.g., `receipt.GasUsed` without `if receipt != nil`).
+- This applies to **both receivers and regular parameters** — Go makes no distinction in its nil-handling semantics.
 
-**What is still checked:**
+**What is checked:**
 
 | Pointer kind | NULL-check behavior |
 |---|---|
-| Struct-pointer args (method receivers) | Non-null constrained; NULL-check cache pre-seeded → solver never invoked |
+| Struct-pointer args (receivers and parameters) | Left nullable; solver checks at each LOAD/STORE unless cached |
+| Struct pointer **fields** (e.g., `t.config`, `receipt.Logs.ptr`) | Left nullable; solver checks normally |
 | Map / interface / slice pointers | Unconstrained; solver checks normally at each LOAD/STORE |
-| Any expression involving a tracked variable (ptr+offset, concat, etc.) | Base tracked variable checked for NULL — no simplify() overhead |
-| Concrete NULL (`ptr == 0` at runtime) | Always caught immediately (`process::exit(1)`) regardless of constraints |
+| Any expression involving a tracked variable (ptr+offset) | Base tracked variable checked for NULL |
+| Concrete NULL (`ptr == 0` at runtime) | Always caught immediately (`process::exit(1)`) |
 
 ### NULL-Check Caching
 
@@ -181,18 +182,19 @@ The symbolic NULL-dereference check uses a per-variable cache (`null_check_cache
 
 - **SAT (nullable):** Cached permanently — the vulnerability is already reported.
 - **UNSAT (non-nullable):** Cached at the current constraint level — re-checked only when new path constraints are added.
-- **Pre-seeded:** For Go struct pointers with non-null constraints, the cache is pre-seeded with `(false, 0)` at initialization time, so the check is a hash-map lookup with zero solver overhead.
+
+This means for nullable struct pointers, the first dereference will call the solver, and subsequent dereferences of the same pointer reuse the cached result (UNSAT if the pointer cannot be nil under current constraints, SAT if a nil-dereference vulnerability was found).
 
 ### NULL-Check Performance: No simplify(), Precise Matching
 
-The NULL-check function (`check_symbolic_null_dereference`) is designed for zero Z3 overhead on the hot path:
+The NULL-check function (`check_symbolic_null_dereference`) is designed for minimal Z3 overhead:
 
 1. **Fast reject**: If the BV is a Z3 numeral constant (`as_u64()` succeeds), skip immediately — no formatting.
 2. **One format, no simplify**: The raw expression is formatted once to find which tracked variable appears in it. Z3 `simplify()` is **never** called — it can be extremely expensive for large expression trees.
-3. **Precise Z3 name matching**: Instead of substring matching on the HashMap key (e.g., `"b"`), the function matches on the **formatted Z3 BV name** (e.g., `"b_ptr!141"`). This eliminates spurious matches (e.g., `"b"` matching inside `"b_ptr!141"`) and handles struct field names correctly (keys use dots like `"b.header"`, Z3 names use underscores like `"b_header!145"`).
-4. **Check the base variable, not the expression**: Instead of checking "can this derived address be zero?" (which produces false positives from exotic solver values), we check "can the base tracked variable be NULL?". If `b_ptr` is nil, then any derived address (`b_ptr + offset`, `b_ptr[i]`, etc.) is an invalid memory access.
-5. **One check per variable per constraint level**: The per-variable cache means the solver is invoked at most once per tracked variable per new path constraint. For non-null-constrained struct pointers, the cache is pre-seeded — zero solver calls ever.
-6. **Ghost variable elimination**: When `initialize_struct_pointer_fields` creates a constrained pointer (e.g., `b_ptr`), it removes any unconstrained ghost variable from a prior `initialize_register_argument` call (e.g., `b_RAX` tracked as `"b"`). This prevents the solver from finding false SAT results on unreferenced variables.
+3. **Precise Z3 name matching**: Instead of substring matching on the HashMap key (e.g., `"t"`), the function matches on the **formatted Z3 BV name** (e.g., `"t_ptr!141"`). This eliminates spurious matches and handles struct field names correctly (keys use dots like `"t.config"`, Z3 names use underscores like `"t_config!145"`).
+4. **Check the base variable, not the expression**: Instead of checking "can this derived address be zero?", we check "can the base tracked variable be NULL?". If `t_ptr` is nil, then any derived address (`t_ptr + offset`, `t.field`, etc.) is an invalid memory access.
+5. **One check per variable per constraint level**: The per-variable cache means the solver is invoked at most once per tracked variable per new path constraint.
+6. **Ghost variable elimination**: When `initialize_struct_pointer_fields` creates a symbolic pointer (e.g., `t_ptr`), it removes any ghost variable from a prior `initialize_register_argument` call (e.g., `t_RAX` tracked as `"t"`). This prevents the solver from finding false SAT results on unreferenced variables.
 
 ---
 
