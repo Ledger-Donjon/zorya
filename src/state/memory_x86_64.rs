@@ -20,7 +20,9 @@ use crate::target_info::GLOBAL_TARGET_INFO;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
-        writeln!($logger, $($arg)*).unwrap();
+        if ($logger).is_enabled() {
+            writeln!($logger, $($arg)*).unwrap();
+        }
     }};
 }
 
@@ -550,8 +552,24 @@ impl<'ctx> MemoryX86_64<'ctx> {
         logger: &mut Logger,
         address: u64,
     ) -> BV<'ctx> {
-        // log!(logger, "=== SYMBOLIC CONCATENATION DEBUG ===");
-        // log!(logger, "Building symbolic value from {} bytes", symbolic_bytes.len());
+        // Fast path: if no byte has symbolic data, build the BV directly from the concrete
+        // value.  This avoids 7 `BV::from_u64` + 7 `concat` Z3 node allocations for the
+        // common case of fully-concrete memory (e.g. code/rodata regions, freshly-written
+        // stack slots).
+        if symbolic_bytes.iter().all(|s| s.is_none()) {
+            let size_bits = (symbolic_bytes.len() * 8) as u32;
+            // Assemble the concrete value from the bytes (little-endian)
+            let mut padded = [0u8; 8];
+            let copy_len = concrete_bytes.len().min(8);
+            padded[..copy_len].copy_from_slice(&concrete_bytes[..copy_len]);
+            let value = u64::from_le_bytes(padded);
+            let mask = if size_bits < 64 {
+                (1u64 << size_bits) - 1
+            } else {
+                u64::MAX
+            };
+            return BV::from_u64(ctx, value & mask, size_bits);
+        }
 
         let mut result: Option<BV<'ctx>> = None;
 

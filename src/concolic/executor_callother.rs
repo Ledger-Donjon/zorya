@@ -18,7 +18,9 @@ use super::{executor_callother_syscalls, ConcolicEnum, ConcolicVar, SymbolicVar}
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
-        writeln!($logger, $($arg)*).unwrap();
+        if ($logger).is_enabled() {
+            writeln!($logger, $($arg)*).unwrap();
+        }
     }};
 }
 

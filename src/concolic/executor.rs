@@ -37,7 +37,9 @@ use z3::{Context, Optimize};
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
-        writeln!($logger, $($arg)*).unwrap();
+        if ($logger).is_enabled() {
+            writeln!($logger, $($arg)*).unwrap();
+        }
     }};
 }
 
@@ -51,7 +53,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub instruction_counter: usize,
     pub unique_variables: BTreeMap<String, ConcolicVar<'ctx>>, // Stores unique variables and their values
     pub pcode_internal_lines_to_be_jumped: i64, // known line number of the current instruction in the pcode file, usefull for branch instructions
-    pub initialiazed_var: BTreeMap<String, u64>, // check if the variable has been initialized before using it
+    pub initialiazed_var: BTreeMap<u64, u64>, // check if the variable has been initialized before using it
     pub inside_jump_table: bool, // check if the current instruction is handling a jump table
     pub trace_logger: Logger,
     pub function_symbolic_arguments: BTreeMap<String, SymbolicVar<'ctx>>, // this is used to store the symbolic arguments of the binary (os.args) or the function (RSI, RDX, RCX, R8, R9 etc.)
@@ -1141,12 +1143,19 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 };
                 let extracted_value = (*value >> bit_offset) & mask;
 
-                // Symbolic extraction
+                // Symbolic extraction — only simplify if the source is non-trivial.
+                // For a numeral BV, extract() already produces a numeral and
+                // simplify() is a wasted O(tree_size) walk.
                 let symbolic_bv = original_register.symbolic.to_bv(self.context);
                 let high_bit = (bit_offset + u64::from(bit_size) - 1) as u32;
                 let low_bit = bit_offset as u32;
 
-                let extracted_symbolic = symbolic_bv.extract(high_bit, low_bit).simplify();
+                let raw_extract = symbolic_bv.extract(high_bit, low_bit);
+                let extracted_symbolic = if raw_extract.as_u64().is_some() {
+                    raw_extract
+                } else {
+                    raw_extract.simplify()
+                };
 
                 if extracted_symbolic.get_z3_ast().is_null() {
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
@@ -1167,13 +1176,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
                 // Extract the symbolic value
                 if let SymbolicVar::LargeInt(ref bvs) = original_register.symbolic {
-                    let extracted_symbolic = CpuState::extract_symbolic_bits_from_large_int(
+                    let raw_sym = CpuState::extract_symbolic_bits_from_large_int(
                         self.context,
                         bvs,
                         start_bit,
                         end_bit,
-                    )
-                    .simplify();
+                    );
+                    // Only simplify non-trivial symbolic expressions
+                    let extracted_symbolic = match &raw_sym {
+                        SymbolicVar::Int(bv) if bv.as_u64().is_some() => raw_sym,
+                        _ => raw_sym.simplify(),
+                    };
 
                     Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
                         concrete: extracted_concrete,
@@ -1281,12 +1294,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 };
                 let extracted_value = (*value >> bit_offset) & mask;
 
-                // Symbolic extraction explicitly simplified
+                // Symbolic extraction — skip simplify for numeral BVs
                 let symbolic_bv = original_register.symbolic.to_bv(&cpu_state_guard.ctx);
                 let high_bit = (bit_offset + u64::from(bit_size) - 1) as u32;
                 let low_bit = bit_offset as u32;
 
-                let extracted_symbolic = symbolic_bv.extract(high_bit, low_bit).simplify();
+                let raw_extract = symbolic_bv.extract(high_bit, low_bit);
+                let extracted_symbolic = if raw_extract.as_u64().is_some() {
+                    raw_extract
+                } else {
+                    raw_extract.simplify()
+                };
 
                 if extracted_symbolic.get_z3_ast().is_null() {
                     return Err("Symbolic extraction resulted in an invalid state".to_string());
@@ -1307,13 +1325,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
                 // Use extract_symbolic_bits_from_large_int to extract the symbolic value
                 if let SymbolicVar::LargeInt(ref bvs) = original_register.symbolic {
-                    let extracted_symbolic = CpuState::extract_symbolic_bits_from_large_int(
+                    let raw_sym = CpuState::extract_symbolic_bits_from_large_int(
                         &cpu_state_guard.ctx,
                         bvs,
                         start_bit,
                         end_bit,
-                    )
-                    .simplify();
+                    );
+                    // Only simplify non-trivial symbolic expressions
+                    let extracted_symbolic = match &raw_sym {
+                        SymbolicVar::Int(bv) if bv.as_u64().is_some() => raw_sym,
+                        _ => raw_sym.simplify(),
+                    };
 
                     Ok(ConcolicEnum::CpuConcolicValue(CpuConcolicValue {
                         concrete: extracted_concrete,
@@ -2924,10 +2946,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         );
 
         // Mark the memory address as initialized
-        self.initialiazed_var.insert(
-            format!("{:x}", pointer_offset_concrete),
-            self.current_address.unwrap_or(0),
-        );
+        self.initialiazed_var
+            .insert(pointer_offset_concrete, self.current_address.unwrap_or(0));
         log!(
             self.state.logger.clone(),
             "Marked address 0x{:x} as initialized",
@@ -3090,10 +3110,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     }
 
                     // Mark each chunk address as initialized
-                    self.initialiazed_var.insert(
-                        format!("{:x}", chunk_addr),
-                        self.current_address.unwrap_or(0),
-                    );
+                    self.initialiazed_var
+                        .insert(chunk_addr, self.current_address.unwrap_or(0));
                 }
 
                 // Log the complete operation
@@ -3114,9 +3132,24 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     *value
                 };
 
+                // Only call Z3 simplify() on truly symbolic expressions.
+                // For concrete-only BVs (the common case: no tracked variable
+                // involved) simplify() is a no-op but still walks the AST.
+                // Skipping it for numerals avoids an O(tree_size) traversal on
+                // every store — the single biggest per-store cost.
+                let store_symbolic = if data_to_store_symbolic.as_u64().is_some() {
+                    // Leaf BV (numeral) — already canonical, skip simplify.
+                    data_to_store_symbolic.clone()
+                } else {
+                    // Complex symbolic expression — simplify to prevent
+                    // unbounded tree growth through store→load→extract→concat
+                    // cycles.
+                    data_to_store_symbolic.simplify()
+                };
+
                 let mem_value = MemoryValue {
                     concrete: truncated_value,
-                    symbolic: data_to_store_symbolic.simplify().clone(),
+                    symbolic: store_symbolic,
                     size: data_size_bits,
                 };
 
@@ -3124,7 +3157,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     self.state.logger.clone(),
                     "Creating single MemoryValue: concrete=0x{:x}, symbolic={:?}, size={}",
                     mem_value.concrete,
-                    mem_value.symbolic.simplify(),
+                    mem_value.symbolic,
                     mem_value.size
                 );
 
@@ -3160,11 +3193,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         }
 
-        // Verification: Read back the stored value(s) to verify correctness
-        // Verification: Read back the stored value(s) to verify correctness
+        // Verification: Read back the stored value(s) to verify correctness.
+        // Only compiled in debug builds — in release this block is a no-op.
+        // Previously this ran unconditionally on every store, doubling memory I/O
+        // (one write + one full read + one Z3 BV construction per store).
+        #[cfg(debug_assertions)]
         match &full_concrete_value {
             ConcreteVar::LargeInt(chunks) => {
-                // Verify each chunk was stored correctly
                 for (i, &expected_chunk) in chunks.iter().enumerate() {
                     let chunk_addr = pointer_offset_concrete + (i as u64 * 8);
                     let read_result = if self.is_overlay_mode() {
@@ -3177,19 +3212,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     };
                     match read_result {
                         Ok(stored_value) => {
-                            // Convert ConcreteVar to u64 for comparison
                             let stored_concrete_value = match stored_value.concrete {
                                 ConcreteVar::Int(val) => val,
                                 ConcreteVar::LargeInt(ref values) => {
-                                    if values.is_empty() {
-                                        0
-                                    } else {
-                                        values[0]
-                                    }
+                                    values.first().copied().unwrap_or(0)
                                 }
                                 _ => 0,
                             };
-
                             log!(
                                 self.state.logger.clone(),
                                 "Verified chunk {} at 0x{:x}: stored=0x{:x}, expected=0x{:x}",
@@ -3198,7 +3227,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                                 stored_concrete_value,
                                 expected_chunk
                             );
-
                             if stored_concrete_value != expected_chunk {
                                 return Err(format!(
                                     "Chunk {} verification failed: expected 0x{:x}, got 0x{:x}",
@@ -3216,15 +3244,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 }
             }
             ConcreteVar::Int(expected_value) => {
-                // Truncate expected value to match the size (same as we did for storage)
                 let truncated_expected = if data_size_bits < 64 {
                     let mask = (1u64 << data_size_bits) - 1;
                     expected_value & mask
                 } else {
                     *expected_value
                 };
-
-                // Verify single value was stored correctly
                 let read_result = if self.is_overlay_mode() {
                     self.read_value_overlay_mode(pointer_offset_concrete, data_size_bits)
                         .map_err(|e| MemoryError::Other(e))
@@ -3237,19 +3262,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 };
                 match read_result {
                     Ok(stored_value) => {
-                        // Convert ConcreteVar to u64 for comparison
                         let stored_concrete_value = match stored_value.concrete {
                             ConcreteVar::Int(val) => val,
                             ConcreteVar::LargeInt(ref values) => {
-                                if values.is_empty() {
-                                    0
-                                } else {
-                                    values[0]
-                                }
+                                values.first().copied().unwrap_or(0)
                             }
                             _ => 0,
                         };
-
                         log!(
                             self.state.logger.clone(),
                             "Verified single value at 0x{:x}: stored=0x{:x}, expected=0x{:x}",
@@ -3257,7 +3276,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             stored_concrete_value,
                             truncated_expected
                         );
-
                         if stored_concrete_value != truncated_expected {
                             return Err(format!(
                                 "Single value verification failed: expected 0x{:x}, got 0x{:x}",
@@ -3279,9 +3297,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Checks if the used variable has been initialized in the current scope (C code vulnerability)
         // TODO: handle more complex cases in C code by checking RSP register (that both CALL and RET use)
         // Mark the memory address as initialized
-        let address_str = format!("{:x}", pointer_offset_concrete);
         self.initialiazed_var
-            .insert(address_str.clone(), self.current_address.unwrap_or(0));
+            .insert(pointer_offset_concrete, self.current_address.unwrap_or(0));
         log!(
             self.state.logger.clone(),
             "Marked address 0x{:x} as initialized",
@@ -4038,10 +4055,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             // Remove variables associated with this function's scope from initialized variables
             for var_address in &finished_frame.local_variables {
                 self.initialiazed_var.remove(var_address);
-                self.state.concolic_vars.remove(var_address);
+                let var_hex = format!("{:x}", var_address);
+                self.state.concolic_vars.remove(&var_hex);
                 log!(
                     self.state.logger.clone(),
-                    "Cleaned up variable at address 0x{} ",
+                    "Cleaned up variable at address 0x{:x} ",
                     var_address
                 );
             }

@@ -14,7 +14,9 @@ const MAX_OVERLAY_DEPTH: usize = 15; // Maximum instructions to analyze in overl
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
-        writeln!($logger, $($arg)*).unwrap();
+        if ($logger).is_enabled() {
+            writeln!($logger, $($arg)*).unwrap();
+        }
     }};
 }
 

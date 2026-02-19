@@ -31,14 +31,20 @@ use z3::Context;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
-        writeln!($logger, $($arg)*).unwrap();
+        // The is_enabled() check MUST come BEFORE writeln! so that expensive
+        // format arguments (e.g. .simplify()) are never evaluated when
+        // logging to /dev/null.  Both calls auto-borrow $logger so there is
+        // no ownership issue when $logger is a field reference.
+        if ($logger).is_enabled() {
+            writeln!($logger, $($arg)*).unwrap();
+        }
     }};
 }
 
 // Used in the handle_store to check if the variables have been initialized (C code vulnerability)
 #[derive(Clone, Debug)]
 pub struct FunctionFrame {
-    pub local_variables: BTreeSet<String>, // Addresses of local variables (as hex strings)
+    pub local_variables: BTreeSet<u64>, // Addresses of local variables
     // Stack frame tracking for dangling pointer detection
     pub function_addr: u64,       // Address of the function
     pub rsp_on_entry: u64,        // RSP when function was called
@@ -760,6 +766,11 @@ impl fmt::Debug for StackT {
 pub struct Logger {
     file: Arc<Mutex<File>>,
     terminal: Option<Arc<Mutex<io::Stdout>>>,
+    /// When false every `log!()` call becomes a no-op *before* evaluating any
+    /// arguments.  This prevents expensive work (Z3 `.simplify()`, string
+    /// formatting, BV `.{:?}` serialisation) from running at all when the log
+    /// destination is `/dev/null` (i.e. `LOG_MODE=trace_only`).
+    enabled: bool,
 }
 
 // The bool is used to determine if the logger should also print to the terminal
@@ -775,7 +786,17 @@ impl Logger {
         Ok(Logger {
             file: Arc::new(Mutex::new(file)),
             terminal,
+            enabled: file_path != "/dev/null",
         })
+    }
+
+    /// Returns `true` if this logger will actually write output.
+    /// The `log!()` macro checks this flag before evaluating any format
+    /// arguments, so expensive calls like `.simplify()` are skipped entirely
+    /// when logging is disabled.
+    #[inline(always)]
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
     }
 }
 
