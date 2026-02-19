@@ -226,7 +226,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     /// Read memory with overlay support
-    /// If overlay mode is active, reads from overlay first, then falls back to base
+    /// If overlay mode is active, reads from overlay first, then falls back to base.
+    /// The symbolic component is a per-byte `Vec<Option<Arc<BV>>>` (one 8-bit BV per byte),
+    /// matching the storage convention of `MemoryX86_64::read_memory`.
     pub fn read_memory_overlay_aware(
         &mut self,
         address: u64,
@@ -242,16 +244,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     // SAFETY: Region exists and won't be modified during overlay operation
                     let region = unsafe { &*region_ptr };
 
-                    if let Some((concrete, symbolic_opt)) =
+                    // read_memory now returns per-byte symbolic data directly — no conversion
+                    // or replication needed.  Previously the single word-level BV returned here
+                    // was replicated with `vec![Some(sym); size]`, which caused all byte
+                    // positions to carry the byte-0 symbolic and produced the
+                    // #x0808080808080808 fill-pattern on reads of base-inherited addresses.
+                    if let Some((concrete, symbolic_per_byte)) =
                         overlay.read_memory(address, size, region)
                     {
-                        // Convert Option<Arc<BV>> to Vec<Option<Arc<BV>>>
-                        let symbolic_vec = if let Some(sym) = symbolic_opt {
-                            vec![Some(sym); size]
-                        } else {
-                            vec![None; size]
-                        };
-                        return Ok((concrete, symbolic_vec));
+                        return Ok((concrete, symbolic_per_byte));
                     }
                 }
             }

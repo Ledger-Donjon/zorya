@@ -278,12 +278,16 @@ impl<'ctx> OverlayState<'ctx> {
     }
 
     /// Read from memory (checks overlay first, then base)
+    /// Returns per-byte symbolic data: one `Option<Arc<BV>>` per byte, each BV being 8 bits.
+    /// This mirrors how `MemoryX86_64::read_memory` returns symbolic data and avoids the
+    /// byte-fill bug where only the symbolic at the base offset (byte 0) was returned and
+    /// then replicated across every byte position, producing patterns like #x0808080808080808.
     pub fn read_memory(
         &mut self,
         address: u64,
         size: usize,
         base_region: &MemoryRegion<'ctx>,
-    ) -> Option<(Vec<u8>, Option<Arc<BV<'ctx>>>)> {
+    ) -> Option<(Vec<u8>, Vec<Option<Arc<BV<'ctx>>>>)> {
         if !base_region.contains(address, size) {
             return None;
         }
@@ -292,12 +296,24 @@ impl<'ctx> OverlayState<'ctx> {
         let offset = (address - overlay.start_address()) as usize;
 
         let concrete_data = overlay.read_concrete_bytes(offset, size)?;
-        let symbolic_data = overlay.read_symbolic(offset);
 
-        Some((concrete_data, symbolic_data))
+        // Read symbolic data per-byte, just like MemoryX86_64::read_memory does.
+        // This correctly handles both:
+        //   (a) addresses written by the overlay (per-byte 8-bit BVs stored at offset+i), and
+        //   (b) addresses inherited from the base region (also per-byte 8-bit BVs at offset+i).
+        let symbolic_per_byte: Vec<Option<Arc<BV<'ctx>>>> = (0..size)
+            .map(|i| overlay.read_symbolic(offset + i))
+            .collect();
+
+        Some((concrete_data, symbolic_per_byte))
     }
 
     /// Write to memory (writes to overlay only)
+    /// Symbolic data is stored **per-byte** (8-bit BVs at offset+i), mirroring the storage
+    /// convention of `MemoryX86_64::write_value`.  Previously the full word BV was stored only
+    /// at the base offset, so reads of non-zero byte positions fell back to the base region's
+    /// per-byte storage and returned a stale 8-bit BV that was then replicated across all byte
+    /// positions, producing the #x0808080808080808 fill-pattern bug.
     pub fn write_memory(
         &mut self,
         address: u64,
@@ -321,9 +337,27 @@ impl<'ctx> OverlayState<'ctx> {
         // Write concrete data
         overlay.write_concrete_bytes(offset, concrete_data)?;
 
-        // Write symbolic data if present
+        // Write symbolic data per-byte by extracting 8-bit slices from the word BV.
+        // This is consistent with MemoryX86_64::write_value and ensures that subsequent
+        // per-byte reads (read_symbolic(offset + i)) return the correct 8-bit slice rather
+        // than None (which would fall back to a stale base-region byte).
         if let Some(sym_data) = symbolic_data {
-            overlay.write_symbolic(offset, sym_data);
+            let byte_count = concrete_data.len();
+            let bv_size = sym_data.get_size();
+            for i in 0..byte_count {
+                let low = (i * 8) as u32;
+                let high = low + 7;
+                // Clamp high to the actual BV width in case of narrow symbolics
+                let byte_bv = if high < bv_size {
+                    sym_data.extract(high, low)
+                } else if low < bv_size {
+                    sym_data.extract(bv_size - 1, low)
+                } else {
+                    // Byte is beyond the symbolic width; no symbolic to record
+                    continue;
+                };
+                overlay.write_symbolic(offset + i, Arc::new(byte_bv));
+            }
         }
 
         Ok(())
