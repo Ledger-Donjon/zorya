@@ -8,107 +8,146 @@ import pyhidra
 import os
 from pathlib import Path
 import shutil
-import subprocess
-
-
-def is_code_address(program, addr):
-    """
-    Checks if the given address points to code by verifying if there is an instruction
-    or a function starting at that address.
-    """
-    listing = program.getListing()
-    code_unit = listing.getCodeUnitAt(addr)
-    if code_unit and isinstance(code_unit, Instruction):
-        return True
-
-    fm = program.getFunctionManager()
-    func = fm.getFunctionAt(addr)
-    if func is not None:
-        return True
-
-    return False
+import time
 
 
 def extract_jump_tables(program):
     """
-    Extract jump tables by looking for likely switch data symbols and verifying 
+    Extract jump tables by looking for likely switch data symbols and verifying
     that they point to code.
+
+    Optimizations vs. the original version:
+    - Uses getSymbolIterator(pattern, caseSensitive) to search only for
+      switch-related symbols instead of iterating ALL symbols (100k+ for Go
+      binaries). Each call is a single Java-side pattern scan.
+    - Caches listing / function-manager / memory objects so they are fetched
+      once instead of per-entry.
+    - Builds a set of executable address ranges once for a fast in-Python
+      code-address check, falling back to Ghidra only when needed.
     """
     symbol_table = program.getSymbolTable()
     listing = program.getListing()
+    fm = program.getFunctionManager()
+
+    # ── Pre-compute executable address ranges for fast code-address test ──
+    code_ranges = []
+    for block in program.getMemory().getBlocks():
+        if block.isExecute():
+            start = block.getStart().getOffset()
+            end = block.getEnd().getOffset()
+            code_ranges.append((start, end))
+
+    def is_code_address_fast(addr):
+        """Fast check: is `addr` inside an executable memory block?"""
+        off = addr.getOffset()
+        for (lo, hi) in code_ranges:
+            if lo <= off <= hi:
+                return True
+        return False
+
+    def is_code_address(addr):
+        """Full check: fast range test, then fall back to Ghidra listing."""
+        if is_code_address_fast(addr):
+            return True
+        code_unit = listing.getCodeUnitAt(addr)
+        if code_unit and isinstance(code_unit, Instruction):
+            return True
+        if fm.getFunctionAt(addr) is not None:
+            return True
+        return False
 
     jump_tables = []
     visited = set()
 
-    # Adjust these indicators based on Ghidra conventions
-    switch_name_indicators = ["switchD_", "switchdata", "switch__"]
+    # ── Targeted symbol search ─────────────────────────────────────────
+    # Instead of getAllSymbols(True) which iterates every symbol in the
+    # binary, use getSymbolIterator(pattern, caseSensitive) for each
+    # switch indicator.  The pattern search is done on the Java side so
+    # only matching symbols cross the JNI bridge.
+    switch_patterns = ["switchD_*", "*switchdata*", "switch__*"]
 
-    for symbol in symbol_table.getAllSymbols(True):
-        if symbol.getSymbolType() == SymbolType.LABEL:
-            symbol_name = symbol.getName().lower()
-            if any(indicator in symbol_name for indicator in switch_name_indicators):
-                base_address = symbol.getAddress()
-                
-                if base_address in visited:
-                    continue
-                visited.add(base_address)
+    candidate_symbols = []
+    for pattern in switch_patterns:
+        it = symbol_table.getSymbolIterator(pattern, False)  # case-insensitive
+        while it.hasNext():
+            sym = it.next()
+            if sym.getSymbolType() == SymbolType.LABEL:
+                candidate_symbols.append(sym)
 
-                print(f"Processing jump table at {base_address}")
+    print(f"Found {len(candidate_symbols)} switch-related symbols (filtered search)")
 
-                table_entries = []
-                current_addr = base_address
-                max_table_entries = 512  # Increased for larger tables
+    for symbol in candidate_symbols:
+        base_address = symbol.getAddress()
+
+        addr_key = base_address.getOffset()
+        if addr_key in visited:
+            continue
+        visited.add(addr_key)
+
+        table_entries = []
+        current_addr = base_address
+        max_table_entries = 512
+        invalid_entries = 0
+
+        for _ in range(max_table_entries):
+            data = listing.getDataAt(current_addr)
+            if data is None:
+                break
+
+            if not data.isPointer():
+                invalid_entries += 1
+                if invalid_entries > 3:
+                    break
+                current_addr = current_addr.add(8)
+                continue
+
+            destination = data.getValue()
+            if not destination or not isinstance(destination, Address):
+                break
+
+            if is_code_address(destination):
+                dest_symbol = symbol_table.getPrimarySymbol(destination)
+                label_name = dest_symbol.getName() if dest_symbol else "Unknown"
+
+                table_entries.append({
+                    "label": label_name,
+                    "destination": f"{destination.getOffset():08x}",
+                    "input_address": f"{current_addr.getOffset():08x}"
+                })
                 invalid_entries = 0
+            else:
+                invalid_entries += 1
+                if invalid_entries > 3:
+                    break
 
-                for _ in range(max_table_entries):
-                    data = listing.getDataAt(current_addr)
-                    if data is None:
-                        break
+            current_addr = current_addr.add(data.getLength())
 
-                    if not data.isPointer():
-                        # Non-pointer data indicates the end of the jump table
-                        invalid_entries += 1
-                        if invalid_entries > 3:  # Allow up to 3 invalid entries
-                            break
-                        current_addr = current_addr.add(8)  # Move to next potential entry
-                        continue
-
-                    destination = data.getValue()
-                    if not destination or not isinstance(destination, Address):
-                        break
-
-                    if is_code_address(program, destination):
-                        dest_symbol = symbol_table.getPrimarySymbol(destination)
-                        label_name = dest_symbol.getName() if dest_symbol else "Unknown"
-
-                        table_entries.append({
-                            "label": label_name,
-                            "destination": f"{destination.getOffset():08x}",
-                            "input_address": f"{current_addr.getOffset():08x}"
-                        })
-                        invalid_entries = 0  # Reset invalid entries counter
-                    else:
-                        invalid_entries += 1
-                        if invalid_entries > 3:
-                            break
-
-                    current_addr = current_addr.add(data.getLength())
-
-                if len(table_entries) > 1:
-                    jump_table = {
-                        "switch_id": symbol.getName(),
-                        "table_address": f"{base_address.getOffset():08x}",
-                        "cases": table_entries
-                    }
-                    jump_tables.append(jump_table)
+        if len(table_entries) > 1:
+            jump_tables.append({
+                "switch_id": symbol.getName(),
+                "table_address": f"{base_address.getOffset():08x}",
+                "cases": table_entries
+            })
 
     return jump_tables
+
+
+def _project_is_fresh(gpr_path, bin_path):
+    """Return True if the Ghidra project exists and is newer than the binary."""
+    if not gpr_path.exists():
+        return False
+    try:
+        return gpr_path.stat().st_mtime >= bin_path.stat().st_mtime
+    except OSError:
+        return False
 
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: python3 get_jump_tables.py /path/to/binary")
         sys.exit(1)
+
+    total_start = time.time()
 
     binary_path = sys.argv[1]
     # Normalize paths and expected project layout
@@ -122,21 +161,26 @@ def main():
     sub_gpr = project_dir / f"{project_name}.gpr"
     sub_rep = project_dir / f"{project_name}.rep"
 
-    # Always recreate project: remove any existing artifacts in both possible layouts
-    try:
-        # Parent-level artifacts
-        if parent_gpr.exists():
-            parent_gpr.unlink()
-        if parent_rep.exists():
-            shutil.rmtree(parent_rep, ignore_errors=True)
-        # Subdir artifacts
-        if sub_gpr.exists():
-            sub_gpr.unlink()
-        if sub_rep.exists():
-            shutil.rmtree(sub_rep, ignore_errors=True)
-        # Do not pre-create subdir; let headless do it
-    except Exception as cleanup_err:
-        print(f"Warning: could not fully clean existing Ghidra project: {cleanup_err}")
+    # ── Reuse existing Ghidra project if it is still up-to-date ────────
+    # Ghidra analysis (import + auto-analysis) is by far the most expensive
+    # step.  If the .gpr is newer than the binary we skip the full rebuild.
+    reuse_project = _project_is_fresh(parent_gpr, bin_path) or _project_is_fresh(sub_gpr, bin_path)
+
+    if reuse_project:
+        print(f"Reusing existing Ghidra project (binary unchanged)")
+    else:
+        # Clean stale artifacts before fresh import
+        try:
+            if parent_gpr.exists():
+                parent_gpr.unlink()
+            if parent_rep.exists():
+                shutil.rmtree(parent_rep, ignore_errors=True)
+            if sub_gpr.exists():
+                sub_gpr.unlink()
+            if sub_rep.exists():
+                shutil.rmtree(sub_rep, ignore_errors=True)
+        except Exception as cleanup_err:
+            print(f"Warning: could not fully clean existing Ghidra project: {cleanup_err}")
 
     try:
         pyhidra.start()
@@ -151,47 +195,41 @@ def main():
     from ghidra.program.model.listing import Instruction
     from ghidra.program.model.data import PointerDataType
 
-    # Ensure project exists by creating it with headless first (no pre-created dir)
+    # ── Open (and optionally import + analyze) the binary ──────────────
+    # pyhidra.open_program handles both import and analysis in a single
+    # JVM invocation — no need for a separate analyzeHeadless subprocess.
+    # When reusing an existing project, set analyze=False to skip the
+    # expensive auto-analysis pass.
     try:
-        ghidra_dir = os.environ.get("GHIDRA_INSTALL_DIR", "/opt/ghidra")
-        headless = os.path.join(ghidra_dir, "support", "analyzeHeadless")
-        if not os.path.exists(headless):
-            raise RuntimeError(f"analyzeHeadless not found at {headless}")
-        cmd = [
-            headless,
-            str(project_dir),            # let headless create <parent>/<name>_ghidra
-            project_name,
-            "-import", str(bin_path),
-            "-overwrite",
-            "-noanalysis",
-        ]
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    except Exception as e:
-        print(f"Warning: headless project creation encountered an issue: {e}")
-
-    try:
-        # Open using explicit project selection that matches headless layout
+        analysis_start = time.time()
         with pyhidra.open_program(
             str(bin_path),
             project_location=str(bin_parent),
             project_name=project_name,
-            analyze=True,
+            analyze=not reuse_project,
         ) as flat_api:
+            analysis_elapsed = time.time() - analysis_start
+            print(f"Ghidra open/analysis took {analysis_elapsed:.1f}s")
+
             program = flat_api.getCurrentProgram()
+
+            extract_start = time.time()
             jump_tables = extract_jump_tables(program)
+            extract_elapsed = time.time() - extract_start
+            print(f"Jump table extraction took {extract_elapsed:.1f}s")
 
             # Ensure results directory exists
             output_dir = "results"
             os.makedirs(output_dir, exist_ok=True)
 
-            # Set new output file path
             output_file = os.path.join(output_dir, "jump_tables.json")
-
             with open(output_file, "w") as f:
                 json.dump(jump_tables, f, indent=4)
 
+            total_elapsed = time.time() - total_start
             print(f"Jump tables saved to {output_file}")
             print(f"Total jump tables found: {len(jump_tables)}")
+            print(f"Total time: {total_elapsed:.1f}s")
 
     except Exception:
         import traceback

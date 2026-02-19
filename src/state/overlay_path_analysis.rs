@@ -139,8 +139,17 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     // Set overlay state in executor
     executor.overlay_state = Some(overlay_state);
 
-    // Reset per-variable NULL check cache so the solver is invoked fresh in this overlay
-    executor.null_check_cache.clear();
+    // Save the NULL check cache so we can restore it after overlay exploration.
+    // The overlay runs on a speculative path — its SAT/UNSAT results must not
+    // pollute the real execution's cache, and the real execution's cached
+    // results must survive overlay round-trips.
+    let saved_null_check_cache = executor.null_check_cache.clone();
+
+    // Keep SAT entries (permanently confirmed nullable — vulnerability already
+    // reported, never re-report) but clear UNSAT entries (they were established
+    // under the real path's constraints; the overlay negates a branch, so an
+    // UNSAT variable might become SAT and must be re-checked).
+    executor.null_check_cache.retain(|_, &mut (sat, _)| sat);
 
     // Execute instructions using the existing executor infrastructure
     let result = execute_with_overlay(
@@ -172,10 +181,11 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
         executor.state.freed_stack_frames.len()
     );
 
-    // Restore unique variables and current address after overlay exploration
+    // Restore unique variables, current address, and NULL check cache after overlay exploration
     // This prevents overlay execution from polluting the real execution state
     executor.unique_variables = saved_unique_variables;
     executor.current_address = saved_current_address;
+    executor.null_check_cache = saved_null_check_cache;
     log!(
         executor.state.logger,
         "[OVERLAY] Restored {} unique variables after overlay exploration",
