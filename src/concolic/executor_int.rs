@@ -2221,6 +2221,151 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         result_concrete
     );
 
+    // ── Integer overflow check ──────────────────────────────────────────
+    // For multiplications involving tracked symbolic variables, check
+    // whether the full double-width product can differ from the truncated
+    // result.  This detects silent unsigned overflow in languages like Go
+    // where wrapping is the default and no runtime panic occurs.
+    //
+    // Strategy: zero-extend both operands to 2×N bits, multiply at full
+    // width, and ask Z3: "can the upper N bits be non-zero?"
+    // A SAT answer means there exists an input that causes overflow.
+    if !executor.function_symbolic_arguments.is_empty() && output_size_bits >= 32 {
+        let input0_bv = input0_var.get_symbolic_value_bv(executor.context);
+        let input1_bv = input1_var.get_symbolic_value_bv(executor.context);
+
+        // Fast path: skip if both operands are Z3 numeral constants
+        // (no symbolic component → overflow is a fixed property, not input-dependent)
+        if input0_bv.as_u64().is_none() || input1_bv.as_u64().is_none() {
+            // Check whether any tracked symbolic variable appears in either operand
+            let expr0 = format!("{:?}", input0_bv);
+            let expr1 = format!("{:?}", input1_bv);
+            let involves_tracked =
+                executor
+                    .function_symbolic_arguments
+                    .iter()
+                    .any(|(_, sym_var)| {
+                        if let SymbolicVar::Int(bv) = sym_var {
+                            let z3_name = format!("{:?}", bv);
+                            expr0.contains(&z3_name) || expr1.contains(&z3_name)
+                        } else {
+                            false
+                        }
+                    });
+
+            if involves_tracked {
+                log!(
+                    executor.state.logger.clone(),
+                    "[OVERFLOW-CHECK] Checking for integer overflow in INT_MULT at 0x{:x} (operand width: {} bits)",
+                    executor.current_address.unwrap_or(0),
+                    output_size_bits
+                );
+
+                // Zero-extend both operands to double width
+                let double_width = output_size_bits * 2;
+                let wide_input0 = input0_bv.zero_ext(output_size_bits);
+                let wide_input1 = input1_bv.zero_ext(output_size_bits);
+                let wide_product = wide_input0.bvmul(&wide_input1);
+
+                // Extract the upper half — if it can be non-zero, the N-bit
+                // multiplication overflows (the result wraps).
+                let upper_half = wide_product.extract(double_width - 1, output_size_bits);
+                let zero_upper = BV::from_u64(executor.context, 0, output_size_bits);
+                let overflow_condition = upper_half._eq(&zero_upper).not();
+
+                // Use a fresh Solver (not Optimize) — we only need SAT/UNSAT + witness
+                let overflow_solver = z3::Solver::new(executor.context);
+                overflow_solver.assert(&overflow_condition);
+
+                // Assert accumulated path constraints so the solution is reachable
+                for constraint in &executor.constraint_vector {
+                    overflow_solver.assert(constraint);
+                }
+
+                let solve_start = std::time::Instant::now();
+                let solve_result = overflow_solver.check();
+                let solve_elapsed = solve_start.elapsed();
+
+                log!(
+                    executor.state.logger.clone(),
+                    "[Z3-SOLVER] Integer overflow check at INT_MULT took {:.3}s (result: {:?})",
+                    solve_elapsed.as_secs_f64(),
+                    solve_result
+                );
+
+                if solve_result == z3::SatResult::Sat {
+                    eprintln!(
+                        "[Z3-SOLVER] Integer overflow check took {:.3}s",
+                        solve_elapsed.as_secs_f64()
+                    );
+
+                    log!(executor.state.logger.clone(), "~~~~~~~~~~~");
+                    log!(
+                        executor.state.logger.clone(),
+                        "SATISFIABLE: Integer overflow detected in INT_MULT — \
+                         the {}-bit product differs from the {}-bit product",
+                        double_width,
+                        output_size_bits
+                    );
+                    log!(executor.state.logger.clone(), "~~~~~~~~~~~");
+
+                    let model = overflow_solver.get_model().unwrap();
+                    let addr = executor.current_address.unwrap_or(0);
+
+                    // Build evaluation content (re-uses the same Z3 model format
+                    // as NULL-check and CBranch reports)
+                    let evaluation_content =
+                        crate::state::evaluate_z3::build_unified_evaluation_content(
+                            &model, executor, None, // no conditional flag
+                            None, // no null-check pointer
+                        );
+
+                    // Log to execution_log
+                    for line in evaluation_content.lines() {
+                        log!(executor.state.logger.clone(), "{}", line);
+                    }
+
+                    // Write to FOUND_SAT_STATE.txt
+                    let elapsed = Some(crate::state::evaluate_z3::get_elapsed_since_start());
+                    if let Err(e) = crate::state::evaluate_z3::log_sat_state_to_file_and_terminal(
+                        &evaluation_content,
+                        &std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string()),
+                        Some(addr), // panic address
+                        elapsed,
+                        Some(addr), // instruction address
+                        Some("INT_MULT"),
+                        Some(
+                            "Integer overflow: the full-width product \
+                                 differs from the truncated product",
+                        ),
+                    ) {
+                        log!(
+                            executor.state.logger.clone(),
+                            "WARNING: Failed to write overflow SAT state to file: {}",
+                            e
+                        );
+                    }
+
+                    // Report to terminal and execution log
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut executor.state.logger.clone(),
+                        "Integer overflow in multiplication",
+                        addr,
+                        &[
+                            "Opcode: INT_MULT",
+                            &format!(
+                                "The {}-bit product differs from the {}-bit product",
+                                double_width, output_size_bits
+                            ),
+                            "More details in: results/FOUND_SAT_STATE.txt",
+                        ],
+                    );
+                }
+            }
+        }
+    }
+    // ── End integer overflow check ──────────────────────────────────────
+
     // Handle the result based on the output varnode
     executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 

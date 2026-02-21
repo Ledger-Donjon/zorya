@@ -956,7 +956,7 @@ fn capture_symbolic_arguments_evaluation(
 }
 
 /// Build a unified evaluation content string used for both file output and terminal logs
-fn build_unified_evaluation_content<'ctx>(
+pub fn build_unified_evaluation_content<'ctx>(
     model: &z3::Model,
     executor: &ConcolicExecutor,
     conditional_flag: Option<&ConcolicVar>,
