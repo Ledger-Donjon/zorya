@@ -13,6 +13,7 @@ use crate::concolic::{ConcolicExecutor, ConcolicVar, SymbolicVar};
 use crate::state::gating_stats::{get_allowed_by_xref_fallback, get_gated_by_reach};
 use crate::state::simplify_z3::add_constraints_from_vector;
 use crate::target_info::GLOBAL_TARGET_INFO;
+use crate::tprintln;
 
 use chrono::{DateTime, Utc};
 use parser::parser::{Inst, Opcode};
@@ -25,7 +26,7 @@ use z3::SatResult;
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
         if ($logger).is_enabled() {
-            writeln!($logger, $($arg)*).unwrap();
+        writeln!($logger, $($arg)*).unwrap();
         }
     }};
 }
@@ -71,16 +72,16 @@ pub fn report_vulnerability(
     log!(logger, "{}\n", bar);
 
     // -- terminal (stdout) --
-    println!();
-    println!("{}", bar);
-    println!("VULNERABILITY: {}", vuln_type);
-    println!("  Address: 0x{:x}", address);
-    println!("  Elapsed: {}", elapsed_str);
+    tprintln!();
+    tprintln!("{}", bar);
+    tprintln!("VULNERABILITY: {}", vuln_type);
+    tprintln!("  Address: 0x{:x}", address);
+    tprintln!("  Elapsed: {}", elapsed_str);
     for line in details {
-        println!("  {}", line);
+        tprintln!("  {}", line);
     }
-    println!("{}", bar);
-    println!();
+    tprintln!("{}", bar);
+    tprintln!();
 }
 
 /// Log a concrete vulnerability (no Z3 evaluation needed) to both FOUND_SAT_STATE.txt and terminal.
@@ -112,17 +113,17 @@ pub fn log_vuln_to_file_and_terminal(
     log!(logger, "  More details in: results/FOUND_SAT_STATE.txt");
     log!(logger, "{}\n", bar);
 
-    println!();
-    println!("{}", bar);
-    println!("VULNERABILITY: {}", vuln_type);
-    println!("  Address: 0x{:x}", address);
-    println!("  Elapsed: {}", elapsed_str);
-    println!("  Opcode: {}", opcode_str);
-    println!("  Detection method: {}", detection_method);
-    println!("  {}", description);
-    println!("  More details in: results/FOUND_SAT_STATE.txt");
-    println!("{}", bar);
-    println!();
+    tprintln!();
+    tprintln!("{}", bar);
+    tprintln!("VULNERABILITY: {}", vuln_type);
+    tprintln!("  Address: 0x{:x}", address);
+    tprintln!("  Elapsed: {}", elapsed_str);
+    tprintln!("  Opcode: {}", opcode_str);
+    tprintln!("  Detection method: {}", detection_method);
+    tprintln!("  {}", description);
+    tprintln!("  More details in: results/FOUND_SAT_STATE.txt");
+    tprintln!("{}", bar);
+    tprintln!();
 
     // --- File report (FOUND_SAT_STATE.txt) ---
     std::fs::create_dir_all("results")?;
@@ -1125,7 +1126,7 @@ pub fn evaluate_args_z3<'ctx>(
                 match solve_result {
                     SatResult::Sat => {
                         // Print to terminal only when SAT (vulnerability found)
-                        eprintln!(
+                        crate::teprintln!(
                             "[Z3-SOLVER] NULL pointer check took {:.3}s",
                             solve_elapsed.as_secs_f64()
                         );
@@ -1294,7 +1295,7 @@ pub fn evaluate_args_z3<'ctx>(
             match solve_result {
                 SatResult::Sat => {
                     // Print to terminal only when SAT (vulnerability found)
-                    eprintln!(
+                    crate::teprintln!(
                         "[Z3-OPTIMIZE] CBranch evaluation took {:.3}s",
                         solve_elapsed.as_secs_f64()
                     );
@@ -1469,7 +1470,7 @@ pub fn evaluate_args_z3<'ctx>(
         match solve_result {
             z3::SatResult::Sat => {
                 // Print to terminal only when SAT (vulnerability found)
-                eprintln!(
+                crate::teprintln!(
                     "[Z3-OPTIMIZE] CBranch evaluation took {:.3}s",
                     solve_elapsed.as_secs_f64()
                 );

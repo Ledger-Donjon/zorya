@@ -45,11 +45,12 @@ use zorya::state::panic_reach::precompute_panic_reach;
 use zorya::state::simplify_z3::extract_underlying_condition_from_flag_ast;
 use zorya::state::thread_manager::{CheckpointType, ThreadStatus};
 use zorya::target_info::GLOBAL_TARGET_INFO;
+use zorya::{teprintln, tprintln};
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
         if ($logger).is_enabled() {
-            writeln!($logger, $($arg)*).unwrap();
+        writeln!($logger, $($arg)*).unwrap();
         }
     }};
 }
@@ -150,7 +151,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match sched_choice.as_str() {
                 "all-threads" | "all_threads" | "roundrobin" | "round_robin" | "rr" => {
                     env::set_var("THREAD_SCHEDULING", "round_robin");
-                    println!(
+                    tprintln!(
                         "[THREAD-CONFIG] Enabled multi-thread scheduling (cooperative at function calls)"
                     );
 
@@ -159,7 +160,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // Default: 100 switches
                     if env::var("THREAD_SWITCH_DEPTH").is_err() {
                         env::set_var("THREAD_SWITCH_DEPTH", "100");
-                        println!("[THREAD-CONFIG] Set thread switch depth to 100");
+                        tprintln!("[THREAD-CONFIG] Set thread switch depth to 100");
                     }
 
                     // THREAD_TIME_SLICE: Number of P-code instructions to execute before considering a thread switch
@@ -167,14 +168,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // Default: 10000 instructions
                     if env::var("THREAD_TIME_SLICE").is_err() {
                         env::set_var("THREAD_TIME_SLICE", "10000");
-                        println!(
+                        tprintln!(
                             "[THREAD-CONFIG] Set time slice to 10000 instructions (optimized for symbolic execution)"
                         );
                     }
                 }
                 "main-only" | "main_only" | "mainonly" | "none" => {
                     env::set_var("THREAD_SCHEDULING", "main_only");
-                    println!(
+                    tprintln!(
                         "[THREAD-CONFIG] Using main-only thread policy (single goroutine execution)"
                     );
                 }
@@ -189,14 +190,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     if Path::new(sat_state_file).exists() {
         match fs::remove_file(sat_state_file) {
             Ok(()) => {
-                println!("Cleaned up previous SAT state file: {}", sat_state_file);
+                tprintln!("Cleaned up previous SAT state file: {}", sat_state_file);
             }
             Err(e) => {
-                eprintln!(
+                teprintln!(
                     "Warning: Failed to remove previous SAT state file {}: {}",
-                    sat_state_file, e
+                    sat_state_file,
+                    e
                 );
-                eprintln!("Continuing with execution, new results will be appended...");
+                teprintln!("Continuing with execution, new results will be appended...");
             }
         }
     }
@@ -215,6 +217,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let logger = Logger::new(logger_path, false).expect("Failed to create logger"); // detailed log (file only when not trace_only)
     let trace_logger =
         Logger::new("results/execution_trace.txt", true).expect("Failed to create trace logger"); // get the trace of the executed symbols names, log to the file and stdout
+                                                                                                  // Initialise the global trace file so that ttprintln!/tteprintln! also
+                                                                                                  // append to execution_trace.txt (the trace_logger above already
+                                                                                                  // truncated/created the file, so we open in append mode).
+    zorya::init_trace_file("results/execution_trace.txt");
+
+    // Mirror the "Running command:" line (printed by the zorya shell script)
+    // into execution_trace.txt so the trace file is self-contained.
+    if let Ok(cmd) = std::env::var("ZORYA_CMD") {
+        tprintln!("Running command: {}", cmd);
+        tprintln!();
+    }
     let mut executor: ConcolicExecutor<'_> =
         ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone())
             .map_err(|e| e.to_string())?;
@@ -261,11 +274,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut instructions_map = preprocess_pcode_file(pcode_file_path_str, &mut executor)
         .expect("Failed to preprocess the p-code file.");
 
-    println!("Building the P-Code for the VDSO section (this may take a moment)...");
+    tprintln!("Building the P-Code for the VDSO section (this may take a moment)...");
     // Merge VDSO p-code if available
     merge_vdso_pcode(&mut instructions_map, &mut executor);
 
-    println!("Precomputing the tables of cross references of potential panics in the programs (for bug detection)...");
+    tprintln!("Precomputing the tables of cross references of potential panics in the programs (for bug detection)...");
     // Get the tables of cross references of potential panics in the programs (for bug detection)
     get_cross_references(&binary_path)?;
 
@@ -435,7 +448,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         // In function mode: initialize symbolic arguments
         if let Some((func_name, args)) = function_args_map.get(&start_address) {
-            println!(
+            tprintln!(
                 "Function mode: initializing {} symbolic argument(s) for function '{}' at 0x{:x}...",
                 args.len(),
                 func_name,
@@ -645,8 +658,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             "os.Args slice address: 0x{:x}",
             os_args_addr
         );
-        println!("**************************************************************************");
-        println!("Initializing symbolic variables for the program arguments (os.Args)...");
+        tprintln!("**************************************************************************");
+        tprintln!("Initializing symbolic variables for the program arguments (os.Args)...");
         initialize_symbolic_part_args(&mut executor, os_args_addr)?;
         log!(executor.state.logger, "Updating argc and argv on the stack");
         update_argc_argv(&mut executor, &arguments)?;
@@ -670,14 +683,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // *****************************
     // CORE COMMAND
-    println!("**************************************************************************");
-    println!("THE CONCOLIC EXECUTION OF THE BINARY HAS STARTED!");
+    tprintln!("**************************************************************************");
+    tprintln!("THE CONCOLIC EXECUTION OF THE BINARY HAS STARTED!");
     if log_mode == "trace_only" {
-        println!("Trace-only logging enabled (LOG_MODE=trace_only). Writing results/execution_trace.txt only.");
+        tprintln!("Trace-only logging enabled (LOG_MODE=trace_only). Writing results/execution_trace.txt only.");
     } else {
-        println!("Find the logs in results/execution_log.txt and results/execution_trace.txt");
+        tprintln!("Find the logs in results/execution_log.txt and results/execution_trace.txt");
     }
-    println!("**************************************************************************");
+    tprintln!("**************************************************************************");
 
     execute_instructions_from(
         &mut executor,
@@ -759,6 +772,21 @@ fn execute_instructions_from(
         let function_args_map = load_function_args_map();
         function_args_map
     };
+
+    // Check up-front that p-code exists for the start address so the user
+    // gets an actionable error instead of a silent no-op.
+    if !instructions_map.contains_key(&current_rip) {
+        let msg = format!(
+            "ERROR: No P-Code found for start address 0x{:x}. \
+             Pcode-generator tool may have failed to decode this function \
+             (e.g. it is an autogenerated stub or a LowlevelError was emitted). \
+             Please check the pcode file and verify the target address is correct.",
+            current_rip
+        );
+        teprintln!("{}", msg);
+        log!(executor.state.logger, "{}", msg);
+        return;
+    }
 
     while let Some(instructions) = instructions_map.get(&current_rip) {
         if current_rip == end_address {
@@ -1994,7 +2022,7 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
         panic!("Python script not found at {:?}", python_script_path);
     }
 
-    println!("[GHIDRA] Launching Ghidra + Pyhidra to collect panic cross-references (this may take a bit)...");
+    tprintln!("[GHIDRA] Launching Ghidra + Pyhidra to collect panic cross-references (this may take a bit)...");
 
     let output = Command::new("python3")
         .arg(python_script_path)
@@ -2004,13 +2032,13 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
 
     // Check if the script ran successfully
     if !output.status.success() {
-        eprintln!(
+        teprintln!(
             "[WARNING]: Python script error: {}\n",
             String::from_utf8_lossy(&output.stderr)
         );
         return Err(Box::from("Python script failed"));
     } else {
-        println!("[GHIDRA] Panic cross-reference analysis completed. Results written to results/xref_addresses.txt.\n");
+        tprintln!("[GHIDRA] Panic cross-reference analysis completed. Results written to results/xref_addresses.txt.\n");
     }
 
     // Ensure the file was created
@@ -2123,7 +2151,7 @@ fn merge_vdso_pcode(
                 "Successfully merged {} VDSO instruction blocks\n",
                 vdso_instr_count
             );
-            println!(
+            tprintln!(
                 "Merged {} VDSO instruction blocks into execution map\n",
                 vdso_instr_count
             );
@@ -2134,7 +2162,7 @@ fn merge_vdso_pcode(
                 "Failed to parse VDSO p-code: {}\n",
                 e
             );
-            eprintln!("[WARNING]: Failed to merge VDSO p-code: {}\n", e);
+            teprintln!("[WARNING]: Failed to merge VDSO p-code: {}\n", e);
         }
     }
 }

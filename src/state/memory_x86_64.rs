@@ -21,7 +21,7 @@ use crate::target_info::GLOBAL_TARGET_INFO;
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
         if ($logger).is_enabled() {
-            writeln!($logger, $($arg)*).unwrap();
+        writeln!($logger, $($arg)*).unwrap();
         }
     }};
 }
@@ -192,7 +192,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
-                println!("Initializing memory section from file: {:?}", path);
+                crate::tprintln!("Initializing memory section from file: {:?}", path);
                 self.load_memory_dump_with_dynamic_chunk_size(&path)?;
             }
         }
@@ -792,7 +792,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
             };
             self.write_value(address, &mem_value)?; // Writing values to memory
         }
-        println!(
+        crate::tprintln!(
             "Initialized CPUID memory variables at address 0x{:x}",
             start_address
         );

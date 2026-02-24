@@ -5,8 +5,9 @@
 use std::collections::{BTreeMap, HashSet};
 use std::error::Error;
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 pub type PanicReachSet = Arc<HashSet<u64>>;
@@ -51,10 +52,35 @@ pub fn precompute_panic_reach(
         }
     }
     if need_run {
-        let status = Command::new("python3")
+        // Stream subprocess output line-by-line so it appears in both the
+        // terminal and execution_trace.txt via tprintln!.
+        let mut child = Command::new("python3")
             .arg("scripts/precompute_panic_reach.py")
             .arg(binary_path)
-            .status()?;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        // Stream stdout
+        if let Some(stdout) = child.stdout.take() {
+            for line in BufReader::new(stdout).lines() {
+                match line {
+                    Ok(l) => crate::tprintln!("{}", l),
+                    Err(_) => break,
+                }
+            }
+        }
+        // Stream stderr
+        if let Some(stderr) = child.stderr.take() {
+            for line in BufReader::new(stderr).lines() {
+                match line {
+                    Ok(l) => crate::teprintln!("{}", l),
+                    Err(_) => break,
+                }
+            }
+        }
+
+        let status = child.wait()?;
         if !status.success() {
             return Err("precompute_panic_reach.py failed".into());
         }

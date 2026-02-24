@@ -10,6 +10,7 @@
 //! The goid offset is extracted dynamically from DWARF debug info during
 //! the function signature extraction phase.
 
+use crate::teprintln;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -72,9 +73,9 @@ impl RuntimeGOffsets {
                 }
 
                 // Fallback: use default offset with warning
-                eprintln!("[RUNTIME-INFO] Warning: runtime_g_offsets.json not found");
-                eprintln!("[RUNTIME-INFO] Using default goid offset 152 (may be incorrect)");
-                eprintln!("[RUNTIME-INFO] Make sure binary was analyzed with debug symbols");
+                teprintln!("[RUNTIME-INFO] Warning: runtime_g_offsets.json not found");
+                teprintln!("[RUNTIME-INFO] Using default goid offset 152 (may be incorrect)");
+                teprintln!("[RUNTIME-INFO] Make sure binary was analyzed with debug symbols");
 
                 RuntimeGOffsets {
                     goid: 152, // Most common offset

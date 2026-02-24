@@ -617,122 +617,122 @@ def main():
             print("[GHIDRA] Running unreachable block categorization...")
             t_unreach = time.time()
             
-            def add_cat(cat, addr_str, func_name):
-                c = unreachable_summary['categories'].setdefault(cat, {'count': 0, 'samples': [], 'functions': {}})
-                c['count'] += 1
-                if len(c['samples']) < 20:
-                    c['samples'].append(addr_str)
-                if func_name is None:
+        def add_cat(cat, addr_str, func_name):
+            c = unreachable_summary['categories'].setdefault(cat, {'count': 0, 'samples': [], 'functions': {}})
+            c['count'] += 1
+            if len(c['samples']) < 20:
+                c['samples'].append(addr_str)
+            if func_name is None:
+                func_name = 'NO_FUNCTION'
+            c['functions'][func_name] = c['functions'].get(func_name, 0) + 1
+        try:
+            all_blocks = model.getCodeBlocks(monitor)
+            unreachable_count = 0
+            while all_blocks.hasNext():
+                b = all_blocks.next()
+                if b in reachable:
+                    continue
+                unreachable_count += 1
+                start_addr = b.getFirstStartAddress()
+                max_addr = b.getMaxAddress()
+                addr_str = f"0x{str(start_addr)}"
+                
+                # Determine containing function name once
+                try:
+                    func = fm.getFunctionContaining(start_addr)
+                except Exception:
+                    func = None
+                if func is None:
                     func_name = 'NO_FUNCTION'
-                c['functions'][func_name] = c['functions'].get(func_name, 0) + 1
-            try:
-                all_blocks = model.getCodeBlocks(monitor)
-                unreachable_count = 0
-                while all_blocks.hasNext():
-                    b = all_blocks.next()
-                    if b in reachable:
-                        continue
-                    unreachable_count += 1
-                    start_addr = b.getFirstStartAddress()
-                    max_addr = b.getMaxAddress()
-                    addr_str = f"0x{str(start_addr)}"
-                    
-                    # Determine containing function name once
+                else:
                     try:
-                        func = fm.getFunctionContaining(start_addr)
+                        func_name = func.getName()
                     except Exception:
-                        func = None
-                    if func is None:
-                        func_name = 'NO_FUNCTION'
-                    else:
-                        try:
-                            func_name = func.getName()
-                        except Exception:
-                            func_name = 'UNKNOWN_FUNCTION'
-                    
-                    # Category: no_incoming_refs
-                    try:
-                        has_src = b.getSources(monitor).hasNext()
-                    except Exception:
-                        has_src = False
-                    if not has_src:
-                        add_cat('no_incoming_refs', addr_str, func_name)
-                    
-                    # Category: only_from_unreachable
-                    only_unreach = True
-                    try:
-                        src_iter = b.getSources(monitor)
-                        while src_iter.hasNext():
-                            sref = src_iter.next()
-                            saddr = sref.getSourceAddress()
-                            sblk = model.getCodeBlockAt(saddr, monitor)
-                            if sblk is None:
-                                sblks = model.getCodeBlocksContaining(saddr, monitor)
-                                for sb in sblks:
-                                    if sb in reachable:
-                                        only_unreach = False
-                                        break
-                            else:
-                                if sblk in reachable:
+                        func_name = 'UNKNOWN_FUNCTION'
+                
+                # Category: no_incoming_refs
+                try:
+                    has_src = b.getSources(monitor).hasNext()
+                except Exception:
+                    has_src = False
+                if not has_src:
+                    add_cat('no_incoming_refs', addr_str, func_name)
+                
+                # Category: only_from_unreachable
+                only_unreach = True
+                try:
+                    src_iter = b.getSources(monitor)
+                    while src_iter.hasNext():
+                        sref = src_iter.next()
+                        saddr = sref.getSourceAddress()
+                        sblk = model.getCodeBlockAt(saddr, monitor)
+                        if sblk is None:
+                            sblks = model.getCodeBlocksContaining(saddr, monitor)
+                            for sb in sblks:
+                                if sb in reachable:
                                     only_unreach = False
                                     break
-                            if not only_unreach:
+                        else:
+                            if sblk in reachable:
+                                only_unreach = False
                                 break
+                        if not only_unreach:
+                            break
+                except Exception:
+                    pass
+                if has_src and only_unreach:
+                    add_cat('only_from_unreachable', addr_str, func_name)
+                
+                # Category: xref_absent_to_start_and_end
+                try:
+                    x1 = refman.getReferencesTo(start_addr)
+                    x2 = refman.getReferencesTo(max_addr)
+                    xref_any = (x1.hasNext() if hasattr(x1, 'hasNext') else True) or (x2.hasNext() if hasattr(x2, 'hasNext') else True)
+                except Exception:
+                    xref_any = True
+                if not xref_any and not has_src:
+                    add_cat('no_xrefs_no_sources', addr_str, func_name)
+                
+                # Category: function_not_tainted / external_or_thunk
+                if func is None:
+                    add_cat('no_containing_function', addr_str, func_name)
+                else:
+                    try:
+                        entry = func.getEntryPoint()
+                        entry_key = entry.toString() if entry is not None else None
+                    except Exception:
+                        entry_key = None
+                    if entry_key is not None and entry_key not in tainted_functions:
+                        add_cat('function_not_tainted', addr_str, func_name)
+                    try:
+                        if func.isExternal() or func.isThunk():
+                            add_cat('external_or_thunk', addr_str, func_name)
                     except Exception:
                         pass
-                    if has_src and only_unreach:
-                        add_cat('only_from_unreachable', addr_str, func_name)
-                    
-                    # Category: xref_absent_to_start_and_end
-                    try:
-                        x1 = refman.getReferencesTo(start_addr)
-                        x2 = refman.getReferencesTo(max_addr)
-                        xref_any = (x1.hasNext() if hasattr(x1, 'hasNext') else True) or (x2.hasNext() if hasattr(x2, 'hasNext') else True)
-                    except Exception:
-                        xref_any = True
-                    if not xref_any and not has_src:
-                        add_cat('no_xrefs_no_sources', addr_str, func_name)
-                    
-                    # Category: function_not_tainted / external_or_thunk
-                    if func is None:
-                        add_cat('no_containing_function', addr_str, func_name)
-                    else:
-                        try:
-                            entry = func.getEntryPoint()
-                            entry_key = entry.toString() if entry is not None else None
-                        except Exception:
-                            entry_key = None
-                        if entry_key is not None and entry_key not in tainted_functions:
-                            add_cat('function_not_tainted', addr_str, func_name)
-                        try:
-                            if func.isExternal() or func.isThunk():
-                                add_cat('external_or_thunk', addr_str, func_name)
-                        except Exception:
-                            pass
-                    
-                    # Category: plt_or_iat_section
-                    try:
-                        mb = program.getMemory().getBlock(start_addr)
-                        if mb is not None:
-                            name = mb.getName().lower()
-                            if 'plt' in name or 'iat' in name or 'got' in name or 'extern' in name:
-                                add_cat('plt_iat_got_or_external', addr_str, func_name)
-                    except Exception:
-                        pass
-                    
-                    # Category: jump_table_pred_unreachable (from loaded jump_tables.json)
-                    try:
-                        key = start_addr.toString()
-                        preds = dest_to_pred_blocks.get(key, set())
-                        if preds:
-                            any_reach = any(pb in reachable for pb in preds)
-                            if not any_reach:
-                                add_cat('jump_table_pred_unreachable', addr_str, func_name)
-                    except Exception:
-                        pass
-                unreachable_summary['totals']['unreachable_blocks'] = unreachable_count
-            except Exception:
-                pass
+                
+                # Category: plt_or_iat_section
+                try:
+                    mb = program.getMemory().getBlock(start_addr)
+                    if mb is not None:
+                        name = mb.getName().lower()
+                        if 'plt' in name or 'iat' in name or 'got' in name or 'extern' in name:
+                            add_cat('plt_iat_got_or_external', addr_str, func_name)
+                except Exception:
+                    pass
+                
+                # Category: jump_table_pred_unreachable (from loaded jump_tables.json)
+                try:
+                    key = start_addr.toString()
+                    preds = dest_to_pred_blocks.get(key, set())
+                    if preds:
+                        any_reach = any(pb in reachable for pb in preds)
+                        if not any_reach:
+                            add_cat('jump_table_pred_unreachable', addr_str, func_name)
+                except Exception:
+                    pass
+            unreachable_summary['totals']['unreachable_blocks'] = unreachable_count
+        except Exception:
+            pass
             print(f"[GHIDRA] Unreachable categorization took {time.time() - t_unreach:.1f}s")
         
         # Print comprehensive statistics

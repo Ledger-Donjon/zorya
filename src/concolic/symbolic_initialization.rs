@@ -53,7 +53,7 @@ pub fn load_struct_types(json_path: &str) -> Result<HashMap<String, StructTypeDe
     let struct_types: HashMap<String, StructTypeDef> = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse struct types JSON: {}", e))?;
 
-    println!(
+    crate::tprintln!(
         "[STRUCT-TYPES] Loaded {} struct type definitions",
         struct_types.len()
     );
@@ -73,12 +73,12 @@ pub fn init_struct_types_cache(json_path: &str) {
     match load_struct_types(json_path) {
         Ok(types) => {
             if STRUCT_TYPES.set(types).is_err() {
-                eprintln!("[STRUCT-TYPES] Warning: struct types cache already initialized");
+                crate::teprintln!("[STRUCT-TYPES] Warning: struct types cache already initialized");
             }
         }
         Err(e) => {
-            eprintln!("[STRUCT-TYPES] Warning: {}", e);
-            eprintln!("[STRUCT-TYPES] Struct field symbolization will be disabled");
+            crate::teprintln!("[STRUCT-TYPES] Warning: {}", e);
+            crate::teprintln!("[STRUCT-TYPES] Struct field symbolization will be disabled");
         }
     }
 }
@@ -99,7 +99,7 @@ pub fn is_struct_pointer_type(type_str: &str) -> Option<String> {
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
         if ($logger).is_enabled() {
-            writeln!($logger, $($arg)*).unwrap();
+        writeln!($logger, $($arg)*).unwrap();
         }
     }};
 }

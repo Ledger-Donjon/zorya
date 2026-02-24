@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
 //
 // SPDX-License-Identifier: Apache-2.0
+use crate::tprintln;
 
 use anyhow::anyhow;
 use anyhow::{Error, Result};
@@ -58,7 +59,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             SymbolicVar::Int(BV::from_u64(ctx, initial_value, size))
         };
 
-        //println!("Created new CpuConcolicValue with concrete: {:?}, symbolic: {:?}", concrete, symbolic);
+        //tprintln!("Created new CpuConcolicValue with concrete: {:?}, symbolic: {:?}", concrete, symbolic);
 
         CpuConcolicValue {
             concrete,
@@ -386,7 +387,7 @@ impl<'ctx> CpuState<'ctx> {
                     u64::from_str_radix(line_offset_hex.trim_start_matches("0x"), 16).unwrap();
 
                 // Print debug info to trace the value comparisons
-                // println!("Checking Register: {}, Given Offset: 0x{:X}, Found Offset in SLA: 0x{:X}, Line: {}", name, offset, line_offset, line);
+                // tprintln!("Checking Register: {}, Given Offset: 0x{:X}, Found Offset in SLA: 0x{:X}, Line: {}", name, offset, line_offset, line);
 
                 if offset == line_offset {
                     return true;
@@ -414,13 +415,13 @@ impl<'ctx> CpuState<'ctx> {
                 // Proceed if the file was read successfully
                 let result = Self::parse_and_update_cpu_state_from_gdb_output(self, &content);
                 if let Err(e) = result {
-                    println!("Error during CPU state update: {}", e);
+                    tprintln!("Error during CPU state update: {}", e);
                     return Err(anyhow::Error::from(e));
                 }
             }
             Err(e) => {
                 // Print an error message showing the path and error if the file could not be read
-                println!(
+                tprintln!(
                     "Failed to read cpu_mapping.txt at path: {}. Error: {}",
                     cpu_output_path.display(),
                     e
@@ -439,9 +440,9 @@ impl<'ctx> CpuState<'ctx> {
         let re_zmm = Regex::new(r"^\s*zmm(\d+)\s+\{.*v8_int64\s*=\s*\{([^}]*)\}").unwrap();
 
         // Display current state of flag registrations for debugging
-        //println!("Flag Registrations:");
+        //tprintln!("Flag Registrations:");
         //for (offset, (name, size)) in self.register_map.iter() {
-        //    println!("{}: offset = 0x{:x}, size = {}", name, offset, size);
+        //    tprintln!("{}: offset = 0x{:x}, size = {}", name, offset, size);
         //}
 
         // Parse general registers
@@ -479,9 +480,11 @@ impl<'ctx> CpuState<'ctx> {
                         .map_err(|e| {
                             anyhow!("Failed to set register value for {}: {}", register_name, e)
                         })?;
-                    println!(
+                    tprintln!(
                         "Updated register {} at offset 0x{:x} with value 0x{:x}",
-                        register_name, offset, value_concrete
+                        register_name,
+                        offset,
+                        value_concrete
                     );
                 }
             }
@@ -513,12 +516,14 @@ impl<'ctx> CpuState<'ctx> {
                         );
                         self.set_register_value_by_offset(offset, flag_concolic, *size)
                             .map_err(|e| anyhow!("Failed to set flag value for {}: {}", flag, e))?;
-                        println!(
+                        tprintln!(
                             "Updated flag {} at offset 0x{:x} with value {}",
-                            flag, offset, flag_concrete
+                            flag,
+                            offset,
+                            flag_concrete
                         );
                     } else {
-                        println!("Flag {} not found in register_map", flag);
+                        tprintln!("Flag {} not found in register_map", flag);
                     }
                 }
             }
@@ -753,7 +758,7 @@ impl<'ctx> CpuState<'ctx> {
                         let inner_bit_offset = (current_bit_offset % 64) as u32; // Offset within the specific u64 element
 
                         if idx >= large_concrete.len() {
-                            println!(
+                            tprintln!(
                                 "Error: Bit offset exceeds size of the large integer register"
                             );
                             return Err(
@@ -822,7 +827,7 @@ impl<'ctx> CpuState<'ctx> {
 
                     // Safety check: ensure we're not extracting out-of-bounds
                     if new_symbolic_bv.get_size() < write_bits_u32 {
-                        println!(
+                        tprintln!(
                             "Error: Resized symbolic BV size {} < write_bits_u32 {}",
                             new_symbolic_bv.get_size(),
                             write_bits_u32
@@ -835,7 +840,7 @@ impl<'ctx> CpuState<'ctx> {
                         let inner_bit_offset = (current_bit_offset % 64) as u32;
 
                         if idx >= large_symbolic.len() {
-                            println!(
+                            tprintln!(
                                 "Error: Bit offset exceeds size of the large integer symbolic register"
                             );
                             return Err(
@@ -861,7 +866,7 @@ impl<'ctx> CpuState<'ctx> {
                             symbolic_value_part.bvshl(&shift_amount_bv);
 
                         if symbolic_value_part_shifted.get_z3_ast().is_null() {
-                            println!("Error: Symbolic update failed (null AST)");
+                            tprintln!("Error: Symbolic update failed (null AST)");
                             return Err(
                                 "Symbolic update failed, resulting in a null AST".to_string()
                             );
@@ -876,7 +881,7 @@ impl<'ctx> CpuState<'ctx> {
                             .bvor(&symbolic_value_part_shifted); // Set the new symbolic value for the target bits
 
                         if updated_symbolic.get_z3_ast().is_null() {
-                            println!("Error: Updated symbolic value is null for chunk {}", idx);
+                            tprintln!("Error: Updated symbolic value is null for chunk {}", idx);
                             return Err(
                                 "Symbolic update failed, resulting in a null AST".to_string()
                             );
@@ -906,7 +911,7 @@ impl<'ctx> CpuState<'ctx> {
                         .bvshl(&BV::from_u64(self.ctx, bit_offset, full_reg_size as u32));
 
                     if new_symbolic_value.get_z3_ast().is_null() {
-                        println!("Error: New symbolic value is null");
+                        tprintln!("Error: New symbolic value is null");
                         return Err("New symbolic value is null".to_string());
                     }
                     let mask = if write_bits_u32 >= 64 {
@@ -930,7 +935,7 @@ impl<'ctx> CpuState<'ctx> {
                         .bvor(&new_symbolic_value);
 
                     if combined_symbolic.get_z3_ast().is_null() {
-                        println!("Error: Combined symbolic value is null");
+                        tprintln!("Error: Combined symbolic value is null");
                         return Err("Symbolic extraction resulted in an invalid state".to_string());
                     }
                     reg.symbolic = SymbolicVar::Int(combined_symbolic);
@@ -939,7 +944,7 @@ impl<'ctx> CpuState<'ctx> {
             }
         }
         // If we reach here, no suitable register was found
-        println!(
+        tprintln!(
             "Error: No suitable register found for offset 0x{:x}",
             offset
         );
@@ -1320,7 +1325,7 @@ impl fmt::Display for CpuState<'_> {
             writeln!(f, "  {}: {}", reg, value)?;
         }
         writeln!(f, "Register map:")?;
-        println!("{:?}", &self.register_map);
+        tprintln!("{:?}", &self.register_map);
         Ok(())
     }
 }

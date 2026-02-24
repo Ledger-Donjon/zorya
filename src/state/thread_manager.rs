@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
 //
 // SPDX-License-Identifier: Apache-2.0
+use crate::tprintln;
 
 use crate::state::cpu_state::CpuState;
 use anyhow::{anyhow, Result};
@@ -281,7 +282,7 @@ impl<'ctx> ThreadManager<'ctx> {
             self.ctx,
         )?;
 
-        println!(
+        tprintln!(
             "[THREAD] Created new OS thread TID={} from parent TID={}, entry=0x{:x}, stack=0x{:x}, tls=0x{:x}",
             new_tid, parent_tid, entry_point, stack_pointer, tls_base
         );
@@ -309,9 +310,10 @@ impl<'ctx> ThreadManager<'ctx> {
             new_thread.status = ThreadStatus::Running;
         }
 
-        println!(
+        tprintln!(
             "[THREAD] Switching from TID={} to TID={}",
-            self.current_tid, tid
+            self.current_tid,
+            tid
         );
         self.current_tid = tid;
 
@@ -322,7 +324,7 @@ impl<'ctx> ThreadManager<'ctx> {
     pub fn exit_thread(&mut self, tid: u64, exit_code: i32) -> Result<()> {
         if let Some(thread) = self.threads.get_mut(&tid) {
             thread.status = ThreadStatus::Exited(exit_code);
-            println!("[THREAD] Thread TID={} exited with code {}", tid, exit_code);
+            tprintln!("[THREAD] Thread TID={} exited with code {}", tid, exit_code);
             Ok(())
         } else {
             Err(anyhow!("Thread {} not found", tid))
@@ -391,9 +393,11 @@ impl<'ctx> ThreadManager<'ctx> {
             self.current_tid = tid;
         }
 
-        println!(
+        tprintln!(
             "[THREAD] Loaded TID={} from dump (fs_base=0x{:x}, gs_base=0x{:x})",
-            tid, fs_base, gs_base
+            tid,
+            fs_base,
+            gs_base
         );
 
         Ok(())
@@ -411,30 +415,30 @@ impl<'ctx> ThreadManager<'ctx> {
         let is_go_gc = source_lang == "go" && compiler == "gc";
 
         if !is_go_gc {
-            println!(
+            tprintln!(
                 "[SCHEDULER] Thread scheduling only supported for Go GC binaries (detected: lang={}, compiler={})", 
                 if source_lang.is_empty() { "none" } else { &source_lang },
                 if compiler.is_empty() { "none" } else { &compiler }
             );
-            println!("[SCHEDULER] Using MainOnly policy");
+            tprintln!("[SCHEDULER] Using MainOnly policy");
             self.scheduling_policy = SchedulingPolicy::MainOnly;
             return;
         }
 
-        println!("[SCHEDULER] Detected Go GC binary, thread scheduling available");
+        tprintln!("[SCHEDULER] Detected Go GC binary, thread scheduling available");
 
         if let Ok(policy_str) = std::env::var("THREAD_SCHEDULING") {
             match policy_str.to_lowercase().as_str() {
                 "round_robin" | "rr" | "all-threads" | "all_threads" => {
                     self.scheduling_policy = SchedulingPolicy::RoundRobin;
-                    println!("[SCHEDULER] Enabled round-robin thread scheduling");
+                    tprintln!("[SCHEDULER] Enabled round-robin thread scheduling");
                 }
                 "main_only" | "main-only" | "none" => {
                     self.scheduling_policy = SchedulingPolicy::MainOnly;
-                    println!("[SCHEDULER] Thread scheduling disabled (main thread only)");
+                    tprintln!("[SCHEDULER] Thread scheduling disabled (main thread only)");
                 }
                 _ => {
-                    println!(
+                    tprintln!(
                         "[SCHEDULER] Unknown scheduling policy '{}', using MainOnly",
                         policy_str
                     );
@@ -445,14 +449,14 @@ impl<'ctx> ThreadManager<'ctx> {
         if let Ok(depth_str) = std::env::var("THREAD_SWITCH_DEPTH") {
             if let Ok(depth) = depth_str.parse::<usize>() {
                 self.max_switch_depth = depth;
-                println!("[SCHEDULER] Set max switch depth to {}", depth);
+                tprintln!("[SCHEDULER] Set max switch depth to {}", depth);
             }
         }
 
         if let Ok(slice_str) = std::env::var("THREAD_TIME_SLICE") {
             if let Ok(slice) = slice_str.parse::<usize>() {
                 self.time_slice_instructions = slice;
-                println!("[SCHEDULER] Set time slice to {} instructions", slice);
+                tprintln!("[SCHEDULER] Set time slice to {} instructions", slice);
             }
         }
     }
@@ -550,9 +554,13 @@ impl<'ctx> ThreadManager<'ctx> {
         self.current_switch_depth += 1;
         self.instruction_count = 0; // Reset instruction count for new thread
 
-        println!(
+        tprintln!(
             "[SCHEDULER] Thread switch at {:?} checkpoint: TID {} -> TID {} (depth: {}/{})",
-            checkpoint_type, old_tid, next_tid, self.current_switch_depth, self.max_switch_depth
+            checkpoint_type,
+            old_tid,
+            next_tid,
+            self.current_switch_depth,
+            self.max_switch_depth
         );
 
         Ok(Some(next_tid))

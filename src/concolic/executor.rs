@@ -22,7 +22,7 @@ pub use super::SymbolicVar;
 use crate::concolic::ConcolicVar;
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::evaluate_args_z3;
-use crate::state::memory_x86_64::{MemoryError, MemoryValue};
+use crate::state::memory_x86_64::MemoryValue;
 use crate::state::simplify_z3::extract_underlying_condition_from_flag_ast;
 use crate::state::state_manager::FunctionFrame;
 use crate::state::state_manager::Logger;

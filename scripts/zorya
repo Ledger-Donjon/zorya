@@ -291,6 +291,7 @@ CMD="$ZORYA_DIR/zorya $BIN_PATH_ORIGINAL --mode $MODE"
 echo "*************************************************************************************"
 echo "Running command: $CMD"
 echo ""
+export ZORYA_CMD="$CMD"
 
 # Step 1: Pcode generation
 cd "$PCODE_GENERATOR_DIR" || exit 1

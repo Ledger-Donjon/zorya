@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
 //
 // SPDX-License-Identifier: Apache-2.0
+use crate::tprintln;
 
 use crate::state::function_signatures::TypeDesc;
 use crate::state::simplify_z3::{bool_to_bv_smart, bv_to_bool_smart};
@@ -54,7 +55,7 @@ impl<'ctx> SymbolicVar<'ctx> {
             TypeDesc::Primitive(s)
                 if s == "int" || s == "uintptr" || s == "byte" || s == "uint8" =>
             {
-                println!(
+                tprintln!(
                     "Retrieved integer argument '{}' – creating a 64-bit symbolic integer variable...",
                     name
                 );
@@ -62,7 +63,7 @@ impl<'ctx> SymbolicVar<'ctx> {
             }
 
             TypeDesc::Primitive(s) if s == "bool" => {
-                println!(
+                tprintln!(
                     "Retrieved boolean argument '{}' – creating a symbolic boolean variable...",
                     name
                 );
@@ -70,7 +71,7 @@ impl<'ctx> SymbolicVar<'ctx> {
             }
 
             TypeDesc::Primitive(s) if s == "float64" => {
-                println!(
+                tprintln!(
                     "Retrieved float64 argument '{}' – creating a symbolic float64 variable...",
                     name
                 );
@@ -80,7 +81,7 @@ impl<'ctx> SymbolicVar<'ctx> {
             // Go strings are 16 bytes: ptr (8 bytes) + len (8 bytes)
             // We model them as a 128-bit LargeInt with two 64-bit components
             TypeDesc::Primitive(s) if s == "string" => {
-                println!(
+                tprintln!(
                     "Retrieved string argument '{}' – creating symbolic Go string (ptr + len)...",
                     name
                 );
@@ -92,7 +93,7 @@ impl<'ctx> SymbolicVar<'ctx> {
 
             TypeDesc::Pointer { .. } => {
                 // model pointers as 64-bit bitvectors
-                println!(
+                tprintln!(
                     "Retrieved pointer argument '{}' – creating a 64-bit symbolic pointer variable...",
                     name
                 );
@@ -102,7 +103,7 @@ impl<'ctx> SymbolicVar<'ctx> {
             TypeDesc::Array { element, count } => {
                 // a fixed-size array or even a Go static array like [32]byte
                 let len = count.map(|n| n as usize).unwrap_or(DEFAULT_SLICE_LEN);
-                println!(
+                tprintln!(
                     "Retrieved array argument '{}' – creating a symbolic slice view with element type {:?} and length {}...",
                     name, element, len
                 );
@@ -124,7 +125,7 @@ impl<'ctx> SymbolicVar<'ctx> {
                         count: Some(fixed_len as u64),
                     };
 
-                    println!(
+                    tprintln!(
                         "Retrieved slice argument '{}' with fixed-size element [{}]{} – creating a symbolic slice of {} element(s)...",
                         name,
                         fixed_len,
@@ -135,7 +136,7 @@ impl<'ctx> SymbolicVar<'ctx> {
                 } else {
                     // simple dynamic slice, e.g. []int or []string
                     let elem_type = TypeDesc::Primitive(inner.to_string());
-                    println!(
+                    tprintln!(
                         "Retrieved dynamic slice argument '{}' with element type {} – creating a symbolic slice of {} element(s)...",
                         name,
                         inner,
@@ -146,7 +147,7 @@ impl<'ctx> SymbolicVar<'ctx> {
             }
 
             _ => {
-                println!(
+                tprintln!(
                     "[WARNING]: Could not identify precise type of argument '{}'. Falling back to a 64-bit symbolic integer for type {:?}.",
                     name, typ
                 );
@@ -158,17 +159,17 @@ impl<'ctx> SymbolicVar<'ctx> {
         // Log the final result
         // match &result {
         //     SymbolicVar::Slice(slice) => {
-        //         println!("DEBUG: Created slice '{}' with:", slice.name);
-        //         println!("  - pointer: {:?}", slice.pointer);
-        //         println!("  - length: {:?}", slice.length);
-        //         println!("  - element_type: {:?}", slice.element_type);
-        //         println!("  - elements count: {}", slice.elements.len());
+        //         tprintln!("DEBUG: Created slice '{}' with:", slice.name);
+        //         tprintln!("  - pointer: {:?}", slice.pointer);
+        //         tprintln!("  - length: {:?}", slice.length);
+        //         tprintln!("  - element_type: {:?}", slice.element_type);
+        //         tprintln!("  - elements count: {}", slice.elements.len());
         //         for (i, elem) in slice.elements.iter().enumerate() {
-        //             println!("  - element[{}]: {:?}", i, elem);
+        //             tprintln!("  - element[{}]: {:?}", i, elem);
         //         }
         //     }
         //     _ => {
-        //         println!("DEBUG: Created non-slice symbolic var: {:?}", result);
+        //         tprintln!("DEBUG: Created non-slice symbolic var: {:?}", result);
         //     }
         // }
 
@@ -182,7 +183,7 @@ impl<'ctx> SymbolicVar<'ctx> {
         element_type: &TypeDesc,
         default_len: usize,
     ) -> SymbolicVar<'ctx> {
-        println!(
+        tprintln!(
             "Retrieved slice argument '{}' – creating a symbolic slice of {} element(s) with element type {:?}...",
             name, default_len, element_type
         );
@@ -211,26 +212,26 @@ impl<'ctx> SymbolicVar<'ctx> {
     pub fn debug_print(&self, prefix: &str) {
         match self {
             SymbolicVar::Int(bv) => {
-                println!("{}Int: {:?}", prefix, bv);
+                tprintln!("{}Int: {:?}", prefix, bv);
             }
             SymbolicVar::LargeInt(bvs) => {
-                println!("{}LargeInt with {} parts:", prefix, bvs.len());
+                tprintln!("{}LargeInt with {} parts:", prefix, bvs.len());
                 for (i, bv) in bvs.iter().enumerate() {
-                    println!("{}  [{}]: {:?}", prefix, i, bv);
+                    tprintln!("{}  [{}]: {:?}", prefix, i, bv);
                 }
             }
             SymbolicVar::Float(f) => {
-                println!("{}Float: {:?}", prefix, f);
+                tprintln!("{}Float: {:?}", prefix, f);
             }
             SymbolicVar::Bool(b) => {
-                println!("{}Bool: {:?}", prefix, b);
+                tprintln!("{}Bool: {:?}", prefix, b);
             }
             SymbolicVar::Slice(slice) => {
-                println!("{}Slice '{}':", prefix, slice.name);
-                println!("{}  pointer: {:?}", prefix, slice.pointer);
-                println!("{}  length: {:?}", prefix, slice.length);
-                println!("{}  element_type: {:?}", prefix, slice.element_type);
-                println!("{}  elements ({}):", prefix, slice.elements.len());
+                tprintln!("{}Slice '{}':", prefix, slice.name);
+                tprintln!("{}  pointer: {:?}", prefix, slice.pointer);
+                tprintln!("{}  length: {:?}", prefix, slice.length);
+                tprintln!("{}  element_type: {:?}", prefix, slice.element_type);
+                tprintln!("{}  elements ({}):", prefix, slice.elements.len());
                 for (i, elem) in slice.elements.iter().enumerate() {
                     elem.debug_print(&format!("{}    [{}] ", prefix, i));
                 }

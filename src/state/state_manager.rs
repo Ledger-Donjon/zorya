@@ -13,6 +13,7 @@ use crate::target_info::GLOBAL_TARGET_INFO;
 use crate::{
     concolic::{ConcreteVar, SymbolicVar},
     concolic_var::ConcolicVar,
+    tprintln,
 };
 use goblin::elf::Elf;
 use nix::libc::SS_DISABLE;
@@ -36,7 +37,7 @@ macro_rules! log {
         // logging to /dev/null.  Both calls auto-borrow $logger so there is
         // no ownership issue when $logger is a field reference.
         if ($logger).is_enabled() {
-            writeln!($logger, $($arg)*).unwrap();
+        writeln!($logger, $($arg)*).unwrap();
         }
     }};
 }
@@ -91,20 +92,20 @@ pub struct State<'a> {
 
 impl<'a> State<'a> {
     pub fn new(ctx: &'a Context, logger: Logger) -> Result<Self, Box<dyn std::error::Error>> {
-        println!("\n************************************************");
-        println!("Initializing Zorya with the CPU and memory dumps");
-        println!("************************************************");
+        tprintln!("\n************************************************");
+        tprintln!("Initializing Zorya with the CPU and memory dumps");
+        tprintln!("************************************************");
 
         log!(logger.clone(), "Initializing State...\n");
-        println!("Initializing State...\n");
+        tprintln!("Initializing State...\n");
 
         // Initialize CPU state in a shared and thread-safe manner
         log!(logger.clone(), "Initializing mock CPU state...\n");
-        println!("Initializing mock CPU state...\n");
+        tprintln!("Initializing mock CPU state...\n");
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
 
         log!(logger.clone(), "Uploading dumps to CPU registers...\n");
-        println!("Uploading dumps to CPU registers...\n");
+        tprintln!("Uploading dumps to CPU registers...\n");
         cpu_state
             .lock()
             .unwrap()
@@ -112,11 +113,11 @@ impl<'a> State<'a> {
             .map_err(|e| format!("Failed to upload dumps to CPU registers: {}", e))?;
 
         log!(logger.clone(), "Initializing virtual file system...\n");
-        println!("Initializing virtual file system...\n");
+        tprintln!("Initializing virtual file system...\n");
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
 
         log!(logger.clone(), "Initializing memory...\n");
-        println!("Initializing memory...\n");
+        tprintln!("Initializing memory...\n");
         let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
         memory
             .load_all_dumps()
@@ -129,7 +130,7 @@ impl<'a> State<'a> {
             .map_err(|e| format!("Failed to ensure gdb mappings are covered: {}", e))?;
 
         log!(logger.clone(), "Initializing the State...\n");
-        println!("Initializing the State...\n");
+        tprintln!("Initializing the State...\n");
         // Initialize ThreadManager with the main thread (TID=1)
         let initial_cpu_for_thread = cpu_state.lock().unwrap().clone();
         let thread_manager = Arc::new(Mutex::new(ThreadManager::new(
@@ -172,7 +173,7 @@ impl<'a> State<'a> {
             match load_result {
                 Ok(()) => {
                     log!(logger.clone(), "Successfully loaded multi-thread state\n");
-                    println!("Successfully loaded multi-thread state\n");
+                    tprintln!("Successfully loaded multi-thread state\n");
                 }
                 Err(e) => {
                     log!(
@@ -180,8 +181,8 @@ impl<'a> State<'a> {
                         "Warning: Failed to load thread dumps: {}\n",
                         e
                     );
-                    println!("Warning: Failed to load thread dumps: {}\n", e);
-                    println!("Continuing with single-threaded execution...\n");
+                    tprintln!("Warning: Failed to load thread dumps: {}\n", e);
+                    tprintln!("Continuing with single-threaded execution...\n");
                 }
             }
             drop(tm); // Release lock
@@ -214,7 +215,7 @@ impl<'a> State<'a> {
         };
 
         log!(state.logger.clone(), "Creating the P-Code for the executable sections of libc.so and ld-linux-x86-64.so if they exist...\n");
-        println!("Creating the P-Code for the executable sections of libc.so and ld-linux-x86-64.so if they exist...");
+        tprintln!("Creating the P-Code for the executable sections of libc.so and ld-linux-x86-64.so if they exist...");
         state.initialize_libc_and_ld_linux().map_err(|e| {
             format!(
                 "Failed to initialize libc and ld-linux-x86-64 P-Code: {}",
@@ -223,7 +224,7 @@ impl<'a> State<'a> {
         })?;
 
         log!(state.logger.clone(), "Initializing jump tables...\n");
-        println!("Initializing jump tables...\n");
+        tprintln!("Initializing jump tables...\n");
         state
             .initialize_jump_tables()
             .map_err(|e| format!("Failed to initialize jump tables: {}", e))?;
@@ -455,7 +456,7 @@ impl<'a> State<'a> {
                 self.logger.clone(),
             )?;
         } else {
-            println!("libc ELF or its base address not found, skipping...");
+            tprintln!("libc ELF or its base address not found, skipping...");
         }
 
         // Generate & append P-code for ld-linux if it actually exists on disk and in the memory map:
@@ -468,7 +469,7 @@ impl<'a> State<'a> {
                 self.logger.clone(),
             )?;
         } else {
-            println!("ld-linux ELF or its base address not found, skipping...\n");
+            tprintln!("ld-linux ELF or its base address not found, skipping...\n");
         }
 
         Ok(())
@@ -517,13 +518,13 @@ impl<'a> State<'a> {
         base_address: Option<u64>,
         logger: Logger,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("P-Code generation started for: {}", elf_path);
+        tprintln!("P-Code generation started for: {}", elf_path);
 
         // 1) Confirm that the .elf actually exists
         if !std::path::Path::new(elf_path).exists() {
             return Err(format!("ELF file does not exist: {}", elf_path).into());
         }
-        println!("Validated ELF file exists: {}", elf_path);
+        tprintln!("Validated ELF file exists: {}", elf_path);
 
         // 2) Run the pcode-generator tool with an optional --base-address argument
         let mut cmd = std::process::Command::new("cargo");
@@ -554,7 +555,7 @@ impl<'a> State<'a> {
         if !status.success() {
             return Err(format!("P-Code generation failed for {}", elf_path).into());
         }
-        println!("P-Code generation completed successfully for {}", elf_path);
+        tprintln!("P-Code generation completed successfully for {}", elf_path);
 
         // 3) The pcode instructions are in "results/<filename>_low_pcode.txt"
         let elf_filename = std::path::Path::new(elf_path)
@@ -583,9 +584,10 @@ impl<'a> State<'a> {
             .open(output_file)?;
         file.write_all(pcode_content.as_bytes())?;
 
-        println!(
+        tprintln!(
             "Appended P-code from '{}' into '{}'",
-            pcode_results_file, output_file
+            pcode_results_file,
+            output_file
         );
 
         Ok(())
