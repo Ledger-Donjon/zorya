@@ -241,6 +241,138 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         result_concrete.clone()
     );
 
+    // ── Integer overflow check ──────────────────────────────────────────
+    // For additions involving tracked symbolic variables, check whether
+    // the result wraps around (unsigned overflow).
+    //
+    // Strategy: zero-extend both operands by 1 bit (to N+1 bits), add at
+    // full width, and ask Z3: "can the carry bit (bit N) be set?"
+    // A SAT answer means there exists an input that causes unsigned overflow.
+    if !executor.function_symbolic_arguments.is_empty() && output_size_bits >= 32 {
+        let input0_bv = input0_var.get_symbolic_value_bv(executor.context);
+        let input1_bv = input1_var.get_symbolic_value_bv(executor.context);
+
+        // Fast path: skip if both operands are Z3 numeral constants
+        // (no symbolic component → overflow is a fixed property, not input-dependent)
+        if input0_bv.as_u64().is_none() || input1_bv.as_u64().is_none() {
+            // Check whether any tracked symbolic variable appears in either operand
+            let expr0 = format!("{:?}", input0_bv);
+            let expr1 = format!("{:?}", input1_bv);
+            let involves_tracked =
+                executor
+                    .function_symbolic_arguments
+                    .iter()
+                    .any(|(_, sym_var)| {
+                        if let SymbolicVar::Int(bv) = sym_var {
+                            let z3_name = format!("{:?}", bv);
+                            expr0.contains(&z3_name) || expr1.contains(&z3_name)
+                        } else {
+                            false
+                        }
+                    });
+
+            if involves_tracked {
+                log!(
+                    executor.state.logger.clone(),
+                    "[OVERFLOW-CHECK] Checking for integer overflow in INT_ADD at 0x{:x} (operand width: {} bits)",
+                    executor.current_address.unwrap_or(0),
+                    output_size_bits
+                );
+
+                // Zero-extend both operands by 1 bit to capture the carry
+                let wide_input0 = input0_bv.zero_ext(1);
+                let wide_input1 = input1_bv.zero_ext(1);
+                let wide_sum = wide_input0.bvadd(&wide_input1);
+
+                // Extract the carry bit (bit N of the N+1 bit result)
+                let carry_bit = wide_sum.extract(output_size_bits as u32, output_size_bits as u32);
+                let one_bit = BV::from_u64(executor.context, 1, 1);
+                let overflow_condition = carry_bit._eq(&one_bit);
+
+                // Use a fresh Solver (not Optimize) — we only need SAT/UNSAT + witness
+                let overflow_solver = z3::Solver::new(executor.context);
+                overflow_solver.assert(&overflow_condition);
+
+                // Assert accumulated path constraints so the solution is reachable
+                for constraint in &executor.constraint_vector {
+                    overflow_solver.assert(constraint);
+                }
+
+                let solve_start = std::time::Instant::now();
+                let solve_result = overflow_solver.check();
+                let solve_elapsed = solve_start.elapsed();
+
+                log!(
+                    executor.state.logger.clone(),
+                    "[Z3-SOLVER] Integer overflow check at INT_ADD took {:.3}s (result: {:?})",
+                    solve_elapsed.as_secs_f64(),
+                    solve_result
+                );
+
+                if solve_result == z3::SatResult::Sat {
+                    eprintln!(
+                        "[Z3-SOLVER] Integer overflow check took {:.3}s",
+                        solve_elapsed.as_secs_f64()
+                    );
+
+                    log!(executor.state.logger.clone(), "~~~~~~~~~~~");
+                    log!(
+                        executor.state.logger.clone(),
+                        "SATISFIABLE: Integer overflow detected in INT_ADD — \
+                         the {}-bit sum wraps around (carry bit set)",
+                        output_size_bits
+                    );
+                    log!(executor.state.logger.clone(), "~~~~~~~~~~~");
+
+                    let model = overflow_solver.get_model().unwrap();
+                    let addr = executor.current_address.unwrap_or(0);
+
+                    let evaluation_content =
+                        crate::state::evaluate_z3::build_unified_evaluation_content(
+                            &model, executor, None, // no conditional flag
+                            None, // no null-check pointer
+                        );
+
+                    for line in evaluation_content.lines() {
+                        log!(executor.state.logger.clone(), "{}", line);
+                    }
+
+                    let elapsed = Some(crate::state::evaluate_z3::get_elapsed_since_start());
+                    if let Err(e) = crate::state::evaluate_z3::log_sat_state_to_file_and_terminal(
+                        &evaluation_content,
+                        &std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string()),
+                        Some(addr),
+                        elapsed,
+                        Some(addr),
+                        Some("INT_ADD"),
+                        Some("Integer overflow: the sum wraps around (unsigned carry)"),
+                    ) {
+                        log!(
+                            executor.state.logger.clone(),
+                            "WARNING: Failed to write overflow SAT state to file: {}",
+                            e
+                        );
+                    }
+
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut executor.state.logger.clone(),
+                        "Integer overflow in addition",
+                        addr,
+                        &[
+                            "Opcode: INT_ADD",
+                            &format!(
+                                "The {}-bit sum wraps around (carry bit set)",
+                                output_size_bits
+                            ),
+                            "More details in: results/FOUND_SAT_STATE.txt",
+                        ],
+                    );
+                }
+            }
+        }
+    }
+    // ── End integer overflow check ──────────────────────────────────────
+
     // Handle the result based on the output varnode
     executor.handle_output(instruction.output.as_ref(), result_value.clone())?;
 
