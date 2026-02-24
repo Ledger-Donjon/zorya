@@ -243,11 +243,16 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // ── Integer overflow check ──────────────────────────────────────────
     // For additions involving tracked symbolic variables, check whether
-    // the result wraps around (unsigned overflow).
+    // the result overflows as a SIGNED integer.
     //
-    // Strategy: zero-extend both operands by 1 bit (to N+1 bits), add at
-    // full width, and ask Z3: "can the carry bit (bit N) be set?"
-    // A SAT answer means there exists an input that causes unsigned overflow.
+    // We use SIGNED overflow (not unsigned carry) to avoid false positives
+    // from pointer arithmetic.  Heap pointers in user-space (e.g. Go's
+    // 0xc000… range) are well below INT64_MAX, so ptr + small_offset stays
+    // positive and never triggers a signed overflow.
+    //
+    // Signed overflow conditions:
+    //   • positive + positive = negative  (classic overflow)
+    //   • negative + negative = positive  (underflow)
     if !executor.function_symbolic_arguments.is_empty() && output_size_bits >= 32 {
         let input0_bv = input0_var.get_symbolic_value_bv(executor.context);
         let input1_bv = input1_var.get_symbolic_value_bv(executor.context);
@@ -274,20 +279,33 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
             if involves_tracked {
                 log!(
                     executor.state.logger.clone(),
-                    "[OVERFLOW-CHECK] Checking for integer overflow in INT_ADD at 0x{:x} (operand width: {} bits)",
+                    "[OVERFLOW-CHECK] Checking for signed integer overflow in INT_ADD at 0x{:x} (operand width: {} bits)",
                     executor.current_address.unwrap_or(0),
                     output_size_bits
                 );
 
-                // Zero-extend both operands by 1 bit to capture the carry
-                let wide_input0 = input0_bv.zero_ext(1);
-                let wide_input1 = input1_bv.zero_ext(1);
-                let wide_sum = wide_input0.bvadd(&wide_input1);
+                let bits = output_size_bits as u32;
+                let zero_bv = BV::from_u64(executor.context, 0, bits);
+                // Recompute the symbolic sum (same as result_symbolic above)
+                let result_bv = input0_bv.bvadd(&input1_bv);
 
-                // Extract the carry bit (bit N of the N+1 bit result)
-                let carry_bit = wide_sum.extract(output_size_bits as u32, output_size_bits as u32);
-                let one_bit = BV::from_u64(executor.context, 1, 1);
-                let overflow_condition = carry_bit._eq(&one_bit);
+                // Condition 1: positive + positive = negative  (signed overflow)
+                let a_pos = input0_bv.bvsgt(&zero_bv);
+                let b_pos = input1_bv.bvsgt(&zero_bv);
+                let result_neg = result_bv.bvslt(&zero_bv);
+                let signed_overflow =
+                    z3::ast::Bool::and(executor.context, &[&a_pos, &b_pos, &result_neg]);
+
+                // Condition 2: negative + negative = non-negative  (signed underflow)
+                let a_neg = input0_bv.bvslt(&zero_bv);
+                let b_neg = input1_bv.bvslt(&zero_bv);
+                let result_nonneg = result_bv.bvsge(&zero_bv);
+                let signed_underflow =
+                    z3::ast::Bool::and(executor.context, &[&a_neg, &b_neg, &result_nonneg]);
+
+                // Either condition is a signed overflow
+                let overflow_condition =
+                    z3::ast::Bool::or(executor.context, &[&signed_overflow, &signed_underflow]);
 
                 // Use a fresh Solver (not Optimize) — we only need SAT/UNSAT + witness
                 let overflow_solver = z3::Solver::new(executor.context);
@@ -304,7 +322,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
                 log!(
                     executor.state.logger.clone(),
-                    "[Z3-SOLVER] Integer overflow check at INT_ADD took {:.3}s (result: {:?})",
+                    "[Z3-SOLVER] Signed integer overflow check at INT_ADD took {:.3}s (result: {:?})",
                     solve_elapsed.as_secs_f64(),
                     solve_result
                 );
@@ -318,8 +336,8 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                     log!(executor.state.logger.clone(), "~~~~~~~~~~~");
                     log!(
                         executor.state.logger.clone(),
-                        "SATISFIABLE: Integer overflow detected in INT_ADD — \
-                         the {}-bit sum wraps around (carry bit set)",
+                        "SATISFIABLE: Signed integer overflow detected in INT_ADD — \
+                         the {}-bit signed sum overflows (pos+pos=neg or neg+neg=pos)",
                         output_size_bits
                     );
                     log!(executor.state.logger.clone(), "~~~~~~~~~~~");
@@ -345,7 +363,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                         elapsed,
                         Some(addr),
                         Some("INT_ADD"),
-                        Some("Integer overflow: the sum wraps around (unsigned carry)"),
+                        Some("Integer overflow: signed addition overflows (positive+positive=negative)"),
                     ) {
                         log!(
                             executor.state.logger.clone(),
@@ -361,7 +379,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                         &[
                             "Opcode: INT_ADD",
                             &format!(
-                                "The {}-bit sum wraps around (carry bit set)",
+                                "The {}-bit signed sum overflows (positive+positive=negative)",
                                 output_size_bits
                             ),
                             "More details in: results/FOUND_SAT_STATE.txt",
