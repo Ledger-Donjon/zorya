@@ -250,27 +250,43 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // 0xc000… range) are well below INT64_MAX, so ptr + small_offset stays
     // positive and never triggers a signed overflow.
     //
+    // Two additional guards further reduce false positives:
+    //   1. Skip when either concrete operand is zero (x + 0 cannot overflow).
+    //   2. Only trigger when a slice_elem symbol is involved — not ptr/len/cap.
+    //      The CVE-class overflow flows through slice element data, not metadata.
+    //
     // Signed overflow conditions:
     //   • positive + positive = negative  (classic overflow)
     //   • negative + negative = positive  (underflow)
-    if !executor.function_symbolic_arguments.is_empty() && output_size_bits >= 32 {
+    let concrete0 = input0_var.get_concrete_value();
+    let concrete1 = input1_var.get_concrete_value();
+    // Guard 1: adding zero is always safe — skip immediately
+    if concrete0 != 0
+        && concrete1 != 0
+        && !executor.function_symbolic_arguments.is_empty()
+        && output_size_bits >= 32
+    {
         let input0_bv = input0_var.get_symbolic_value_bv(executor.context);
         let input1_bv = input1_var.get_symbolic_value_bv(executor.context);
 
         // Fast path: skip if both operands are Z3 numeral constants
         // (no symbolic component → overflow is a fixed property, not input-dependent)
         if input0_bv.as_u64().is_none() || input1_bv.as_u64().is_none() {
-            // Check whether any tracked symbolic variable appears in either operand
+            // Guard 2: only fire on additions that involve a slice_elem symbol.
+            // This avoids false positives from b_ptr/b_len/b_cap arithmetic — those
+            // variables represent slice metadata, not the integer accumulator that
+            // is the target of CVE-class overflow bugs (e.g. parseUintBuf).
             let expr0 = format!("{:?}", input0_bv);
             let expr1 = format!("{:?}", input1_bv);
             let involves_tracked =
                 executor
                     .function_symbolic_arguments
                     .iter()
-                    .any(|(_, sym_var)| {
+                    .any(|(name, sym_var)| {
                         if let SymbolicVar::Int(bv) = sym_var {
                             let z3_name = format!("{:?}", bv);
-                            expr0.contains(&z3_name) || expr1.contains(&z3_name)
+                            name.contains("slice_elem")
+                                && (expr0.contains(&z3_name) || expr1.contains(&z3_name))
                         } else {
                             false
                         }
