@@ -92,7 +92,7 @@ The prompt will ask you for the:
 ### B. Basic Command-Line Usage
 To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or custom) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
 ```
-zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> --arg "<arg1> <arg2>" [--negate-path-exploration|--no-negate-path-exploration] [--force-pty]
+zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> [--thread-scheduling <all-threads|main-only>] --arg "<arg1> <arg2>" [--negate-path-exploration|--no-negate-path-exploration] [--force-pty]
 
 FLAG:
   --lang                        Specifies the language used in the source code (go/c/c++)
@@ -102,6 +102,9 @@ FLAG:
                                       main → Analyze the main function (main.main preferred in Go binaries)
                                       function → Specify a function address manually
                                       custom → Define an arbitrary execution address
+  --thread-scheduling           Thread scheduling strategy for Go GC binaries:
+                                      all-threads → Load + schedule all dumped OS threads
+                                      main-only   → Execute only the main thread (simpler/more deterministic)
   --negate-path-exploration    Enables symbolic exploration of negated paths (default behavior)
   --no-negate-path-exploration  Disables negated path exploration
   --force-pty                   Runs GDB inside a pseudo-terminal (PTY) so the target binary sees a real
@@ -110,6 +113,13 @@ FLAG:
 
 OPTION:
   --arg                         Specifies arguments to pass to the binary, if any (default is 'none').
+
+ENVIRONMENT:
+  LOG_MODE=trace_only           Disable creation of results/execution_log.txt (file logging). Zorya will still
+                                write results/execution_trace.txt.
+  ZORYA_ANCHOR_SLICE_META=0     (Go) Advanced/experimental: do NOT anchor slice len/cap to the concrete dump.
+                                Useful for exploring "slice shape" behaviors, but may increase false positives
+                                unless memory modeling supports reallocations/resizing.
 ```
 
 Notes:

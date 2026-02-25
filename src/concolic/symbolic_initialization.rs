@@ -1046,6 +1046,19 @@ pub fn initialize_slice_argument<'a>(
                     ._eq(&BV::from_u64(ctx, 0, 64)),
             );
             solver.assert(&slice.length.bvuge(&BV::from_u64(ctx, 1, 64)));
+
+            // Go slice meta: keep len symbolic but bounded, so Z3 can explore slice-shape bugs
+            // without inventing absurd lengths that lead to infeasible models / pointer arithmetic noise.
+            //
+            // Default bound: 64.
+            let source_lang = std::env::var("SOURCE_LANG").unwrap_or_default();
+            if source_lang.eq_ignore_ascii_case("go") {
+                let max_len: u64 = 64;
+                let max_bv = BV::from_u64(ctx, max_len, 64);
+                solver.assert(&slice.length.bvule(&max_bv));
+                solver.assert(&slice.capacity.bvule(&max_bv));
+                solver.assert(&slice.capacity.bvuge(&slice.length));
+            }
         }
 
         // Write pointer (can be register or stack)
@@ -1056,8 +1069,8 @@ pub fn initialize_slice_argument<'a>(
 
         // Handle capacity if present
         if let Some(cap_loc) = cap_spec {
-            let cap_bv = BV::fresh_const(ctx, &format!("{}_cap", arg_name), 64);
-            write_symbolic_to_location(cap_loc, &cap_bv, conc, executor, "cap", false);
+            // Use the slice's own capacity BV so constraints above apply to the actual register/stack value.
+            write_symbolic_to_location(cap_loc, &slice.capacity, conc, executor, "cap", false);
         }
 
         log!(
@@ -1284,7 +1297,18 @@ pub fn initialize_slice_memory_contents<'a>(
                     // Clamp initialization; also ensure we materialize at least 3 elements
                     let elems_to_init = {
                         let cap: u64 = 64;
-                        let base = if slice_len == 0 { 1 } else { slice_len };
+                        let mut base = if slice_len == 0 { 1 } else { slice_len };
+                        // If Go slice length is symbolic-but-bounded, we need to materialize enough
+                        // bytes in memory for the solver to meaningfully explore larger lengths.
+                        // Otherwise, paths that require reading b[13]..b[18] (e.g. parseUintBuf overflow)
+                        // cannot be influenced by Z3 because those elements were never symbolized.
+                        let source_lang = std::env::var("SOURCE_LANG").unwrap_or_default();
+                        if source_lang.eq_ignore_ascii_case("go") {
+                            let max_len: u64 = 64;
+                            if max_len > base {
+                                base = max_len;
+                            }
+                        }
                         let n = if base > cap { cap } else { base };
                         let m = if n < 3 { 3 } else { n };
                         if base > cap {
