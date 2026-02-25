@@ -278,14 +278,17 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
             // is the target of CVE-class overflow bugs (e.g. parseUintBuf).
             let expr0 = format!("{:?}", input0_bv);
             let expr1 = format!("{:?}", input1_bv);
+            // Keys in function_symbolic_arguments are like "b[0]", "b[1]", etc.
+            // The Z3 BV fresh-const name is "slice_elem_b_0_!NNN", so we check
+            // the BV name (not the map key) to identify slice-element variables.
             let involves_tracked =
                 executor
                     .function_symbolic_arguments
                     .iter()
-                    .any(|(name, sym_var)| {
+                    .any(|(_, sym_var)| {
                         if let SymbolicVar::Int(bv) = sym_var {
                             let z3_name = format!("{:?}", bv);
-                            name.contains("slice_elem")
+                            z3_name.contains("slice_elem")
                                 && (expr0.contains(&z3_name) || expr1.contains(&z3_name))
                         } else {
                             false
