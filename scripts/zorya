@@ -49,7 +49,10 @@ TRACE_FILE="$ZORYA_DIR/results/execution_trace.txt"
 mkdir -p "$ZORYA_DIR/results"
 > "$TRACE_FILE"                                         # truncate / create
 export ZORYA_TRACE_BY_SHELL=1
-exec > >(tee -a "$TRACE_FILE") 2>&1                    # tee stdout+stderr → file
+# Tee all output (stdout + stderr) to the trace file, stripping ANSI colour
+# escape sequences so the file contains plain text while the terminal still
+# sees colours.  The sed pattern matches ESC [ … <letter> (SGR, cursor, etc.)
+exec > >(tee >(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' >> "$TRACE_FILE")) 2>&1
 
 ##############################################################################
 #                         HELPER FUNCTIONS
