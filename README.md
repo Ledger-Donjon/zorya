@@ -117,9 +117,6 @@ OPTION:
 ENVIRONMENT:
   LOG_MODE=trace_only           Disable creation of results/execution_log.txt (file logging). Zorya will still
                                 write results/execution_trace.txt.
-  ZORYA_ANCHOR_SLICE_META=0     (Go) Advanced/experimental: do NOT anchor slice len/cap to the concrete dump.
-                                Useful for exploring "slice shape" behaviors, but may increase false positives
-                                unless memory modeling supports reallocations/resizing.
 ```
 
 Notes:

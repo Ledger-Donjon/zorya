@@ -91,6 +91,32 @@ Function signatures map Go function arguments to their **physical locations** (C
 
 ---
 
+## Go Slice Arguments: Bounded Symbolic `len/cap`
+
+### Why This Matters
+
+Many Go bugs depend not only on **slice contents** (`b[i]`) but also on the **slice shape** (`len` / `cap`).
+Zorya starts from a **GDB memory dump**, so the slice backing memory (`ptr`) is a concrete snapshot. If Z3 is
+allowed to freely choose arbitrarily large lengths, it can produce **infeasible models** (e.g., a slice claims
+to have billions of elements even though only a small backing region exists in the dump). This tends to create
+false positives in pointer arithmetic and bounds logic.
+
+Conversely, fully anchoring `len`/`cap` to the dump can hide length-dependent bugs when the concrete call-site
+captured in the dump happens to pass a shorter slice than the interesting test case.
+
+### Zorya’s Current Strategy
+
+For Go slice arguments (`[]T`) in `--mode function`, Zorya uses a hybrid strategy:
+
+- **`ptr`**: anchored to the concrete dump value (plus non-null + alignment constraints).
+- **`len`**: symbolic, but **bounded**: $1 \le len \le 64$.
+- **`cap`**: symbolic, but **bounded**: $cap \le 64$ and $cap \ge len$.
+- **contents**: Zorya materializes and symbolizes **up to 64 elements** in memory so the solver can influence
+  later reads (e.g., reaching `b[18]` requires that byte to be symbolic).
+
+This allows Z3 to discover slice-length-dependent bugs (like integer overflows in parsers that only become
+possible after many iterations) without opening the door to absurd-length models.
+
 ## Known Current Limitations and Issues
 
 ### Go Runtime State Dependencies

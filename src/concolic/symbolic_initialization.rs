@@ -1038,14 +1038,26 @@ pub fn initialize_slice_argument<'a>(
         // Handle solver assertions
         {
             let solver = &mut executor.solver;
-            solver.assert(&slice.pointer._eq(&BV::from_u64(ctx, 0, 64)).not());
-            solver.assert(
-                &slice
-                    .pointer
-                    .bvand(&BV::from_u64(ctx, 7, 64))
-                    ._eq(&BV::from_u64(ctx, 0, 64)),
-            );
-            solver.assert(&slice.length.bvuge(&BV::from_u64(ctx, 1, 64)));
+            // IMPORTANT: any constraint asserted here must also be pushed to executor.constraint_vector.
+            // The integer overflow checks use a fresh `z3::Solver` and only re-assert
+            // executor.constraint_vector (not executor.solver's assertions). If we don't push the
+            // base slice-shape constraints, Z3 can pick absurd slice lengths/capacities and produce
+            // false positives (e.g., overflow in pointer arithmetic).
+
+            let c_ptr_nonnull = slice.pointer._eq(&BV::from_u64(ctx, 0, 64)).not();
+            solver.assert(&c_ptr_nonnull);
+            executor.constraint_vector.push(c_ptr_nonnull);
+
+            let c_ptr_aligned = slice
+                .pointer
+                .bvand(&BV::from_u64(ctx, 7, 64))
+                ._eq(&BV::from_u64(ctx, 0, 64));
+            solver.assert(&c_ptr_aligned);
+            executor.constraint_vector.push(c_ptr_aligned);
+
+            let c_len_ge_1 = slice.length.bvuge(&BV::from_u64(ctx, 1, 64));
+            solver.assert(&c_len_ge_1);
+            executor.constraint_vector.push(c_len_ge_1);
 
             // Go slice meta: keep len symbolic but bounded, so Z3 can explore slice-shape bugs
             // without inventing absurd lengths that lead to infeasible models / pointer arithmetic noise.
@@ -1055,9 +1067,17 @@ pub fn initialize_slice_argument<'a>(
             if source_lang.eq_ignore_ascii_case("go") {
                 let max_len: u64 = 64;
                 let max_bv = BV::from_u64(ctx, max_len, 64);
-                solver.assert(&slice.length.bvule(&max_bv));
-                solver.assert(&slice.capacity.bvule(&max_bv));
-                solver.assert(&slice.capacity.bvuge(&slice.length));
+                let c_len_le_max = slice.length.bvule(&max_bv);
+                solver.assert(&c_len_le_max);
+                executor.constraint_vector.push(c_len_le_max);
+
+                let c_cap_le_max = slice.capacity.bvule(&max_bv);
+                solver.assert(&c_cap_le_max);
+                executor.constraint_vector.push(c_cap_le_max);
+
+                let c_cap_ge_len = slice.capacity.bvuge(&slice.length);
+                solver.assert(&c_cap_ge_len);
+                executor.constraint_vector.push(c_cap_ge_len);
             }
         }
 
@@ -1201,14 +1221,40 @@ pub fn initialize_single_register_slice<'a>(
         // Handle solver assertions
         {
             let solver = &mut exec.solver;
-            solver.assert(
-                &slice
-                    .pointer
-                    .bvand(&BV::from_u64(ctx, 7, 64))
-                    ._eq(&BV::from_u64(ctx, 0, 64)),
-            );
-            solver.assert(&slice.pointer._eq(&BV::from_u64(ctx, 0, 64)).not());
-            solver.assert(&slice.length.bvuge(&BV::from_u64(ctx, 1, 64)));
+            // Mirror base constraints into constraint_vector so auxiliary solvers
+            // (e.g., INT overflow checks) also see them.
+            let c_ptr_aligned = slice
+                .pointer
+                .bvand(&BV::from_u64(ctx, 7, 64))
+                ._eq(&BV::from_u64(ctx, 0, 64));
+            solver.assert(&c_ptr_aligned);
+            exec.constraint_vector.push(c_ptr_aligned);
+
+            let c_ptr_nonnull = slice.pointer._eq(&BV::from_u64(ctx, 0, 64)).not();
+            solver.assert(&c_ptr_nonnull);
+            exec.constraint_vector.push(c_ptr_nonnull);
+
+            let c_len_ge_1 = slice.length.bvuge(&BV::from_u64(ctx, 1, 64));
+            solver.assert(&c_len_ge_1);
+            exec.constraint_vector.push(c_len_ge_1);
+
+            // Go bounded slice meta (default 64)
+            let source_lang = std::env::var("SOURCE_LANG").unwrap_or_default();
+            if source_lang.eq_ignore_ascii_case("go") {
+                let max_len: u64 = 64;
+                let max_bv = BV::from_u64(ctx, max_len, 64);
+                let c_len_le_max = slice.length.bvule(&max_bv);
+                solver.assert(&c_len_le_max);
+                exec.constraint_vector.push(c_len_le_max);
+
+                let c_cap_le_max = slice.capacity.bvule(&max_bv);
+                solver.assert(&c_cap_le_max);
+                exec.constraint_vector.push(c_cap_le_max);
+
+                let c_cap_ge_len = slice.capacity.bvuge(&slice.length);
+                solver.assert(&c_cap_ge_len);
+                exec.constraint_vector.push(c_cap_ge_len);
+            }
         }
 
         // Handle CPU state
