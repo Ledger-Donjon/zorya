@@ -792,6 +792,39 @@ impl Logger {
         })
     }
 
+    /// Open the file in **append** mode (does not truncate).  Use this for
+    /// `execution_trace.txt` so that the Logger and the global `TRACE_FILE`
+    /// handle (also opened in append mode) do not fight over the write cursor.
+    pub fn new_append(file_path: &str, to_terminal: bool) -> io::Result<Self> {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(file_path)?;
+        let terminal = if to_terminal {
+            Some(Arc::new(Mutex::new(io::stdout())))
+        } else {
+            None
+        };
+        Ok(Logger {
+            file: Arc::new(Mutex::new(file)),
+            terminal,
+            enabled: true,
+        })
+    }
+
+    /// Create a **stdout-only** logger (writes to /dev/null as its file).
+    /// Used when the shell wrapper is teeing all stdout to the trace file
+    /// (`ZORYA_TRACE_BY_SHELL=1`): the tee process is the sole writer, so
+    /// the Logger must not also write directly to avoid duplicates.
+    pub fn new_stdout_only() -> io::Result<Self> {
+        let file = File::create("/dev/null")?;
+        Ok(Logger {
+            file: Arc::new(Mutex::new(file)),
+            terminal: Some(Arc::new(Mutex::new(io::stdout()))),
+            enabled: true,
+        })
+    }
+
     /// Returns `true` if this logger will actually write output.
     /// The `log!()` macro checks this flag before evaluating any format
     /// arguments, so expensive calls like `.simplify()` are skipped entirely

@@ -215,18 +215,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         "results/execution_log.txt"
     };
     let logger = Logger::new(logger_path, false).expect("Failed to create logger"); // detailed log (file only when not trace_only)
-    let trace_logger =
-        Logger::new("results/execution_trace.txt", true).expect("Failed to create trace logger"); // get the trace of the executed symbols names, log to the file and stdout
-                                                                                                  // Initialise the global trace file so that ttprintln!/tteprintln! also
-                                                                                                  // append to execution_trace.txt (the trace_logger above already
-                                                                                                  // truncated/created the file, so we open in append mode).
-    zorya::init_trace_file("results/execution_trace.txt");
 
-    // Mirror the "Running command:" line (printed by the zorya shell script)
-    // into execution_trace.txt so the trace file is self-contained.
-    if let Ok(cmd) = std::env::var("ZORYA_CMD") {
-        tprintln!("Running command: {}", cmd);
-        tprintln!();
+    // Detect whether the shell wrapper is teeing all terminal output to the
+    // trace file.  When it is, we must NOT also write directly to the file
+    // from the Rust binary — that would produce duplicate lines.
+    //
+    // Two modes:
+    //   ZORYA_TRACE_BY_SHELL=1  → shell handles the file; use stdout-only logger.
+    //   otherwise               → binary writes the file itself; use append-mode
+    //                             logger so it doesn't overwrite the TRACE_FILE
+    //                             handle (which also opens in append mode).
+    let trace_by_shell = std::env::var("ZORYA_TRACE_BY_SHELL")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    let trace_logger = if trace_by_shell {
+        // Shell is teeing stdout → file.  Logger must not write to the file.
+        Logger::new_stdout_only().expect("Failed to create stdout-only trace logger")
+    } else {
+        // Standalone run: truncate the trace file once, then open both handles
+        // in append mode so they serialize writes correctly.
+        let _ = std::fs::File::create("results/execution_trace.txt"); // truncate
+        Logger::new_append("results/execution_trace.txt", true)
+            .expect("Failed to create trace logger")
+    };
+
+    if !trace_by_shell {
+        // Initialise the global TRACE_FILE handle (append mode) used by
+        // tprintln!/teprintln!.  Only needed when not running via the wrapper.
+        zorya::init_trace_file("results/execution_trace.txt");
+
+        // Mirror the "Running command:" line into the trace file so the file
+        // is self-contained when running without the shell wrapper.
+        if let Ok(cmd) = std::env::var("ZORYA_CMD") {
+            tprintln!("Running command: {}", cmd);
+            tprintln!();
+        }
     }
     let mut executor: ConcolicExecutor<'_> =
         ConcolicExecutor::new(&context, logger.clone(), trace_logger.clone())

@@ -35,6 +35,22 @@ INIT_DATA_DIR="$ZORYA_DIR/results/initialization_data"
 [[ ! -d "$PCODE_GENERATOR_DIR" ]] && { echo "Missing pcode-generator – run make all"; exit 1; }
 mkdir -p "$INIT_DATA_DIR"
 
+# ── Trace file setup ────────────────────────────────────────────────────────
+# Truncate execution_trace.txt at the very start of each run, then redirect
+# ALL terminal output (stdout + stderr) through `tee` so that every line
+# printed to the terminal — including pcode generation, GDB dumps, VDSO
+# extraction, and the Rust binary's own output — is also captured in the
+# trace file in the correct chronological order.
+#
+# The Rust binary detects ZORYA_TRACE_BY_SHELL=1 and switches to
+# stdout-only loggers so it does NOT write directly to the file (which
+# would create duplicate lines alongside the ones tee writes).
+TRACE_FILE="$ZORYA_DIR/results/execution_trace.txt"
+mkdir -p "$ZORYA_DIR/results"
+> "$TRACE_FILE"                                         # truncate / create
+export ZORYA_TRACE_BY_SHELL=1
+exec > >(tee -a "$TRACE_FILE") 2>&1                    # tee stdout+stderr → file
+
 ##############################################################################
 #                         HELPER FUNCTIONS
 ##############################################################################
