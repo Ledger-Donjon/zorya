@@ -12,7 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/version-0.0.4-green" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.0.5-green" alt="Version">
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust" alt="Made with Rust"/></a>
   
 </p>
