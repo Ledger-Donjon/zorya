@@ -1114,6 +1114,10 @@ pub fn evaluate_args_z3<'ctx>(
                 let solve_start = Instant::now();
                 let solve_result = null_solver.check();
                 let solve_elapsed = solve_start.elapsed();
+                crate::Z3_CUMULATIVE_MS.fetch_add(
+                    solve_elapsed.as_millis() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
 
                 // Always log to file so execution_log records every check
                 log!(
@@ -1283,6 +1287,10 @@ pub fn evaluate_args_z3<'ctx>(
             let solve_start = Instant::now();
             let solve_result = executor.solver.check(&[]);
             let solve_elapsed = solve_start.elapsed();
+            crate::Z3_CUMULATIVE_MS.fetch_add(
+                solve_elapsed.as_millis() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
 
             // Always log to file so execution_log records every check
             log!(
@@ -1458,6 +1466,10 @@ pub fn evaluate_args_z3<'ctx>(
         let solve_start = Instant::now();
         let solve_result = executor.solver.check(&[]);
         let solve_elapsed = solve_start.elapsed();
+        crate::Z3_CUMULATIVE_MS.fetch_add(
+            solve_elapsed.as_millis() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
 
         // Always log to file so execution_log records every check
         log!(

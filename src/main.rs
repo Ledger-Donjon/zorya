@@ -727,6 +727,119 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Update the sticky coverage bar that stays pinned to the last terminal line.
+///
+/// Stores the rendered bar text in the global `zorya::COVERAGE_BAR` so that
+/// every subsequent `tprintln!` / `teprintln!` call automatically erases the
+/// bar before its message and redraws it afterwards.  The bar itself is written
+/// to stdout (same stream as all other output) so there is no cross-stream
+/// interleaving.
+///
+/// When stdout is not a TTY the function is a no-op (the fallback plain-text
+/// line is produced by the non-TTY branch of `tprintln!` / `teprintln!`).
+/// Update the sticky coverage bar pinned to the bottom of the user's terminal.
+///
+/// Writes directly to `/dev/tty` so the bar is visible even when stdout is
+/// piped through the zorya wrapper's `tee` process substitution.
+/// No-op when there is no controlling terminal (CI, fully piped runs, etc.).
+/// Update the sticky coverage bar pinned to the last terminal line.
+///
+/// Writes through the same /dev/tty fd used by `tprintln!` / `teprintln!`,
+/// so bar updates and normal messages are always serialised — no race condition
+/// is possible.  No-op when there is no controlling terminal.
+/// Render the sticky status bar at the bottom of the terminal.
+///
+/// Includes block-level coverage, elapsed time, active function, and
+/// constraint count — the four signals most useful for spotting a stall:
+///
+/// * **Coverage** — are new blocks being reached?
+/// * **Elapsed** — overall wall-clock time
+/// * **Function** — where in the binary execution currently is
+/// * **Constraints** — proxy for SMT solver complexity; a rapidly growing
+///   count suggests the solver will slow down soon
+/// Render the sticky status bar.
+///
+/// Metrics shown — chosen to give a flamegraph-like view of where time goes:
+///
+/// * **Coverage bar + %** — are new basic blocks being reached?
+/// * **⏱ Elapsed** — wall-clock time since execution started
+/// * **Z3 time / Z3 %** — cumulative SMT-solver time and its share of elapsed.
+///   This is the key flamegraph-equivalent: a high Z3 % means the solver is
+///   the bottleneck (constraints too complex); a low Z3 % with slow execution
+///   points to p-code emulation being the bottleneck.
+/// * **🔗 Constraints** — size of the constraint set fed to Z3; a proxy for
+///   how hard future solver calls will be.
+fn print_coverage_bar(
+    visited: usize,
+    total: usize,
+    elapsed_secs: f64,
+    z3_cumulative_ms: u64,
+    constraint_count: usize,
+) {
+    if zorya::TTY.is_none() {
+        return;
+    }
+
+    let pct = (visited as f64 / total as f64) * 100.0;
+
+    const BAR_WIDTH: usize = 20;
+    let filled = ((pct / 100.0 * BAR_WIDTH as f64) as usize)
+        .max(if visited > 0 { 1 } else { 0 })
+        .min(BAR_WIDTH);
+
+    let coloured_fill = format!(
+        "\x1b[32m{}\x1b[90m{}\x1b[0m",
+        "█".repeat(filled),
+        "░".repeat(BAR_WIDTH - filled),
+    );
+
+    // Elapsed: switch to m:ss once past 60 s
+    let elapsed_str = if elapsed_secs >= 60.0 {
+        format!(
+            "{:.0}m{:.0}s",
+            (elapsed_secs / 60.0).floor(),
+            elapsed_secs % 60.0
+        )
+    } else {
+        format!("{:.1}s", elapsed_secs)
+    };
+
+    // Z3 cumulative time and its share of wall-clock time
+    let z3_secs = z3_cumulative_ms as f64 / 1000.0;
+    let z3_pct = if elapsed_secs > 0.0 {
+        (z3_secs / elapsed_secs * 100.0).min(100.0)
+    } else {
+        0.0
+    };
+    // Colour the Z3 % red when it dominates (> 50 %), yellow when notable (> 20 %)
+    let z3_colour = if z3_pct > 50.0 {
+        "31"
+    } else if z3_pct > 20.0 {
+        "33"
+    } else {
+        "32"
+    };
+    let z3_str = format!("\x1b[{}m{:.1}s ({:.0}%)\x1b[0m", z3_colour, z3_secs, z3_pct);
+
+    let bar_text = format!(
+        "\x1b[1;36m[Coverage]\x1b[0m [{}] \x1b[1m{}/{}\x1b[0m ({:.3}%) \
+         \x1b[90m|\x1b[0m t:\x1b[33m{}\x1b[0m \
+         \x1b[90m|\x1b[0m Z3:{} \
+         \x1b[90m|\x1b[0m cst:\x1b[33m{}\x1b[0m",
+        coloured_fill, visited, total, pct, elapsed_str, z3_str, constraint_count,
+    );
+
+    if let Ok(mut guard) = zorya::COVERAGE_BAR.lock() {
+        *guard = bar_text.clone();
+    }
+    // \n before the bar so there is always a blank separator line between
+    // the last output line and the coverage bar.
+    zorya::tty_write(&format!(
+        "\x1b[s\x1b[998;1H\x1b[2K\x1b[999;1H\x1b[2K{}\x1b[u",
+        bar_text
+    ));
+}
+
 // Function to execute the instructions from the map of addresses to instructions
 fn execute_instructions_from(
     executor: &mut ConcolicExecutor,
@@ -837,6 +950,18 @@ fn execute_instructions_from(
         );
 
         let current_rip_hex = format!("{:x}", current_rip);
+
+        // Block-level coverage: update the sticky bar at the bottom of the terminal
+        // whenever a genuinely new block is entered.
+        if executor.visited_blocks.insert(current_rip) {
+            print_coverage_bar(
+                executor.visited_blocks.len(),
+                instructions_map.len(),
+                executor.start_time.elapsed().as_secs_f64(),
+                zorya::Z3_CUMULATIVE_MS.load(std::sync::atomic::Ordering::Relaxed),
+                executor.constraint_vector.len(),
+            );
+        }
 
         // This block is only to get data about the execution in results/execution_trace.txt
         if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {

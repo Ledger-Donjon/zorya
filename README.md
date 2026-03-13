@@ -224,7 +224,12 @@ This is it, you have entered the concrete value "a", and Zorya tells you that if
 - Reports tainted coverage and fixpoint completion statistics (iteration counts, elapsed time, totals) and exports machine-readable metrics (see ```panic_coverage.json```),
 - Produces an unreachable summary grouped by categories and function names to help review what remains outside the panic-reaching subgraph (see ```unreachable_summary.txt``` / ```.json```),
 - Integrates optional jump-table and xref expansion to improve predecessor discovery (consumes ```results/jump_tables.json``` if present),
-- Allows tuning of analysis via environment flags (exhaustiveness and function-body xref sampling budget/stride).
+- Allows tuning of analysis via environment flags (exhaustiveness and function-body xref sampling budget/stride),
+- Displays a **live metrics bar** pinned to the bottom of the terminal during execution, showing real-time progress without cluttering the trace output:
+  - **Block coverage**: `visited / total` basic blocks with an ASCII progress bar and percentage,
+  - **Elapsed time** (`t:`): wall-clock time since execution started,
+  - **Z3 solver time** (`Z3:`): cumulative time spent in the SMT solver and its share of total elapsed time — a high Z3 percentage indicates the execution is spending most of its time solving path constraints, which is the primary bottleneck in concolic analysis,
+  - **Constraint count** (`cst:`): number of symbolic path constraints accumulated so far.
 
 ### Reverse panic reachability precompute
 This step runs automatically at startup and computes the set of basic blocks that can reach a panic callsite. It accelerates gating decisions (e.g., whether to symbolically explore a branch) and provides coverage insights.

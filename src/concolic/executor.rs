@@ -22,6 +22,8 @@ pub use super::SymbolicVar;
 use crate::concolic::ConcolicVar;
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::evaluate_args_z3;
+#[allow(unused_imports)]
+use crate::state::memory_x86_64::MemoryError;
 use crate::state::memory_x86_64::MemoryValue;
 use crate::state::simplify_z3::extract_underlying_condition_from_flag_ast;
 use crate::state::state_manager::FunctionFrame;
@@ -61,6 +63,7 @@ pub struct ConcolicExecutor<'ctx> {
     pub overlay_state: Option<crate::state::OverlayState<'ctx>>, // Overlay state for exploring untaken paths without modifying base state
     pub null_check_cache: std::collections::HashMap<String, (bool, usize)>, // Per-variable cache: maps symbolic variable name → (was_sat, constraint_len). If was_sat=true the variable is permanently skipped (vulnerability already reported). If was_sat=false it is re-checked only when constraint_len changes. For Go struct pointers this is pre-seeded with (false, 0) at initialization so the solver is never invoked.
     pub start_time: Instant, // Execution start time for elapsed time tracking
+    pub visited_blocks: BTreeSet<u64>, // Tracks which basic-block addresses have been entered during execution (for block-level coverage metrics)
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -88,6 +91,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             overlay_state: None, // No overlay by default
             null_check_cache: std::collections::HashMap::new(),
             start_time: Instant::now(),
+            visited_blocks: BTreeSet::new(),
         })
     }
 

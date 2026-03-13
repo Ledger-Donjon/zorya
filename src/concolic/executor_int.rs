@@ -338,6 +338,10 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                 let solve_start = std::time::Instant::now();
                 let solve_result = overflow_solver.check();
                 let solve_elapsed = solve_start.elapsed();
+                crate::Z3_CUMULATIVE_MS.fetch_add(
+                    solve_elapsed.as_millis() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
 
                 log!(
                     executor.state.logger.clone(),
@@ -2454,6 +2458,10 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
                 let solve_start = std::time::Instant::now();
                 let solve_result = overflow_solver.check();
                 let solve_elapsed = solve_start.elapsed();
+                crate::Z3_CUMULATIVE_MS.fetch_add(
+                    solve_elapsed.as_millis() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
 
                 log!(
                     executor.state.logger.clone(),
