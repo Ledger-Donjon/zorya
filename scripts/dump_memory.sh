@@ -100,8 +100,10 @@ run_gdb() {
     fi
 }
 
-# PHASE 1: Get memory mappings only (first GDB session)
-# This is needed to generate dump_commands.txt before we can dump memory
+# Single unified GDB session: mapping + registers + memory dumps + thread states.
+# All data comes from the SAME process so that dynamically-allocated Go runtime
+# regions (goroutine stacks, heap arenas) are captured correctly.
+echo "Executing mapping, registers, memory dumps, and thread state capture in a single GDB session..."
 run_gdb overwrite -batch \
     -ex "set auto-load safe-path /" \
     -ex "set pagination off" \
@@ -116,29 +118,7 @@ run_gdb overwrite -batch \
     -ex "set logging enabled on" \
     -ex "info proc mappings" \
     -ex "set logging enabled off" \
-    -ex "quit"
-
-# Check if memory mapping was successfully created
-if [ ! -s $MEMORY_MAP_PATH ]; then
-    echo "Error: Failed to generate memory_mapping.txt. Check $GDB_LOG for details."
-    exit 1
-fi
-
-echo "Generating dump_commands.txt using parse_and_generate.py..."
-python3 parse_and_generate.py
-
-# PHASE 2: Single combined session for registers, memory dumps, and thread states
-# This ensures all data comes from the same process with consistent TLS addresses
-echo "Executing memory dumps, registers, and thread state capture in single GDB session..."
-run_gdb append -batch \
-    -ex "set auto-load safe-path /" \
-    -ex "set pagination off" \
-    -ex "set style enabled off" \
-    -ex "set confirm off" \
-    -ex "file $BIN_PATH" \
-    -ex "set args ${ARGS}" \
-    -ex "break *$START_POINT" \
-    -ex "run" \
+    -ex "shell python3 $PARSE_SCRIPT" \
     -ex "set logging file $CPU_MAP_PATH" \
     -ex "set logging enabled on" \
     -ex "info all-registers" \
@@ -149,20 +129,28 @@ run_gdb append -batch \
     -ex "dump-threads" \
     -ex "quit"
 
-# Check if execution was successful
-if [ $? -ne 0 ]; then
+GDB_EXIT=$?
+
+if [ $GDB_EXIT -ne 0 ]; then
     echo "Error during GDB execution. Check $GDB_LOG for details."
     exit 1
 fi
 
+if [ ! -s "$MEMORY_MAP_PATH" ]; then
+    echo "Error: Failed to generate memory_mapping.txt. Check $GDB_LOG for details."
+    exit 1
+fi
+
+if [ ! -s "$DUMP_COMMANDS_PATH" ]; then
+    echo "Error: Failed to generate dump_commands.txt. Check $GDB_LOG for details."
+    exit 1
+fi
+
+echo "Generating dump_commands.txt using parse_and_generate.py..."
+DUMP_CMD_COUNT=$(wc -l < "$DUMP_COMMANDS_PATH")
+echo "Command file generated successfully with $DUMP_CMD_COUNT commands."
 echo "Dump commands executed successfully in GDB."
 echo "Dumping thread states (registers + TLS bases)..."
-
-# Check if thread dump was successful
-if [ $? -ne 0 ]; then
-    echo "Warning: Thread dump may have failed. Check $GDB_LOG for details."
-    echo "Continuing anyway..."
-fi
 
 # Check if thread dumps were created
 if [ -d "$THREADS_DIR" ] && [ "$(ls -A $THREADS_DIR 2>/dev/null)" ]; then
