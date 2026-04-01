@@ -76,10 +76,10 @@ pub struct State<'a> {
     pub memory: MemoryX86_64<'a>,
     pub cpu_state: SharedCpuState<'a>,
     pub vfs: Rc<RwLock<VirtualFileSystem>>, // Virtual file system
-    pub fd_paths: BTreeMap<u64, PathBuf>,    // Maps syscall file descriptors to file paths.
-    pub fd_counter: u64,                     // Counter to generate unique file descriptor IDs.
-    pub logger: Logger,                      // Logger for debugging
-    pub signal_mask: u64,                    // store the signal mask
+    pub fd_paths: BTreeMap<u64, PathBuf>,   // Maps syscall file descriptors to file paths.
+    pub fd_counter: u64,                    // Counter to generate unique file descriptor IDs.
+    pub logger: Logger,                     // Logger for debugging
+    pub signal_mask: u64,                   // store the signal mask
     pub futex_manager: FutexManager,
     pub altstack: StackT, // structure used by the sigaltstack system call to define an alternate signal stack
     pub is_terminated: bool, // Indicates if the process is terminated

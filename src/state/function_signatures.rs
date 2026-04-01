@@ -8,8 +8,8 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Write;
 use std::io::BufReader;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::{env, fs};
@@ -259,8 +259,7 @@ pub fn load_function_args_map() -> FunctionArgsMap {
 pub fn load_go_function_args_map(
     binary_path: &str,
     executor: &mut ConcolicExecutor,
-) -> Result<FunctionArgsMap, Box<dyn std::error::Error>>
-{
+) -> Result<FunctionArgsMap, Box<dyn std::error::Error>> {
     let func_signatures_path = "results/function_signatures_go.json";
 
     // Check if we need to regenerate signatures

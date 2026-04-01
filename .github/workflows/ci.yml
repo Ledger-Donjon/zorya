@@ -42,7 +42,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends libz3-dev
+          sudo apt-get install -y --no-install-recommends libz3-dev binutils-dev
 
       - name: Run clippy
         run: |
@@ -60,7 +60,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends libz3-dev
+          sudo apt-get install -y --no-install-recommends libz3-dev binutils-dev
 
       - name: Build (dev)
         run: cargo build --package zorya --all-targets
@@ -96,7 +96,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends libz3-dev
+          sudo apt-get install -y --no-install-recommends libz3-dev binutils-dev
 
       - name: Run tests
         run: cargo test --package zorya

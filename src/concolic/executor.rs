@@ -304,12 +304,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             overlay.write_memory(address, concrete_data, symbolic_data, region)
         } else {
             // Write to base state
-            let symbolic_vec: Vec<Option<std::rc::Rc<BV<'ctx>>>> =
-                if let Some(sym) = symbolic_data {
-                    vec![Some(sym); concrete_data.len()]
-                } else {
-                    vec![None; concrete_data.len()]
-                };
+            let symbolic_vec: Vec<Option<std::rc::Rc<BV<'ctx>>>> = if let Some(sym) = symbolic_data
+            {
+                vec![Some(sym); concrete_data.len()]
+            } else {
+                vec![None; concrete_data.len()]
+            };
             self.state
                 .memory
                 .write_memory(address, concrete_data, &symbolic_vec)

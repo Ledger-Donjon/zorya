@@ -2,14 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap,
-    fs,
-    io::Write,
-    path::Path,
-    rc::Rc,
-    sync::OnceLock,
-};
+use std::{collections::HashMap, fs, io::Write, path::Path, rc::Rc, sync::OnceLock};
 
 use crate::{
     concolic::{ConcolicExecutor, ConcolicVar, ConcreteVar, SymbolicVar},
