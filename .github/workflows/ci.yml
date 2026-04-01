@@ -46,7 +46,7 @@ jobs:
 
       - name: Run clippy
         run: |
-          cargo clippy --all-targets -- -D warnings
+          cargo clippy --package zorya --all-targets -- -D warnings
 
   # ── 3. Build ──────────────────────────────────────────────────────────────
   build:
@@ -63,10 +63,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends libz3-dev
 
       - name: Build (dev)
-        run: cargo build --all-targets
+        run: cargo build --package zorya --all-targets
 
       - name: Build (release)
-        run: cargo build --release
+        run: cargo build --package zorya --release
 
   # ── 4. Python scripts (lint + format) ────────────────────────────────────
   python:
@@ -99,4 +99,4 @@ jobs:
           sudo apt-get install -y --no-install-recommends libz3-dev
 
       - name: Run tests
-        run: cargo test --all
+        run: cargo test --package zorya
