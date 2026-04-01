@@ -74,7 +74,7 @@ Zorya provides a guided mode, so you don't need to remember the options or flags
 
 - Standard Execution - Automatically detects the main function or entry point.
 - Function-Specific Execution - Allows selecting and providing arguments for a specific function.
-- Custom Execution - Lets you manually input an address and arguments for targeted analysis.
+- Advanced Execution - Lets you manually input an address and choose which registers and memory addresses to make symbolic for targeted analysis.
 
 Given the absolute path to the binary you want to analyze ```<path>```, simply run:
 ```
@@ -84,15 +84,16 @@ The prompt will ask you for the:
 1. Source code language: go, c, or c++
 2. Go compiler: tinygo or gc (only when go is selected)
 3. Thread scheduling strategy: all-threads or main-only (only for Go GC binaries)
-4. Analysis mode: start, main, function, or custom
-5. Function address: If you chose function or custom modes
-6. Binary arguments: If the binary expects arguments (optional)
-7. Negating path execution: Whether to symbolically explore alternate branches (defaults to yes)
+4. Analysis mode: start, main, function, or advanced
+5. Function address: If you chose function or advanced modes
+6. (Advanced mode only) Registers and memory addresses to make symbolic
+7. Binary arguments: If the binary expects arguments (optional)
+8. Negating path execution: Whether to symbolically explore alternate branches (defaults to yes)
 
 ### B. Basic Command-Line Usage
-To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or custom) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
+To use Zorya in its basic form, you need the absolute path to the binary you wish to analyze (```<path>```) and the hexadecimal address where execution should begin (```<addr>```). You must then specify the execution mode (start, main, function, or advanced) based on your chosen analysis strategy. Additionally, you can provide any necessary arguments to be passed to the binary:
 ```
-zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|custom> <addr> [--thread-scheduling <all-threads|main-only>] --arg "<arg1> <arg2>" [--negate-path-exploration|--no-negate-path-exploration] [--force-pty]
+zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] --mode <start|main|function|advanced> <addr> [--thread-scheduling <all-threads|main-only>] --arg "<arg1> <arg2>" [--negate-path-exploration|--no-negate-path-exploration] [--force-pty] [--symbolic-registers "REG1 REG2"] [--symbolic-memory "0xADDR1:SIZE1 0xADDR2:SIZE2"]
 
 FLAG:
   --lang                        Specifies the language used in the source code (go/c/c++)
@@ -101,7 +102,8 @@ FLAG:
                                       start → Use the binary's entry point
                                       main → Analyze the main function (main.main preferred in Go binaries)
                                       function → Specify a function address manually
-                                      custom → Define an arbitrary execution address
+                                      advanced → Define an arbitrary execution address with fine-grained
+                                                 symbolic variable selection (registers, memory)
   --thread-scheduling           Thread scheduling strategy for Go GC binaries:
                                       all-threads → Load + schedule all dumped OS threads
                                       main-only   → Execute only the main thread (simpler/more deterministic)
@@ -113,6 +115,10 @@ FLAG:
 
 OPTION:
   --arg                         Specifies arguments to pass to the binary, if any (default is 'none').
+  --symbolic-registers          (Advanced mode) Space-separated list of registers to make symbolic
+                                (e.g., "RAX RDI RSI"). If omitted in advanced mode, Zorya prompts interactively.
+  --symbolic-memory             (Advanced mode) Space-separated list of memory ranges to make symbolic,
+                                formatted as "0xADDR:SIZE_IN_BYTES" (e.g., "0x7fff0010:8 0x404000:16").
 
 ENVIRONMENT:
   LOG_MODE=trace_only           Disable creation of results/execution_log.txt (file logging). Zorya will still
@@ -121,7 +127,7 @@ ENVIRONMENT:
 
 Notes:
 - If any flag is missing, Zorya will prompt you interactively to ask for it.
-- The address ()```<addr>```) is mandatory when using function or custom modes.
+- The address ()```<addr>```) is mandatory when using function or advanced modes.
 - Arguments (--arg) are optional.
 - The ```--negate-path-exploration``` flag enables alternate path exploration (symbolic branch negation) to increase code coverage. It is enabled by default unless explicitly disabled using ```--no-negate-path-exploration```, if the execution takes too much time for instance.
 - The ```--force-pty``` flag is needed when the target binary checks whether its I/O streams are connected to a real terminal (via ```isatty()``` / Go's ```term.IsTerminal()```). By default, GDB runs the child process with pipes, so ```isatty()``` returns false and terminal-dependent code paths are skipped entirely during the GDB dump phase. When ```--force-pty``` is set, Zorya wraps every GDB session inside the Linux ```script``` command, which allocates a real pseudo-terminal (```/dev/pts/N```). The child process then sees a genuine TTY, and terminal-gated initialization runs normally. A concrete example is ```kubectl exec -it```, where terminal size monitoring is only initialized when stdout is a TTY — see [Go-Binary-Analysis.md](doc/Go-Binary-Analysis.md) for details.
@@ -172,7 +178,7 @@ What is the source language of the binary? (go, c or c++)
 Which Go compiler was used to build the binary? (tinygo / gc)
 [tinygo]: 
 *************************************************************************************
-Where to begin the analysis? (start / main / function / custom)
+Where to begin the analysis? (start / main / function / advanced)
 [main]: 
 
 Automatically detected main function address: 0x000000000022b1d0

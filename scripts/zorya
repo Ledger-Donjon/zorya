@@ -85,11 +85,15 @@ if [[ -z "$1" || "$1" == -* ]]; then
   echo -e "${BOLD}Options:${RESET}"
   echo -e "  ${GREEN}--lang${RESET} <go|c|c++>              Source language of the binary"
   echo -e "  ${GREEN}--compiler${RESET} <tinygo|gc>         Go compiler used (required for Go binaries)"
-  echo -e "  ${GREEN}--mode${RESET} <start|main|function|custom> [addr]"
+  echo -e "  ${GREEN}--mode${RESET} <start|main|function|advanced> [addr]"
   echo -e "                                  Analysis starting point"
   echo -e "  ${GREEN}--thread-scheduling${RESET} <all-threads|main-only>"
   echo -e "                                  Thread scheduling strategy (Go GC only)"
   echo -e "  ${GREEN}--arg${RESET} <args...>               Binary arguments"
+  echo -e "  ${GREEN}--symbolic-registers${RESET} <regs>   (Advanced) Registers to make symbolic (e.g. \"RAX RDI\")"
+  echo -e "  ${GREEN}--no-symbolic-registers${RESET}      (Advanced) Skip symbolic registers (no prompt)"
+  echo -e "  ${GREEN}--symbolic-memory${RESET} <ranges>    (Advanced) Memory ranges: \"0xADDR:SIZE ...\" "
+  echo -e "  ${GREEN}--no-symbolic-memory${RESET}          (Advanced) Skip symbolic memory (no prompt)"
   echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
   echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
   echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
@@ -99,6 +103,7 @@ if [[ -z "$1" || "$1" == -* ]]; then
   echo -e "${BOLD}Examples:${RESET}"
   echo -e "  zorya ./myprogram --lang go --compiler tinygo --mode main --arg \"input\""
   echo -e "  zorya /path/to/binary --lang c --mode function 0x401000"
+  echo -e "  zorya /path/to/binary --lang go --mode advanced 0x401000 --symbolic-registers \"RAX RDI\" --no-symbolic-memory"
   echo ""
   exit 1
 fi
@@ -123,6 +128,8 @@ ARGS="none"
 NEGATE_PATH_FLAG=""
 THREAD_SCHEDULING=""
 FORCE_PTY="false"
+SYMBOLIC_REGISTERS=""
+SYMBOLIC_MEMORY=""
 
 # Argument parsing loop
 while [[ $# -gt 0 ]]; do
@@ -135,13 +142,21 @@ while [[ $# -gt 0 ]]; do
       THREAD_SCHEDULING="$2"; shift 2 ;;
     --mode)
       MODE="$2"; shift 2
-      # Accept an address for *any* mode (main/function/custom)
+      # Accept an address for *any* mode (main/function/advanced)
       if [[ $# -gt 0 && "$1" != "--"* && "$1" =~ ^0x[0-9a-fA-F]+$ ]]; then
         ADDR="$1"; shift
       fi
       ;;
     --force-pty)
       FORCE_PTY="true"; shift ;;
+    --symbolic-registers)
+      SYMBOLIC_REGISTERS="$2"; shift 2 ;;
+    --no-symbolic-registers)
+      SYMBOLIC_REGISTERS="none"; shift ;;
+    --symbolic-memory)
+      SYMBOLIC_MEMORY="$2"; shift 2 ;;
+    --no-symbolic-memory)
+      SYMBOLIC_MEMORY="none"; shift ;;
     --negate-path-exploration|--negate)
       NEGATE_PATH_FLAG="true"; shift ;;
     --no-negate-path-exploration|--no-negate)
@@ -149,17 +164,7 @@ while [[ $# -gt 0 ]]; do
     --arg)
       shift
       while [[ $# -gt 0 ]]; do
-        if [[ "$1" == --negate* ]]; then
-          NEGATE_PATH_FLAG="true"
-          shift
-          break
-        elif [[ "$1" == --no-negate* ]]; then
-          NEGATE_PATH_FLAG="false"
-          shift
-          break
-        elif [[ "$1" == --force-pty ]]; then
-          FORCE_PTY="true"
-          shift
+        if [[ "$1" == --* ]]; then
           break
         else
           if [[ "$ARGS" == "none" ]]; then
@@ -180,11 +185,15 @@ while [[ $# -gt 0 ]]; do
       echo -e "${BOLD}Options:${RESET}"
       echo -e "  ${GREEN}--lang${RESET} <go|c|c++>              Source language of the binary"
       echo -e "  ${GREEN}--compiler${RESET} <tinygo|gc>         Go compiler used (required for Go binaries)"
-      echo -e "  ${GREEN}--mode${RESET} <start|main|function|custom> [addr]"
+      echo -e "  ${GREEN}--mode${RESET} <start|main|function|advanced> [addr]"
       echo -e "                                  Analysis starting point"
       echo -e "  ${GREEN}--thread-scheduling${RESET} <all-threads|main-only>"
       echo -e "                                  Thread scheduling strategy (Go GC only)"
       echo -e "  ${GREEN}--arg${RESET} <args...>               Binary arguments"
+      echo -e "  ${GREEN}--symbolic-registers${RESET} <regs>   (Advanced) Registers to make symbolic"
+      echo -e "  ${GREEN}--no-symbolic-registers${RESET}      (Advanced) Skip symbolic registers (no prompt)"
+      echo -e "  ${GREEN}--symbolic-memory${RESET} <ranges>    (Advanced) Memory ranges: \"0xADDR:SIZE ...\""
+      echo -e "  ${GREEN}--no-symbolic-memory${RESET}          (Advanced) Skip symbolic memory (no prompt)"
       echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
       echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
       echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
@@ -194,7 +203,7 @@ while [[ $# -gt 0 ]]; do
       echo -e "${BOLD}Examples:${RESET}"
       echo -e "  zorya ./myprogram --lang go --compiler tinygo --mode main --arg \"input\""
       echo -e "  zorya /path/to/binary --lang c --mode function 0x401000"
-      echo -e "  zorya ../tests/crashme --lang go --compiler gc --mode main --arg \"test\" --negate"
+      echo -e "  zorya /path/to/binary --lang go --mode advanced 0x401000 --symbolic-registers \"RAX RDI\" --no-symbolic-memory"
       echo ""
       exit 0
       ;;
@@ -227,8 +236,8 @@ fi; export SOURCE_LANG
 
 # 0b. Go compiler (if applicable)
 if [[ "${SOURCE_LANG,,}" == "go" && -z "$COMPILER" ]]; then
-  echo ""; echo "Which Go compiler was used? (tinygo / gc)"
-  read -rp "[tinygo]: " COMPILER; COMPILER="${COMPILER:-tinygo}"
+  echo ""; echo "Which Go compiler was used? (gc / tinygo)"
+  read -rp "[gc]: " COMPILER; COMPILER="${COMPILER:-gc}"
 fi; export COMPILER
 
 # 0c. Thread scheduling for Go GC binaries
@@ -244,7 +253,7 @@ ENTRY_POINT=$(get_entry_point "$BIN_PATH")
 
 # 1. Mode
 if [[ -z "$MODE" ]]; then
-  echo ""; echo "Where to begin the analysis? (start / main / function / custom)"
+  echo ""; echo "Where to begin the analysis? (start / main / function / advanced)"
   read -rp "[main]: " MODE; MODE="${MODE:-main}"
 fi
 
@@ -262,7 +271,7 @@ case "$MODE" in
       [[ "$INTERACTIVE_MODE" == "true" ]] && echo -e "${GREEN}Main address (user-supplied): $ADDR${RESET}"
     fi
     ;;
-  function|custom)
+  function|advanced)
     while [[ -z "$ADDR" ]]; do
       echo ""; read -rp "At what address should the analysis begin? (hex e.g. 0x123): " ADDR
       [[ "$ADDR" =~ ^0x[0-9a-fA-F]+$ || "$ADDR" =~ ^[0-9]+$ ]] || ADDR=""
@@ -270,6 +279,153 @@ case "$MODE" in
   *)
     echo "Unknown mode: $MODE"; exit 1 ;;
 esac
+
+# Validate that the address is a valid instruction boundary.
+# Disassembles from 64 bytes before the target to let x86 decode resynchronize,
+# then checks if the natural instruction stream produces an instruction at the
+# exact target address.
+validate_instruction_boundary() {
+  local addr="$1" bin="$2"
+  local addr_decimal
+  addr_decimal=$(printf "%d" "$addr" 2>/dev/null) || return 1
+
+  local addr_hex_lower
+  addr_hex_lower=$(printf "%x" "$addr_decimal")
+
+  local range_start=$((addr_decimal - 64))
+  [[ $range_start -lt 0 ]] && range_start=0
+  local range_end=$((addr_decimal + 16))
+
+  local disasm
+  disasm=$(objdump -d --start-address="$range_start" --stop-address="$range_end" "$bin" 2>/dev/null)
+
+  if echo "$disasm" | grep -qiE "^[[:space:]]*0*${addr_hex_lower}:"; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+if [[ "$MODE" == "function" || "$MODE" == "advanced" ]] && [[ -n "$ADDR" ]]; then
+  if ! validate_instruction_boundary "$ADDR" "$BIN_PATH"; then
+    echo ""
+    echo -e "\033[31m${BOLD}ERROR: Address $ADDR is not a valid instruction boundary.${RESET}"
+    echo ""
+    echo "  The address you provided falls in the middle of a multi-byte instruction."
+    echo "  GDB cannot set a breakpoint here — it would corrupt the instruction and"
+    echo "  cause the program to behave incorrectly (wrong branch, crash, or silent exit)."
+    echo ""
+    echo "  Use objdump to find valid instruction addresses near your target:"
+    echo "    objdump -d --start-address=$ADDR $BIN_PATH | head -20"
+    echo ""
+
+    # Show nearby valid instructions (skip int3/nop padding to give useful context)
+    _addr_dec=$(printf "%d" "$ADDR" 2>/dev/null)
+    _range_start=$((_addr_dec - 16))
+    [[ $_range_start -lt 0 ]] && _range_start=0
+    _range_end=$((_addr_dec + 64))
+    nearby=$(objdump -d --start-address="$_range_start" --stop-address="$_range_end" "$BIN_PATH" 2>/dev/null \
+      | grep -E "^[[:space:]]*[0-9a-f]+:" | grep -v "int3\|\.byte\|nop$" | head -10)
+
+    if [[ -n "$nearby" ]]; then
+      echo "  Nearby valid instruction addresses:"
+      echo "$nearby" | while IFS= read -r line; do echo "    $line"; done
+      echo ""
+    fi
+
+    exit 1
+  fi
+fi
+
+# 2b. Advanced mode: symbolic registers and memory
+GP_REGISTERS="RAX RCX RDX RBX RSP RBP RSI RDI R8 R9 R10 R11 R12 R13 R14 R15"
+
+expand_registers() {
+  local input="$1"
+  local upper="${input^^}"
+  if [[ "$upper" == "ALL" ]]; then
+    echo "$GP_REGISTERS"
+  else
+    echo "$input"
+  fi
+}
+
+validate_registers() {
+  local input="$1"
+  [[ "$input" == "none" || -z "$input" ]] && return 0
+  local has_error=false
+  for reg in $input; do
+    local upper="${reg^^}"
+    local found=false
+    for valid in $GP_REGISTERS; do
+      [[ "$upper" == "$valid" ]] && { found=true; break; }
+    done
+    if [[ "$found" == "false" ]]; then
+      echo -e "  \033[31mUnknown register '${reg}'. Valid registers: $GP_REGISTERS, or 'all'\033[0m"
+      has_error=true
+    fi
+  done
+  [[ "$has_error" == "true" ]] && return 1
+  return 0
+}
+
+validate_memory_ranges() {
+  local input="$1"
+  [[ "$input" == "none" || -z "$input" ]] && return 0
+  local has_error=false
+  for spec in $input; do
+    if [[ ! "$spec" =~ ^0x[0-9a-fA-F]+:[0-9]+$ ]]; then
+      echo -e "  \033[31mInvalid memory range '${spec}'. Expected format: 0xADDR:SIZE (e.g. 0x7fff0010:8)\033[0m"
+      has_error=true
+    fi
+  done
+  [[ "$has_error" == "true" ]] && return 1
+  return 0
+}
+
+if [[ "$MODE" == "advanced" ]]; then
+  [[ "$INTERACTIVE_MODE" == "true" ]] && divider
+
+  # --- Symbolic registers ---
+  if [[ -z "$SYMBOLIC_REGISTERS" ]]; then
+    while true; do
+      echo ""
+      echo "Which registers do you want to make symbolic? (space-separated, e.g. RAX RDI RSI, 'all', or 'none')"
+      read -rp "[none]: " SYMBOLIC_REGISTERS; SYMBOLIC_REGISTERS="${SYMBOLIC_REGISTERS:-none}"
+      SYMBOLIC_REGISTERS=$(expand_registers "$SYMBOLIC_REGISTERS")
+      validate_registers "$SYMBOLIC_REGISTERS" && break
+      SYMBOLIC_REGISTERS=""
+    done
+  else
+    SYMBOLIC_REGISTERS=$(expand_registers "$SYMBOLIC_REGISTERS")
+    if ! validate_registers "$SYMBOLIC_REGISTERS"; then
+      echo ""
+      echo -e "\033[31m${BOLD}ERROR: Invalid register name(s) in --symbolic-registers.${RESET}"
+      echo "  Valid registers: $VALID_REGISTERS"
+      exit 1
+    fi
+  fi
+
+  # --- Symbolic memory ---
+  if [[ -z "$SYMBOLIC_MEMORY" ]]; then
+    while true; do
+      echo ""
+      echo "Which memory addresses do you want to make symbolic? (format: 0xADDR:SIZE_BYTES, space-separated, or 'none')"
+      echo "  Example: 0x7fff0010:8 0x404000:16"
+      read -rp "[none]: " SYMBOLIC_MEMORY; SYMBOLIC_MEMORY="${SYMBOLIC_MEMORY:-none}"
+      validate_memory_ranges "$SYMBOLIC_MEMORY" && break
+      SYMBOLIC_MEMORY=""
+    done
+  else
+    if ! validate_memory_ranges "$SYMBOLIC_MEMORY"; then
+      echo ""
+      echo -e "\033[31m${BOLD}ERROR: Invalid memory range format in --symbolic-memory.${RESET}"
+      echo "  Expected format: 0xADDR:SIZE_BYTES (e.g. 0x7fff0010:8 0x404000:16)"
+      exit 1
+    fi
+  fi
+
+fi
 [[ "$INTERACTIVE_MODE" == "true" ]] && divider
 
 # 3. Runtime arguments
@@ -296,6 +452,7 @@ fi
 ##############################################################################
 
 export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH NEGATE_PATH_FLAG="$NEGATE_PATH_FLAG" FORCE_PTY
+export SYMBOLIC_REGISTERS SYMBOLIC_MEMORY
 
 # Build final command string (using original path for display, but actual execution uses absolute)
 CMD="$ZORYA_DIR/zorya $BIN_PATH_ORIGINAL --mode $MODE"
@@ -304,6 +461,16 @@ CMD="$ZORYA_DIR/zorya $BIN_PATH_ORIGINAL --mode $MODE"
 [[ -n "$COMPILER" ]] && CMD+=" --compiler $COMPILER"
 [[ -n "$THREAD_SCHEDULING" ]] && CMD+=" --thread-scheduling $THREAD_SCHEDULING"
 [[ "$ARGS" != "none" ]] && CMD+=" --arg \"$ARGS\""
+if [[ -n "$SYMBOLIC_REGISTERS" && "$SYMBOLIC_REGISTERS" != "none" ]]; then
+  CMD+=" --symbolic-registers \"$SYMBOLIC_REGISTERS\""
+else
+  CMD+=" --no-symbolic-registers"
+fi
+if [[ -n "$SYMBOLIC_MEMORY" && "$SYMBOLIC_MEMORY" != "none" ]]; then
+  CMD+=" --symbolic-memory \"$SYMBOLIC_MEMORY\""
+else
+  CMD+=" --no-symbolic-memory"
+fi
 [[ "$NEGATE_PATH_FLAG" == "true" ]] && CMD+=" --negate-path-exploration" || CMD+=" --no-negate-path-exploration"
 [[ "$FORCE_PTY" == "true" ]] && CMD+=" --force-pty"
 
@@ -322,20 +489,28 @@ PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
 # Step 2: Generate dumps
 echo ""; echo "Generating memory and CPU register dumps…"
 chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
-"$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS"
+if ! "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS"; then
+  echo ""
+  echo -e "\033[31m${BOLD}Zorya cannot continue without valid memory and CPU dumps. Aborting.${RESET}"
+  exit 1
+fi
 
 # Step 2.5: Extract and analyze VDSO
 echo ""; echo "Extracting VDSO from process memory…"
 chmod +x "$ZORYA_DIR/scripts/extract_vdso.sh"
 "$ZORYA_DIR/scripts/extract_vdso.sh" "$BIN_PATH" "$ADDR" "$ARGS"
 
-if [[ -f "$INIT_DATA_DIR/vdso/vdso.so" && -f "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" ]]; then
-  VDSO_BASE=$(cat "$INIT_DATA_DIR/vdso/vdso_base_addr.txt")
-  echo ""; echo "Generating p-code for VDSO (base: $VDSO_BASE)…"
-  chmod +x "$ZORYA_DIR/scripts/generate_vdso_pcode.sh"
-  "$ZORYA_DIR/scripts/generate_vdso_pcode.sh" "$INIT_DATA_DIR/vdso/vdso.so" "$VDSO_BASE"
+if [[ -f "$INIT_DATA_DIR/vdso/vdso.so" && -s "$INIT_DATA_DIR/vdso/vdso.so" && -f "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" ]]; then
+  VDSO_BASE=$(cat "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" | tr -d '[:space:]')
+  if [[ -n "$VDSO_BASE" && "$VDSO_BASE" =~ ^0x[0-9a-fA-F]+$ ]]; then
+    echo ""; echo "Generating p-code for VDSO (base: $VDSO_BASE)…"
+    chmod +x "$ZORYA_DIR/scripts/generate_vdso_pcode.sh"
+    "$ZORYA_DIR/scripts/generate_vdso_pcode.sh" "$INIT_DATA_DIR/vdso/vdso.so" "$VDSO_BASE"
+  else
+    echo "⚠ Warning: VDSO base address is empty or invalid ('$VDSO_BASE'), continuing without VDSO support"
+  fi
 else
-  echo "⚠ Warning: VDSO extraction failed, continuing without VDSO support"
+  echo "⚠ Warning: VDSO extraction failed or produced empty output, continuing without VDSO support"
 fi
 
 # Step 3: Run Zorya core

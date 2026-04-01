@@ -132,17 +132,66 @@ run_gdb overwrite -batch \
 GDB_EXIT=$?
 
 if [ $GDB_EXIT -ne 0 ]; then
-    echo "Error during GDB execution. Check $GDB_LOG for details."
+    echo ""
+    echo "ERROR: GDB exited with code $GDB_EXIT. Check $GDB_LOG for details."
     exit 1
 fi
 
+# Detect if the program exited without hitting the breakpoint
+if grep -q "exited normally\|exited with code\|No current process" "$GDB_LOG" 2>/dev/null; then
+    if ! grep -q "hit Breakpoint\|Breakpoint [0-9].*main\." "$GDB_LOG" 2>/dev/null; then
+        echo ""
+        echo "==============================================================================="
+        echo "ERROR: The program exited BEFORE reaching the breakpoint at $START_POINT."
+        echo "==============================================================================="
+        echo ""
+        echo "  The binary ran to completion without stopping at your target address."
+        echo "  This typically happens when:"
+        echo ""
+        echo "  1. The address is NOT on the execution path for the given arguments."
+        echo "     The program may take a different branch (e.g., argument validation"
+        echo "     fails and the program exits with a usage message before reaching"
+        echo "     your target address)."
+        echo ""
+        echo "  2. The address falls in the MIDDLE of a multi-byte instruction."
+        echo "     GDB's breakpoint corrupts the instruction, causing the program to"
+        echo "     behave incorrectly. Verify your address with:"
+        echo "       objdump -d --start-address=$START_POINT <binary> | head -5"
+        echo ""
+        echo "  3. The program crashes or calls os.Exit() before reaching the address."
+        echo ""
+        # Show what the program printed (if anything) to help diagnose
+        PROG_OUTPUT=$(grep -v "^warning:\|^Breakpoint\|^$\|^\[New\|^\[LWP\|^This GDB\|^Enable debug\|^Debuginfod\|^To make\|^Loaded\|^Cleaned\|^Error:\|^The program\|^No current\|^Argument list\|^Use \`info\|set auto-load\|set pagination\|set style\|set confirm\|^$" "$GDB_LOG" 2>/dev/null | head -5)
+        if [[ -n "$PROG_OUTPUT" ]]; then
+            echo "  The program printed the following before exiting:"
+            echo "$PROG_OUTPUT" | while IFS= read -r line; do echo "    > $line"; done
+            echo ""
+        fi
+        echo "  Full GDB log: $GDB_LOG"
+        echo ""
+        exit 1
+    fi
+fi
+
 if [ ! -s "$MEMORY_MAP_PATH" ]; then
-    echo "Error: Failed to generate memory_mapping.txt. Check $GDB_LOG for details."
+    echo ""
+    echo "ERROR: Failed to generate memory_mapping.txt."
+    echo "  The memory mapping dump is empty. Check $GDB_LOG for details."
+    exit 1
+fi
+
+if [ ! -s "$CPU_MAP_PATH" ]; then
+    echo ""
+    echo "ERROR: Failed to generate cpu_mapping.txt."
+    echo "  The CPU register dump is empty — GDB likely did not stop at the breakpoint."
+    echo "  Check $GDB_LOG for details."
     exit 1
 fi
 
 if [ ! -s "$DUMP_COMMANDS_PATH" ]; then
-    echo "Error: Failed to generate dump_commands.txt. Check $GDB_LOG for details."
+    echo ""
+    echo "ERROR: Failed to generate dump_commands.txt."
+    echo "  The memory dump command file is empty. Check $GDB_LOG for details."
     exit 1
 fi
 

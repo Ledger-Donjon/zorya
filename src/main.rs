@@ -687,8 +687,186 @@ fn main() -> Result<(), Box<dyn Error>> {
         initialize_symbolic_part_args(&mut executor, os_args_addr)?;
         log!(executor.state.logger, "Updating argc and argv on the stack");
         update_argc_argv(&mut executor, &arguments)?;
+    } else if mode == "advanced" {
+        log!(
+            executor.state.logger,
+            "Mode is 'advanced'. Fine-grained symbolic variable selection."
+        );
+        tprintln!("**************************************************************************");
+        tprintln!("Advanced mode: configuring symbolic registers and memory...");
+
+        // --- Symbolic registers ---
+        let sym_regs_env = env::var("SYMBOLIC_REGISTERS").unwrap_or_else(|_| String::new());
+        let sym_regs_input = if sym_regs_env.is_empty() {
+            tprintln!("Which registers do you want to make symbolic? (space-separated, e.g. RAX RDI RSI, or 'none')");
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read stdin");
+            input.trim().to_string()
+        } else {
+            sym_regs_env
+        };
+
+        if !sym_regs_input.is_empty() && sym_regs_input != "none" {
+            let reg_names: Vec<&str> = sym_regs_input.split_whitespace().collect();
+            let mut cpu = executor.state.cpu_state.lock().unwrap();
+            for reg_name in &reg_names {
+                let upper = reg_name.to_uppercase();
+                if let Some(offset) = cpu.resolve_offset_from_register_name(&upper) {
+                    let (_, bit_width) = cpu.register_map.get(&offset).unwrap().clone();
+                    let bv_name = format!("adv_reg_{}", upper);
+                    let fresh_bv = BV::fresh_const(executor.context, &bv_name, bit_width);
+
+                    let current_concrete = cpu
+                        .get_register_by_offset(offset, bit_width)
+                        .map(|v| v.concrete.to_u64())
+                        .unwrap_or(0);
+
+                    let concolic = ConcolicVar::new_concrete_and_symbolic_int(
+                        current_concrete,
+                        fresh_bv.clone(),
+                        executor.context,
+                    );
+                    cpu.set_register_value_by_offset(offset, concolic, bit_width)
+                        .expect("Failed to set symbolic register");
+
+                    drop(cpu);
+                    executor
+                        .function_symbolic_arguments
+                        .insert(bv_name.clone(), SymbolicVar::Int(fresh_bv));
+                    log!(
+                        executor.state.logger,
+                        "Advanced mode: made register {} symbolic as '{}'",
+                        upper,
+                        bv_name
+                    );
+                    tprintln!(
+                        "  -> Register {} is now symbolic (tracked as '{}')",
+                        upper,
+                        bv_name
+                    );
+                    cpu = executor.state.cpu_state.lock().unwrap();
+                } else {
+                    tprintln!(
+                        "  [WARNING] Unknown register '{}', skipping. Valid: RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8-R15",
+                        upper
+                    );
+                    log!(
+                        executor.state.logger,
+                        "Advanced mode: unknown register '{}', skipped",
+                        upper
+                    );
+                }
+            }
+            drop(cpu);
+        }
+
+        // --- Symbolic memory ranges ---
+        let sym_mem_env = env::var("SYMBOLIC_MEMORY").unwrap_or_else(|_| String::new());
+        let sym_mem_input = if sym_mem_env.is_empty() {
+            tprintln!("Which memory addresses do you want to make symbolic? (format: 0xADDR:SIZE_BYTES, space-separated, or 'none')");
+            tprintln!("  Example: 0x7fff0010:8 0x404000:16");
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read stdin");
+            input.trim().to_string()
+        } else {
+            sym_mem_env
+        };
+
+        if !sym_mem_input.is_empty() && sym_mem_input != "none" {
+            let ranges: Vec<&str> = sym_mem_input.split_whitespace().collect();
+            for range_spec in &ranges {
+                let parts: Vec<&str> = range_spec.split(':').collect();
+                if parts.len() != 2 {
+                    tprintln!(
+                        "  [WARNING] Invalid format '{}', expected 0xADDR:SIZE. Skipping.",
+                        range_spec
+                    );
+                    continue;
+                }
+                let addr_str = parts[0].trim_start_matches("0x").trim_start_matches("0X");
+                let size_str = parts[1];
+
+                let addr = match u64::from_str_radix(addr_str, 16) {
+                    Ok(a) => a,
+                    Err(_) => {
+                        tprintln!("  [WARNING] Invalid hex address '{}'. Skipping.", parts[0]);
+                        continue;
+                    }
+                };
+                let size: usize = match size_str.parse() {
+                    Ok(s) => s,
+                    Err(_) => {
+                        tprintln!("  [WARNING] Invalid size '{}'. Skipping.", size_str);
+                        continue;
+                    }
+                };
+
+                let concrete_bytes = executor
+                    .state
+                    .memory
+                    .read_bytes(addr, size)
+                    .unwrap_or_else(|_| vec![0u8; size]);
+
+                let mut fresh_symbolic = Vec::with_capacity(size);
+                for byte_idx in 0..size {
+                    let bv_name = format!("adv_mem_0x{:x}_byte_{}", addr, byte_idx);
+                    let fresh_bv = BV::fresh_const(executor.context, &bv_name, 8);
+                    executor
+                        .function_symbolic_arguments
+                        .insert(bv_name.clone(), SymbolicVar::Int(fresh_bv.clone()));
+                    fresh_symbolic.push(Some(Arc::new(fresh_bv)));
+                }
+
+                executor
+                    .state
+                    .memory
+                    .write_memory(addr, &concrete_bytes, &fresh_symbolic)
+                    .expect("Failed to write symbolic memory");
+
+                log!(
+                    executor.state.logger,
+                    "Advanced mode: made {} bytes at 0x{:x} symbolic",
+                    size,
+                    addr
+                );
+                tprintln!(
+                    "  -> Memory range 0x{:x}..0x{:x} ({} bytes) is now symbolic",
+                    addr,
+                    addr + size as u64,
+                    size
+                );
+            }
+        }
+
+        log!(executor.state.logger, "Updating argc and argv on the stack");
+        update_argc_argv(&mut executor, &arguments)?;
+
+        tprintln!("");
+        tprintln!("Note: os.Args is NOT symbolized in advanced mode. At an arbitrary address,");
+        tprintln!("  the program has already read os.Args into local registers/memory. Use");
+        tprintln!("  --symbolic-registers and --symbolic-memory to target the live copies.");
+        log!(
+            executor.state.logger,
+            "Advanced mode: os.Args not symbolized (values are already in local registers/memory at this execution point)"
+        );
+
+        tprintln!("");
+        tprintln!("Advanced mode initialization complete.");
+        tprintln!(
+            "  Tracked symbolic variables: {}",
+            executor.function_symbolic_arguments.len()
+        );
+        tprintln!("**************************************************************************");
     } else {
-        log!(executor.state.logger, "[WARNING] Custom mode used : Be aware that the arguments of the binary are not 'fresh symbolic' in that mode, the concolic exploration might not work correctly.");
+        log!(
+            executor.state.logger,
+            "[WARNING] Unknown mode '{}' used.",
+            mode
+        );
     }
 
     // For Go binaries: clear the goroutine stackPreempt flag if set.
