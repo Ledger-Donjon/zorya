@@ -151,12 +151,7 @@ Demo on TinyGo broken-calculator:
 EthCC 2025 overview presentation:
 [Presentation](https://www.youtube.com/live/QpcAtfN3B9M)
 
-## 6. Roadmap
-
-Roadmap is available in:
-[doc/roadmap-zorya_october-2025.png](doc/roadmap-zorya_october-2025.png)
-
-## 7. Academic work
+## 6. Academic work
 
 Exposing Go's Hidden Bugs: A Novel Concolic Framework (IEEE SERA 2025):
 [IEEE Xplore](https://ieeexplore.ieee.org/document/11449147)
