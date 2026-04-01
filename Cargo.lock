@@ -1077,9 +1077,9 @@ dependencies = [
 
 [[package]]
 name = "memmap2"
-version = "0.9.5"
+version = "0.9.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3f7eed9d3848f8b98834af67102b720745c4ec028fcd0aa0239277e7de374f"
+checksum = "714098028fe011992e1c3962653c96b2d578c4b4bce9036e15ff220319b1e0e3"
 dependencies = [
  "libc",
 ]
@@ -1237,7 +1237,7 @@ dependencies = [
  "icicle-vm",
  "log",
  "memmap 0.7.0",
- "memmap2 0.9.5",
+ "memmap2 0.9.10",
  "object 0.34.0",
  "pcode",
 ]
@@ -2161,7 +2161,7 @@ dependencies = [
  "libc",
  "log",
  "memmap 0.1.0",
- "memmap2 0.9.5",
+ "memmap2 0.9.10",
  "nix",
  "num-bigint",
  "num-traits",
