@@ -278,6 +278,11 @@ fn execute_with_overlay<'ctx>(
         }
         visited.insert(current_addr);
 
+        // Count overlay-explored blocks in the global coverage metric.
+        // visited_blocks is NOT restored after overlay cleanup, so these
+        // blocks remain counted, which is correct: Zorya analysed them.
+        executor.visited_blocks.insert(current_addr);
+
         // Get instructions at current address
         let instructions = match instructions_map.get(&current_addr) {
             Some(insts) => insts,

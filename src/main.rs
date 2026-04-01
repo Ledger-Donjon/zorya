@@ -1386,6 +1386,15 @@ fn execute_instructions_from(
                                 15, // max depth for overlay
                             );
 
+                            // Refresh coverage bar : overlay may have added new blocks
+                            print_coverage_bar(
+                                executor.visited_blocks.len(),
+                                instructions_map.len(),
+                                executor.start_time.elapsed().as_secs_f64(),
+                                zorya::Z3_CUMULATIVE_MS.load(std::sync::atomic::Ordering::Relaxed),
+                                executor.constraint_vector.len(),
+                            );
+
                             match analysis_result {
                                 OverlayPathAnalysisResult::VulnerabilityFound(
                                     _vuln_type,
