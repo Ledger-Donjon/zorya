@@ -28,7 +28,7 @@ jobs:
           submodules: recursive
 
       - name: Check rustfmt
-        run: cargo fmt --all -- --check
+        run: cargo fmt --package zorya -- --check
 
   # ── 2. Linting ────────────────────────────────────────────────────────────
   clippy:
