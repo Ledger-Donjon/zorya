@@ -12,6 +12,12 @@ pub struct VirtualFileSystem {
     file_counter: u32,
 }
 
+impl Default for VirtualFileSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VirtualFileSystem {
     pub fn new() -> Self {
         VirtualFileSystem {
@@ -110,9 +116,9 @@ impl FileDescriptor {
                 if offset < 0 {
                     self.position.saturating_sub((-offset) as u64)
                 } else {
-                    self.position.checked_add(offset as u64).ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::Other, "Seek position overflow")
-                    })?
+                    self.position
+                        .checked_add(offset as u64)
+                        .ok_or_else(|| io::Error::other("Seek position overflow"))?
                 }
             }
         };

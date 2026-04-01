@@ -164,7 +164,7 @@ pub fn log_vuln_to_file_and_terminal(
     writeln!(file, "Opcode: {}", opcode_str)?;
     writeln!(file, "Detection method: {}", detection_method)?;
     writeln!(file, "{}", description)?;
-    writeln!(file, "")?;
+    writeln!(file)?;
     if let Some(ptr_name) = pointer_name {
         writeln!(file, "Pointer: {}", ptr_name)?;
     }
@@ -773,7 +773,7 @@ fn capture_constrained_values_section(
         out.push_str(&rendered);
     }
 
-    out.push_str("\n");
+    out.push('\n');
     out
 }
 
@@ -823,7 +823,7 @@ fn capture_symbolic_arguments_evaluation(
                     }
                 }
 
-                output.push_str("\n");
+                output.push('\n');
             }
             SymbolicVar::Int(bv) => {
                 if let Some(val) = model.eval(bv, true) {
@@ -852,22 +852,20 @@ fn capture_symbolic_arguments_evaluation(
                             // Add ASCII interpretation when value fits in a byte (skip for string components)
                             if !is_string_ptr && !is_string_len && val_u64 <= 255 {
                                 let byte_val = val_u64 as u8;
-                                if byte_val >= 32 && byte_val <= 126 {
+                                if (32..=126).contains(&byte_val) {
                                     // Printable ASCII
                                     output.push_str(&format!(
                                         "    (ASCII: '{}')\n",
                                         char::from(byte_val)
                                     ));
                                 } else if byte_val == 0 {
-                                    output.push_str(&format!("    (ASCII: '\\0' - null byte)\n"));
+                                    output.push_str("    (ASCII: '\\0' - null byte)\n");
                                 } else if byte_val == 9 {
-                                    output.push_str(&format!("    (ASCII: '\\t' - tab)\n"));
+                                    output.push_str("    (ASCII: '\\t' - tab)\n");
                                 } else if byte_val == 10 {
-                                    output.push_str(&format!("    (ASCII: '\\n' - newline)\n"));
+                                    output.push_str("    (ASCII: '\\n' - newline)\n");
                                 } else if byte_val == 13 {
-                                    output.push_str(&format!(
-                                        "    (ASCII: '\\r' - carriage return)\n"
-                                    ));
+                                    output.push_str("    (ASCII: '\\r' - carriage return)\n");
                                 } else {
                                     output.push_str(&format!(
                                         "    (ASCII: non-printable, code {})\n",
@@ -896,11 +894,11 @@ fn capture_symbolic_arguments_evaluation(
                     } else {
                         // For large bit vectors (like 256-bit arrays)
                         output.push_str(&format!("  {} = {}\n", bv, val));
-                        output.push_str(&format!("    (unsigned: n/a)\n"));
-                        output.push_str(&format!("    (signed: n/a)\n"));
+                        output.push_str("    (unsigned: n/a)\n");
+                        output.push_str("    (signed: n/a)\n");
                     }
 
-                    output.push_str("\n");
+                    output.push('\n');
                 }
             }
             SymbolicVar::LargeInt(bvs) => {
@@ -941,7 +939,7 @@ fn capture_symbolic_arguments_evaluation(
                         }
                     }
                 }
-                output.push_str("\n");
+                output.push('\n');
             }
             _ => {
                 output.push_str(&format!(
@@ -1026,7 +1024,7 @@ pub fn evaluate_args_z3<'ctx>(
             if inst.opcode == Opcode::CBranch {
                 // When evaluating arguments during a CBRANCH leading to a panic, assert the simple boolean condition that leads to the panic.
                 if let Some(ref conditional_flag) = conditional_flag {
-                    let panic_causing_flag_u64 = conditional_flag.concrete.to_u64().clone();
+                    let panic_causing_flag_u64 = conditional_flag.concrete.to_u64();
                     // Handle both Bool and BV types
                     let condition = match &conditional_flag.symbolic {
                         SymbolicVar::Bool(bool_expr) => {
@@ -1239,7 +1237,7 @@ pub fn evaluate_args_z3<'ctx>(
 
             // ── CBranch path: use Optimize with minimization ───────────
             // List constraints and assert them to solver
-            add_constraints_from_vector(&executor);
+            add_constraints_from_vector(executor);
 
             // Minimize symbolic variables to produce readable witnesses.
             // We minimize the UNSIGNED BV value directly instead of converting
@@ -1379,7 +1377,7 @@ pub fn evaluate_args_z3<'ctx>(
                     log!(executor.state.logger, "~~~~~~~~~~~");
 
                     executor.solver.pop();
-                    return Ok(true); // SAT - vulnerability found
+                    Ok(true) // SAT - vulnerability found
                 }
                 SatResult::Unsat => {
                     log!(executor.state.logger, "~~~~~~~~~~~");
@@ -1390,17 +1388,17 @@ pub fn evaluate_args_z3<'ctx>(
                     log!(executor.state.logger, "~~~~~~~~~~~");
 
                     executor.solver.pop();
-                    return Ok(false); // UNSAT - no vulnerability
+                    Ok(false) // UNSAT - no vulnerability
                 }
                 SatResult::Unknown => {
                     log!(executor.state.logger, "Solver => Unknown feasibility");
                     executor.solver.pop();
-                    return Ok(false); // Unknown treated as no vulnerability
+                    Ok(false) // Unknown treated as no vulnerability
                 }
             }
         } else {
             log!(executor.state.logger, ">>> No panic function found in the AST exploration with the current max depth exploration");
-            return Ok(false); // No panic found
+            Ok(false) // No panic found
         }
     // TODO: Add detection method for NULL pointer dereference checks (LOAD/STORE) like in function mode
     } else if mode == "start" || mode == "main" {
@@ -1423,7 +1421,7 @@ pub fn evaluate_args_z3<'ctx>(
         let cond_bv = cond_concolic.symbolic.to_bv(executor.context);
 
         // List constraints and assert them to solver
-        add_constraints_from_vector(&executor);
+        add_constraints_from_vector(executor);
 
         // Minimize only slice lengths to prefer smaller witnesses (no other variable objectives)
         for symbolic_var in executor.function_symbolic_arguments.values() {
@@ -1544,7 +1542,7 @@ pub fn evaluate_args_z3<'ctx>(
 
                 // 6) pop the solver context
                 executor.solver.pop();
-                return Ok(true); // SAT - vulnerability found
+                Ok(true) // SAT - vulnerability found
             }
 
             z3::SatResult::Unsat => {
@@ -1557,13 +1555,13 @@ pub fn evaluate_args_z3<'ctx>(
 
                 // 6) pop the solver context
                 executor.solver.pop();
-                return Ok(false); // UNSAT - no vulnerability
+                Ok(false) // UNSAT - no vulnerability
             }
             z3::SatResult::Unknown => {
                 log!(executor.state.logger, "Solver => Unknown feasibility");
                 // 6) pop the solver context
                 executor.solver.pop();
-                return Ok(false); // Unknown treated as no vulnerability
+                Ok(false) // Unknown treated as no vulnerability
             }
         }
     } else {
@@ -1572,7 +1570,7 @@ pub fn evaluate_args_z3<'ctx>(
             "Unsupported mode for evaluating arguments: {}",
             mode
         );
-        return Ok(false);
+        Ok(false)
     }
 }
 

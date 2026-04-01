@@ -11,13 +11,11 @@ and outputs a JSON file.
 """
 
 import os
-import sys
 import json
-from ghidra.app.decompiler import DecompInterface
-from ghidra.util.task import ConsoleTaskMonitor
+
 
 def main():
-    script_args = getScriptArgs()
+    script_args = getScriptArgs()  # noqa: F821 — Ghidra built-in, injected at runtime
     if len(script_args) < 1:
         print("Usage: <script> <zorya_dir>")
         exit(1)
@@ -38,11 +36,11 @@ def main():
 
     signatures = []
 
-    if currentProgram is None:
+    if currentProgram is None:  # noqa: F821 — Ghidra built-in, injected at runtime
         print("No program loaded!")
         exit(1)
 
-    fm = currentProgram.getFunctionManager()
+    fm = currentProgram.getFunctionManager()  # noqa: F821
     functions = fm.getFunctions(True)
     count = 0
     for func in functions:
@@ -58,46 +56,39 @@ def main():
 
             if storage.isRegisterStorage():
                 register_name = storage.getRegister().getName()
-                arguments.append({
-                    "name": name,
-                    "type": datatype,
-                    "register": register_name
-                })
+                arguments.append(
+                    {"name": name, "type": datatype, "register": register_name}
+                )
 
             elif storage.isStackStorage():
                 varnode = storage.getFirstVarnode()
                 if varnode:
                     offset = varnode.getAddress().getOffset()
-                    arguments.append({
-                        "name": name,
-                        "type": datatype,
-                        "location": f"Stack[{offset}]"
-                    })
+                    arguments.append(
+                        {"name": name, "type": datatype, "location": f"Stack[{offset}]"}
+                    )
                 else:
-                    arguments.append({
-                        "name": name,
-                        "type": datatype,
-                        "location": "Stack[Unknown]"
-                    })
+                    arguments.append(
+                        {"name": name, "type": datatype, "location": "Stack[Unknown]"}
+                    )
 
         if len(arguments) == 0:
-            arguments.append({
-                "name": "NoArgs",
-                "type": "void",
-                "location": "None"
-            })
+            arguments.append({"name": "NoArgs", "type": "void", "location": "None"})
 
-        signatures.append({
-            "address": entry_point,
-            "function_name": function_name,
-            "arguments": arguments
-        })
+        signatures.append(
+            {
+                "address": entry_point,
+                "function_name": function_name,
+                "arguments": arguments,
+            }
+        )
         count += 1
 
     with open(json_file, "w") as f:
         json.dump({"functions": signatures}, f, indent=2)
 
     print("Wrote {} function signatures to {}".format(count, json_file))
+
 
 main()
 

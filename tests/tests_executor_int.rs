@@ -49,6 +49,9 @@ mod tests {
             function_symbolic_arguments: BTreeMap::new(),
             constraint_vector: Vec::new(),
             overlay_state: None,
+            null_check_cache: std::collections::HashMap::new(),
+            start_time: std::time::Instant::now(),
+            visited_blocks: std::collections::BTreeSet::new(),
         }
     }
 
@@ -56,19 +59,19 @@ mod tests {
     fn test_handle_int_add() {
         let mut executor = setup_executor();
 
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
 
         // Setup test values and varnodes
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -111,18 +114,18 @@ mod tests {
     #[test]
     fn test_handle_int_sub() {
         let mut executor = setup_executor();
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 30, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 30, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
         // Setup test values and varnodes
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             30,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -163,18 +166,18 @@ mod tests {
     #[test]
     fn test_handle_int_xor() {
         let mut executor = setup_executor();
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 5, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 3, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 5, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 3, 64));
         // Setup test values and varnodes
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             5,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             3,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -215,18 +218,18 @@ mod tests {
     #[test]
     fn test_handle_int_equal() {
         let mut executor = setup_executor();
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
         // Setup test values and varnodes
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -267,18 +270,18 @@ mod tests {
     #[test]
     fn test_handle_int_notequal() {
         let mut executor = setup_executor();
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
         // Setup test values and varnodes
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -321,17 +324,17 @@ mod tests {
         let mut executor = setup_executor();
 
         // Test case 1: 10 < 20
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -366,17 +369,17 @@ mod tests {
         );
 
         // Test case 2: 30 < 10
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 30, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 30, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             30,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -411,17 +414,17 @@ mod tests {
         );
 
         // Test case 3: 5 < 3
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 5, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 3, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 5, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 3, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             5,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             3,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -461,17 +464,17 @@ mod tests {
         let mut executor = setup_executor();
 
         // Test case 1: 10 < 20 (signed comparison)
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -508,17 +511,17 @@ mod tests {
         );
 
         // Test case 2: 10 < 5 (signed comparison)
-        let symbolic_var0 = SymbolicVar::Int(BV::from_i64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 5, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_i64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 5, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             5,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -558,18 +561,18 @@ mod tests {
     #[test]
     fn test_handle_int_and() {
         let mut executor = setup_executor();
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
         // Setup test values and varnodes
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -610,18 +613,18 @@ mod tests {
     #[test]
     fn test_handle_int_carry() {
         let mut executor = setup_executor();
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
         // Setup test values and varnodes
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -665,18 +668,18 @@ mod tests {
 
         // Test case 1: 10 + 20 overflows
         let symbolic_var0 =
-            SymbolicVar::Int(BV::from_u64(&executor.context, 10000000000000000000, 64));
+            SymbolicVar::Int(BV::from_u64(executor.context, 10000000000000000000, 64));
         let symbolic_var1 =
-            SymbolicVar::Int(BV::from_u64(&executor.context, 10000000000000000000, 64));
+            SymbolicVar::Int(BV::from_u64(executor.context, 10000000000000000000, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             10000000000000000000,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             10000000000000000000,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -717,17 +720,17 @@ mod tests {
 
         // Test case 1: INT64_MIN - 1 should underflow (signed underflow)
         let min_value = i64::MIN as u64; // -9223372036854775808
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, min_value, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 1, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, min_value, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 1, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             min_value,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             1,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -764,17 +767,17 @@ mod tests {
         // Test case 2: INT64_MAX - (-1) should underflow (signed overflow in positive direction)
         let max_value = i64::MAX as u64; // 9223372036854775807
         let neg_one = (-1i64) as u64; // 18446744073709551615 (as unsigned representation)
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, max_value, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, neg_one, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, max_value, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, neg_one, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             max_value,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             neg_one,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -809,17 +812,17 @@ mod tests {
         );
 
         // Test case 3: 20 - 10 does not underflow (normal case)
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 20, 64));
-        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(&executor.context, 10, 64));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 20, 64));
+        let symbolic_var1 = SymbolicVar::Int(BV::from_u64(executor.context, 10, 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             20,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             10,
-            symbolic_var1.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var1.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -859,11 +862,11 @@ mod tests {
         let mut executor = setup_executor();
 
         // Test case 1: Zero extend 8-bit value to 16 bits
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 255, 8));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 255, 8));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             255,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -889,11 +892,11 @@ mod tests {
         );
 
         // Test case 2: Zero extend 16-bit value to 32 bits
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 65535, 16));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 65535, 16));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             65535,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -924,11 +927,11 @@ mod tests {
         let mut executor = setup_executor();
 
         // No-op case: 16-bit to 16-bit
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 0xABCD, 16));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 0xABCD, 16));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             0xABCD,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables
@@ -959,11 +962,11 @@ mod tests {
         let mut executor = setup_executor();
 
         // Truncation case: 16-bit to 8-bit (keep low 8 bits)
-        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(&executor.context, 0xABCD, 16));
+        let symbolic_var0 = SymbolicVar::Int(BV::from_u64(executor.context, 0xABCD, 16));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             0xABCD,
-            symbolic_var0.to_bv(&executor.context),
-            &executor.context,
+            symbolic_var0.to_bv(executor.context),
+            executor.context,
         );
         executor
             .unique_variables

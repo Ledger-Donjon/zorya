@@ -118,7 +118,7 @@ impl<'a> State<'a> {
 
         log!(logger.clone(), "Initializing memory...\n");
         tprintln!("Initializing memory...\n");
-        let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
+        let memory = MemoryX86_64::new(ctx, vfs.clone())?;
         memory
             .load_all_dumps()
             .map_err(|e| format!("Failed to load memory dumps: {}", e))?;
@@ -241,7 +241,7 @@ impl<'a> State<'a> {
         // Initialize CPU state in a shared and thread-safe manner
         let cpu_state = Arc::new(Mutex::new(CpuState::new(ctx)));
         let vfs = Arc::new(RwLock::new(VirtualFileSystem::new()));
-        let memory = MemoryX86_64::new(&ctx, vfs.clone())?;
+        let memory = MemoryX86_64::new(ctx, vfs.clone())?;
         Ok(State {
             concolic_vars: BTreeMap::new(),
             ctx,

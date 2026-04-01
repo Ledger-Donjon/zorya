@@ -1308,8 +1308,9 @@ pub fn initialize_slice_memory_contents<'a>(
         );
 
         // Get the slice's symbolic variables
-        if let Some(slice_sym_var) = executor.function_symbolic_arguments.get(arg_name) {
-            if let SymbolicVar::Slice(_slice) = slice_sym_var {
+        if let Some(SymbolicVar::Slice(_slice)) = executor.function_symbolic_arguments.get(arg_name)
+        {
+            {
                 // Get concrete values from registers to determine memory layout
                 let (ptr_concrete, len_concrete, _cap_concrete) =
                     extract_slice_concrete_values(executor, reg_name);
@@ -1435,7 +1436,7 @@ fn extract_slice_concrete_values<'a>(
         regs
     );
 
-    let ptr_concrete = if regs.len() >= 1 {
+    let ptr_concrete = if !regs.is_empty() {
         let val = get_concrete_value_from_location(executor, regs[0]);
         log!(
             executor.state.logger.clone(),

@@ -40,8 +40,8 @@ pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         .output
         .as_ref()
         .ok_or("Output varnode not specified")?;
-    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
-    let bv_size = instruction.inputs[0].size.to_bitvector_size() as u32;
+    let output_size_bits = output_varnode.size.to_bitvector_size();
+    let bv_size = instruction.inputs[0].size.to_bitvector_size();
 
     // Concrete computation explicitly
     let input0_concrete = input0_var.get_concrete_value() as u128;
@@ -122,7 +122,7 @@ pub fn handle_int_scarry(executor: &mut ConcolicExecutor, instruction: Inst) -> 
         .output
         .as_ref()
         .ok_or("Output varnode not specified")?;
-    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+    let output_size_bits = output_varnode.size.to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -303,7 +303,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                     output_size_bits
                 );
 
-                let bits = output_size_bits as u32;
+                let bits = output_size_bits;
                 let zero_bv = BV::from_u64(executor.context, 0, bits);
                 // Recompute the symbolic sum (same as result_symbolic above)
                 let result_bv = input0_bv.bvadd(&input1_bv);
@@ -460,7 +460,7 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -540,7 +540,7 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         .as_ref()
         .ok_or("Output varnode not specified")?;
 
-    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+    let output_size_bits = output_varnode.size.to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -678,7 +678,7 @@ pub fn handle_int_equal(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -826,7 +826,7 @@ pub fn handle_int_notequal(
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -919,7 +919,7 @@ pub fn handle_int_less(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -1003,7 +1003,7 @@ pub fn handle_int_sless(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         .output
         .as_ref()
         .ok_or("Output varnode not specified")?;
-    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+    let output_size_bits = output_varnode.size.to_bitvector_size();
 
     log!(
         executor.state.logger,
@@ -1177,7 +1177,7 @@ pub fn handle_int_lessequal(
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -1260,7 +1260,7 @@ pub fn handle_int_slessequal(
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -1494,8 +1494,8 @@ pub fn handle_int_sext(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     Ok(())
 }
 
-pub fn sign_extend_concolic_var<'a, 'ctx>(
-    executor: &'a mut ConcolicExecutor<'ctx>,
+pub fn sign_extend_concolic_var<'ctx>(
+    executor: &mut ConcolicExecutor<'ctx>,
     var: ConcolicVar<'ctx>,
     target_bit_size: u32,
 ) -> Result<ConcolicVar<'ctx>, String> {
@@ -1523,7 +1523,7 @@ pub fn sign_extend_concolic_var<'a, 'ctx>(
             8 => (concrete_value as i8) as i64,
             16 => (concrete_value as i16) as i64,
             32 => (concrete_value as i32) as i64,
-            64 => concrete_value as i64,
+            64 => concrete_value,
             _ => {
                 return Err(format!(
                     "Unsupported bit size for sign extension: {}",
@@ -1588,7 +1588,7 @@ pub fn handle_int_sborrow(
         .output
         .as_ref()
         .ok_or("Output varnode not specified")?;
-    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+    let output_size_bits = output_varnode.size.to_bitvector_size();
 
     log!(
         executor.state.logger,
@@ -1842,7 +1842,7 @@ pub fn handle_int_2comp(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -1910,7 +1910,7 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -1976,7 +1976,7 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
         .as_ref()
         .ok_or("Output varnode not specified")?;
 
-    let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+    let output_size_bits = output_varnode.size.to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2067,7 +2067,7 @@ pub fn handle_int_left(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2212,7 +2212,7 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2220,7 +2220,7 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     );
 
     // Perform the right shift operation
-    let shift_amount = input1_var.get_concrete_value() as u64;
+    let shift_amount = input1_var.get_concrete_value();
 
     // Use Z3 BitVector for shifting
     let shift_bv = BV::from_u64(executor.context, shift_amount, output_size_bits);
@@ -2292,7 +2292,7 @@ pub fn handle_int_sright(executor: &mut ConcolicExecutor, instruction: Inst) -> 
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2368,7 +2368,7 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2582,7 +2582,7 @@ pub fn handle_int_negate(executor: &mut ConcolicExecutor, instruction: Inst) -> 
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2655,7 +2655,7 @@ pub fn handle_int_div(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2732,7 +2732,7 @@ pub fn handle_int_rem(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2807,7 +2807,7 @@ pub fn handle_int_sdiv(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2883,7 +2883,7 @@ pub fn handle_int_srem(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -2947,7 +2947,7 @@ pub fn handle_int2float(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",

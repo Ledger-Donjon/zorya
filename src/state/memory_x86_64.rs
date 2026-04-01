@@ -191,7 +191,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |e| e == "bin") {
+            if path.is_file() && path.extension().is_some_and(|e| e == "bin") {
                 crate::tprintln!("Initializing memory section from file: {:?}", path);
                 self.load_memory_dump_with_dynamic_chunk_size(&path)?;
             }
@@ -211,7 +211,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         let chunk_size = match file_len {
             0..=100_000_000 => 64 * 1024, // 64 KB chunks for small files
             100_000_001..=1_000_000_000 => 256 * 1024, // 256 KB chunks for medium files
-            _ => 1 * 1024 * 1024,         // 1 MB chunks for large files
+            _ => 1024 * 1024,             // 1 MB chunks for large files
         };
 
         let mut memory_region =
@@ -398,7 +398,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 address
             );
 
-            let num_chunks = ((size + 63) / 64) as usize; // Round up to nearest 64-bit chunk
+            let num_chunks = size.div_ceil(64) as usize; // Round up to nearest 64-bit chunk
             let mut concrete_chunks = Vec::with_capacity(num_chunks);
             let mut symbolic_chunks = Vec::with_capacity(num_chunks);
 
@@ -464,7 +464,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 ctx: self.ctx,
             })
         } else if size <= 64 {
-            let byte_size = ((size + 7) / 8) as usize;
+            let byte_size = size.div_ceil(8) as usize;
             let (mut concrete, symbolic) = self.read_memory(address, byte_size)?;
 
             //log!(logger, "Reading {}-bit value ({} bytes) from address 0x{:x}", size, byte_size, address);
@@ -691,7 +691,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     /// Writes a MemoryValue (both concrete and symbolic) to memory.
     pub fn write_value(&self, address: u64, value: &MemoryValue<'ctx>) -> Result<(), MemoryError> {
-        let byte_size = ((value.size + 7) / 8) as usize; // Calculate the byte size from the bit size
+        let byte_size = value.size.div_ceil(8) as usize; // Calculate the byte size from the bit size
 
         // Prepare concrete bytes for storage, padded as needed
         let mut concrete_bytes = Vec::with_capacity(byte_size);
@@ -969,7 +969,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         // Typically perms is something like 'r--p' or 'r-xp'
         // e.g.  [0] = 'r', [1] = '-', [2] = 'x', [3] = 'p'
-        if chars.get(0) == Some(&'r') {
+        if chars.first() == Some(&'r') {
             prot_flags |= PROT_READ;
         }
         if chars.get(1) == Some(&'w') {

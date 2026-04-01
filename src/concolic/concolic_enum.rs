@@ -83,7 +83,7 @@ impl<'ctx> ConcolicEnum<'ctx> {
     }
 
     // Helper function to combine LargeInt chunks
-    fn combine_largeint_chunks(values: &Vec<u64>, total_bits: u32) -> u64 {
+    fn combine_largeint_chunks(values: &[u64], total_bits: u32) -> u64 {
         if values.is_empty() {
             return 0;
         }

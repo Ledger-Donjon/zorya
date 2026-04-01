@@ -69,7 +69,7 @@ fn get_callother_operation_name(operation_index: u32) -> String {
 }
 
 pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
-    let operation_index = match instruction.inputs.get(0) {
+    let operation_index = match instruction.inputs.first() {
         Some(Varnode {
             var: Var::Const(index),
             ..
@@ -185,7 +185,7 @@ pub fn handle_cpuid(executor: &mut ConcolicExecutor, instruction: Inst) -> Resul
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
 
     // Memory address to temporarly store EAX, EBX, ECX, EDX
     let base_address = 0x300000;
@@ -857,7 +857,7 @@ pub fn handle_rdtscp(executor: &mut ConcolicExecutor) -> Result<(), String> {
             0x10,
             ConcolicVar::new_concrete_and_symbolic_int(
                 edx_value.into(),
-                SymbolicVar::new_int(edx_value.try_into().unwrap(), executor.context, 32)
+                SymbolicVar::new_int(edx_value.into(), executor.context, 32)
                     .to_bv(executor.context),
                 executor.context,
             ),
@@ -869,7 +869,7 @@ pub fn handle_rdtscp(executor: &mut ConcolicExecutor) -> Result<(), String> {
             0x0,
             ConcolicVar::new_concrete_and_symbolic_int(
                 eax_value.into(),
-                SymbolicVar::new_int(eax_value.try_into().unwrap(), executor.context, 32)
+                SymbolicVar::new_int(eax_value.into(), executor.context, 32)
                     .to_bv(executor.context),
                 executor.context,
             ),
@@ -930,7 +930,7 @@ pub fn handle_rdtsc(executor: &mut ConcolicExecutor) -> Result<(), String> {
             0x10,
             ConcolicVar::new_concrete_and_symbolic_int(
                 edx_value.into(),
-                SymbolicVar::new_int(edx_value.try_into().unwrap(), executor.context, 32)
+                SymbolicVar::new_int(edx_value.into(), executor.context, 32)
                     .to_bv(executor.context),
                 executor.context,
             ),
@@ -942,7 +942,7 @@ pub fn handle_rdtsc(executor: &mut ConcolicExecutor) -> Result<(), String> {
             0x0,
             ConcolicVar::new_concrete_and_symbolic_int(
                 eax_value.into(),
-                SymbolicVar::new_int(eax_value.try_into().unwrap(), executor.context, 32)
+                SymbolicVar::new_int(eax_value.into(), executor.context, 32)
                     .to_bv(executor.context),
                 executor.context,
             ),
@@ -978,7 +978,7 @@ fn handle_swi(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), 
     let interrupt_number = if let Some(Varnode {
         var: Var::Const(interrupt_number_str),
         ..
-    }) = instruction.inputs.get(0)
+    }) = instruction.inputs.first()
     {
         u64::from_str_radix(interrupt_number_str.trim_start_matches("0x"), 16).map_err(|_| {
             format!(
@@ -1280,7 +1280,7 @@ pub fn handle_vpmullw_avx(
     let mut result_concrete_chunks = Vec::new();
     let mut result_symbolic_chunks = Vec::new();
 
-    for chunk_idx in 0..(num_words + 3) / 4 {
+    for chunk_idx in 0..num_words.div_ceil(4) {
         let base = chunk_idx * 4;
         let mut concrete_chunk = 0u64;
 
@@ -1459,7 +1459,7 @@ pub fn handle_pshufw(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     );
 
     // Extract the 4 words (16-bit each) from source
-    let word0 = (src_concrete >> 0) & 0xFFFF;
+    let word0 = src_concrete & 0xFFFF;
     let word1 = (src_concrete >> 16) & 0xFFFF;
     let word2 = (src_concrete >> 32) & 0xFFFF;
     let word3 = (src_concrete >> 48) & 0xFFFF;
@@ -1470,7 +1470,7 @@ pub fn handle_pshufw(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     // Bits 2-3 select source for dest word 1
     // Bits 4-5 select source for dest word 2
     // Bits 6-7 select source for dest word 3
-    let dest_word0 = words[((shuffle_control >> 0) & 0x3) as usize];
+    let dest_word0 = words[(shuffle_control & 0x3) as usize];
     let dest_word1 = words[((shuffle_control >> 2) & 0x3) as usize];
     let dest_word2 = words[((shuffle_control >> 4) & 0x3) as usize];
     let dest_word3 = words[((shuffle_control >> 6) & 0x3) as usize];

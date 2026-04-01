@@ -222,10 +222,7 @@ impl ConcreteVar {
     }
 
     pub fn is_bool(&self) -> bool {
-        match self {
-            ConcreteVar::Bool(_) => true,
-            _ => false,
-        }
+        matches!(self, ConcreteVar::Bool(_))
     }
 }
 
@@ -244,12 +241,12 @@ impl fmt::Display for VarError {
 
 impl Error for VarError {}
 
-impl<'ctx> LowerHex for ConcreteVar {
+impl LowerHex for ConcreteVar {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let _ = match self {
             ConcreteVar::Int(value) => LowerHex::fmt(value, f),
             ConcreteVar::Float(value) => LowerHex::fmt(&value.to_bits(), f),
-            ConcreteVar::Str(_s) => Err(fmt::Error::default()),
+            ConcreteVar::Str(_s) => Err(fmt::Error),
             ConcreteVar::Bool(value) => LowerHex::fmt(&(*value as u8), f),
             ConcreteVar::LargeInt(values) => {
                 for chunk in values.iter().rev() {

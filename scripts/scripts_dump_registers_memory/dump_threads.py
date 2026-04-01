@@ -48,7 +48,9 @@ class DumpThreadsCommand(gdb.Command):
         try:
             # Read from TLS pointer if we can access it
             tid = gdb.selected_thread().ptid[1]
-            gdb.write(f"Warning: Could not read fs_base for TID {tid}, attempting fallback\n")
+            gdb.write(
+                f"Warning: Could not read fs_base for TID {tid}, attempting fallback\n"
+            )
         except Exception:
             pass
 
@@ -82,23 +84,25 @@ class DumpThreadsCommand(gdb.Command):
         """Execute the thread dump command."""
         # Determine output directory (relative to GDB's current working directory)
         outdir = "../../results/initialization_data/threads"
-        
+
         # Create absolute path
         abs_outdir = os.path.abspath(outdir)
-        
+
         # Clean up old thread dumps to ensure fresh state for each execution
         if os.path.exists(abs_outdir):
             try:
-                import shutil
                 # Remove all existing .json files (thread dumps from previous runs)
                 for filename in os.listdir(abs_outdir):
-                    if filename.endswith('.json') or filename == 'thread_backtraces.txt':
+                    if (
+                        filename.endswith(".json")
+                        or filename == "thread_backtraces.txt"
+                    ):
                         file_path = os.path.join(abs_outdir, filename)
                         os.remove(file_path)
                 gdb.write(f"Cleaned up old thread dumps from: {abs_outdir}\n")
             except OSError as e:
                 gdb.write(f"Warning: Could not clean up old thread dumps: {e}\n")
-        
+
         if not os.path.exists(abs_outdir):
             try:
                 os.makedirs(abs_outdir, exist_ok=True)
@@ -119,11 +123,11 @@ class DumpThreadsCommand(gdb.Command):
             return
 
         gdb.write(f"Found {len(threads)} thread(s). Dumping register states...\n")
-        
+
         # Capture full backtrace output first for context
         gdb.write("Capturing thread backtraces...\n")
         bt_all = gdb.execute("thread apply all bt", to_string=True)
-        
+
         # Save the full backtrace to a separate file
         bt_file = os.path.join(abs_outdir, "thread_backtraces.txt")
         with open(bt_file, "w") as f:
@@ -136,21 +140,34 @@ class DumpThreadsCommand(gdb.Command):
 
         # Standard x86-64 general purpose and common registers
         register_names = [
-            "rax", "rbx", "rcx", "rdx",
-            "rsi", "rdi", "rbp", "rsp",
-            "r8", "r9", "r10", "r11",
-            "r12", "r13", "r14", "r15",
-            "rip", "eflags"
+            "rax",
+            "rbx",
+            "rcx",
+            "rdx",
+            "rsi",
+            "rdi",
+            "rbp",
+            "rsp",
+            "r8",
+            "r9",
+            "r10",
+            "r11",
+            "r12",
+            "r13",
+            "r14",
+            "r15",
+            "rip",
+            "eflags",
         ]
 
         for thread in threads:
             try:
                 # Switch to this thread
                 thread.switch()
-                
+
                 # Get thread ID (LWP on Linux)
                 tid = thread.ptid[1] if len(thread.ptid) > 1 else thread.ptid[0]
-                
+
                 # Read general purpose registers
                 regs = {}
                 for reg_name in register_names:
@@ -161,10 +178,10 @@ class DumpThreadsCommand(gdb.Command):
                 # Read TLS bases (FS and GS)
                 fs_base = self.get_fs_base()
                 gs_base = self.get_gs_base()
-                
+
                 # Get backtrace for this thread
                 backtrace = self.get_thread_backtrace(thread)
-                
+
                 # Check if this thread is at main (useful for identifying the main thread)
                 is_at_main = "main.main" in backtrace or "main ()" in backtrace
 
@@ -182,7 +199,7 @@ class DumpThreadsCommand(gdb.Command):
                 thread_file = os.path.join(abs_outdir, f"thread_{tid}.json")
                 with open(thread_file, "w") as f:
                     json.dump(thread_info, f, indent=2)
-                
+
                 thread_data.append(thread_info)
                 gdb.write(f"  [✓] Dumped TID {tid} -> {thread_file}\n")
 
@@ -199,13 +216,19 @@ class DumpThreadsCommand(gdb.Command):
             for t in thread_data:
                 if t.get("is_at_main", False):
                     main_tid = t["tid"]
-                    gdb.write(f"  [✓] Identified main thread: TID {main_tid} (at main.main)\n")
+                    gdb.write(
+                        f"  [✓] Identified main thread: TID {main_tid} (at main.main)\n"
+                    )
                     break
-            
+
             if main_tid is None:
-                main_tid = current_thread.ptid[1] if len(current_thread.ptid) > 1 else current_thread.ptid[0]
+                main_tid = (
+                    current_thread.ptid[1]
+                    if len(current_thread.ptid) > 1
+                    else current_thread.ptid[0]
+                )
                 gdb.write(f"  [i] Using current thread as main: TID {main_tid}\n")
-            
+
             # Collect thread states for better debugging
             thread_states = []
             for t in thread_data:
@@ -217,21 +240,21 @@ class DumpThreadsCommand(gdb.Command):
                 elif "sysmon" in bt:
                     state = "sysmon"
                 thread_states.append({"tid": t["tid"], "state": state})
-            
+
             index_data = {
                 "main_tid": main_tid,
                 "thread_count": len(thread_data),
                 "threads": [t["tid"] for t in thread_data],
                 "thread_states": thread_states,
             }
-            
+
             index_file = os.path.join(abs_outdir, "threads_index.json")
             with open(index_file, "w") as f:
                 json.dump(index_data, f, indent=2)
-            
+
             gdb.write(f"\n[✓] Wrote thread index to {index_file}\n")
             gdb.write(f"[✓] Successfully dumped {len(thread_data)} thread(s)\n")
-            
+
         except Exception as e:
             gdb.write(f"[✗] Error writing thread index: {e}\n")
 
@@ -243,4 +266,3 @@ class DumpThreadsCommand(gdb.Command):
 # Register the command
 DumpThreadsCommand()
 gdb.write("Loaded dump-threads command. Usage: (gdb) dump-threads\n")
-

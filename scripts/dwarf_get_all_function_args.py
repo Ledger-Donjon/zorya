@@ -15,11 +15,13 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "results"))
 
+
 def safe_decode(attr):
     try:
         return attr.value.decode()
     except Exception:
         return None
+
 
 # Build index of all DIEs by offset for full resolution
 def build_die_index(dwarfinfo):
@@ -28,6 +30,7 @@ def build_die_index(dwarfinfo):
         for die in cu.iter_DIEs():
             die_index[die.offset] = die
     return die_index
+
 
 # Resolve the type of a DIE recursively
 def resolve_type(die, die_index, depth=0):
@@ -89,28 +92,27 @@ def resolve_type(die, die_index, depth=0):
     # Fallback for unknown or unnamed types
     return name or f"tag:{tag}"
 
+
 def type_str_to_typedescriptor(ty):
     if ty.startswith("*"):
-        return {
-            "kind": "Pointer",
-            "to": type_str_to_typedescriptor(ty[1:])
-        }
+        return {"kind": "Pointer", "to": type_str_to_typedescriptor(ty[1:])}
     elif ty.startswith("[]"):
         return {
             "kind": "Array",
             "element": type_str_to_typedescriptor(ty[2:]),
-            "count": None
+            "count": None,
         }
     elif ty == "struct":
-        return { "kind": "Struct", "members": [] }
+        return {"kind": "Struct", "members": []}
     elif ty == "map[?,?]":
-        return { "kind": "Unknown", "name": "map[?,?]" }
+        return {"kind": "Unknown", "name": "map[?,?]"}
     elif ty.startswith("unresolved@"):
-        return { "kind": "Unknown", "name": ty }
+        return {"kind": "Unknown", "name": ty}
     elif ty == "interface":
-        return { "kind": "Unknown", "name": "interface" }
+        return {"kind": "Unknown", "name": "interface"}
     else:
-        return { "kind": "Primitive", "name": ty }
+        return {"kind": "Primitive", "name": ty}
+
 
 def extract_signatures(dwarfinfo, die_index, abi_registers):
     functions = []
@@ -154,42 +156,47 @@ def extract_signatures(dwarfinfo, die_index, abi_registers):
                 # Arguments that take two registers
                 if ty == "string" or ty.startswith("[]") or ty == "interface":
                     if reg_cursor + 1 < len(abi_registers):
-                        abi_map.append({
-                            "name": name,
-                            "type": ty,
-                            "registers": [abi_registers[reg_cursor], abi_registers[reg_cursor + 1]]
-                        })
+                        abi_map.append(
+                            {
+                                "name": name,
+                                "type": ty,
+                                "registers": [
+                                    abi_registers[reg_cursor],
+                                    abi_registers[reg_cursor + 1],
+                                ],
+                            }
+                        )
                         reg_cursor += 2
                     else:
                         offset = stack_base + 8 * (reg_cursor - len(abi_registers))
-                        abi_map.append({
-                            "name": name,
-                            "type": ty,
-                            "location": f"SP+{offset:#x}"
-                        })
+                        abi_map.append(
+                            {"name": name, "type": ty, "location": f"SP+{offset:#x}"}
+                        )
                         reg_cursor += 2
                 else:
                     if reg_cursor < len(abi_registers):
-                        abi_map.append({
-                            "name": name,
-                            "type": ty,
-                            "register": abi_registers[reg_cursor]
-                        })
+                        abi_map.append(
+                            {
+                                "name": name,
+                                "type": ty,
+                                "register": abi_registers[reg_cursor],
+                            }
+                        )
                         reg_cursor += 1
                     else:
                         offset = stack_base + 8 * (reg_cursor - len(abi_registers))
-                        abi_map.append({
-                            "name": name,
-                            "type": ty,
-                            "location": f"SP+{offset:#x}"
-                        })
+                        abi_map.append(
+                            {"name": name, "type": ty, "location": f"SP+{offset:#x}"}
+                        )
                         reg_cursor += 1
 
-            functions.append({
-                "name": func_name,
-                "address": hex(func_addr.value),
-                "arguments": abi_map
-            })
+            functions.append(
+                {
+                    "name": func_name,
+                    "address": hex(func_addr.value),
+                    "arguments": abi_map,
+                }
+            )
 
     print(f"[i] Found {total} functions, {matched} had parameters.")
     return functions
@@ -202,7 +209,7 @@ def main():
         sys.exit(1)
 
     binary_path = sys.argv[1]
-    compiler = sys.argv[2]
+    _compiler = sys.argv[2]
     # The Go ABI comes from L.277 of Ghidra's spec:
     # ghidra/Ghidra/Processors/x86/data/languages/x86-64-golang.cspec
     abi_registers = ["RDI", "RSI", "RDX", "RCX", "R8", "R9"]
@@ -221,8 +228,9 @@ def main():
         os.makedirs(RESULTS_DIR, exist_ok=True)
         output_file = os.path.join(RESULTS_DIR, "function_signature_arg_registers.json")
         with open(output_file, "w") as out_file:
-            json.dump({ "functions": funcs }, out_file, indent=2)
+            json.dump({"functions": funcs}, out_file, indent=2)
             print(f"[✓] Saved output to {output_file}")
+
 
 if __name__ == "__main__":
     main()

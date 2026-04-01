@@ -13,7 +13,7 @@ import time
 
 def extract_jump_tables(program):
     """
-    Extract jump tables by looking for likely switch data symbols and verifying 
+    Extract jump tables by looking for likely switch data symbols and verifying
     that they point to code.
 
     Optimizations vs. the original version:
@@ -40,7 +40,7 @@ def extract_jump_tables(program):
     def is_code_address_fast(addr):
         """Fast check: is `addr` inside an executable memory block?"""
         off = addr.getOffset()
-        for (lo, hi) in code_ranges:
+        for lo, hi in code_ranges:
             if lo <= off <= hi:
                 return True
         return False
@@ -77,57 +77,61 @@ def extract_jump_tables(program):
     print(f"Found {len(candidate_symbols)} switch-related symbols (filtered search)")
 
     for symbol in candidate_symbols:
-                base_address = symbol.getAddress()
-                
+        base_address = symbol.getAddress()
+
         addr_key = base_address.getOffset()
         if addr_key in visited:
-                    continue
+            continue
         visited.add(addr_key)
 
-                table_entries = []
-                current_addr = base_address
+        table_entries = []
+        current_addr = base_address
         max_table_entries = 512
-                invalid_entries = 0
+        invalid_entries = 0
 
-                for _ in range(max_table_entries):
-                    data = listing.getDataAt(current_addr)
-                    if data is None:
-                        break
+        for _ in range(max_table_entries):
+            data = listing.getDataAt(current_addr)
+            if data is None:
+                break
 
-                    if not data.isPointer():
-                        invalid_entries += 1
+            if not data.isPointer():
+                invalid_entries += 1
                 if invalid_entries > 3:
-                            break
+                    break
                 current_addr = current_addr.add(8)
-                        continue
+                continue
 
-                    destination = data.getValue()
-                    if not destination or not isinstance(destination, Address):
-                        break
+            destination = data.getValue()
+            if not destination or not isinstance(destination, Address):
+                break
 
             if is_code_address(destination):
-                        dest_symbol = symbol_table.getPrimarySymbol(destination)
-                        label_name = dest_symbol.getName() if dest_symbol else "Unknown"
+                dest_symbol = symbol_table.getPrimarySymbol(destination)
+                label_name = dest_symbol.getName() if dest_symbol else "Unknown"
 
-                        table_entries.append({
-                            "label": label_name,
-                            "destination": f"{destination.getOffset():08x}",
-                            "input_address": f"{current_addr.getOffset():08x}"
-                        })
+                table_entries.append(
+                    {
+                        "label": label_name,
+                        "destination": f"{destination.getOffset():08x}",
+                        "input_address": f"{current_addr.getOffset():08x}",
+                    }
+                )
                 invalid_entries = 0
-                    else:
-                        invalid_entries += 1
-                        if invalid_entries > 3:
-                            break
+            else:
+                invalid_entries += 1
+                if invalid_entries > 3:
+                    break
 
-                    current_addr = current_addr.add(data.getLength())
+            current_addr = current_addr.add(data.getLength())
 
-                if len(table_entries) > 1:
-            jump_tables.append({
-                        "switch_id": symbol.getName(),
-                        "table_address": f"{base_address.getOffset():08x}",
-                        "cases": table_entries
-            })
+        if len(table_entries) > 1:
+            jump_tables.append(
+                {
+                    "switch_id": symbol.getName(),
+                    "table_address": f"{base_address.getOffset():08x}",
+                    "cases": table_entries,
+                }
+            )
 
     return jump_tables
 
@@ -164,23 +168,27 @@ def main():
     # ── Reuse existing Ghidra project if it is still up-to-date ────────
     # Ghidra analysis (import + auto-analysis) is by far the most expensive
     # step.  If the .gpr is newer than the binary we skip the full rebuild.
-    reuse_project = _project_is_fresh(parent_gpr, bin_path) or _project_is_fresh(sub_gpr, bin_path)
+    reuse_project = _project_is_fresh(parent_gpr, bin_path) or _project_is_fresh(
+        sub_gpr, bin_path
+    )
 
     if reuse_project:
-        print(f"Reusing existing Ghidra project (binary unchanged)")
+        print("Reusing existing Ghidra project (binary unchanged)")
     else:
         # Clean stale artifacts before fresh import
         try:
-        if parent_gpr.exists():
-            parent_gpr.unlink()
-        if parent_rep.exists():
-            shutil.rmtree(parent_rep, ignore_errors=True)
-        if sub_gpr.exists():
-            sub_gpr.unlink()
-        if sub_rep.exists():
-            shutil.rmtree(sub_rep, ignore_errors=True)
-    except Exception as cleanup_err:
-        print(f"Warning: could not fully clean existing Ghidra project: {cleanup_err}")
+            if parent_gpr.exists():
+                parent_gpr.unlink()
+            if parent_rep.exists():
+                shutil.rmtree(parent_rep, ignore_errors=True)
+            if sub_gpr.exists():
+                sub_gpr.unlink()
+            if sub_rep.exists():
+                shutil.rmtree(sub_rep, ignore_errors=True)
+        except Exception as cleanup_err:
+            print(
+                f"Warning: could not fully clean existing Ghidra project: {cleanup_err}"
+            )
 
     try:
         pyhidra.start()
@@ -233,6 +241,7 @@ def main():
 
     except Exception:
         import traceback
+
         traceback.print_exc()
 
 

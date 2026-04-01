@@ -104,11 +104,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
-                    } else {
-                        if let Some(val) = args_iter.peek() {
-                            if !val.starts_with("--") {
-                                args_iter.next();
-                            }
+                    } else if let Some(val) = args_iter.peek() {
+                        if !val.starts_with("--") {
+                            args_iter.next();
                         }
                     }
                 }
@@ -121,11 +119,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 }
                             }
                         }
-                    } else {
-                        if let Some(val) = args_iter.peek() {
-                            if !val.starts_with("--") {
-                                args_iter.next();
-                            }
+                    } else if let Some(val) = args_iter.peek() {
+                        if !val.starts_with("--") {
+                            args_iter.next();
                         }
                     }
                 }
@@ -306,7 +302,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get the tables of cross references of potential panics in the programs (for bug detection)
     get_cross_references(&binary_path)?;
 
-    let start_address = u64::from_str_radix(&main_program_addr.trim_start_matches("0x"), 16)
+    let start_address = u64::from_str_radix(main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
 
     if mode == "function" {
@@ -935,6 +931,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 /// * **Function** — where in the binary execution currently is
 /// * **Constraints** — proxy for SMT solver complexity; a rapidly growing
 ///   count suggests the solver will slow down soon
+///
 /// Render the sticky status bar.
 ///
 /// Metrics shown — chosen to give a flamegraph-like view of where time goes:
@@ -1084,8 +1081,8 @@ fn execute_instructions_from(
         function_args_map
     } else {
         log!(executor.state.logger, "Loading C function arguments map...");
-        let function_args_map = load_function_args_map();
-        function_args_map
+
+        load_function_args_map()
     };
 
     // Check up-front that p-code exists for the start address so the user
@@ -1346,8 +1343,8 @@ fn execute_instructions_from(
                     let address_of_negated_path_exploration = if conditional_flag_u64 == 0 {
                         // We want to explore the branch that is not taken
                         log!(executor.state.logger, ">>> Branch condition is false (0x{:x}), performing lightweight path analysis on the other branch...", conditional_flag_u64);
-                        let addr = branch_target_address;
-                        addr
+
+                        branch_target_address
                     } else {
                         // We want to explore the branch that is taken
                         log!(executor.state.logger, ">>> Branch condition is true (0x{:x}), performing lightweight path analysis on the other branch...", conditional_flag_u64);
@@ -1382,7 +1379,7 @@ fn execute_instructions_from(
                             let analysis_result = analyze_untaken_path_with_overlay(
                                 executor,
                                 address_of_negated_path_exploration,
-                                &instructions_map,
+                                instructions_map,
                                 15, // max depth for overlay
                             );
 
@@ -1468,7 +1465,7 @@ fn execute_instructions_from(
                             explore_ast_for_panic(
                                 executor,
                                 address_of_negated_path_exploration,
-                                &binary_path,
+                                binary_path,
                             )
                         } else {
                             log!(
@@ -1479,8 +1476,7 @@ fn execute_instructions_from(
                         };
 
                         if ast_panic_result.starts_with("FOUND_PANIC_XREF_AT 0x") {
-                            if let Some(panic_addr_str) =
-                                ast_panic_result.trim().split_whitespace().last()
+                            if let Some(panic_addr_str) = ast_panic_result.split_whitespace().last()
                             {
                                 if let Some(stripped) = panic_addr_str.strip_prefix("0x") {
                                     if let Ok(parsed_addr) = u64::from_str_radix(stripped, 16) {
@@ -1497,7 +1493,7 @@ fn execute_instructions_from(
 
                             // Extract panic address from AST result
                             let panic_addr = if let Some(panic_addr_str) =
-                                ast_panic_result.trim().split_whitespace().last()
+                                ast_panic_result.split_whitespace().last()
                             {
                                 if let Some(stripped) = panic_addr_str.strip_prefix("0x") {
                                     u64::from_str_radix(stripped, 16).ok()
@@ -1579,7 +1575,7 @@ fn execute_instructions_from(
                 thread_manager.tick_instruction();
 
                 // Debug: Log thread scheduling status every 100 instructions
-                if thread_manager.instruction_count % 100 == 0
+                if thread_manager.instruction_count.is_multiple_of(100)
                     && thread_manager.instruction_count > 0
                 {
                     let ready_threads: Vec<_> = thread_manager
@@ -2067,82 +2063,74 @@ fn execute_instructions_from(
                     // Regular progression to the next instruction
                     local_line_number += 1;
                 }
-            } else {
-                if possible_new_rip != current_rip
-                    && local_line_number >= (instructions.len() - 1).try_into().unwrap()
+            } else if possible_new_rip != current_rip
+                && local_line_number >= (instructions.len() - 1).try_into().unwrap()
+            {
+                log!(
+                    executor.state.logger,
+                    "local_line_number: {}, instructions.len()-1: {}",
+                    local_line_number,
+                    (instructions.len() - 1) as i64
+                );
+                log!(
+                    executor.state.logger,
+                    "Control flow change detected, new RIP: 0x{:x}",
+                    possible_new_rip
+                );
+                if let Some(symbol_name_potential_new_rip) =
+                    executor.symbol_table.get(&possible_new_rip_hex)
                 {
-                    log!(
-                        executor.state.logger,
-                        "local_line_number: {}, instructions.len()-1: {}",
-                        local_line_number,
-                        (instructions.len() - 1) as i64
-                    );
-                    log!(
-                        executor.state.logger,
-                        "Control flow change detected, new RIP: 0x{:x}",
-                        possible_new_rip
-                    );
-                    if let Some(symbol_name_potential_new_rip) =
-                        executor.symbol_table.get(&possible_new_rip_hex)
-                    {
-                        // Found a symbol, check if it's blacklisted, etc.
-                        if IGNORED_TINYGO_FUNCS.contains(&symbol_name_potential_new_rip.as_str()) {
-                            log!(
-                                executor.state.logger,
-                                "Skipping function '{:?}' at 0x{:x} because it is blacklisted.",
-                                symbol_name_potential_new_rip,
-                                current_rip
-                            );
+                    // Found a symbol, check if it's blacklisted, etc.
+                    if IGNORED_TINYGO_FUNCS.contains(&symbol_name_potential_new_rip.as_str()) {
+                        log!(
+                            executor.state.logger,
+                            "Skipping function '{:?}' at 0x{:x} because it is blacklisted.",
+                            symbol_name_potential_new_rip,
+                            current_rip
+                        );
 
-                            // When skipping a function, we need to update the stack pointer i.e. add 8 to RSP
-                            let rsp_value_concrete = executor
-                                .state
-                                .cpu_state
-                                .lock()
-                                .unwrap()
-                                .get_register_by_offset(0x20, 64)
-                                .unwrap()
-                                .concrete
-                                .to_u64();
-                            let rsp_value_symbolic = executor
-                                .state
-                                .cpu_state
-                                .lock()
-                                .unwrap()
-                                .get_register_by_offset(0x20, 64)
-                                .unwrap()
-                                .symbolic
-                                .to_bv(executor.context)
-                                .clone();
-                            let next_rsp_value_concrete = rsp_value_concrete + 8;
-                            let next_rsp_value_symbolic =
-                                rsp_value_symbolic.bvadd(&BV::from_u64(executor.context, 8, 64));
-                            let next_rsp_value = ConcolicVar::new_concrete_and_symbolic_int(
-                                next_rsp_value_concrete,
-                                next_rsp_value_symbolic,
-                                executor.context,
-                            );
-                            executor
-                                .state
-                                .cpu_state
-                                .lock()
-                                .unwrap()
-                                .set_register_value_by_offset(0x20, next_rsp_value, 64)
-                                .expect("Failed to set register value by offset");
+                        // When skipping a function, we need to update the stack pointer i.e. add 8 to RSP
+                        let rsp_value_concrete = executor
+                            .state
+                            .cpu_state
+                            .lock()
+                            .unwrap()
+                            .get_register_by_offset(0x20, 64)
+                            .unwrap()
+                            .concrete
+                            .to_u64();
+                        let rsp_value_symbolic = executor
+                            .state
+                            .cpu_state
+                            .lock()
+                            .unwrap()
+                            .get_register_by_offset(0x20, 64)
+                            .unwrap()
+                            .symbolic
+                            .to_bv(executor.context)
+                            .clone();
+                        let next_rsp_value_concrete = rsp_value_concrete + 8;
+                        let next_rsp_value_symbolic =
+                            rsp_value_symbolic.bvadd(&BV::from_u64(executor.context, 8, 64));
+                        let next_rsp_value = ConcolicVar::new_concrete_and_symbolic_int(
+                            next_rsp_value_concrete,
+                            next_rsp_value_symbolic,
+                            executor.context,
+                        );
+                        executor
+                            .state
+                            .cpu_state
+                            .lock()
+                            .unwrap()
+                            .set_register_value_by_offset(0x20, next_rsp_value, 64)
+                            .expect("Failed to set register value by offset");
 
-                            let (next_addr_in_map, _) =
-                                instructions_map.range((current_rip + 1)..).next().unwrap();
-                            current_rip = *next_addr_in_map;
-                            local_line_number = 0; // Reset instruction index
-                            end_of_block = true; // Indicate end of current block execution
-                            log!(executor.state.logger, "Jumping to 0x{:x}", next_addr_in_map);
-                        } else {
-                            // Manage the case where the RIP update points beyond the current block
-                            current_rip = possible_new_rip;
-                            local_line_number = 0; // Reset instruction index for new RIP
-                            end_of_block = true; // Indicate end of current block execution
-                            log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
-                        }
+                        let (next_addr_in_map, _) =
+                            instructions_map.range((current_rip + 1)..).next().unwrap();
+                        current_rip = *next_addr_in_map;
+                        local_line_number = 0; // Reset instruction index
+                        end_of_block = true; // Indicate end of current block execution
+                        log!(executor.state.logger, "Jumping to 0x{:x}", next_addr_in_map);
                     } else {
                         // Manage the case where the RIP update points beyond the current block
                         current_rip = possible_new_rip;
@@ -2151,9 +2139,19 @@ fn execute_instructions_from(
                         log!(executor.state.logger, "Control flow change detected, switching execution to new address: 0x{:x}", current_rip);
                     }
                 } else {
-                    // Regular progression to the next instruction
-                    local_line_number += 1;
+                    // Manage the case where the RIP update points beyond the current block
+                    current_rip = possible_new_rip;
+                    local_line_number = 0; // Reset instruction index for new RIP
+                    end_of_block = true; // Indicate end of current block execution
+                    log!(
+                        executor.state.logger,
+                        "Control flow change detected, switching execution to new address: 0x{:x}",
+                        current_rip
+                    );
                 }
+            } else {
+                // Regular progression to the next instruction
+                local_line_number += 1;
             }
         }
 
@@ -2324,7 +2322,7 @@ pub fn initialize_symbolic_part_args(
         let mut fresh_symbolic = Vec::with_capacity(str_data_len as usize);
         for (byte_index, _) in concrete_str_bytes.iter().enumerate() {
             let bv_name = format!("arg{}_byte_{}", i, byte_index);
-            let fresh_bv = BV::fresh_const(&executor.context, &bv_name, 8);
+            let fresh_bv = BV::fresh_const(executor.context, &bv_name, 8);
             // Register this symbolic byte so negated-path detection can recognize it
             executor
                 .function_symbolic_arguments
@@ -2397,7 +2395,7 @@ fn preprocess_pcode_file(
 
     log!(executor.state.logger, "Preprocessing the p-code file...");
 
-    for line in reader.lines().filter_map(Result::ok) {
+    for line in reader.lines().map_while(Result::ok) {
         if line.trim_start().starts_with("0x") {
             current_address = Some(u64::from_str_radix(&line.trim()[2..], 16).unwrap());
             instructions_map
@@ -2424,15 +2422,12 @@ fn preprocess_pcode_file(
                         line,
                         e
                     );
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!(
-                            "Error parsing line at address 0x{:x}: {}\nError: {}",
-                            current_address.unwrap_or(0),
-                            line,
-                            e
-                        ),
-                    ));
+                    return Err(io::Error::other(format!(
+                        "Error parsing line at address 0x{:x}: {}\nError: {}",
+                        current_address.unwrap_or(0),
+                        line,
+                        e
+                    )));
                 }
             }
         }
@@ -2530,7 +2525,7 @@ fn update_argc_argv(
     // Write argc (concrete)
     executor.state.memory.write_value(
         rsp,
-        &MemoryValue::new(argc, BV::from_u64(&executor.context, argc, 64), 64),
+        &MemoryValue::new(argc, BV::from_u64(executor.context, argc, 64), 64),
     )?;
 
     let argv_ptr_base = rsp + 8;
@@ -2542,7 +2537,7 @@ fn update_argc_argv(
             argv_ptr_base + (i as u64 * 8),
             &MemoryValue::new(
                 current_string_address,
-                BV::from_u64(&executor.context, current_string_address, 64),
+                BV::from_u64(executor.context, current_string_address, 64),
                 64,
             ),
         )?;
@@ -2558,11 +2553,11 @@ fn update_argc_argv(
 
         for offset in 0..arg_bytes.len() {
             let sym_byte =
-                BV::fresh_const(&executor.context, &format!("arg{}_byte{}", i, offset), 8);
+                BV::fresh_const(executor.context, &format!("arg{}_byte{}", i, offset), 8);
 
             // Add ASCII constraints for printable characters (32-126)
-            let printable_min = BV::from_u64(&executor.context, 32, 8);
-            let printable_max = BV::from_u64(&executor.context, 126, 8);
+            let printable_min = BV::from_u64(executor.context, 32, 8);
+            let printable_max = BV::from_u64(executor.context, 126, 8);
             let ascii_constraint = sym_byte.bvuge(&printable_min) & sym_byte.bvule(&printable_max);
             executor.solver.assert(&ascii_constraint);
 
@@ -2575,7 +2570,7 @@ fn update_argc_argv(
         // NULL terminator
         executor.state.memory.write_value(
             current_string_address + arg_bytes.len() as u64,
-            &MemoryValue::new(0, BV::from_u64(&executor.context, 0, 8), 8),
+            &MemoryValue::new(0, BV::from_u64(executor.context, 0, 8), 8),
         )?;
 
         current_string_address += ((arg_bytes.len() + 8) as u64) & !7; // align to 8 bytes

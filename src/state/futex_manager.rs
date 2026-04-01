@@ -20,6 +20,12 @@ pub struct FutexManager {
     futexes: Mutex<BTreeMap<u64, Arc<Mutex<Futex>>>>,
 }
 
+impl Default for FutexManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FutexManager {
     pub fn new() -> Self {
         FutexManager {

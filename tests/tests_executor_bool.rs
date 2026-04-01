@@ -37,6 +37,9 @@ mod tests {
             function_symbolic_arguments: BTreeMap::new(),
             constraint_vector: Vec::new(),
             overlay_state: None,
+            null_check_cache: std::collections::HashMap::new(),
+            start_time: std::time::Instant::now(),
+            visited_blocks: std::collections::BTreeSet::new(),
         }
     }
 
@@ -45,16 +48,16 @@ mod tests {
         let mut executor = setup_executor();
 
         // Setup: Create two boolean variables, one true and one false
-        let symbolic0 = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
-        let symbolic1 = SymbolicVar::Int(BV::new_const(executor.context, format!("false"), 64));
+        let symbolic0 = SymbolicVar::Int(BV::new_const(executor.context, "true".to_string(), 64));
+        let symbolic1 = SymbolicVar::Int(BV::new_const(executor.context, "false".to_string(), 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             1,
-            symbolic0.to_bv(&executor.context),
+            symbolic0.to_bv(executor.context),
             executor.context,
         ); // true
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             0,
-            symbolic1.to_bv(&executor.context),
+            symbolic1.to_bv(executor.context),
             executor.context,
         ); // false
         executor
@@ -106,10 +109,10 @@ mod tests {
         let mut executor = setup_executor();
 
         // Setup: Create and insert a test variable assumed to represent a boolean value 'true' (1)
-        let symbolic = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
+        let symbolic = SymbolicVar::Int(BV::new_const(executor.context, "true".to_string(), 64));
         let test_bool = ConcolicVar::new_concrete_and_symbolic_int(
             1,
-            symbolic.to_bv(&executor.context),
+            symbolic.to_bv(executor.context),
             executor.context,
         );
         executor
@@ -134,13 +137,7 @@ mod tests {
         );
 
         // Verify: Check if the boolean value was negated correctly
-        if let Some(negated_var) = executor
-            .unique_variables
-            .get("Unique(0x200)")
-            .map(|enum_var| match enum_var {
-                var => var.clone(),
-            })
-        {
+        if let Some(negated_var) = executor.unique_variables.get("Unique(0x200)").cloned() {
             assert_eq!(
                 negated_var.concrete.to_u64(),
                 0,
@@ -156,16 +153,16 @@ mod tests {
         let mut executor = setup_executor();
 
         // Setup: Create two boolean variables, one true and one false
-        let symbolic0 = SymbolicVar::Int(BV::new_const(executor.context, format!("true"), 64));
-        let symbolic1 = SymbolicVar::Int(BV::new_const(executor.context, format!("false"), 64));
+        let symbolic0 = SymbolicVar::Int(BV::new_const(executor.context, "true".to_string(), 64));
+        let symbolic1 = SymbolicVar::Int(BV::new_const(executor.context, "false".to_string(), 64));
         let input0 = ConcolicVar::new_concrete_and_symbolic_int(
             1,
-            symbolic0.to_bv(&executor.context),
+            symbolic0.to_bv(executor.context),
             executor.context,
         ); // true
         let input1 = ConcolicVar::new_concrete_and_symbolic_int(
             0,
-            symbolic1.to_bv(&executor.context),
+            symbolic1.to_bv(executor.context),
             executor.context,
         ); // false
         executor

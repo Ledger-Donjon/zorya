@@ -325,7 +325,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         address: u64,
         size_bits: u32,
     ) -> Result<ConcolicVar<'ctx>, String> {
-        let byte_size = ((size_bits + 7) / 8) as usize;
+        let byte_size = size_bits.div_ceil(8) as usize;
 
         // Use overlay-aware memory reading
         let (concrete_bytes, symbolic_vec) = self
@@ -393,7 +393,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         mem_value: &MemoryValue<'ctx>,
     ) -> Result<(), crate::state::memory_x86_64::MemoryError> {
         let size_bits = mem_value.size;
-        let byte_size = ((size_bits + 7) / 8) as usize;
+        let byte_size = size_bits.div_ceil(8) as usize;
 
         // Convert concrete value to bytes
         let concrete_bytes = mem_value.concrete.to_le_bytes()[..byte_size].to_vec();
@@ -835,7 +835,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             varnode.var
         );
 
-        let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
+        let bit_size = varnode.size.to_bitvector_size(); // size in bits
         match &varnode.var {
             Var::Register(offset, _) => {
                 log!(
@@ -932,16 +932,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         } else if bit_size > 64 {
                             let symbolic_values = vec![
                                 BV::from_u64(self.context, 0, 64);
-                                ((bit_size + 63) / 64).try_into().unwrap()
+                                bit_size.div_ceil(64).try_into().unwrap()
                             ];
                             let mut combined_bv = symbolic_values[0].clone();
-                            for i in 1..symbolic_values.len() {
-                                combined_bv = symbolic_values[i].concat(&combined_bv);
+                            for bv in symbolic_values.iter().skip(1) {
+                                combined_bv = bv.concat(&combined_bv);
                             }
                             ConcolicVar {
                                 concrete: ConcreteVar::LargeInt(vec![
                                     0;
-                                    ((bit_size + 63) / 64)
+                                    bit_size
+                                        .div_ceil(64)
                                         .try_into()
                                         .unwrap()
                                 ]),
@@ -966,8 +967,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             SymbolicVar::Int(bv_vec[0].clone())
                         } else {
                             let mut combined_bv = bv_vec[0].clone();
-                            for i in 1..bv_vec.len() {
-                                combined_bv = bv_vec[i].concat(&combined_bv); // high <- low (little endian)
+                            for bv in bv_vec.iter().skip(1) {
+                                combined_bv = bv.concat(&combined_bv); // high <- low (little endian)
                             }
                             SymbolicVar::LargeInt(vec![combined_bv])
                         }
@@ -997,8 +998,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     value
                 );
                 // First, parse the constant as an unsigned 64-bit value.
-                let parsed_value_u64 = if value.starts_with("0x") {
-                    u64::from_str_radix(&value[2..], 16)
+                let parsed_value_u64 = if let Some(hex) = value.strip_prefix("0x") {
+                    u64::from_str_radix(hex, 16)
                 } else {
                     value.parse::<u64>()
                 }
@@ -1198,7 +1199,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         ctx: self.context,
                     }))
                 } else {
-                    return Err("Expected LargeInt symbolic variable".to_string());
+                    Err("Expected LargeInt symbolic variable".to_string())
                 }
             }
             _ => Err("Unsupported concrete variable type for extraction".to_string()),
@@ -1256,7 +1257,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let mut containing: Option<(u64, u32)> = None;
         for (base, &(_, size_bits)) in cpu_state_guard.register_map.iter() {
             let size_bytes = (size_bits as u64) / 8;
-            if offset >= *base && (offset + (bit_size as u64 + 7) / 8) <= (*base + size_bytes) {
+            if offset >= *base && (offset + (bit_size as u64).div_ceil(8)) <= (*base + size_bytes) {
                 if let Some((best_base, _)) = containing {
                     if *base > best_base {
                         containing = Some((*base, size_bits));
@@ -1299,7 +1300,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let extracted_value = (*value >> bit_offset) & mask;
 
                 // Symbolic extraction — skip simplify for numeral BVs
-                let symbolic_bv = original_register.symbolic.to_bv(&cpu_state_guard.ctx);
+                let symbolic_bv = original_register.symbolic.to_bv(cpu_state_guard.ctx);
                 let high_bit = (bit_offset + u64::from(bit_size) - 1) as u32;
                 let low_bit = bit_offset as u32;
 
@@ -1330,7 +1331,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // Use extract_symbolic_bits_from_large_int to extract the symbolic value
                 if let SymbolicVar::LargeInt(ref bvs) = original_register.symbolic {
                     let raw_sym = CpuState::extract_symbolic_bits_from_large_int(
-                        &cpu_state_guard.ctx,
+                        cpu_state_guard.ctx,
                         bvs,
                         start_bit,
                         end_bit,
@@ -1347,7 +1348,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                         ctx: cpu_state_guard.ctx,
                     }))
                 } else {
-                    return Err("Expected LargeInt symbolic variable".to_string());
+                    Err("Expected LargeInt symbolic variable".to_string())
                 }
             }
             _ => Err("Unsupported concrete variable type for extraction".to_string()),
@@ -1361,7 +1362,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     ) -> Result<(), String> {
         if let Some(varnode) = output_varnode {
             // Resize the result_value according to the output size specification
-            let bit_size = varnode.size.to_bitvector_size() as u32; // size in bits
+            let bit_size = varnode.size.to_bitvector_size(); // size in bits
 
             match &varnode.var {
                 Var::Unique(id) => {
@@ -1528,7 +1529,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     "{}-{:02}-branch",
                     current_addr_hex, self.instruction_counter
                 );
-                let symbolic_var = SymbolicVar::from_u64(&self.context, value_u64, 64);
+                let symbolic_var = SymbolicVar::from_u64(self.context, value_u64, 64);
                 self.state.create_or_update_concolic_variable_int(
                     &result_var_name,
                     value_u64,
@@ -1547,12 +1548,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 );
 
                 // Create concolic variable for branch target and update RIP register
-                let symbolic_var = SymbolicVar::from_u64(&self.context, branch_target_address, 64)
-                    .to_bv(&self.context);
+                let symbolic_var = SymbolicVar::from_u64(self.context, branch_target_address, 64)
+                    .to_bv(self.context);
                 let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(
                     branch_target_address,
                     symbolic_var,
-                    &self.context,
+                    self.context,
                 );
 
                 // Update RIP to branch target (overlay-aware)
@@ -1592,8 +1593,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Memory(addr) => Ok(*addr),
             Var::Const(value) => {
                 // Parse as unsigned first.
-                let parsed_value_u64 = if value.starts_with("0x") {
-                    u64::from_str_radix(&value[2..], 16)
+                let parsed_value_u64 = if let Some(hex) = value.strip_prefix("0x") {
+                    u64::from_str_radix(hex, 16)
                 } else {
                     value.parse::<u64>()
                 }
@@ -1724,8 +1725,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             Var::Const(value) => {
                 log!(self.state.logger.clone(), "Branch target is a constant value indicating the number of lines to jump: {:?}", value);
                 // Parse as unsigned first.
-                let parsed_value_u64 = if value.starts_with("0x") {
-                    u64::from_str_radix(&value[2..], 16)
+                let parsed_value_u64 = if let Some(hex) = value.strip_prefix("0x") {
+                    u64::from_str_radix(hex, 16)
                 } else {
                     value.parse::<u64>()
                 }
@@ -1849,11 +1850,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Create concolic variable for branch target and update RIP register
         let symbolic_var =
-            SymbolicVar::from_u64(&self.context, branch_target_address, 64).to_bv(&self.context);
+            SymbolicVar::from_u64(self.context, branch_target_address, 64).to_bv(self.context);
         let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(
             branch_target_address,
             symbolic_var,
-            &self.context,
+            self.context,
         );
 
         // Update RIP to branch target (overlay-aware)
@@ -2021,7 +2022,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // SAT — vulnerability found and already reported by evaluate_args_z3
                 self.null_check_cache
                     .insert(base_var_name, (true, current_constraint_len));
-                return true;
+                true
             }
             Ok(false) => {
                 // UNSAT or Unknown — base variable cannot be NULL
@@ -2033,7 +2034,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     "[NULL-CHECK] '{}' cannot be NULL (UNSAT)",
                     var_name_for_log
                 );
-                return false;
+                false
             }
             Err(e) => {
                 log!(
@@ -2042,7 +2043,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     base_var_name.clone(),
                     e
                 );
-                return false;
+                false
             }
         }
     }
@@ -2280,7 +2281,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     pub fn handle_call(&mut self, instruction: Inst) -> Result<(), String> {
-        if instruction.opcode != Opcode::Call || instruction.inputs.len() < 1 {
+        if instruction.opcode != Opcode::Call || instruction.inputs.is_empty() {
             return Err("Invalid instruction format for CALL".to_string());
         }
 
@@ -2367,7 +2368,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     pub fn handle_callind(&mut self, instruction: Inst) -> Result<(), String> {
-        if instruction.opcode != Opcode::CallInd || instruction.inputs.len() < 1 {
+        if instruction.opcode != Opcode::CallInd || instruction.inputs.is_empty() {
             return Err("Invalid instruction format for CALLIND".to_string());
         }
 
@@ -2448,7 +2449,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         let branch_target_concolic = ConcolicVar::new_concrete_and_symbolic_int(
             branch_target_concrete,
-            branch_target_symbolic.to_bv(&self.context),
+            branch_target_symbolic.to_bv(self.context),
             self.context,
         );
 
@@ -2567,7 +2568,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let load_size_bits = instruction
             .output
             .as_ref()
-            .map(|varnode| varnode.size.to_bitvector_size() as u32)
+            .map(|varnode| varnode.size.to_bitvector_size())
             .unwrap_or(64); // Default to 64 bits if output size is not specified
         log!(
             self.state.logger.clone(),
@@ -2631,8 +2632,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 );
                 mem_value = ConcolicVar::new_concrete_and_symbolic_int(
                     mem_value.concrete.to_u64(),
-                    mem_value.symbolic.to_bv(&self.context),
-                    &self.context,
+                    mem_value.symbolic.to_bv(self.context),
+                    self.context,
                 );
             }
             if load_size_bits < mem_size {
@@ -2644,12 +2645,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 );
                 let extracted_symbolic = mem_value
                     .symbolic
-                    .to_bv(&self.context)
+                    .to_bv(self.context)
                     .extract(load_size_bits - 1, 0);
                 mem_value = ConcolicVar::new_concrete_and_symbolic_int(
                     mem_value.concrete.to_u64(),
                     extracted_symbolic,
-                    &self.context,
+                    self.context,
                 );
             }
         }
@@ -2701,13 +2702,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let full_sym: BV = if mem_value.symbolic.get_size() < load_size_bits {
                     mem_value
                         .symbolic
-                        .to_bv(&self.context)
+                        .to_bv(self.context)
                         .zero_ext(load_size_bits - mem_value.symbolic.get_size())
                 } else {
-                    mem_value.symbolic.to_bv(&self.context)
+                    mem_value.symbolic.to_bv(self.context)
                 };
                 let full_sym_size = full_sym.get_size();
-                let num_chunks = ((load_size_bits + 63) / 64) as usize;
+                let num_chunks = load_size_bits.div_ceil(64) as usize;
                 let mut large_sym = Vec::with_capacity(num_chunks);
                 for i in 0..num_chunks {
                     let low = i * 64;
@@ -2728,7 +2729,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             } else {
                 ConcolicVar::new_concrete_and_symbolic_int(
                     mem_value.concrete.to_u64(),
-                    mem_value.symbolic.clone().to_bv(&self.context),
+                    mem_value.symbolic.clone().to_bv(self.context),
                     self.context,
                 )
             }
@@ -2738,13 +2739,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let full_sym: BV = if mem_value.symbolic.get_size() < load_size_bits {
                     mem_value
                         .symbolic
-                        .to_bv(&self.context)
+                        .to_bv(self.context)
                         .zero_ext(load_size_bits - mem_value.symbolic.get_size())
                 } else {
-                    mem_value.symbolic.to_bv(&self.context)
+                    mem_value.symbolic.to_bv(self.context)
                 };
                 let full_sym_size = full_sym.get_size();
-                let num_chunks = ((load_size_bits + 63) / 64) as usize;
+                let num_chunks = load_size_bits.div_ceil(64) as usize;
                 let mut large_sym = Vec::with_capacity(num_chunks);
                 for i in 0..num_chunks {
                     let low = i * 64;
@@ -2765,7 +2766,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             } else {
                 ConcolicVar::new_concrete_and_symbolic_int(
                     mem_value.concrete.to_u64(),
-                    mem_value.symbolic.clone().to_bv(&self.context),
+                    mem_value.symbolic.clone().to_bv(self.context),
                     self.context,
                 )
             }
@@ -2876,7 +2877,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             // Delegate to `handle_copy` to extract the base register
                             self.handle_copy(inst.clone())?;
                             base_bv = Some(
-                                self.varnode_to_concolic(&inst.output.as_ref().unwrap())?
+                                self.varnode_to_concolic(inst.output.as_ref().unwrap())?
                                     .get_symbolic_value_bv(context),
                             );
                         }
@@ -2886,7 +2887,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             // Delegate to `handle_int_mult` to extract the scaled value
                             executor_int::handle_int_mult(self, inst.clone())?;
                             scale_bv = Some(
-                                self.varnode_to_concolic(&inst.output.as_ref().unwrap())?
+                                self.varnode_to_concolic(inst.output.as_ref().unwrap())?
                                     .get_symbolic_value_bv(context),
                             );
                         }
@@ -2896,7 +2897,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                             // Delegate to `handle_int_add` to calculate the final index
                             executor_int::handle_int_add(self, inst.clone())?;
                             index_bv = Some(
-                                self.varnode_to_concolic(&inst.output.as_ref().unwrap())?
+                                self.varnode_to_concolic(inst.output.as_ref().unwrap())?
                                     .get_symbolic_value_bv(context),
                             );
                             break; // No need to continue once the final index is resolved
@@ -3018,7 +3019,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let data_to_store_symbolic = data_to_store_concolic.get_symbolic_value_bv(self.context);
 
         // Determine the size of the data to store
-        let data_size_bits = data_to_store_var.size.to_bitvector_size() as u32;
+        let data_size_bits = data_to_store_var.size.to_bitvector_size();
         log!(
             self.state.logger.clone(),
             "Data size in bits: {}",
@@ -3208,7 +3209,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     let chunk_addr = pointer_offset_concrete + (i as u64 * 8);
                     let read_result = if self.is_overlay_mode() {
                         self.read_value_overlay_mode(chunk_addr, 64)
-                            .map_err(|e| MemoryError::Other(e))
+                            .map_err(MemoryError::Other)
                     } else {
                         self.state
                             .memory
@@ -3256,7 +3257,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 };
                 let read_result = if self.is_overlay_mode() {
                     self.read_value_overlay_mode(pointer_offset_concrete, data_size_bits)
-                        .map_err(|e| MemoryError::Other(e))
+                        .map_err(MemoryError::Other)
                 } else {
                     self.state.memory.read_value(
                         pointer_offset_concrete,
@@ -3405,7 +3406,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
 
         let output_varnode = instruction.output.as_ref().unwrap();
-        let output_size_bits = output_varnode.size.to_bitvector_size() as u32;
+        let output_size_bits = output_varnode.size.to_bitvector_size();
 
         log!(
             self.state.logger.clone(),
@@ -3481,7 +3482,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
 
         // Handle concrete copy
-        let num_chunks = ((output_size_bits + 63) / 64) as usize;
+        let num_chunks = output_size_bits.div_ceil(64) as usize;
         let mut concrete_chunks = vec![0u64; num_chunks];
 
         match &source_concolic.concrete {
@@ -3603,10 +3604,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .as_ref()
             .unwrap()
             .size
-            .to_bitvector_size() as u32;
+            .to_bitvector_size();
 
         // Use the input operand width for correctness (e.g., popcount after AND 0xff)
-        let input_size_bits = instruction.inputs[0].size.to_bitvector_size() as u32;
+        let input_size_bits = instruction.inputs[0].size.to_bitvector_size();
 
         // Concrete popcount respecting the input bit width
         let mask = if input_size_bits >= 64 {
@@ -3621,7 +3622,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             SymbolicVar::Int(bv) => {
                 // Exact popcount over the input width; cap very large widths for solver sanity
                 let width = bv.get_size().min(input_size_bits).min(256);
-                let sum_width = std::cmp::max(1u32, std::cmp::min(width, 64));
+                let sum_width = width.clamp(1u32, 64);
                 let mut sum = BV::from_u64(self.context, 0, sum_width);
                 for i in 0..width {
                     let bit1 = bv.extract(i, i);
@@ -3717,7 +3718,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .as_ref()
             .unwrap()
             .size
-            .to_bitvector_size() as u32;
+            .to_bitvector_size();
         let bit_offset = offset_bytes * 8; // Convert byte offset to bits
 
         log!(
@@ -3747,7 +3748,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     SymbolicVar::Int(safe_bv)
                 } else {
                     // Split into chunks for large outputs
-                    let chunk_count = (output_size_bits + 63) / 64;
+                    let chunk_count = output_size_bits.div_ceil(64);
                     let splitted =
                         Self::split_largeint(self.context, &safe_bv, chunk_count as usize);
                     SymbolicVar::LargeInt(splitted)
@@ -3761,7 +3762,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 if output_size_bits <= 64 {
                     SymbolicVar::Int(safe_bv)
                 } else {
-                    let chunk_count = (output_size_bits + 63) / 64;
+                    let chunk_count = output_size_bits.div_ceil(64);
                     let splitted =
                         Self::split_largeint(self.context, &safe_bv, chunk_count as usize);
                     SymbolicVar::LargeInt(splitted)
@@ -3829,7 +3830,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             if output_size_bits <= 64 {
                 ConcreteVar::Int(0)
             } else {
-                let chunk_count = (output_size_bits + 63) / 64;
+                let chunk_count = output_size_bits.div_ceil(64);
                 ConcreteVar::LargeInt(vec![0; chunk_count as usize])
             }
         } else {
@@ -3844,7 +3845,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 ConcreteVar::Int(masked)
             } else {
                 // For outputs > 64 bits, create a LargeInt with the value in the first chunk
-                let chunk_count = (output_size_bits + 63) / 64;
+                let chunk_count = output_size_bits.div_ceil(64);
                 let mut result = vec![0; chunk_count as usize];
                 result[0] = masked;
                 ConcreteVar::LargeInt(result)
@@ -3854,7 +3855,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     // Improved concrete LargeInt subpiece
     fn subpiece_concrete_largeint(
-        values: &Vec<u64>,
+        values: &[u64],
         bit_offset: u32,
         output_size_bits: u32,
     ) -> ConcreteVar {
@@ -3865,7 +3866,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             if output_size_bits <= 64 {
                 return ConcreteVar::Int(0);
             } else {
-                let chunk_count = (output_size_bits + 63) / 64;
+                let chunk_count = output_size_bits.div_ceil(64);
                 return ConcreteVar::LargeInt(vec![0; chunk_count as usize]);
             }
         }
@@ -3875,14 +3876,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let bit_offset_in_chunk = bit_offset % 64;
 
         // Calculate output size
-        let output_chunk_count = (output_size_bits + 63) / 64;
+        let output_chunk_count = output_size_bits.div_ceil(64);
         let mut result = vec![0u64; output_chunk_count as usize];
 
         // Extract the required bits
         let mut remaining_bits = output_size_bits;
-        let mut result_index = 0;
 
-        for i in chunk_offset..values.len() {
+        for (result_index, i) in (chunk_offset..values.len()).enumerate() {
             if remaining_bits == 0 || result_index >= result.len() {
                 break;
             }
@@ -3907,8 +3907,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 result[result_index] = combined_chunk;
                 remaining_bits -= 64;
             }
-
-            result_index += 1;
         }
 
         if output_size_bits <= 64 {
@@ -3919,7 +3917,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     // Improved BV combination (fix the concatenation order)
-    fn combine_largeint(ctx: &'ctx Context, bv_vec: &Vec<BV<'ctx>>) -> BV<'ctx> {
+    fn combine_largeint(ctx: &'ctx Context, bv_vec: &[BV<'ctx>]) -> BV<'ctx> {
         if bv_vec.is_empty() {
             return BV::from_u64(ctx, 0, 64);
         }
@@ -3928,9 +3926,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // We need to concatenate in reverse order: high bits first
         let mut result = bv_vec[0].clone();
 
-        for i in 1..bv_vec.len() {
+        for bv in bv_vec.iter().skip(1) {
             // Concatenate: high_bits . low_bits
-            result = bv_vec[i].concat(&result);
+            result = bv.concat(&result);
         }
 
         result
@@ -4008,7 +4006,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // 3) If final_bits < out_bits, we must zero-extend to get the full `out_bits`.
         if final_bits < out_bits {
-            extracted.zero_ext((out_bits - final_bits) as u32)
+            extracted.zero_ext(out_bits - final_bits)
         } else {
             extracted
         }

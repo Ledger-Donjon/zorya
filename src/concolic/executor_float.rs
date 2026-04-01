@@ -186,7 +186,7 @@ pub fn handle_float_equal(
             result_concrete,
             result_symbolic,
             executor.context,
-            output_varnode.size.to_bitvector_size() as u32,
+            output_varnode.size.to_bitvector_size(),
         );
 
         executor.handle_output(Some(output_varnode), result_value.clone())?;
@@ -244,7 +244,7 @@ pub fn handle_float_less(executor: &mut ConcolicExecutor, instruction: Inst) -> 
             result_concrete,
             result_symbolic,
             executor.context,
-            output_varnode.size.to_bitvector_size() as u32,
+            output_varnode.size.to_bitvector_size(),
         );
 
         executor.handle_output(Some(output_varnode), result_value.clone())?;
@@ -290,7 +290,7 @@ pub fn handle_float_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> 
         .as_ref()
         .ok_or("Output varnode not specified")?
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
 
     // Read the bit patterns and convert to floats
     let input0_bits = input0_var.get_concrete_value();
@@ -394,13 +394,13 @@ pub fn handle_trunc(executor: &mut ConcolicExecutor, instruction: Inst) -> Resul
         .map_err(|e| e.to_string())?;
 
     // Get input and output sizes
-    let input_size_bits = instruction.inputs[0].size.to_bitvector_size() as u32;
+    let input_size_bits = instruction.inputs[0].size.to_bitvector_size();
     let output_size_bits = instruction
         .output
         .as_ref()
         .ok_or("Output varnode not specified for TRUNC")?
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
 
     // Read the input as bit pattern
     let input_bits = input_var.get_concrete_value();

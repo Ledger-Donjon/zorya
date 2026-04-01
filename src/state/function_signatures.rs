@@ -152,6 +152,7 @@ fn parse_location<R: Reader>(
 }
 
 // Home made parse function for DWARF location expressions in Go binaries
+#[allow(clippy::only_used_in_recursion)]
 fn resolve_type<R: Reader>(
     dwarf: &Dwarf<R>,
     unit: &Unit<R>,

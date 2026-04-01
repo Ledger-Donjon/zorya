@@ -34,12 +34,12 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             let mut remaining_value = initial_value;
 
             for _ in 0..(size / 64) {
-                chunks.push(remaining_value & 0xFFFFFFFFFFFFFFFF); // Take the least significant 64 bits
+                chunks.push(remaining_value); // Take the least significant 64 bits
                 remaining_value >>= 64 - 1; // Shift right by 64 bits
             }
 
             // Handle any leftover bits if the size is not a multiple of 64
-            if size % 64 != 0 {
+            if !size.is_multiple_of(64) {
                 chunks.push(remaining_value & ((1u64 << (size % 64)) - 1)); // Mask the remaining bits
             }
 
@@ -50,7 +50,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
 
         // Initialize the symbolic part based on size.
         let symbolic = if size > 64 {
-            let num_bvs = (size as usize + 63) / 64; // Number of 64-bit BV chunks needed
+            let num_bvs = (size as usize).div_ceil(64); // Number of 64-bit BV chunks needed
             let bvs = (0..num_bvs)
                 .map(|_| BV::from_u64(ctx, initial_value, 64))
                 .collect();
@@ -77,7 +77,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
         size: u32,
     ) -> Self {
         if size > 64 {
-            let num_chunks = ((size as usize) + 63) / 64; // Number of 64-bit chunks needed.
+            let num_chunks = (size as usize).div_ceil(64); // Number of 64-bit chunks needed.
             let mut fresh_chunks = Vec::with_capacity(num_chunks);
             for i in 0..num_chunks {
                 let chunk = BV::fresh_const(ctx, &format!("{}_chunk_{}", reg_name, i), 64);
@@ -88,14 +88,14 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             let num_full_chunks = (size / 64) as usize;
             let mut remaining_value = initial_value;
             for i in 0..num_full_chunks {
-                chunks.push(remaining_value & 0xFFFFFFFFFFFFFFFF);
+                chunks.push(remaining_value);
                 // Only shift if this is not the last full chunk.
                 if i < num_full_chunks - 1 {
                     // Use checked_shr to safely shift.
                     remaining_value = remaining_value.checked_shr(64).unwrap_or(0);
                 }
             }
-            if size % 64 != 0 {
+            if !size.is_multiple_of(64) {
                 // Handle any leftover bits.
                 chunks.push(remaining_value & ((1u64 << (size % 64)) - 1));
             }
@@ -141,11 +141,11 @@ impl<'ctx> CpuConcolicValue<'ctx> {
             panic!("Resize to invalid bit size: size must be between 1 and 256");
         }
 
-        let current_size = self.symbolic.to_bv(ctx).get_size() as u32;
+        let current_size = self.symbolic.to_bv(ctx).get_size();
 
         if new_size < current_size {
             // If reducing size, mask the concrete value and extract the needed bits from symbolic.
-            let mask = (1u64.wrapping_shl(new_size as u32).wrapping_sub(1)) as u64;
+            let mask = 1u64.wrapping_shl(new_size).wrapping_sub(1);
             self.concrete = ConcreteVar::Int(self.concrete.to_u64() & mask);
             self.symbolic = SymbolicVar::Int(self.symbolic.to_bv(ctx).extract(new_size - 1, 0));
         } else if new_size > current_size {
@@ -157,7 +157,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
     }
 
     pub fn concolic_zero_extend(&self, new_size: u32) -> Result<Self, &'static str> {
-        let current_size = self.symbolic.get_size() as u32;
+        let current_size = self.symbolic.get_size();
         if new_size <= current_size {
             return Err("New size must be greater than current size.");
         }
@@ -190,10 +190,7 @@ impl<'ctx> CpuConcolicValue<'ctx> {
     }
 
     pub fn is_bool(&self) -> bool {
-        match &self.concrete {
-            ConcreteVar::Bool(_) => true,
-            _ => false,
-        }
+        matches!(&self.concrete, ConcreteVar::Bool(_))
     }
 }
 
@@ -416,7 +413,7 @@ impl<'ctx> CpuState<'ctx> {
                 let result = Self::parse_and_update_cpu_state_from_gdb_output(self, &content);
                 if let Err(e) = result {
                     tprintln!("Error during CPU state update: {}", e);
-                    return Err(anyhow::Error::from(e));
+                    return Err(e);
                 }
             }
             Err(e) => {
@@ -470,11 +467,11 @@ impl<'ctx> CpuState<'ctx> {
                     .find(|&(_, (name, _))| *name == register_name)
                     .map(|(&k, (_, s))| (k, s))
                 {
-                    let value_symbolic = BV::from_u64(&self.ctx, value_concrete, *size);
+                    let value_symbolic = BV::from_u64(self.ctx, value_concrete, *size);
                     let value_concolic = ConcolicVar::new_concrete_and_symbolic_int(
                         value_concrete,
                         value_symbolic,
-                        &self.ctx,
+                        self.ctx,
                     );
                     self.set_register_value_by_offset(offset, value_concolic, *size)
                         .map_err(|e| {
@@ -508,11 +505,11 @@ impl<'ctx> CpuState<'ctx> {
                         .find(|&(_, (name, _))| *name == flag)
                         .map(|(&k, (_, s))| (k, s))
                     {
-                        let flag_symbolic = BV::from_u64(&self.ctx, flag_concrete, *size);
+                        let flag_symbolic = BV::from_u64(self.ctx, flag_concrete, *size);
                         let flag_concolic = ConcolicVar::new_concrete_and_symbolic_int(
                             flag_concrete,
                             flag_symbolic,
-                            &self.ctx,
+                            self.ctx,
                         );
                         self.set_register_value_by_offset(offset, flag_concolic, *size)
                             .map_err(|e| anyhow!("Failed to set flag value for {}: {}", flag, e))?;
@@ -559,14 +556,14 @@ impl<'ctx> CpuState<'ctx> {
                 // Compute YMM base offset from register map
                 let ymm_name = format!("YMM{}", idx);
                 if let Some(base_off) = self.resolve_offset_from_register_name(&ymm_name) {
-                    for lane in 0..4 {
-                        let lane_val = parsed[lane]; // low to high, 64-bit chunks
+                    for (lane, &lane_val) in parsed.iter().enumerate().take(4) {
+                        // lane_val: low to high, 64-bit chunks
                         let lane_offset = base_off + (lane as u64) * 8;
-                        let value_symbolic = BV::from_u64(&self.ctx, lane_val, 64);
+                        let value_symbolic = BV::from_u64(self.ctx, lane_val, 64);
                         let value_concolic = ConcolicVar::new_concrete_and_symbolic_int(
                             lane_val,
                             value_symbolic,
-                            &self.ctx,
+                            self.ctx,
                         );
                         // Write 64-bit lane into the 256-bit YMM register
                         self.set_register_value_by_offset(lane_offset, value_concolic, 64)
@@ -635,7 +632,7 @@ impl<'ctx> CpuState<'ctx> {
                 let delta = offset - base_offset;
 
                 // Check if this offset aligns with the XMM stride
-                if delta % xmm_stride == 0 {
+                if delta.is_multiple_of(*xmm_stride) {
                     let reg_index = delta / xmm_stride;
 
                     // Calculate corresponding YMM offset
@@ -694,7 +691,7 @@ impl<'ctx> CpuState<'ctx> {
                 let delta = offset - potential_pcode_base;
 
                 // Check if offset aligns with this stride
-                if delta % pcode_stride == 0
+                if delta.is_multiple_of(*pcode_stride)
                     || (delta < pcode_stride * count && delta / pcode_stride < count)
                 {
                     let reg_idx_candidate = delta / pcode_stride;
@@ -788,7 +785,7 @@ impl<'ctx> CpuState<'ctx> {
                 } else {
                     // Ensure that small registers remain as Int
                     let safe_shift = if bit_offset < 64 {
-                        (new_value.concrete.to_u64() & Self::safe_left_mask(write_bits as u64))
+                        (new_value.concrete.to_u64() & Self::safe_left_mask(write_bits))
                             << bit_offset
                     } else {
                         0 // If bit_offset >= 64, shifting would overflow, so leave as 0
@@ -1101,7 +1098,7 @@ impl<'ctx> CpuState<'ctx> {
             ConcreteVar::Int(result)
         } else {
             // Extract into a Vec<u64>
-            let num_u64s = ((total_bits + 63) / 64) as usize;
+            let num_u64s = total_bits.div_ceil(64) as usize;
             let mut result = vec![0u64; num_u64s];
             let mut bit_pos = 0u64;
             let mut current_bit = start_bit;
@@ -1214,7 +1211,7 @@ impl<'ctx> CpuState<'ctx> {
             SymbolicVar::Int(result_bv)
         } else {
             // Extract into a Vec<BV<'ctx>>
-            let num_bvs = ((total_bits + 63) / 64) as usize;
+            let num_bvs = total_bits.div_ceil(64) as usize;
             let mut result_bvs = vec![BV::from_u64(ctx, 0, 64); num_bvs];
             let mut current_bit = start_bit;
             let mut result_bit_pos = 0u64;
@@ -1267,7 +1264,7 @@ impl<'ctx> CpuState<'ctx> {
                 } else {
                     // Bits span across two BVs
                     let bits_in_current = 64 - result_bit_offset;
-                    let bits_in_current_u32 = bits_in_current as u32;
+                    let bits_in_current_u32 = bits_in_current;
 
                     let extracted_bv_current =
                         extracted_bv.extract(bits_in_current_u32 - 1, 0).simplify();

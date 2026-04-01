@@ -43,7 +43,7 @@ lazy_static::lazy_static! {
         let pcode_file_path = zorya_path.join("external/pcode-generator/results").join(pcode_file_name);
 
         TargetInfo::new(
-            &bin_path.to_string_lossy().to_string(),
+            bin_path.to_string_lossy().as_ref(),
             &env::var("START_POINT").expect("START_POINT environment variable is not set"),
             pcode_file_path,
             zorya_path,

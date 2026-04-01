@@ -117,20 +117,18 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
     // Validate syscall number - in overlay mode, invalid syscalls are common
     // due to speculative execution with incomplete register state
     let max_valid_syscall: u64 = 500; // Linux has ~400 syscalls, use 500 as reasonable upper bound
-    if rax > max_valid_syscall {
-        if in_overlay_mode {
-            log!(
+    if rax > max_valid_syscall && in_overlay_mode {
+        log!(
                 executor.state.logger.clone(),
                 "[OVERLAY] Invalid syscall number {} (likely pointer/garbage) - stopping speculative execution",
                 rax
             );
-            return Err(format!(
-                "Invalid syscall number {} in overlay mode - stopping speculative execution",
-                rax
-            ));
-        }
-        // Not in overlay mode - this is a real issue, will be handled in match default case
+        return Err(format!(
+            "Invalid syscall number {} in overlay mode - stopping speculative execution",
+            rax
+        ));
     }
+    // Not in overlay mode - this is a real issue, will be handled in match default case
 
     log!(
         executor.trace_logger,
@@ -456,8 +454,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             );
             executor.state.create_or_update_concolic_variable_int(
                 &result_var_name,
-                addr.try_into().unwrap(),
-                SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)),
+                addr,
+                SymbolicVar::Int(BV::from_u64(executor.context, addr, 64)),
             );
         }
         13 => {
@@ -958,8 +956,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             );
             executor.state.create_or_update_concolic_variable_int(
                 &result_var_name,
-                addr.try_into().unwrap(),
-                SymbolicVar::Int(BV::from_u64(executor.context, addr.try_into().unwrap(), 64)),
+                addr,
+                SymbolicVar::Int(BV::from_u64(executor.context, addr, 64)),
             );
         }
         39 => {
@@ -1111,12 +1109,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             );
             executor.state.create_or_update_concolic_variable_int(
                 &result_var_name,
-                path_ptr.try_into().unwrap(),
-                SymbolicVar::Int(BV::from_u64(
-                    executor.context,
-                    path_ptr.try_into().unwrap(),
-                    64,
-                )),
+                path_ptr,
+                SymbolicVar::Int(BV::from_u64(executor.context, path_ptr, 64)),
             );
         }
         56 => {
@@ -1278,12 +1272,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             );
             executor.state.create_or_update_concolic_variable_int(
                 &result_var_name,
-                status.try_into().unwrap(),
-                SymbolicVar::Int(BV::from_u64(
-                    executor.context,
-                    status.try_into().unwrap(),
-                    64,
-                )),
+                status,
+                SymbolicVar::Int(BV::from_u64(executor.context, status, 64)),
             );
         }
         97 => {
@@ -1600,12 +1590,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             );
             executor.state.create_or_update_concolic_variable_int(
                 &result_var_name,
-                oss_ptr.try_into().unwrap(),
-                SymbolicVar::Int(BV::from_u64(
-                    executor.context,
-                    oss_ptr.try_into().unwrap(),
-                    64,
-                )),
+                oss_ptr,
+                SymbolicVar::Int(BV::from_u64(executor.context, oss_ptr, 64)),
             );
         }
         158 => {
@@ -1783,8 +1769,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             );
             executor.state.create_or_update_concolic_variable_int(
                 &result_var_name,
-                tid.try_into().unwrap(),
-                SymbolicVar::Int(BV::from_u64(executor.context, tid.try_into().unwrap(), 64)),
+                tid,
+                SymbolicVar::Int(BV::from_u64(executor.context, tid, 64)),
             );
         }
         202 => {
@@ -1830,7 +1816,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 FUTEX_WAIT => {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_WAIT");
                     // This should block the thread if *uaddr == val, until *uaddr changes or optionally timeout expires
-                    let futex_uaddr = uaddr as u64;
+                    let futex_uaddr = uaddr;
                     let _futex_val = val as i32;
                     // ignore this operation for now
                     // executor.state.futex_manager.futex_wait(futex_uaddr, futex_val, timeout)?;
@@ -1847,18 +1833,14 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     );
                     executor.state.create_or_update_concolic_variable_int(
                         &result_var_name,
-                        futex_uaddr.try_into().unwrap(),
-                        SymbolicVar::Int(BV::from_u64(
-                            executor.context,
-                            futex_uaddr.try_into().unwrap(),
-                            64,
-                        )),
+                        futex_uaddr,
+                        SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr, 64)),
                     );
                 }
                 FUTEX_WAKE => {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_WAKE");
                     // This should wake up to 'val' number of threads waiting on 'uaddr'
-                    let futex_uaddr = uaddr as u64;
+                    let futex_uaddr = uaddr;
                     let futex_val = val as usize;
 
                     executor.state.futex_manager.futex_wake(
@@ -1878,20 +1860,16 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     );
                     executor.state.create_or_update_concolic_variable_int(
                         &result_var_name,
-                        futex_uaddr.try_into().unwrap(),
-                        SymbolicVar::Int(BV::from_u64(
-                            executor.context,
-                            futex_uaddr.try_into().unwrap(),
-                            64,
-                        )),
+                        futex_uaddr,
+                        SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr, 64)),
                     );
                 }
                 FUTEX_REQUEUE => {
                     log!(executor.state.logger.clone(), "Futex type: FUTEX_REQUEUE");
                     // This should requeue up to 'val' number of threads from 'uaddr' to 'uaddr2'
-                    let futex_uaddr = uaddr as u64;
+                    let futex_uaddr = uaddr;
                     let futex_val = val as usize;
-                    let futex_uaddr2 = uaddr2 as u64;
+                    let futex_uaddr2 = uaddr2;
                     let futex_val3 = val3 as usize;
                     executor.state.futex_manager.futex_requeue(
                         futex_uaddr,
@@ -1912,12 +1890,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     );
                     executor.state.create_or_update_concolic_variable_int(
                         &result_var_name,
-                        futex_uaddr.try_into().unwrap(),
-                        SymbolicVar::Int(BV::from_u64(
-                            executor.context,
-                            futex_uaddr.try_into().unwrap(),
-                            64,
-                        )),
+                        futex_uaddr,
+                        SymbolicVar::Int(BV::from_u64(executor.context, futex_uaddr, 64)),
                     );
                 }
                 _ => {
@@ -1974,7 +1948,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             let simulated_mask = if cpusetsize == 0 {
                 0u64
             } else {
-                (1u64.checked_shl(cpusetsize as u32).unwrap_or(0) - 1) & 0xFFFFFFFFFFFFFFFF
+                1u64.checked_shl(cpusetsize as u32).unwrap_or(0) - 1
             };
 
             log!(
@@ -2055,12 +2029,8 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             );
             executor.state.create_or_update_concolic_variable_int(
                 &result_var_name,
-                status.try_into().unwrap(),
-                SymbolicVar::Int(BV::from_u64(
-                    executor.context,
-                    status.try_into().unwrap(),
-                    64,
-                )),
+                status,
+                SymbolicVar::Int(BV::from_u64(executor.context, status, 64)),
             );
         }
         228 => {

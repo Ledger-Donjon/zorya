@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
 //
 // SPDX-License-Identifier: Apache-2.0
+use std::fmt;
+
 use crate::tprintln;
 
 use crate::state::function_signatures::TypeDesc;
@@ -31,7 +33,7 @@ pub struct SliceSymbolic<'ctx> {
 
 impl<'ctx> SymbolicVar<'ctx> {
     pub fn new_int(value: i64, ctx: &'ctx Context, size: u32) -> SymbolicVar<'ctx> {
-        let bv = BV::from_i64(ctx, value as i64, size);
+        let bv = BV::from_i64(ctx, value, size);
         SymbolicVar::Int(bv)
     }
 
@@ -340,37 +342,12 @@ impl<'ctx> SymbolicVar<'ctx> {
     // Method to check if two symbolic variables are equal
     pub fn equal(&self, other: &SymbolicVar<'ctx>) -> bool {
         match (self, other) {
-            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => a.eq(&b),
+            (SymbolicVar::Int(a), SymbolicVar::Int(b)) => a.eq(b),
             (SymbolicVar::LargeInt(a), SymbolicVar::LargeInt(b)) => {
                 a.iter().zip(b.iter()).all(|(x, y)| x.eq(y))
             }
-            (SymbolicVar::Float(a), SymbolicVar::Float(b)) => a.eq(&b),
+            (SymbolicVar::Float(a), SymbolicVar::Float(b)) => a.eq(b),
             _ => false, //TODO: Handle other types like Bool and Slice if needed
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        match self {
-            SymbolicVar::Int(bv) => bv.to_string(),
-            SymbolicVar::LargeInt(vec) => vec
-                .iter()
-                .map(|bv| bv.to_string())
-                .collect::<Vec<_>>()
-                .join("|"),
-            SymbolicVar::Float(f) => f.to_string(),
-            SymbolicVar::Bool(b) => b.to_string(),
-            SymbolicVar::Slice(slice_symbolic) => {
-                let elements_str = slice_symbolic
-                    .elements
-                    .iter()
-                    .map(|elem| elem.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!(
-                    "Slice({}, {}, [{}])",
-                    slice_symbolic.pointer, slice_symbolic.length, elements_str
-                )
-            }
         }
     }
 
@@ -651,7 +628,7 @@ impl<'ctx> SymbolicVar<'ctx> {
     // Convert a constant to a symbolic value.
     pub fn from_u64(ctx: &'ctx Context, value: u64, size: u32) -> SymbolicVar<'ctx> {
         if size > 64 {
-            let num_blocks = (size + 63) / 64;
+            let num_blocks = size.div_ceil(64);
             let mut vec = vec![BV::from_u64(ctx, 0, 64); num_blocks as usize];
             vec[0] = BV::from_u64(ctx, value, size.min(64));
             SymbolicVar::LargeInt(vec)
@@ -669,8 +646,8 @@ impl<'ctx> SymbolicVar<'ctx> {
             SymbolicVar::Bool(b) => b.get_z3_ast(),
             SymbolicVar::Slice(slice_symbolic) => {
                 // For slices, we can return the AST of the pointer or length, or a combination
-                let pointer_ast = slice_symbolic.pointer.get_z3_ast();
-                pointer_ast // Returning pointer AST for simplicity
+
+                slice_symbolic.pointer.get_z3_ast() // Returning pointer AST for simplicity
             }
         }
     }
@@ -741,6 +718,34 @@ impl<'ctx> SymbolicVar<'ctx> {
                 } else {
                     Err("Cannot convert slice with non-integer elements to integer")
                 }
+            }
+        }
+    }
+}
+
+impl<'ctx> fmt::Display for SymbolicVar<'ctx> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SymbolicVar::Int(bv) => write!(f, "{}", bv),
+            SymbolicVar::LargeInt(vec) => {
+                let parts: Vec<_> = vec.iter().map(|bv| bv.to_string()).collect();
+                write!(f, "{}", parts.join("|"))
+            }
+            SymbolicVar::Float(fl) => write!(f, "{}", fl),
+            SymbolicVar::Bool(b) => write!(f, "{}", b),
+            SymbolicVar::Slice(slice_symbolic) => {
+                let elements_str: Vec<_> = slice_symbolic
+                    .elements
+                    .iter()
+                    .map(|elem| elem.to_string())
+                    .collect();
+                write!(
+                    f,
+                    "Slice({}, {}, [{}])",
+                    slice_symbolic.pointer,
+                    slice_symbolic.length,
+                    elements_str.join(", ")
+                )
             }
         }
     }

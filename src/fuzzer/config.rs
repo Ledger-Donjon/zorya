@@ -123,7 +123,7 @@ impl FuzzerConfig {
             }
 
             // Try parsing the hex address
-            if u64::from_str_radix(&test.start_address.trim_start_matches("0x"), 16).is_err() {
+            if u64::from_str_radix(test.start_address.trim_start_matches("0x"), 16).is_err() {
                 return Err(format!(
                     "Invalid hex address for test '{}': {}",
                     test.id, test.start_address

@@ -14,9 +14,12 @@ except ImportError:
     print("ERROR: Pyhidra not installed. Run: pip install pyhidra")
     sys.exit(1)
 
+
 def main():
     if len(sys.argv) != 4:
-        print("Usage: explore_ast_panic.py <binary_path> <start_address_hex> <max_depth>")
+        print(
+            "Usage: explore_ast_panic.py <binary_path> <start_address_hex> <max_depth>"
+        )
         sys.exit(1)
 
     binary_path = sys.argv[1]
@@ -49,7 +52,7 @@ def main():
                 addr = address_factory.getAddress(addr_str)
                 if program.getMemory().contains(addr):
                     panic_addresses.add(addr)
-            except:
+            except Exception:
                 continue
 
         start_addr = address_factory.getAddress(start_address_hex)
@@ -80,7 +83,6 @@ def main():
                 if dest_block is not None:
                     dfs(dest_block, depth + 1)
 
-
         # Begin with blocks containing the given address
         blocks = model.getCodeBlocksContaining(start_addr, monitor)
         for block in blocks:
@@ -88,6 +90,7 @@ def main():
 
         if not found:
             print("NO_PANIC_XREF_FOUND")
+
 
 if __name__ == "__main__":
     main()

@@ -112,7 +112,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
 
     // Create overlay state
     let overlay_state = match executor.state.cpu_state.lock() {
-        Ok(cpu) => match OverlayState::new(&*cpu, rip_offset, untaken_address, executor.context) {
+        Ok(cpu) => match OverlayState::new(&cpu, rip_offset, untaken_address, executor.context) {
             Ok(state) => state,
             Err(e) => {
                 log!(
@@ -344,7 +344,7 @@ fn execute_with_overlay<'ctx>(
                     match inst.opcode {
                         Opcode::Branch => {
                             // Extract target address from instruction
-                            if let Some(target_varnode) = inst.inputs.get(0) {
+                            if let Some(target_varnode) = inst.inputs.first() {
                                 if let parser::parser::Var::Memory(target) = target_varnode.var {
                                     log!(
                                         executor.state.logger,

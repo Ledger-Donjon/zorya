@@ -125,7 +125,7 @@ pub fn simplify_dynamic_proven<'ctx>(expr: &Dynamic<'ctx>) -> Dynamic<'ctx> {
     let solver = Solver::new(expr.get_ctx());
     solver.assert(&expr._eq(&simplified).not());
     assert_eq!(solver.check(), SatResult::Unsat);
-    return simplified;
+    simplified
 }
 
 /// Check if a Z3 expression is an equality
@@ -472,7 +472,7 @@ pub fn add_constraints_from_vector<'ctx>(executor: &ConcolicExecutor<'ctx>) {
     //log!(logger, "=== Z3 SIMPLIFIED CONSTRAINTS ===");
     // Display and collect Z3 simplified constraints
     let mut z3_simplified_constraints = Vec::new();
-    for (_i, constraint) in assertions.iter().enumerate() {
+    for constraint in assertions.iter() {
         let z3_simplified = constraint.simplify();
         // log!(
         //     logger,

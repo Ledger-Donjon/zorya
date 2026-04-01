@@ -47,7 +47,7 @@ pub fn handle_bool_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -161,7 +161,7 @@ pub fn handle_bool_negate(
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -248,7 +248,7 @@ pub fn handle_bool_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
@@ -356,7 +356,7 @@ pub fn handle_bool_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
         .as_ref()
         .unwrap()
         .size
-        .to_bitvector_size() as u32;
+        .to_bitvector_size();
     log!(
         executor.state.logger.clone(),
         "Output size in bits: {}",
