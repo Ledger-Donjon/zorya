@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use anyhow::{Error, Result};
 use regex::Regex;
 use std::path::Path;
-use std::sync::Arc;
+use std::rc::Rc;
 /// Maintains the state of CPU registers and possibly other aspects of the CPU's status
 use std::{collections::BTreeMap, sync::Mutex};
 use std::{fmt, fs};
@@ -16,7 +16,7 @@ use z3::ast::Ast;
 use z3::{ast::BV, Context};
 
 use crate::concolic::{ConcolicVar, ConcreteVar, SymbolicVar};
-pub type SharedCpuState<'a> = Arc<Mutex<CpuState<'a>>>;
+pub type SharedCpuState<'a> = Rc<Mutex<CpuState<'a>>>;
 use crate::target_info::GLOBAL_TARGET_INFO;
 
 #[derive(Debug, Clone)]

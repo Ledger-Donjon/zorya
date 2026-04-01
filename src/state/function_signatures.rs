@@ -17,6 +17,8 @@ use std::{env, fs};
 use crate::concolic::ConcolicExecutor;
 use serde::{Deserialize, Serialize};
 
+pub type FunctionArgsMap = HashMap<u64, (String, Vec<(String, Vec<String>, String)>)>;
+
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
         if ($logger).is_enabled() {
@@ -198,7 +200,7 @@ fn clean_ghidra_project_dir(project_path: &str) {
 }
 
 // Load a map from function address -> (name, [(arg_name, register_offset, arg_type)])
-pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, Vec<String>, String)>)> {
+pub fn load_function_args_map() -> FunctionArgsMap {
     let json_file = "results/function_signature.json";
     let mut map = HashMap::new();
 
@@ -257,7 +259,7 @@ pub fn load_function_args_map() -> HashMap<u64, (String, Vec<(String, Vec<String
 pub fn load_go_function_args_map(
     binary_path: &str,
     executor: &mut ConcolicExecutor,
-) -> Result<HashMap<u64, (String, Vec<(String, Vec<String>, String)>)>, Box<dyn std::error::Error>>
+) -> Result<FunctionArgsMap, Box<dyn std::error::Error>>
 {
     let func_signatures_path = "results/function_signatures_go.json";
 

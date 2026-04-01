@@ -8,10 +8,10 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::rc::Rc;
 
-pub type PanicReachSet = Arc<HashSet<u64>>;
-pub type PanicReachRanges = Arc<BTreeMap<u64, u64>>; // start -> end
+pub type PanicReachSet = Rc<HashSet<u64>>;
+pub type PanicReachRanges = Rc<BTreeMap<u64, u64>>; // start -> end
 
 #[derive(Debug, Clone)]
 pub struct PanicReachStats {
@@ -206,7 +206,7 @@ pub fn precompute_panic_reach(
             }
         }
     }
-    Ok((Arc::new(set), Arc::new(ranges), stats))
+    Ok((Rc::new(set), Rc::new(ranges), stats))
 }
 
 pub fn is_panic_reachable_addr(

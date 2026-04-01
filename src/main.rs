@@ -10,7 +10,7 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use parser::parser::{Inst, Opcode, Var};
 use z3::{
@@ -814,7 +814,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     executor
                         .function_symbolic_arguments
                         .insert(bv_name.clone(), SymbolicVar::Int(fresh_bv.clone()));
-                    fresh_symbolic.push(Some(Arc::new(fresh_bv)));
+                    fresh_symbolic.push(Some(Rc::new(fresh_bv)));
                 }
 
                 executor
@@ -2327,7 +2327,7 @@ pub fn initialize_symbolic_part_args(
             executor
                 .function_symbolic_arguments
                 .insert(bv_name.clone(), SymbolicVar::Int(fresh_bv.clone()));
-            fresh_symbolic.push(Some(Arc::new(fresh_bv)));
+            fresh_symbolic.push(Some(Rc::new(fresh_bv)));
         }
 
         // Write those symbolic values back into memory

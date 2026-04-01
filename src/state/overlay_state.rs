@@ -6,10 +6,10 @@
 /// This provides copy-on-write semantics for CPU state and memory
 /// to enable lightweight exploration without full state cloning
 use super::cpu_state::{CpuConcolicValue, CpuState};
-use super::memory_x86_64::MemoryRegion;
+use super::memory_x86_64::{MemoryReadResult, MemoryRegion};
 use crate::concolic::ConcolicVar;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::rc::Rc;
 use z3::ast::BV;
 use z3::Context;
 
@@ -23,7 +23,7 @@ pub struct MemoryRegionOverlay<'ctx> {
     /// Concrete data overlay (None until first write)
     concrete_overlay: Option<Vec<u8>>,
     /// Symbolic data overlay (only modified entries)
-    symbolic_overlay: BTreeMap<usize, Arc<BV<'ctx>>>,
+    symbolic_overlay: BTreeMap<usize, Rc<BV<'ctx>>>,
 }
 
 impl<'ctx> MemoryRegionOverlay<'ctx> {
@@ -66,11 +66,11 @@ impl<'ctx> MemoryRegionOverlay<'ctx> {
     }
 
     /// Read symbolic value at offset (checks overlay first, then base)
-    pub fn read_symbolic(&self, offset: usize) -> Option<Arc<BV<'ctx>>> {
+    pub fn read_symbolic(&self, offset: usize) -> Option<Rc<BV<'ctx>>> {
         if let Some(bv) = self.symbolic_overlay.get(&offset) {
-            Some(Arc::clone(bv))
+            Some(Rc::clone(bv))
         } else {
-            self.base().symbolic_data.get(&offset).map(Arc::clone)
+            self.base().symbolic_data.get(&offset).map(Rc::clone)
         }
     }
 
@@ -108,7 +108,7 @@ impl<'ctx> MemoryRegionOverlay<'ctx> {
     }
 
     /// Write symbolic value at offset (only modifies overlay)
-    pub fn write_symbolic(&mut self, offset: usize, value: Arc<BV<'ctx>>) {
+    pub fn write_symbolic(&mut self, offset: usize, value: Rc<BV<'ctx>>) {
         self.symbolic_overlay.insert(offset, value);
     }
 
@@ -278,7 +278,7 @@ impl<'ctx> OverlayState<'ctx> {
     }
 
     /// Read from memory (checks overlay first, then base)
-    /// Returns per-byte symbolic data: one `Option<Arc<BV>>` per byte, each BV being 8 bits.
+    /// Returns per-byte symbolic data: one `Option<Rc<BV>>` per byte, each BV being 8 bits.
     /// This mirrors how `MemoryX86_64::read_memory` returns symbolic data and avoids the
     /// byte-fill bug where only the symbolic at the base offset (byte 0) was returned and
     /// then replicated across every byte position, producing patterns like #x0808080808080808.
@@ -287,7 +287,7 @@ impl<'ctx> OverlayState<'ctx> {
         address: u64,
         size: usize,
         base_region: &MemoryRegion<'ctx>,
-    ) -> Option<(Vec<u8>, Vec<Option<Arc<BV<'ctx>>>>)> {
+    ) -> Option<MemoryReadResult<'ctx>> {
         if !base_region.contains(address, size) {
             return None;
         }
@@ -301,7 +301,7 @@ impl<'ctx> OverlayState<'ctx> {
         // This correctly handles both:
         //   (a) addresses written by the overlay (per-byte 8-bit BVs stored at offset+i), and
         //   (b) addresses inherited from the base region (also per-byte 8-bit BVs at offset+i).
-        let symbolic_per_byte: Vec<Option<Arc<BV<'ctx>>>> = (0..size)
+        let symbolic_per_byte: Vec<Option<Rc<BV<'ctx>>>> = (0..size)
             .map(|i| overlay.read_symbolic(offset + i))
             .collect();
 
@@ -318,7 +318,7 @@ impl<'ctx> OverlayState<'ctx> {
         &mut self,
         address: u64,
         concrete_data: &[u8],
-        symbolic_data: Option<Arc<BV<'ctx>>>,
+        symbolic_data: Option<Rc<BV<'ctx>>>,
         base_region: &MemoryRegion<'ctx>,
     ) -> Result<(), String> {
         if !base_region.contains(address, concrete_data.len()) {
@@ -356,7 +356,7 @@ impl<'ctx> OverlayState<'ctx> {
                     // Byte is beyond the symbolic width; no symbolic to record
                     continue;
                 };
-                overlay.write_symbolic(offset + i, Arc::new(byte_bv));
+                overlay.write_symbolic(offset + i, Rc::new(byte_bv));
             }
         }
 

@@ -9,7 +9,8 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::io::{self, BufRead, BufReader, Read, SeekFrom};
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::rc::Rc;
+use std::sync::RwLock;
 
 use regex::Regex;
 use z3::{ast::BV, Context};
@@ -17,6 +18,8 @@ use z3::{ast::BV, Context};
 use super::VirtualFileSystem;
 use crate::concolic::{ConcolicVar, ConcreteVar, Logger, SymbolicVar};
 use crate::target_info::GLOBAL_TARGET_INFO;
+
+pub type MemoryReadResult<'ctx> = (Vec<u8>, Vec<Option<Rc<BV<'ctx>>>>);
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -110,7 +113,7 @@ pub struct MemoryRegion<'ctx> {
     pub start_address: u64,
     pub end_address: u64,
     pub concrete_data: Vec<u8>, // Holds only the concrete data (compact, 1 byte per memory cell)
-    pub symbolic_data: BTreeMap<usize, Arc<BV<'ctx>>>, // Holds symbolic data for only some addresses, sorted by offset
+    pub symbolic_data: BTreeMap<usize, Rc<BV<'ctx>>>, // Holds symbolic data for only some addresses, sorted by offset
     pub prot: i32, // Protection flags (e.g., PROT_READ, PROT_WRITE)
 }
 
@@ -142,12 +145,12 @@ impl<'ctx> MemoryRegion<'ctx> {
     }
 
     /// Write a symbolic value to a given offset.
-    pub fn write_symbolic(&mut self, offset: usize, symbolic: Arc<BV<'ctx>>) {
+    pub fn write_symbolic(&mut self, offset: usize, symbolic: Rc<BV<'ctx>>) {
         self.symbolic_data.insert(offset, symbolic);
     }
 
     /// Read a symbolic value from a given offset (if it exists).
-    pub fn read_symbolic(&self, offset: usize) -> Option<Arc<BV<'ctx>>> {
+    pub fn read_symbolic(&self, offset: usize) -> Option<Rc<BV<'ctx>>> {
         self.symbolic_data.get(&offset).cloned()
     }
 
@@ -159,18 +162,18 @@ impl<'ctx> MemoryRegion<'ctx> {
 
 #[derive(Clone, Debug)]
 pub struct MemoryX86_64<'ctx> {
-    pub regions: Arc<RwLock<Vec<MemoryRegion<'ctx>>>>,
+    pub regions: Rc<RwLock<Vec<MemoryRegion<'ctx>>>>,
     pub ctx: &'ctx Context,
-    pub vfs: Arc<RwLock<VirtualFileSystem>>,
+    pub vfs: Rc<RwLock<VirtualFileSystem>>,
 }
 
 impl<'ctx> MemoryX86_64<'ctx> {
     pub fn new(
         ctx: &'ctx Context,
-        vfs: Arc<RwLock<VirtualFileSystem>>,
+        vfs: Rc<RwLock<VirtualFileSystem>>,
     ) -> Result<Self, MemoryError> {
         Ok(MemoryX86_64 {
-            regions: Arc::new(RwLock::new(Vec::new())),
+            regions: Rc::new(RwLock::new(Vec::new())),
             ctx,
             vfs,
         })
@@ -280,7 +283,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
     }
 
     /// Reads a symbolic value from memory (if it exists).
-    pub fn read_symbolic(&self, address: u64) -> Result<Option<Arc<BV<'ctx>>>, MemoryError> {
+    pub fn read_symbolic(&self, address: u64) -> Result<Option<Rc<BV<'ctx>>>, MemoryError> {
         let regions = self.regions.read().unwrap();
         for region in regions.iter() {
             if region.contains(address, 1) {
@@ -297,7 +300,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         &self,
         address: u64,
         size: usize,
-    ) -> Result<(Vec<u8>, Vec<Option<Arc<BV<'ctx>>>>), MemoryError> {
+    ) -> Result<MemoryReadResult<'ctx>, MemoryError> {
         let regions = self.regions.read().unwrap();
 
         for region in regions.iter() {
@@ -373,7 +376,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
         let sym_bv = symbolic[0]
             .clone()
-            .unwrap_or_else(|| Arc::new(BV::from_u64(self.ctx, cbyte, 8)));
+            .unwrap_or_else(|| Rc::new(BV::from_u64(self.ctx, cbyte, 8)));
 
         Ok(ConcolicVar {
             concrete: ConcreteVar::Int(cbyte),
@@ -546,7 +549,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     /// Helper function to concatenate symbolic bytes into a single BV with detailed logging
     fn concatenate_symbolic_bytes(
-        symbolic_bytes: &[Option<Arc<BV<'ctx>>>],
+        symbolic_bytes: &[Option<Rc<BV<'ctx>>>],
         concrete_bytes: &[u8],
         ctx: &'ctx Context,
         logger: &mut Logger,
@@ -647,7 +650,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
         &self,
         address: u64,
         concrete: &[u8],
-        symbolic: &[Option<Arc<BV<'ctx>>>],
+        symbolic: &[Option<Rc<BV<'ctx>>>],
     ) -> Result<(), MemoryError> {
         if concrete.len() != symbolic.len() {
             return Err(MemoryError::IncorrectSliceLength);
@@ -684,7 +687,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
     /// Writes a sequence of bytes to memory.
     pub fn write_bytes(&self, address: u64, bytes: &[u8]) -> Result<(), MemoryError> {
         // Create a vector of `None` for symbolic values as we're only dealing with concrete data
-        let symbolic: Vec<Option<Arc<BV<'ctx>>>> = vec![None; bytes.len()];
+        let symbolic: Vec<Option<Rc<BV<'ctx>>>> = vec![None; bytes.len()];
 
         self.write_memory(address, bytes, &symbolic)
     }
@@ -722,9 +725,9 @@ impl<'ctx> MemoryX86_64<'ctx> {
         }
 
         // Write concrete and symbolic parts separately
-        let symbolic: Vec<Option<Arc<BV<'ctx>>>> = symbolic_bytes
+        let symbolic: Vec<Option<Rc<BV<'ctx>>>> = symbolic_bytes
             .into_iter()
-            .map(|bv| Some(Arc::new(bv)))
+            .map(|bv| Some(Rc::new(bv)))
             .collect();
 
         // Write to memory

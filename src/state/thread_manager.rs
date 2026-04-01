@@ -61,18 +61,21 @@ pub enum ThreadStatus {
     Exited(i32), // exit code
 }
 
+pub struct CloneParams {
+    pub tid: u64,
+    pub parent_tid: u64,
+    pub stack_pointer: u64,
+    pub entry_point: u64,
+    pub tls_base: u64,
+    pub clone_flags: u64,
+    pub child_tid_ptr: Option<u64>,
+    pub child_cleartid_ptr: Option<u64>,
+}
+
 impl<'ctx> OSThread<'ctx> {
-    /// Create a new OS thread from a parent thread via clone
     pub fn new_from_clone(
-        tid: u64,
-        parent_tid: u64,
+        params: &CloneParams,
         parent_cpu: &CpuState<'ctx>,
-        stack_pointer: u64,
-        entry_point: u64,
-        tls_base: u64,
-        clone_flags: u64,
-        child_tid_ptr: Option<u64>,
-        child_cleartid_ptr: Option<u64>,
         ctx: &'ctx Context,
     ) -> Result<Self> {
         // Clone the parent's CPU state
@@ -80,9 +83,9 @@ impl<'ctx> OSThread<'ctx> {
 
         // Set up the new thread's stack pointer (RSP = 0x20)
         let (rsp_offset, rsp_size) = (0x20u64, 64u32);
-        let rsp_symbolic = z3::ast::BV::from_u64(ctx, stack_pointer, rsp_size);
+        let rsp_symbolic = z3::ast::BV::from_u64(ctx, params.stack_pointer, rsp_size);
         let rsp_concolic = crate::concolic::ConcolicVar::new_concrete_and_symbolic_int(
-            stack_pointer,
+            params.stack_pointer,
             rsp_symbolic,
             ctx,
         );
@@ -92,9 +95,9 @@ impl<'ctx> OSThread<'ctx> {
 
         // Set up the entry point (RIP = 0x118)
         let (rip_offset, rip_size) = (0x118u64, 64u32);
-        let rip_symbolic = z3::ast::BV::from_u64(ctx, entry_point, rip_size);
+        let rip_symbolic = z3::ast::BV::from_u64(ctx, params.entry_point, rip_size);
         let rip_concolic = crate::concolic::ConcolicVar::new_concrete_and_symbolic_int(
-            entry_point,
+            params.entry_point,
             rip_symbolic,
             ctx,
         );
@@ -103,11 +106,11 @@ impl<'ctx> OSThread<'ctx> {
             .map_err(|e| anyhow!("Failed to set RIP: {}", e))?;
 
         // Set up TLS if provided (FS_OFFSET = 0x110)
-        if tls_base != 0 {
+        if params.tls_base != 0 {
             let (fs_offset, fs_size) = (0x110u64, 64u32);
-            let fs_symbolic = z3::ast::BV::from_u64(ctx, tls_base, fs_size);
+            let fs_symbolic = z3::ast::BV::from_u64(ctx, params.tls_base, fs_size);
             let fs_concolic = crate::concolic::ConcolicVar::new_concrete_and_symbolic_int(
-                tls_base,
+                params.tls_base,
                 fs_symbolic,
                 ctx,
             );
@@ -126,17 +129,17 @@ impl<'ctx> OSThread<'ctx> {
             .map_err(|e| anyhow!("Failed to set RAX: {}", e))?;
 
         Ok(OSThread {
-            tid,
-            parent_tid,
+            tid: params.tid,
+            parent_tid: params.parent_tid,
             cpu_state,
-            stack_pointer,
-            fs_base: tls_base,
-            gs_base: 0, // Not set during clone, only via arch_prctl
-            entry_point,
+            stack_pointer: params.stack_pointer,
+            fs_base: params.tls_base,
+            gs_base: 0,
+            entry_point: params.entry_point,
             status: ThreadStatus::Ready,
-            clone_flags,
-            child_tid_ptr,
-            child_cleartid_ptr,
+            clone_flags: params.clone_flags,
+            child_tid_ptr: params.child_tid_ptr,
+            child_cleartid_ptr: params.child_cleartid_ptr,
         })
     }
 }
@@ -268,17 +271,18 @@ impl<'ctx> ThreadManager<'ctx> {
             .ok_or_else(|| anyhow!("Parent thread {} not found", parent_tid))?
             .cpu_state;
 
-        // Create the new thread
         let new_thread = OSThread::new_from_clone(
-            new_tid,
-            parent_tid,
+            &CloneParams {
+                tid: new_tid,
+                parent_tid,
+                stack_pointer,
+                entry_point,
+                tls_base,
+                clone_flags,
+                child_tid_ptr,
+                child_cleartid_ptr,
+            },
             parent_cpu,
-            stack_pointer,
-            entry_point,
-            tls_base,
-            clone_flags,
-            child_tid_ptr,
-            child_cleartid_ptr,
             self.ctx,
         )?;
 

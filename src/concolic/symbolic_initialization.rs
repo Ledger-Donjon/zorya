@@ -7,7 +7,8 @@ use std::{
     fs,
     io::Write,
     path::Path,
-    sync::{Arc, OnceLock},
+    rc::Rc,
+    sync::OnceLock,
 };
 
 use crate::{
@@ -1882,12 +1883,12 @@ fn initialize_slice_element_memory<'a>(
 
                 // Write symbolic bytes back to memory using write_bytes
                 // Create symbolic bytes - each byte gets a portion of the symbolic variable
-                let symbolic_bytes: Vec<Option<Arc<BV>>> = (0..element_size)
+                let symbolic_bytes: Vec<Option<Rc<BV>>> = (0..element_size)
                     .map(|i| {
                         let byte_start = (i * 8) as u32;
                         let byte_end = std::cmp::min(byte_start + 7, bit_size - 1);
                         let byte_bv = element_bv.extract(byte_end, byte_start);
-                        Some(Arc::new(byte_bv))
+                        Some(Rc::new(byte_bv))
                     })
                     .collect();
 

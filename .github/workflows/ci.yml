@@ -46,10 +46,7 @@ jobs:
 
       - name: Run clippy
         run: |
-          cargo clippy --all-targets -- -D warnings \
-            -A clippy::arc_with_non_send_sync \
-            -A clippy::type_complexity \
-            -A clippy::too_many_arguments
+          cargo clippy --all-targets -- -D warnings
 
   # ── 3. Build ──────────────────────────────────────────────────────────────
   build:

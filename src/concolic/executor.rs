@@ -233,14 +233,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     /// Read memory with overlay support
     /// If overlay mode is active, reads from overlay first, then falls back to base.
-    /// The symbolic component is a per-byte `Vec<Option<Arc<BV>>>` (one 8-bit BV per byte),
+    /// The symbolic component is a per-byte `Vec<Option<Rc<BV>>>` (one 8-bit BV per byte),
     /// matching the storage convention of `MemoryX86_64::read_memory`.
     pub fn read_memory_overlay_aware(
         &mut self,
         address: u64,
         size: usize,
     ) -> Result<
-        (Vec<u8>, Vec<Option<std::sync::Arc<BV<'ctx>>>>),
+        crate::state::memory_x86_64::MemoryReadResult<'ctx>,
         crate::state::memory_x86_64::MemoryError,
     > {
         if let Some(ref mut overlay) = self.overlay_state {
@@ -275,7 +275,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         &mut self,
         address: u64,
         concrete_data: &[u8],
-        symbolic_data: Option<std::sync::Arc<BV<'ctx>>>,
+        symbolic_data: Option<std::rc::Rc<BV<'ctx>>>,
     ) -> Result<(), String> {
         if let Some(ref mut overlay) = self.overlay_state {
             // Find the region containing this address
@@ -304,8 +304,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             overlay.write_memory(address, concrete_data, symbolic_data, region)
         } else {
             // Write to base state
-            // Convert single Option<Arc<BV>> to Vec<Option<Arc<BV>>>
-            let symbolic_vec: Vec<Option<std::sync::Arc<BV<'ctx>>>> =
+            let symbolic_vec: Vec<Option<std::rc::Rc<BV<'ctx>>>> =
                 if let Some(sym) = symbolic_data {
                     vec![Some(sym); concrete_data.len()]
                 } else {
@@ -398,8 +397,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Convert concrete value to bytes
         let concrete_bytes = mem_value.concrete.to_le_bytes()[..byte_size].to_vec();
 
-        // Convert symbolic BV to Arc<BV> for overlay
-        let symbolic_arc = Some(std::sync::Arc::new(mem_value.symbolic.clone()));
+        let symbolic_arc = Some(std::rc::Rc::new(mem_value.symbolic.clone()));
 
         // Use overlay-aware memory writing
         self.write_memory_overlay_aware(address, &concrete_bytes, symbolic_arc)
