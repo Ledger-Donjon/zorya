@@ -26,7 +26,7 @@ parser = { path = "external/pcode-parser" }
 goblin = "0.8.0"
 lazy_static = "1.4.0"
 ethnum = "1.5.0"
-regex = "1.10.4"
+regex = "1.12.3"
 anyhow = "1.0.81"
 gdbstub = "0.7.1"
 once_cell = "1.19.0"
