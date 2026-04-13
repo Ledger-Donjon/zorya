@@ -1,10 +1,9 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
 #
 # SPDX-License-Identifier: Apache-2.0
-
-# -*- coding: utf-8 -*-
 """
 Extracts function argument register mappings for all functions in the binary for runtime logging,
 and outputs a JSON file.
@@ -65,7 +64,7 @@ def main():
                 if varnode:
                     offset = varnode.getAddress().getOffset()
                     arguments.append(
-                        {"name": name, "type": datatype, "location": f"Stack[{offset}]"}
+                        {"name": name, "type": datatype, "location": "Stack[%s]" % offset}
                     )
                 else:
                     arguments.append(
@@ -78,7 +77,7 @@ def main():
         signatures.append(
             {
                 "address": entry_point,
-                "function_name": function_name,
+                "name": function_name,
                 "arguments": arguments,
             }
         )

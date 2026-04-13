@@ -143,6 +143,15 @@ pub fn precompute_function_signatures_via_ghidra(
     // Get the ZORYA directory.
     let zorya_dir = env::var("ZORYA_DIR").expect("ZORYA_DIR environment variable is not set");
 
+    let cspec = match env::var("SOURCE_LANG")
+        .unwrap_or_default()
+        .to_lowercase()
+        .as_str()
+    {
+        "go" => "golang",
+        _ => "gcc",
+    };
+
     // Build the full path to the Ghidra headless executable.
     let ghidra_executable = format!("{}/support/analyzeHeadless", ghidra_path);
     // Construct the arguments as a vector.
@@ -154,7 +163,7 @@ pub fn precompute_function_signatures_via_ghidra(
         "-processor",
         "x86:LE:64:default",
         "-cspec",
-        "golang", // Compiler specification - TO MODIFY
+        cspec,
         "-postScript",
         post_script_path, // Script to process all functions
         &zorya_dir,       // ZORYA directory (used by the script)
