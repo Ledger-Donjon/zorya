@@ -716,15 +716,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             );
         }
     } else if mode == "start" || mode == "main" {
-        let os_args_addr = get_os_args_address(&binary_path)?;
-        log!(
-            executor.state.logger,
-            "os.Args slice address: 0x{:x}",
-            os_args_addr
-        );
-        tprintln!("**************************************************************************");
-        tprintln!("Initializing symbolic variables for the program arguments (os.Args)...");
-        initialize_symbolic_part_args(&mut executor, os_args_addr)?;
+        if source_lang == "go" {
+            let os_args_addr = get_os_args_address(&binary_path)?;
+            log!(
+                executor.state.logger,
+                "os.Args slice address: 0x{:x}",
+                os_args_addr
+            );
+            tprintln!("**************************************************************************");
+            tprintln!("Initializing symbolic variables for the program arguments (os.Args)...");
+            initialize_symbolic_part_args(&mut executor, os_args_addr)?;
+        }
         log!(executor.state.logger, "Updating argc and argv on the stack");
         update_argc_argv(&mut executor, &arguments)?;
     } else if mode == "advanced" {
