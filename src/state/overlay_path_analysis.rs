@@ -10,7 +10,7 @@ use parser::parser::{Inst, Opcode};
 use std::collections::BTreeMap;
 use std::io::Write;
 
-const MAX_OVERLAY_DEPTH: usize = 15; // Maximum instructions to analyze in overlay mode
+const DEFAULT_MAX_OVERLAY_DEPTH: usize = 15;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -152,12 +152,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     executor.null_check_cache.retain(|_, &mut (sat, _)| sat);
 
     // Execute instructions using the existing executor infrastructure
-    let result = execute_with_overlay(
-        executor,
-        untaken_address,
-        instructions_map,
-        max_depth.min(MAX_OVERLAY_DEPTH),
-    );
+    let result = execute_with_overlay(executor, untaken_address, instructions_map, max_depth);
 
     // Collect metrics before clearing overlay state
     if executor.overlay_state.is_some() {

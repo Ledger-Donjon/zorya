@@ -302,6 +302,50 @@ pub fn load_go_function_args_map(
         );
     }
 
+    // Extract runtime.g struct offsets (always regenerate -- offsets are binary-specific)
+    {
+        let zorya_dir = env::var("ZORYA_DIR")?;
+        let go_tool_dir = format!("{}/scripts/get-funct-arg-types", zorya_dir);
+        log!(
+            executor.state.logger,
+            "Extracting runtime.g offsets from DWARF..."
+        );
+        let abs_binary = fs::canonicalize(binary_path)
+            .unwrap_or_else(|_| Path::new(binary_path).to_path_buf());
+        let abs_signatures = fs::canonicalize(func_signatures_path)
+            .unwrap_or_else(|_| std::env::current_dir().unwrap().join(func_signatures_path));
+        let go_out = std::process::Command::new("go")
+            .arg("run")
+            .arg(".")
+            .arg(abs_binary.to_str().unwrap_or(binary_path))
+            .arg(abs_signatures.to_str().unwrap_or(func_signatures_path))
+            .arg("--extract-runtime-g")
+            .current_dir(&go_tool_dir)
+            .output();
+        match go_out {
+            Ok(o) if o.status.success() => {
+                log!(
+                    executor.state.logger,
+                    "runtime.g offsets extracted successfully."
+                );
+            }
+            Ok(o) => {
+                log!(
+                    executor.state.logger,
+                    "Warning: runtime.g extraction failed: {}",
+                    String::from_utf8_lossy(&o.stderr)
+                );
+            }
+            Err(e) => {
+                log!(
+                    executor.state.logger,
+                    "Warning: Could not run Go tool for runtime.g extraction: {}",
+                    e
+                );
+            }
+        }
+    }
+
     log!(
         executor.state.logger,
         "Loading function signatures from {}...",

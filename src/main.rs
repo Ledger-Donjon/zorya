@@ -405,6 +405,50 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .into());
                 }
 
+                // Extract runtime.g struct offsets (goid, etc.) for goroutine ID tracking.
+                // The Go tool parses DWARF to find the runtime.g struct layout and writes
+                // results/runtime_g_offsets.json, which is loaded at runtime by runtime_info.rs.
+                let zorya_dir = env::var("ZORYA_DIR")?;
+                let go_tool_dir = format!("{}/scripts/get-funct-arg-types", zorya_dir);
+                log!(
+                    executor.state.logger,
+                    "Extracting runtime.g offsets from DWARF..."
+                );
+                let abs_binary = std::fs::canonicalize(&binary_path)
+                    .unwrap_or_else(|_| std::path::Path::new(&binary_path).to_path_buf());
+                let abs_signatures = std::fs::canonicalize(func_signatures_path)
+                    .unwrap_or_else(|_| std::env::current_dir().unwrap().join(func_signatures_path));
+                let go_out = std::process::Command::new("go")
+                    .arg("run")
+                    .arg(".")
+                    .arg(abs_binary.to_str().unwrap_or(&binary_path))
+                    .arg(abs_signatures.to_str().unwrap_or(func_signatures_path))
+                    .arg("--extract-runtime-g")
+                    .current_dir(&go_tool_dir)
+                    .output();
+                match go_out {
+                    Ok(o) if o.status.success() => {
+                        log!(
+                            executor.state.logger,
+                            "runtime.g offsets extracted successfully."
+                        );
+                    }
+                    Ok(o) => {
+                        log!(
+                            executor.state.logger,
+                            "Warning: runtime.g extraction failed: {}",
+                            String::from_utf8_lossy(&o.stderr)
+                        );
+                    }
+                    Err(e) => {
+                        log!(
+                            executor.state.logger,
+                            "Warning: Could not run Go tool for runtime.g extraction: {}",
+                            e
+                        );
+                    }
+                }
+
                 log!(
                     executor.state.logger,
                     "Loading Go signatures from {}...",
@@ -1300,10 +1344,19 @@ fn execute_instructions_from(
                 let involves_tracked_symbolic = if let Some(cond) = condition_symbolic_tmp {
                     let cond_var = cond.to_concolic_var().unwrap();
                     let expr_string = format!("{:?}", cond_var.symbolic);
-                    executor
-                        .function_symbolic_arguments
-                        .keys()
-                        .any(|arg_name| expr_string.contains(arg_name))
+                    let keys: Vec<&String> = executor.function_symbolic_arguments.keys().collect();
+                    let found = keys
+                        .iter()
+                        .any(|arg_name| expr_string.contains(arg_name.as_str()));
+                    if !found {
+                        log!(
+                            executor.state.logger,
+                            "Branch at 0x{:x}: condition does not involve tracked keys {:?}",
+                            current_rip,
+                            keys
+                        );
+                    }
+                    found
                 } else {
                     false
                 };
@@ -1376,11 +1429,16 @@ fn execute_instructions_from(
                                     address_of_negated_path_exploration
                                 );
 
+                            let overlay_depth: usize = std::env::var("OVERLAY_DEPTH")
+                                .ok()
+                                .and_then(|v| v.parse().ok())
+                                .unwrap_or(15);
+
                             let analysis_result = analyze_untaken_path_with_overlay(
                                 executor,
                                 address_of_negated_path_exploration,
                                 instructions_map,
-                                15, // max depth for overlay
+                                overlay_depth,
                             );
 
                             // Refresh coverage bar : overlay may have added new blocks

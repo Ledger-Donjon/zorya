@@ -260,9 +260,10 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     //   • negative + negative = positive  (underflow)
     let concrete0 = input0_var.get_concrete_value();
     let concrete1 = input1_var.get_concrete_value();
-    // Guard 1: adding zero is always safe — skip immediately
-    if concrete0 != 0
-        && concrete1 != 0
+    // Guard 1: adding zero is always safe — skip immediately (unless
+    // in overlay mode where concrete values are the safe base-path values
+    // and the symbolic arguments are unconstrained).
+    if ((concrete0 != 0 && concrete1 != 0) || executor.is_overlay_mode())
         && !executor.function_symbolic_arguments.is_empty()
         && output_size_bits >= 32
     {
@@ -272,15 +273,10 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         // Fast path: skip if both operands are Z3 numeral constants
         // (no symbolic component → overflow is a fixed property, not input-dependent)
         if input0_bv.as_u64().is_none() || input1_bv.as_u64().is_none() {
-            // Guard 2: only fire on additions that involve a slice_elem symbol.
-            // This avoids false positives from b_ptr/b_len/b_cap arithmetic — those
-            // variables represent slice metadata, not the integer accumulator that
-            // is the target of CVE-class overflow bugs (e.g. parseUintBuf).
             let expr0 = format!("{:?}", input0_bv);
             let expr1 = format!("{:?}", input1_bv);
-            // Keys in function_symbolic_arguments are like "b[0]", "b[1]", etc.
-            // The Z3 BV fresh-const name is "slice_elem_b_0_!NNN", so we check
-            // the BV name (not the map key) to identify slice-element variables.
+            let source_lang =
+                std::env::var("SOURCE_LANG").unwrap_or_else(|_| "go".to_string());
             let involves_tracked =
                 executor
                     .function_symbolic_arguments
@@ -288,8 +284,12 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                     .any(|(_, sym_var)| {
                         if let SymbolicVar::Int(bv) = sym_var {
                             let z3_name = format!("{:?}", bv);
-                            z3_name.contains("slice_elem")
-                                && (expr0.contains(&z3_name) || expr1.contains(&z3_name))
+                            if source_lang == "c" {
+                                expr0.contains(&z3_name) || expr1.contains(&z3_name)
+                            } else {
+                                z3_name.contains("slice_elem")
+                                    && (expr0.contains(&z3_name) || expr1.contains(&z3_name))
+                            }
                         } else {
                             false
                         }
@@ -379,6 +379,11 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                     }
 
                     let elapsed = Some(crate::state::evaluate_z3::get_elapsed_since_start());
+                    let detection_method_add = if executor.is_overlay_mode() {
+                        "Exploring the not taken path with Overlay Execution"
+                    } else {
+                        "Integer overflow: signed addition overflows (positive+positive=negative)"
+                    };
                     if let Err(e) = crate::state::evaluate_z3::log_sat_state_to_file_and_terminal(
                         &evaluation_content,
                         &std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string()),
@@ -386,7 +391,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                         elapsed,
                         Some(addr),
                         Some("INT_ADD"),
-                        Some("Integer overflow: signed addition overflows (positive+positive=negative)"),
+                        Some(detection_method_add),
                     ) {
                         log!(
                             executor.state.logger.clone(),
@@ -395,12 +400,14 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                         );
                     }
 
+                    let det_line = format!("Detection method: {}", detection_method_add);
                     crate::state::evaluate_z3::report_vulnerability(
                         &mut executor.state.logger.clone(),
                         "Integer overflow in addition",
                         addr,
                         &[
                             "Opcode: INT_ADD",
+                            &det_line,
                             &format!(
                                 "The {}-bit signed sum overflows (positive+positive=negative)",
                                 output_size_bits
@@ -2504,6 +2511,12 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
 
                     // Write to FOUND_SAT_STATE.txt
                     let elapsed = Some(crate::state::evaluate_z3::get_elapsed_since_start());
+                    let detection_method = if executor.is_overlay_mode() {
+                        "Exploring the not taken path with Overlay Execution"
+                    } else {
+                        "Integer overflow: the full-width product \
+                                 differs from the truncated product"
+                    };
                     if let Err(e) = crate::state::evaluate_z3::log_sat_state_to_file_and_terminal(
                         &evaluation_content,
                         &std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string()),
@@ -2511,10 +2524,7 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
                         elapsed,
                         Some(addr), // instruction address
                         Some("INT_MULT"),
-                        Some(
-                            "Integer overflow: the full-width product \
-                                 differs from the truncated product",
-                        ),
+                        Some(detection_method),
                     ) {
                         log!(
                             executor.state.logger.clone(),
@@ -2524,12 +2534,14 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
                     }
 
                     // Report to terminal and execution log
+                    let det_line = format!("Detection method: {}", detection_method);
                     crate::state::evaluate_z3::report_vulnerability(
                         &mut executor.state.logger.clone(),
                         "Integer overflow in multiplication",
                         addr,
                         &[
                             "Opcode: INT_MULT",
+                            &det_line,
                             &format!(
                                 "The {}-bit product differs from the {}-bit product",
                                 double_width, output_size_bits
