@@ -91,39 +91,34 @@ pub fn handle_float_nan(executor: &mut ConcolicExecutor, inst: Inst) -> Result<(
     if inst.inputs.len() != 1 {
         return Err("Bad FLOAT_NAN (needs 1 input)".to_string());
     }
+    let varnode_size_bits = inst.inputs[0].size.to_bitvector_size();
     let input_enum = executor.varnode_to_concolic(&inst.inputs[0])?;
     let (res_bool, res_sym) = match input_enum {
         // 1) MemoryValue
         ConcolicEnum::MemoryValue(ref mem) => {
-            float_nan_check_simple(executor.context, mem.concrete, &mem.symbolic, mem.size)?
+            float_nan_check_simple(executor.context, mem.concrete, &mem.symbolic, varnode_size_bits)?
         }
         // 2) CPU-concolic
         ConcolicEnum::CpuConcolicValue(ref cpu) => {
             let concrete_bits = cpu.concrete.to_u64();
             let symbolic_bv = match &cpu.symbolic {
                 SymbolicVar::Float(_f) => {
-                    // For float NaN detection, we need bit-level operations
-                    // Use the concrete bit representation as a BV
-                    BV::from_u64(executor.context, concrete_bits, cpu.concrete.get_size())
+                    BV::from_u64(executor.context, concrete_bits, varnode_size_bits)
                 }
                 _ => cpu.symbolic.to_bv(executor.context),
             };
-            let size_bits = cpu.concrete.get_size();
-            float_nan_check_simple(executor.context, concrete_bits, &symbolic_bv, size_bits)?
+            float_nan_check_simple(executor.context, concrete_bits, &symbolic_bv, varnode_size_bits)?
         }
         // 3) ConcolicVar
         ConcolicEnum::ConcolicVar(ref var) => {
             let concrete_bits = var.concrete.to_u64();
             let symbolic_bv = match &var.symbolic {
                 SymbolicVar::Float(_f) => {
-                    // For float NaN detection, we need bit-level operations
-                    // Use the concrete bit representation as a BV
-                    BV::from_u64(executor.context, concrete_bits, var.concrete.get_size())
+                    BV::from_u64(executor.context, concrete_bits, varnode_size_bits)
                 }
                 _ => var.symbolic.to_bv(executor.context),
             };
-            let size_bits = var.concrete.get_size();
-            float_nan_check_simple(executor.context, concrete_bits, &symbolic_bv, size_bits)?
+            float_nan_check_simple(executor.context, concrete_bits, &symbolic_bv, varnode_size_bits)?
         }
     };
 
@@ -161,6 +156,7 @@ pub fn handle_float_equal(
         executor.state.logger.clone(),
         "* Fetching floating-point inputs for FLOAT_EQUAL"
     );
+    let input_size_bits = instruction.inputs[0].size.to_bitvector_size();
     let input0_var = executor
         .varnode_to_concolic(&instruction.inputs[0])
         .map_err(|e| e.to_string())?;
@@ -168,11 +164,18 @@ pub fn handle_float_equal(
         .varnode_to_concolic(&instruction.inputs[1])
         .map_err(|e| e.to_string())?;
 
-    let input0_value = f64::from_bits(input0_var.get_concrete_value());
-    let input1_value = f64::from_bits(input1_var.get_concrete_value());
+    let input0_bits = input0_var.get_concrete_value();
+    let input1_bits = input1_var.get_concrete_value();
 
-    let result_concrete =
-        input0_value == input1_value && !input0_value.is_nan() && !input1_value.is_nan();
+    let result_concrete = if input_size_bits == 32 {
+        let v0 = f32::from_bits(input0_bits as u32);
+        let v1 = f32::from_bits(input1_bits as u32);
+        v0 == v1 && !v0.is_nan() && !v1.is_nan()
+    } else {
+        let v0 = f64::from_bits(input0_bits);
+        let v1 = f64::from_bits(input1_bits);
+        v0 == v1 && !v0.is_nan() && !v1.is_nan()
+    };
     let result_symbolic = Bool::from_bool(executor.context, result_concrete);
 
     log!(
@@ -219,6 +222,7 @@ pub fn handle_float_less(executor: &mut ConcolicExecutor, instruction: Inst) -> 
         executor.state.logger.clone(),
         "* Fetching floating-point inputs for FLOAT_LESS"
     );
+    let input_size_bits = instruction.inputs[0].size.to_bitvector_size();
     let input0_var = executor
         .varnode_to_concolic(&instruction.inputs[0])
         .map_err(|e| e.to_string())?;
@@ -226,11 +230,18 @@ pub fn handle_float_less(executor: &mut ConcolicExecutor, instruction: Inst) -> 
         .varnode_to_concolic(&instruction.inputs[1])
         .map_err(|e| e.to_string())?;
 
-    let input0_value = f64::from_bits(input0_var.get_concrete_value());
-    let input1_value = f64::from_bits(input1_var.get_concrete_value());
+    let input0_bits = input0_var.get_concrete_value();
+    let input1_bits = input1_var.get_concrete_value();
 
-    let result_concrete =
-        input0_value < input1_value && !input0_value.is_nan() && !input1_value.is_nan();
+    let result_concrete = if input_size_bits == 32 {
+        let v0 = f32::from_bits(input0_bits as u32);
+        let v1 = f32::from_bits(input1_bits as u32);
+        v0 < v1 && !v0.is_nan() && !v1.is_nan()
+    } else {
+        let v0 = f64::from_bits(input0_bits);
+        let v1 = f64::from_bits(input1_bits);
+        v0 < v1 && !v0.is_nan() && !v1.is_nan()
+    };
     let result_symbolic = Bool::from_bool(executor.context, result_concrete);
 
     log!(
