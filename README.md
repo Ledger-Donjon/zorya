@@ -78,7 +78,7 @@ Detailed interactive and flag behavior: [doc/Usage.md](doc/Usage.md)
 ```bash
 zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   --mode <start|main|function|advanced> <addr> \
-  [--thread-scheduling <all-threads|main-only>] \
+  --thread-scheduling <all-threads|main-only> \
   [--arg "<arg1> <arg2>"] \
   [--negate-path-exploration|--no-negate-path-exploration] \
   [--force-pty] \

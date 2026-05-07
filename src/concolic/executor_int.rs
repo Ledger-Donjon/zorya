@@ -252,8 +252,12 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     //
     // Two additional guards further reduce false positives:
     //   1. Skip when either concrete operand is zero (x + 0 cannot overflow).
-    //   2. Only trigger when a slice_elem symbol is involved — not ptr/len/cap.
-    //      The CVE-class overflow flows through slice element data, not metadata.
+    //   2. Only trigger when an attacker-controlled value symbol is involved.
+    //      In Go mode we accept slice_elem (untrusted bytes), scalar function
+    //      arguments (e.g. `id`, `toBlock`, `n`), and `__len` symbols, but we
+    //      still reject `__ptr` and `__cap` to avoid pointer-arithmetic FPs
+    //      where a heap pointer (0xc000…) plus a small offset is interpreted
+    //      as signed-overflow.
     //
     // Signed overflow conditions:
     //   • positive + positive = negative  (classic overflow)
@@ -275,8 +279,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         if input0_bv.as_u64().is_none() || input1_bv.as_u64().is_none() {
             let expr0 = format!("{:?}", input0_bv);
             let expr1 = format!("{:?}", input1_bv);
-            let source_lang =
-                std::env::var("SOURCE_LANG").unwrap_or_else(|_| "go".to_string());
+            let source_lang = std::env::var("SOURCE_LANG").unwrap_or_else(|_| "go".to_string());
             let involves_tracked =
                 executor
                     .function_symbolic_arguments
@@ -287,7 +290,12 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                             if source_lang == "c" {
                                 expr0.contains(&z3_name) || expr1.contains(&z3_name)
                             } else {
-                                z3_name.contains("slice_elem")
+                                // Reject pointer-style metadata (heap-address arithmetic
+                                // produces signed-overflow false positives).  Accept
+                                // slice_elem, scalar args, and __len.
+                                let is_pointer_metadata =
+                                    z3_name.contains("__ptr") || z3_name.contains("__cap");
+                                !is_pointer_metadata
                                     && (expr0.contains(&z3_name) || expr1.contains(&z3_name))
                             }
                         } else {
@@ -490,7 +498,7 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         .bvsub(&input1_var.get_symbolic_value_bv(executor.context));
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         truncated_result as u64,
-        result_symbolic,
+        result_symbolic.clone(),
         executor.context,
     );
 
@@ -499,6 +507,167 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         "*** The result of INT_SUB is: {:?}\n",
         truncated_result
     );
+
+    // ── Integer underflow check ─────────────────────────────────────────
+    // Mirrors the INT_ADD oracle.  Detects signed underflow
+    // (`pos − neg = neg` and `neg − pos = pos`) when at least one operand
+    // carries an attacker-controlled symbol.  Same anti-FP gating as
+    // INT_ADD: skip pointer metadata (`__ptr`/`__cap`), require non-zero
+    // concrete operands or overlay mode.
+    let concrete0_sub = input0_var.get_concrete_value();
+    let concrete1_sub = input1_var.get_concrete_value();
+    if ((concrete0_sub != 0 && concrete1_sub != 0) || executor.is_overlay_mode())
+        && !executor.function_symbolic_arguments.is_empty()
+        && output_size_bits >= 32
+    {
+        let input0_bv = input0_var.get_symbolic_value_bv(executor.context);
+        let input1_bv = input1_var.get_symbolic_value_bv(executor.context);
+
+        if input0_bv.as_u64().is_none() || input1_bv.as_u64().is_none() {
+            let expr0 = format!("{:?}", input0_bv);
+            let expr1 = format!("{:?}", input1_bv);
+            let source_lang = std::env::var("SOURCE_LANG").unwrap_or_else(|_| "go".to_string());
+            let involves_tracked =
+                executor
+                    .function_symbolic_arguments
+                    .iter()
+                    .any(|(_, sym_var)| {
+                        if let SymbolicVar::Int(bv) = sym_var {
+                            let z3_name = format!("{:?}", bv);
+                            if source_lang == "c" {
+                                expr0.contains(&z3_name) || expr1.contains(&z3_name)
+                            } else {
+                                let is_pointer_metadata =
+                                    z3_name.contains("__ptr") || z3_name.contains("__cap");
+                                !is_pointer_metadata
+                                    && (expr0.contains(&z3_name) || expr1.contains(&z3_name))
+                            }
+                        } else {
+                            false
+                        }
+                    });
+
+            if involves_tracked {
+                log!(
+                    executor.state.logger.clone(),
+                    "[OVERFLOW-CHECK] Checking for signed integer underflow in INT_SUB at 0x{:x} (operand width: {} bits)",
+                    executor.current_address.unwrap_or(0),
+                    output_size_bits
+                );
+
+                let bits = output_size_bits;
+                let zero_bv = BV::from_u64(executor.context, 0, bits);
+                let result_bv = input0_bv.bvsub(&input1_bv);
+
+                // Condition 1: positive − negative = negative  (signed overflow)
+                let a_pos = input0_bv.bvsgt(&zero_bv);
+                let b_neg = input1_bv.bvslt(&zero_bv);
+                let r_neg = result_bv.bvslt(&zero_bv);
+                let signed_overflow_sub =
+                    z3::ast::Bool::and(executor.context, &[&a_pos, &b_neg, &r_neg]);
+
+                // Condition 2: negative − positive = non-negative  (signed underflow)
+                let a_neg = input0_bv.bvslt(&zero_bv);
+                let b_pos = input1_bv.bvsgt(&zero_bv);
+                let r_nonneg = result_bv.bvsge(&zero_bv);
+                let signed_underflow_sub =
+                    z3::ast::Bool::and(executor.context, &[&a_neg, &b_pos, &r_nonneg]);
+
+                let overflow_condition_sub = z3::ast::Bool::or(
+                    executor.context,
+                    &[&signed_overflow_sub, &signed_underflow_sub],
+                );
+
+                let overflow_solver = z3::Solver::new(executor.context);
+                overflow_solver.assert(&overflow_condition_sub);
+                for constraint in &executor.constraint_vector {
+                    overflow_solver.assert(constraint);
+                }
+
+                let solve_start = std::time::Instant::now();
+                let solve_result = overflow_solver.check();
+                let solve_elapsed = solve_start.elapsed();
+                crate::Z3_CUMULATIVE_MS.fetch_add(
+                    solve_elapsed.as_millis() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+
+                log!(
+                    executor.state.logger.clone(),
+                    "[Z3-SOLVER] Signed integer underflow check at INT_SUB took {:.3}s (result: {:?})",
+                    solve_elapsed.as_secs_f64(),
+                    solve_result
+                );
+
+                if solve_result == z3::SatResult::Sat {
+                    eprintln!(
+                        "[Z3-SOLVER] Integer underflow check took {:.3}s",
+                        solve_elapsed.as_secs_f64()
+                    );
+
+                    log!(executor.state.logger.clone(), "~~~~~~~~~~~");
+                    log!(
+                        executor.state.logger.clone(),
+                        "SATISFIABLE: Signed integer underflow detected in INT_SUB — \
+                         the {}-bit signed difference wraps (pos-neg=neg or neg-pos=pos)",
+                        output_size_bits
+                    );
+                    log!(executor.state.logger.clone(), "~~~~~~~~~~~");
+
+                    let model = overflow_solver.get_model().unwrap();
+                    let addr = executor.current_address.unwrap_or(0);
+
+                    let evaluation_content =
+                        crate::state::evaluate_z3::build_unified_evaluation_content(
+                            &model, executor, None, None,
+                        );
+
+                    for line in evaluation_content.lines() {
+                        log!(executor.state.logger.clone(), "{}", line);
+                    }
+
+                    let elapsed = Some(crate::state::evaluate_z3::get_elapsed_since_start());
+                    let detection_method_sub = if executor.is_overlay_mode() {
+                        "Exploring the not taken path with Overlay Execution"
+                    } else {
+                        "Integer underflow: signed subtraction wraps (positive-negative=negative or negative-positive=non-negative)"
+                    };
+                    if let Err(e) = crate::state::evaluate_z3::log_sat_state_to_file_and_terminal(
+                        &evaluation_content,
+                        &std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string()),
+                        Some(addr),
+                        elapsed,
+                        Some(addr),
+                        Some("INT_SUB"),
+                        Some(detection_method_sub),
+                    ) {
+                        log!(
+                            executor.state.logger.clone(),
+                            "WARNING: Failed to write underflow SAT state to file: {}",
+                            e
+                        );
+                    }
+
+                    let det_line = format!("Detection method: {}", detection_method_sub);
+                    crate::state::evaluate_z3::report_vulnerability(
+                        &mut executor.state.logger.clone(),
+                        "Integer underflow in subtraction",
+                        addr,
+                        &[
+                            "Opcode: INT_SUB",
+                            &det_line,
+                            &format!(
+                                "The {}-bit signed difference wraps (positive-negative=negative or negative-positive=non-negative)",
+                                output_size_bits
+                            ),
+                            "More details in: results/FOUND_SAT_STATE.txt",
+                        ],
+                    );
+                }
+            }
+        }
+    }
+    // ── End integer underflow check ─────────────────────────────────────
 
     // Handle the result based on the output varnode
     executor.handle_output(instruction.output.as_ref(), result_value.clone())?;

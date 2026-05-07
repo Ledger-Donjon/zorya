@@ -357,13 +357,41 @@ impl<'ctx> CpuState<'ctx> {
     }
 
     pub fn resolve_offset_from_register_name(&self, reg_name: &str) -> Option<u64> {
-        self.register_map.iter().find_map(|(offset, (name, _))| {
+        // Direct match against the register map first.
+        if let Some(off) = self.register_map.iter().find_map(|(offset, (name, _))| {
             if name == reg_name {
                 Some(*offset)
             } else {
                 None
             }
-        })
+        }) {
+            return Some(off);
+        }
+
+        // XMM aliases: Ghidra's register file only stores the 256-bit YMM0..YMM15
+        // varnodes (offsets 0x1200, 0x1220, ...).  The Go ABI (x86-64) passes
+        // floating-point arguments in X0..X14 (i.e. the low 128 bits of YMM0..YMM14),
+        // and DWARF for Go binaries reports those locations as DW_OP_reg17..reg31
+        // → llvm-dwarfdump prints "XMM0".."XMM14".  We accept these names as
+        // aliases so the function-mode entry symbolisation can target the same
+        // physical register slot.  See go/src/cmd/compile/internal-abi.md
+        // (amd64 architecture, "X0 – X14 for floating-point arguments and results").
+        if let Some(rest) = reg_name.strip_prefix("XMM") {
+            if let Ok(idx) = rest.parse::<u32>() {
+                if idx <= 15 {
+                    let ymm = format!("YMM{}", idx);
+                    return self.register_map.iter().find_map(|(offset, (name, _))| {
+                        if *name == ymm {
+                            Some(*offset)
+                        } else {
+                            None
+                        }
+                    });
+                }
+            }
+        }
+
+        None
     }
 
     // Function to check if a given offset corresponds to a valid x86-64 register from the x86-64.sla file
@@ -850,9 +878,19 @@ impl<'ctx> CpuState<'ctx> {
                             std::cmp::min(64 - inner_bit_offset as u64, remaining_bits);
                         let bits_in_chunk_u32 = bits_in_chunk as u32;
 
-                        // Extract the relevant bits from new_symbolic_bv
-                        let high_bit = (remaining_bits - 1) as u32;
-                        let low_bit = (remaining_bits - bits_in_chunk) as u32;
+                        // Extract the bits of `new_symbolic_bv` that correspond to this
+                        // destination chunk in **little-endian** order — the same order the
+                        // concrete loop above and `extract_symbolic_bits_from_large_int`
+                        // (the read side) both use.  The previous big-endian indexing
+                        // (`high_bit = remaining_bits - 1`) silently swapped the upper and
+                        // lower halves of every >64-bit symbolic write, which destroyed the
+                        // symbolic state of XMM/YMM registers when an `INT_ZEXT` widened a
+                        // GPR (e.g. MOVQ rcx → xmm0): the low 64 bits of the source ended
+                        // up in chunk[1], so chunk[0] only held the zero-extension and any
+                        // subsequent low-half read returned a Z3 numeral 0.
+                        let src_bit_start = (current_bit_offset - bit_offset) as u32;
+                        let low_bit = src_bit_start;
+                        let high_bit = src_bit_start + bits_in_chunk_u32 - 1;
 
                         let symbolic_value_part = new_symbolic_bv
                             .extract(high_bit, low_bit)

@@ -26,7 +26,11 @@ fn detect_zorya_dir() -> PathBuf {
     // 2. Walk up from the binary location (target/release/zorya-mcp -> workspace root)
     if let Ok(exe) = std::env::current_exe() {
         // Binary is at <root>/target/{release,debug}/zorya-mcp
-        if let Some(root) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+        if let Some(root) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
             if root.join("Cargo.toml").exists() && root.join("src/mcp").exists() {
                 return root.to_path_buf();
             }

@@ -55,7 +55,9 @@ pub struct ListStringsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct RunAnalysisParams {
-    #[schemars(description = "Execution mode: start (entry point), main (main function), or function (specific address)")]
+    #[schemars(
+        description = "Execution mode: start (entry point), main (main function), or function (specific address)"
+    )]
     pub mode: String,
     #[schemars(
         description = "Start address as hex string (e.g. 0x4bef60). Required for function mode"
@@ -63,7 +65,9 @@ pub struct RunAnalysisParams {
     pub start_address: String,
     #[schemars(description = "Arguments to pass to the binary at runtime (e.g. \"2 + 3\")")]
     pub args: Option<String>,
-    #[schemars(description = "Enable negated path exploration to find alternate branches. Defaults to true")]
+    #[schemars(
+        description = "Enable negated path exploration to find alternate branches. Defaults to true"
+    )]
     pub negate_path: Option<bool>,
 }
 

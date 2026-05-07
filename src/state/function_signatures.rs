@@ -310,8 +310,8 @@ pub fn load_go_function_args_map(
             executor.state.logger,
             "Extracting runtime.g offsets from DWARF..."
         );
-        let abs_binary = fs::canonicalize(binary_path)
-            .unwrap_or_else(|_| Path::new(binary_path).to_path_buf());
+        let abs_binary =
+            fs::canonicalize(binary_path).unwrap_or_else(|_| Path::new(binary_path).to_path_buf());
         let abs_signatures = fs::canonicalize(func_signatures_path)
             .unwrap_or_else(|_| std::env::current_dir().unwrap().join(func_signatures_path));
         let go_out = std::process::Command::new("go")

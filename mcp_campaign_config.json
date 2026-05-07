@@ -1,6 +1,6 @@
 {
   "global": {
-    "binary_path": "/home/karolina-gorna/Documents/zorya/targets/19_morpho_erpc_test/erpc-common.test",
+    "binary_path": "/home/karolina-gorna/Documents/zorya/targets/20_gno_jsonrpc/harness",
     "compiler": "gc",
     "language": "go",
     "log_mode": "verbose",
@@ -9,19 +9,11 @@
   },
   "tests": [
     {
-      "args": "-test.run=^TestZoryaErrJsonRpcExceptionInternal_OriginalCode$ -test.timeout=300s",
+      "args": "full 7b226a736f6e727063223a22322e30222c226964223a312c226d6574686f64223a2278222c22706172616d73223a6e756c6c7d",
       "env_vars": {},
-      "id": "19_morpho_erpc_test__zoryaProbeOriginalCodeFromFloat",
+      "id": "gno-parseID-iface-v6",
       "mode": "function",
-      "start_address": "0x11f8da0",
-      "timeout_seconds": 600
-    },
-    {
-      "args": "-test.run=^TestZoryaDurationUnmarshalYAML_FloatArm$ -test.timeout=300s",
-      "env_vars": {},
-      "id": "19_morpho_erpc_test__zoryaProbeDurationFromFloat",
-      "mode": "function",
-      "start_address": "0x11f8dc0",
+      "start_address": "0x644300",
       "timeout_seconds": 600
     }
   ]

@@ -27,8 +27,51 @@ divider() { echo -e "${CYAN}****************************************************
 ##############################################################################
 #                         INSTALL-TIME PATHS
 ##############################################################################
-ZORYA_DIR="__ZORYA_DIR__"
-[[ "$ZORYA_DIR" == "__ZORYA_DIR__" ]] && { echo "Reinstall required"; exit 1; }
+# _ZORYA_EMBED is replaced by `make install` (and the Dockerfile) with the
+# checkout path used at build/install time.  In a pristine clone it stays
+# "__ZORYA_DIR__" and we discover the checkout from $ZORYA_DIR env or from
+# the location of this script (scripts/zorya -> parent directory).
+_ZORYA_EMBED="__ZORYA_DIR__"
+
+is_valid_zorya_root() {
+  [[ -n "$1" ]] && [[ -f "$1/Cargo.toml" ]] && [[ -d "$1/external/pcode-generator" ]]
+}
+
+resolve_zorya_dir() {
+  if is_valid_zorya_root "${ZORYA_DIR:-}"; then
+    return 0
+  fi
+
+  if [[ "${_ZORYA_EMBED}" != "__ZORYA_DIR__" ]] && is_valid_zorya_root "${_ZORYA_EMBED}"; then
+    ZORYA_DIR="${_ZORYA_EMBED}"
+    export ZORYA_DIR
+    return 0
+  fi
+
+  local script_path script_dir candidate
+  script_path="${BASH_SOURCE[0]}"
+  if [[ -L "${script_path}" ]]; then
+    script_path="$(readlink -f "${script_path}")" || script_path="${BASH_SOURCE[0]}"
+  fi
+  script_dir="$(cd "$(dirname "${script_path}")" && pwd)" || exit 1
+  candidate="$(cd "${script_dir}/.." && pwd)" || exit 1
+
+  if [[ "$(basename "${script_dir}")" == "scripts" ]] && is_valid_zorya_root "${candidate}"; then
+    ZORYA_DIR="${candidate}"
+    export ZORYA_DIR
+    return 0
+  fi
+
+  echo "zorya: could not locate Zorya checkout root."
+  echo "  Set ZORYA_DIR to the directory containing Cargo.toml and external/pcode-generator,"
+  echo "  run this wrapper from scripts/zorya inside a clone,"
+  echo "  reinstall via make install from the checkout,"
+  echo "  or rely on MCP: zorya-mcp sets ZORYA_DIR so spawned runs inherit it."
+  exit 1
+}
+
+resolve_zorya_dir
+unset _ZORYA_EMBED
 
 PCODE_GENERATOR_DIR="$ZORYA_DIR/external/pcode-generator"
 INIT_DATA_DIR="$ZORYA_DIR/results/initialization_data"
@@ -481,7 +524,12 @@ export ZORYA_CMD="$CMD"
 
 # Step 1: Pcode generation
 cd "$PCODE_GENERATOR_DIR" || exit 1
-RUSTFLAGS="--cap-lints=allow" cargo run --release "$BIN_PATH" --low-pcode
+# Pin CARGO_TARGET_DIR so pcode_generator (which derives its output dir from
+# current_exe()) writes results into $PCODE_GENERATOR_DIR/results/ even when
+# the surrounding env injects a different CARGO_TARGET_DIR
+# (e.g. Cursor's /tmp/cursor-sandbox-cache/...).
+CARGO_TARGET_DIR="$PCODE_GENERATOR_DIR/target" \
+  RUSTFLAGS="--cap-lints=allow" cargo run --release "$BIN_PATH" --low-pcode
 
 PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
 [[ ! -f "$PCODE_FILE" ]] && { echo "Pcode generation failed."; exit 1; }
@@ -522,4 +570,7 @@ echo "**************************************************************************
 echo ""
 
 cd "$ZORYA_DIR" || exit 1
-RUSTFLAGS="--cap-lints=allow" cargo run --release -- --write-args "$ARGS"
+# Same reasoning as the pcode_generator invocation above: pin CARGO_TARGET_DIR
+# so artifacts land inside the workspace.
+CARGO_TARGET_DIR="$ZORYA_DIR/target" \
+  RUSTFLAGS="--cap-lints=allow" cargo run --release -- --write-args "$ARGS"

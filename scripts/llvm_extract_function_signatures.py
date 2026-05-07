@@ -315,7 +315,17 @@ def parse_dwarf_output(dwarf_output, symbol_map):
 
 
 def get_register_name(reg_num):
-    """Map DWARF register numbers to x86-64 register names"""
+    """Map DWARF register numbers to x86-64 register names.
+
+    The mapping follows the SysV x86-64 ABI register-number table that
+    Go's DWARF emitter (and llvm-dwarfdump) use:
+
+      0-15  General-purpose: RAX, RDX, RCX, RBX, RSI, RDI, RBP, RSP,
+            R8-R15.
+      16    Return-address register (unused for arg locations).
+      17-32 XMM0-XMM15 (used for float64 / float32 / vector args under
+            Go's regabi from Go 1.17+).
+    """
     reg_map = {
         0: "RAX",
         1: "RDX",
@@ -333,6 +343,22 @@ def get_register_name(reg_num):
         13: "R13",
         14: "R14",
         15: "R15",
+        17: "XMM0",
+        18: "XMM1",
+        19: "XMM2",
+        20: "XMM3",
+        21: "XMM4",
+        22: "XMM5",
+        23: "XMM6",
+        24: "XMM7",
+        25: "XMM8",
+        26: "XMM9",
+        27: "XMM10",
+        28: "XMM11",
+        29: "XMM12",
+        30: "XMM13",
+        31: "XMM14",
+        32: "XMM15",
     }
     return reg_map.get(reg_num)
 

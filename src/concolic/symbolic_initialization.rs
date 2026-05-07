@@ -922,6 +922,191 @@ pub fn initialize_stack_argument<'a>(
 }
 
 // ────────────────────────────────────────────────────────────
+//  Go interface{} / any (two registers: itab in regs[0], data in regs[1])
+// ────────────────────────────────────────────────────────────
+//
+// The Go regabi (amd64) passes an interface value as two consecutive integer
+// registers:
+//
+//   regs[0]  — itab pointer (type descriptor, e.g. *runtime.itab or *_type)
+//   regs[1]  — data slot (either the concrete value itself for pointer-sized
+//               scalars like float64, int64, etc., or a pointer to heap-boxed
+//               data for larger types)
+//
+// For the `case float64:` arm of a JSON-RPC id type-switch the layout is:
+//
+//   RAX  — address of the runtime._type for float64  (concrete, fixed)
+//   RBX  — float64 bits reinterpreted as a uint64    (attacker-controlled)
+//
+// We want Zorya to explore the data slot symbolically so that the TRUNC
+// oracle can fire when the float value is out of range.  The itab is
+// constrained to equal its concrete value from the snapshot so the
+// type-switch takes the expected arm and we do not generate noise SATs
+// on arbitrary type-tag values.
+pub fn initialize_interface_argument<'a>(
+    arg_name: &str,
+    regs: &[&str], // exactly 2: [itab_reg, data_reg]
+    conc: &mut Vec<ConcreteVar>,
+    exec: &mut ConcolicExecutor<'a>,
+) {
+    let (itab_reg, data_reg) = match regs {
+        [r0, r1] => (*r0, *r1),
+        _ => {
+            log!(
+                exec.state.logger,
+                "WARNING: initialize_interface_argument called with {} registers for '{}', expected 2",
+                regs.len(),
+                arg_name
+            );
+            return;
+        }
+    };
+
+    println!(
+        "Retrieved interface{{}} argument '{}' – itab in {}, data in {} – creating symbolic data slot...",
+        arg_name, itab_reg, data_reg
+    );
+
+    let ctx = exec.context;
+
+    // ── itab register: leave completely concrete ──
+    //
+    // The itab (type descriptor pointer) must stay concrete so the type-switch
+    // inside the function takes exactly the same arm as it did in the GDB
+    // snapshot.  Making it symbolic — even with an equality constraint — creates
+    // noise INT_ADD/INT_SUB SATs when the solver picks extreme tag values, and
+    // those trigger before the float cast we care about.
+    //
+    // We *record* the concrete value in function_symbolic_arguments under the
+    // `.itab` name so it appears in the Z3 evaluation output, but we do NOT
+    // create a fresh BV and do NOT modify the register.
+    {
+        let cpu = &exec.state.cpu_state.lock().unwrap();
+        if let Some(off) = cpu.resolve_offset_from_register_name(itab_reg) {
+            let w = cpu.register_map.get(&off).map(|(_, w)| *w).unwrap_or(64);
+            if let Some(orig) = cpu.get_register_by_offset(off, w) {
+                let concrete_itab = orig.concrete.to_u64();
+                // Record the concrete itab for visibility in the SAT report.
+                let bv_itab = BV::from_u64(ctx, concrete_itab, 64);
+                exec.function_symbolic_arguments
+                    .insert(format!("{}.itab", arg_name), SymbolicVar::Int(bv_itab));
+                log!(
+                    exec.state.logger,
+                    "interface{{}} '{}': itab={} left concrete (0x{:x}) — type-switch follows snapshot arm",
+                    arg_name, itab_reg, concrete_itab
+                );
+            }
+        } else {
+            log!(
+                exec.state.logger,
+                "WARNING: unknown itab register '{}' for interface{{}} '{}'",
+                itab_reg,
+                arg_name
+            );
+        }
+    }
+
+    // ── data register holds a pointer to the heap-boxed value ──
+    // For an `any` carrying a scalar (e.g. float64 from JSON), the runtime
+    // heap-boxes it and the data register holds *the address*. We symbolise
+    // the 8 bytes at *data_reg and leave the register concrete; making the
+    // pointer itself symbolic would trip the NULL-deref oracle on the load
+    // that precedes cvttsd2si.
+    let bv_data_for_constraint: Option<BV> =
+        {
+            let cpu = exec.state.cpu_state.lock().unwrap();
+            let res = cpu
+                .resolve_offset_from_register_name(data_reg)
+                .and_then(|off| {
+                    let w = cpu.register_map.get(&off).map(|(_, w)| *w).unwrap_or(64);
+                    cpu.get_register_by_offset(off, w)
+                        .map(|orig| orig.concrete.to_u64())
+                });
+            drop(cpu);
+            match res {
+                None => {
+                    log!(
+                        exec.state.logger,
+                        "WARNING: unknown data register '{}' for interface{{}} '{}'",
+                        data_reg,
+                        arg_name
+                    );
+                    None
+                }
+                Some(0) => {
+                    log!(
+                        exec.state.logger,
+                        "interface{{}} '{}': data ptr in {} is NULL — skipping heap symbolisation",
+                        arg_name,
+                        data_reg
+                    );
+                    None
+                }
+                Some(ptr) => {
+                    match exec.state.memory.read_bytes(ptr, 8) {
+                        Err(e) => {
+                            log!(
+                                exec.state.logger,
+                                "WARNING: failed to read 8 bytes at *{}=0x{:x} for '{}': {}",
+                                data_reg,
+                                ptr,
+                                arg_name,
+                                e
+                            );
+                            None
+                        }
+                        Ok(bytes) => {
+                            let concrete_val =
+                                u64::from_le_bytes(bytes.try_into().unwrap_or([0u8; 8]));
+                            conc.push(ConcreteVar::Int(concrete_val));
+
+                            let bv_data = BV::fresh_const(ctx, &format!("{}_data", arg_name), 64);
+                            exec.function_symbolic_arguments.insert(
+                                format!("{}.data", arg_name),
+                                SymbolicVar::Int(bv_data.clone()),
+                            );
+
+                            let mem_val = MemoryValue::new(concrete_val, bv_data.clone(), 64);
+                            if let Err(e) = exec.state.memory.write_value(ptr, &mem_val) {
+                                log!(
+                            exec.state.logger,
+                            "WARNING: failed to write symbolic 8 bytes at 0x{:x} for '{}': {}",
+                            ptr, arg_name, e
+                        );
+                                None
+                            } else {
+                                log!(
+                            exec.state.logger,
+                            "interface{{}} '{}': *{}=0x{:x} symbolic (concrete was 0x{:016x})",
+                            arg_name, data_reg, ptr, concrete_val
+                        );
+                                Some(bv_data)
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+    // No-op alias constraint so bv_data is referenced in constraint_vector
+    // (the witness is a fresh independent BV, so simplify() preserves the
+    // BV name). Mirrors initialize_slice_argument; lets the RESULTS section
+    // surface "<arg_name>.data".
+    if let Some(bv_data) = bv_data_for_constraint {
+        let alias_data = BV::fresh_const(ctx, &format!("{}_data_witness", arg_name), 64);
+        let c_data_alias = bv_data._eq(&alias_data);
+        exec.solver.assert(&c_data_alias);
+        exec.constraint_vector.push(c_data_alias);
+    }
+
+    log!(
+        exec.state.logger,
+        "✓ interface{{}} argument '{}' initialised: itab concrete, *data symbolic",
+        arg_name
+    );
+}
+
+// ────────────────────────────────────────────────────────────
 //  Multi-register slice ([]T)
 // ────────────────────────────────────────────────────────────
 // Enhanced slice initialization that handles mixed register/stack specifications

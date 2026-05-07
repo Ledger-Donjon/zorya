@@ -528,11 +528,18 @@ impl<'a> State<'a> {
         tprintln!("Validated ELF file exists: {}", elf_path);
 
         // 2) Run the pcode-generator tool with an optional --base-address argument
+        // Pin CARGO_TARGET_DIR to a workspace path so pcode_generator's
+        // current_exe()-derived output dir lands in <pcode_generator_dir>/results/
+        // even when the surrounding env injects a different CARGO_TARGET_DIR
+        // (e.g. Cursor sandbox redirecting it under /tmp/cursor-sandbox-cache/).
+        let cargo_target_dir = format!("{}/external/pcode-generator/target", pcode_generator_dir);
         let mut cmd = std::process::Command::new("cargo");
         cmd.current_dir(format!("{}/external/pcode-generator", pcode_generator_dir))
             .arg("run")
             .arg(elf_path)
-            .arg("--low-pcode");
+            .arg("--low-pcode")
+            .env("CARGO_TARGET_DIR", &cargo_target_dir)
+            .env("RUSTFLAGS", "--cap-lints=allow");
 
         // If we discovered a base address from the memory map, pass it along
         if let Some(addr) = base_address {

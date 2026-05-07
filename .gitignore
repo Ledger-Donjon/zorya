@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 /target
+/targets
 /src/state/working_files
 /.vscode
 /qemu_log.txt
@@ -40,3 +41,6 @@ results/execution_trace_runtime-mcommoninit.txt
 /fuzzer_results
 /results/runtime_g_offsets.json
 /results/function_signatures_go_structs.json
+/results/mcp_analysis_stdout.txt
+/results/mcp_analysis_stderr.txt
+.cursor/

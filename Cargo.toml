@@ -20,6 +20,11 @@ path = "src/main.rs"
 name = "zorya-fuzzer"
 path = "src/fuzzer/main.rs"
 
+# MCP server for autonomous binary analysis via Cursor / Claude Code
+[[bin]]
+name = "zorya-mcp"
+path = "src/mcp/main.rs"
+
 [dependencies]
 z3 = "0.12.1"
 parser = { path = "external/pcode-parser" }
@@ -44,3 +49,6 @@ shell-words = "1.1.0"
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 chrono = "0.4.44"
+rmcp = { version = "1", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["full"] }
+schemars = "1"

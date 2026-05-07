@@ -125,7 +125,7 @@ ghidra-config:
 
 install:
 	@echo "Installing zorya command..."
-	@sed 's|^ZORYA_DIR="__ZORYA_DIR__"|ZORYA_DIR="$(CURDIR)"|' scripts/zorya > /tmp/zorya
+	@sed 's|^_ZORYA_EMBED="__ZORYA_DIR__"|_ZORYA_EMBED="$(CURDIR)"|' scripts/zorya > /tmp/zorya
 	@sudo mv /tmp/zorya /usr/local/bin/zorya
 	@sudo chmod +x /usr/local/bin/zorya
 	@echo "Installation complete. You can now use the "zorya" command."

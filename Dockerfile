@@ -108,7 +108,7 @@ COPY --from=builder /zorya/tests /opt/zorya/tests
 
 # Create results directory and configure wrapper script
 RUN mkdir -p /opt/zorya/results/initialization_data && \
-    sed -i 's|ZORYA_DIR="__ZORYA_DIR__"|ZORYA_DIR="/opt/zorya"|' /opt/zorya/scripts/zorya && \
+    sed -i 's|^_ZORYA_EMBED="__ZORYA_DIR__"|_ZORYA_EMBED="/opt/zorya"|' /opt/zorya/scripts/zorya && \
     chmod +x /opt/zorya/scripts/zorya
 
 # Set environment variables

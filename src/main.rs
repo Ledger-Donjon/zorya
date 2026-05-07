@@ -18,11 +18,11 @@ use z3::{
     Config, Context,
 };
 use zorya::concolic::symbolic_initialization::{
-    clear_go_stack_preempt, init_struct_types_cache, initialize_single_register_argument,
-    initialize_single_register_slice, initialize_slice_argument, initialize_slice_memory_contents,
-    initialize_string_argument, initialize_string_memory_contents,
-    initialize_struct_pointer_fields, is_stack_location, is_struct_pointer_type,
-    parse_stack_offset,
+    clear_go_stack_preempt, init_struct_types_cache, initialize_interface_argument,
+    initialize_single_register_argument, initialize_single_register_slice,
+    initialize_slice_argument, initialize_slice_memory_contents, initialize_string_argument,
+    initialize_string_memory_contents, initialize_struct_pointer_fields, is_stack_location,
+    is_struct_pointer_type, parse_stack_offset,
 };
 use zorya::concolic::{ConcolicVar, Logger};
 use zorya::executor::{ConcolicExecutor, SymbolicVar};
@@ -383,31 +383,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             // --- Go branch ---
             "go" => {
-                log!(
-                    executor.state.logger,
-                    "Extracting Go function signatures using llvm-dwarfdump..."
-                );
-                let llvm_script = format!(
-                    "{}/scripts/llvm_extract_function_signatures.py",
-                    env::var("ZORYA_DIR")?
-                );
                 let func_signatures_path = "results/function_signatures_go.json";
-                let out = std::process::Command::new("python3")
-                    .arg(&llvm_script)
-                    .arg(&binary_path)
-                    .arg(func_signatures_path)
-                    .output()?;
-                if !out.status.success() {
-                    return Err(format!(
-                        "llvm-dwarfdump extraction failed: {}",
-                        String::from_utf8_lossy(&out.stderr)
-                    )
-                    .into());
-                }
 
-                // Extract runtime.g struct offsets (goid, etc.) for goroutine ID tracking.
+                // Step 1: Extract runtime.g struct offsets (goid, etc.) for goroutine ID tracking.
                 // The Go tool parses DWARF to find the runtime.g struct layout and writes
                 // results/runtime_g_offsets.json, which is loaded at runtime by runtime_info.rs.
+                // NOTE: The Go tool also writes function_signatures_go.json; step 2 overwrites it
+                // with the more complete llvm-dwarfdump output, which is why we run Go first.
                 let zorya_dir = env::var("ZORYA_DIR")?;
                 let go_tool_dir = format!("{}/scripts/get-funct-arg-types", zorya_dir);
                 log!(
@@ -416,8 +398,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 );
                 let abs_binary = std::fs::canonicalize(&binary_path)
                     .unwrap_or_else(|_| std::path::Path::new(&binary_path).to_path_buf());
-                let abs_signatures = std::fs::canonicalize(func_signatures_path)
-                    .unwrap_or_else(|_| std::env::current_dir().unwrap().join(func_signatures_path));
+                let abs_signatures =
+                    std::fs::canonicalize(func_signatures_path).unwrap_or_else(|_| {
+                        std::env::current_dir().unwrap().join(func_signatures_path)
+                    });
                 let go_out = std::process::Command::new("go")
                     .arg("run")
                     .arg(".")
@@ -447,6 +431,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                             e
                         );
                     }
+                }
+
+                // Step 2: Extract full function signatures with llvm-dwarfdump (Python).
+                // This runs AFTER the Go tool so its output (which covers all functions
+                // including unexported ones like parseID) is the final version.
+                log!(
+                    executor.state.logger,
+                    "Extracting Go function signatures using llvm-dwarfdump..."
+                );
+                let llvm_script = format!(
+                    "{}/scripts/llvm_extract_function_signatures.py",
+                    env::var("ZORYA_DIR")?
+                );
+                let out = std::process::Command::new("python3")
+                    .arg(&llvm_script)
+                    .arg(&binary_path)
+                    .arg(func_signatures_path)
+                    .output()?;
+                if !out.status.success() {
+                    return Err(format!(
+                        "llvm-dwarfdump extraction failed: {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    )
+                    .into());
                 }
 
                 log!(
@@ -565,6 +573,28 @@ fn main() -> Result<(), Box<dyn Error>> {
                         executor.state.logger,
                         "WARNING: unexpected registers '{}' for string '{}', skipping",
                         reg_spec,
+                        arg_name
+                    );
+                    continue;
+                }
+
+                // Go interface{} / any: two registers (itab in regs[0], data in regs[1]).
+                // The itab is pinned to its concrete value so the type-switch follows
+                // the same arm as the snapshot; the data slot is made fully symbolic so
+                // the TRUNC oracle can see the float64 bits when the arm is `case float64:`.
+                if (arg_type == "interface {}" || arg_type == "any") && regs.len() == 2 {
+                    initialize_interface_argument(
+                        arg_name,
+                        &regs,
+                        &mut concrete_values_of_args,
+                        &mut executor,
+                    );
+                    continue;
+                } else if (arg_type == "interface {}" || arg_type == "any") && regs.len() != 2 {
+                    log!(
+                        executor.state.logger,
+                        "WARNING: unexpected register count {} for interface{{}} '{}', expected 2 — skipping",
+                        regs.len(),
                         arg_name
                     );
                     continue;

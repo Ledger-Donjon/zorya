@@ -75,16 +75,12 @@ impl ZoryaMcp {
 
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
-            Err(e) => {
-                return json!({"error": format!("Failed to read binary: {}", e)}).to_string()
-            }
+            Err(e) => return json!({"error": format!("Failed to read binary: {}", e)}).to_string(),
         };
 
         let elf = match Elf::parse(&bytes) {
             Ok(e) => e,
-            Err(e) => {
-                return json!({"error": format!("Failed to parse ELF: {}", e)}).to_string()
-            }
+            Err(e) => return json!({"error": format!("Failed to parse ELF: {}", e)}).to_string(),
         };
 
         let entry = elf.entry;
@@ -127,10 +123,7 @@ impl ZoryaMcp {
     #[tool(
         description = "List functions discovered in the loaded binary's ELF symbol table. Supports filtering by name substring and pagination. Call load_binary first."
     )]
-    async fn list_functions(
-        &self,
-        Parameters(params): Parameters<ListFunctionsParams>,
-    ) -> String {
+    async fn list_functions(&self, Parameters(params): Parameters<ListFunctionsParams>) -> String {
         let state = self.state.lock().await;
         let bytes = match &state.elf_bytes {
             Some(b) => b,
@@ -412,9 +405,7 @@ impl ZoryaMcp {
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
-            Err(e) => {
-                return json!({"error": format!("Failed to spawn zorya: {}", e)}).to_string()
-            }
+            Err(e) => return json!({"error": format!("Failed to spawn zorya: {}", e)}).to_string(),
         };
 
         let pid = child.id().unwrap_or(0);
@@ -488,10 +479,8 @@ impl ZoryaMcp {
         });
 
         let config_path = self.zorya_dir.join("mcp_campaign_config.json");
-        if let Err(e) = std::fs::write(
-            &config_path,
-            serde_json::to_string_pretty(&config).unwrap(),
-        ) {
+        if let Err(e) = std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap())
+        {
             return json!({"error": format!("Failed to write campaign config: {}", e)}).to_string();
         }
 
@@ -562,10 +551,7 @@ impl ZoryaMcp {
     #[tool(
         description = "Check the status of a running analysis or campaign job. Returns the current state (running, completed, failed), elapsed time, and error details if the job failed."
     )]
-    async fn get_job_status(
-        &self,
-        Parameters(params): Parameters<GetJobStatusParams>,
-    ) -> String {
+    async fn get_job_status(&self, Parameters(params): Parameters<GetJobStatusParams>) -> String {
         let jobs = self.jobs.lock().await;
         match jobs.get_job(params.job_id) {
             Some(job) => {
@@ -605,10 +591,8 @@ impl ZoryaMcp {
                     .status();
                 json!({"cancelled": true, "job_id": params.job_id}).to_string()
             }
-            None => {
-                json!({"cancelled": false, "error": "Job not found or already finished"})
-                    .to_string()
-            }
+            None => json!({"cancelled": false, "error": "Job not found or already finished"})
+                .to_string(),
         }
     }
 

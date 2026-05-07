@@ -43,6 +43,12 @@ echo "Base address: $VDSO_BASE_ADDR"
 # Generate p-code for VDSO using the pcode-generator
 cd "$PCODE_GENERATOR_DIR" || exit 1
 
+# Pin CARGO_TARGET_DIR to a workspace path so pcode_generator (which derives
+# its output dir from current_exe()) writes results into
+# $PCODE_GENERATOR_DIR/results/ even when the surrounding env injects a
+# different CARGO_TARGET_DIR (e.g. Cursor's /tmp/cursor-sandbox-cache/...).
+export CARGO_TARGET_DIR="$PCODE_GENERATOR_DIR/target"
+
 # Run pcode generator with the VDSO base address
 RUSTFLAGS="--cap-lints=allow" cargo run --release "$VDSO_PATH" --low-pcode --base-addr "$VDSO_BASE_ADDR"
 

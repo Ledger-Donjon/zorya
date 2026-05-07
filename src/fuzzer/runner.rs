@@ -61,6 +61,13 @@ impl FuzzerRunner {
         );
         println!();
 
+        // Pin cargo's target dir to a workspace path so the produced
+        // pcode_generator binary lives at <pcode_generator_dir>/target/release/.
+        // pcode_generator computes its output dir via current_exe().parent()^3,
+        // so this guarantees results land in <pcode_generator_dir>/results/
+        // regardless of any CARGO_TARGET_DIR injected by the surrounding env
+        let cargo_target_dir = pcode_generator_dir.join("target");
+
         let mut cmd = Command::new("cargo");
         cmd.current_dir(&pcode_generator_dir)
             .arg("run")
@@ -68,6 +75,7 @@ impl FuzzerRunner {
             .arg(&self.config.global.binary_path)
             .arg("--low-pcode")
             .env("RUSTFLAGS", "--cap-lints=allow")
+            .env("CARGO_TARGET_DIR", &cargo_target_dir)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
