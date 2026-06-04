@@ -153,7 +153,33 @@ EthCC 2025 overview presentation:
 
 ## 6. Academic work
 
-Exposing Go's Hidden Bugs: A Novel Concolic Framework (IEEE SERA 2025):
+June 2026 - From TinyGo to gc Compiler: Extending Zorya's Concolic Framework to Real-World Go Binaries (ACM EASE 2026):
+[ArXiv](https://arxiv.org/abs/2605.03492)
+
+```bibtex
+@article{gorna2026tinygo,
+  title={From TinyGo to gc Compiler: Extending Zorya's Concolic Framework to Real-World Go Binaries},
+  author={Gorna, Karolina and Iooss, Nicolas and Seurin, Yannick and Khatoun, Rida and Makan, Keith},
+  journal={arXiv preprint arXiv:2605.03492},
+  year={2026},
+  note={Accepted at the 30th ACM International Conference on Evaluation and Assessment in Software Engineering (EASE 2026)}
+}
+```
+
+March 2026 - Zorya: Automated Concolic Execution of Single-Threaded Go Binaries:
+[ArXiv](https://arxiv.org/abs/2512.10799)
+
+```bibtex
+@article{gorna2025zorya,
+  title={Zorya: Automated Concolic Execution of Single-Threaded Go Binaries},
+  author={Gorna, Karolina and Iooss, Nicolas and Seurin, Yannick and Khatoun, Rida},
+  journal={arXiv preprint arXiv:2512.10799},
+  year={2025},
+  note={Accepted at the 41st ACM/SIGAPP Symposium On Applied Computing (SAC 2026)}
+}
+```
+
+May 2025 - Exposing Go's Hidden Bugs: A Novel Concolic Framework (IEEE SERA 2025):
 [IEEE Xplore](https://ieeexplore.ieee.org/document/11449147)
 
 ```bibtex
@@ -168,21 +194,40 @@ Exposing Go's Hidden Bugs: A Novel Concolic Framework (IEEE SERA 2025):
 }
 ```
 
-Zorya: Automated Concolic Execution of Single-Threaded Go Binaries:
-[ArXiv](https://arxiv.org/abs/2512.10799)
-
-```bibtex
-@article{gorna2025zorya,
-  title={Zorya: Automated Concolic Execution of Single-Threaded Go Binaries},
-  author={Gorna, Karolina and Iooss, Nicolas and Seurin, Yannick and Khatoun, Rida},
-  journal={arXiv preprint arXiv:2512.10799},
-  year={2025},
-  note={Accepted at the 41st ACM/SIGAPP Symposium On Applied Computing (SAC 2026)}
-}
-```
-
 Evaluation repository:
 [Zorya Evaluation](https://github.com/Ledger-Donjon/zorya-evaluation)
 
 Evaluation Go dataset:
 [Logic-Bombs-Go](https://github.com/Ledger-Donjon/logic_bombs_go)
+
+## 7. Findings
+
+Bugs discovered with Zorya on real-world open-source projects. Last update: June, 4th 2026.
+
+| Repository | Bug / Vuln type | Report | Status |
+|---|---|---|---|
+| **OOB / Slice bounds** | | | |
+| [mandiant/gopacket](https://github.com/mandiant/gopacket) | OOB slice | [#23](https://github.com/mandiant/gopacket/issues/23) | Fixed |
+| [mandiant/gopacket](https://github.com/mandiant/gopacket) | OOB slice | [#25](https://github.com/mandiant/gopacket/issues/25) | Fixed |
+| [0xPolygon/bor](https://github.com/0xPolygon/bor) | OOB slice | [#2221](https://github.com/0xPolygon/bor/issues/2221) | Fixed |
+| [seaweedfs/seaweedfs](https://github.com/seaweedfs/seaweedfs) | OOB slice | [PR #9712](https://github.com/seaweedfs/seaweedfs/pull/9712) | Fixed |
+| [seaweedfs/seaweedfs](https://github.com/seaweedfs/seaweedfs) | Index OOB | [PR #9713](https://github.com/seaweedfs/seaweedfs/pull/9713) | Fixed |
+| [zeromicro/go-zero](https://github.com/zeromicro/go-zero) | OOB slice | [#5614](https://github.com/zeromicro/go-zero/issues/5614) | Fixed |
+| [multiformats/go-multiaddr](https://github.com/multiformats/go-multiaddr) | OOB slice | [PR #289](https://github.com/multiformats/go-multiaddr/pull/289) | Fixed |
+| [pion/dtls](https://github.com/pion/dtls) | Index OOB | [commit 517ebf2](https://github.com/pion/dtls/commit/517ebf2f117d75cef9cef2a2d9b6b43a3d9b7f83) | Fixed (private, medium) |
+| [pion/stun](https://github.com/pion/stun) | OOB slice | [commit fa9f074](https://github.com/pion/stun/commit/fa9f074a33a8059c76c960b1fbee39f308002423) | Fixed (private, high) |
+| [zeromicro/go-zero](https://github.com/zeromicro/go-zero) | OOB slice | [#5607](https://github.com/zeromicro/go-zero/issues/5607) | Reported |
+| [multiformats/go-multiaddr](https://github.com/multiformats/go-multiaddr) | OOB slice | [#288](https://github.com/multiformats/go-multiaddr/issues/288) | Reported |
+| **Integer overflow** | | | |
+| [gochain/gochain](https://github.com/gochain/gochain) | Integer overflow | [GHSA-rmvq-87f6-4pfc](https://github.com/gochain/gochain/security/advisories/GHSA-rmvq-87f6-4pfc) | Fixed |
+| [erpc/erpc](https://github.com/erpc/erpc) | Integer overflow | [#869](https://github.com/erpc/erpc/issues/869) | Reported |
+| [trufnetwork/kwil-db](https://github.com/trufnetwork/kwil-db) | Integer overflow | [#1701](https://github.com/trufnetwork/kwil-db/issues/1701) | Reported |
+| [cometbft/cometbft](https://github.com/cometbft/cometbft) | Integer overflow | [#5846](https://github.com/cometbft/cometbft/issues/5846) | Reported |
+| [gnolang/gno](https://github.com/gnolang/gno) | Integer overflow | [#5639](https://github.com/gnolang/gno/issues/5639) | Reported |
+| [XinFinOrg/XDPoSChain](https://github.com/XinFinOrg/XDPoSChain) | Integer underflow | [#2362](https://github.com/XinFinOrg/XDPoSChain/issues/2362) | Reported |
+| [kedacore/keda](https://github.com/kedacore/keda) | Float-to-int overflow | [#7796](https://github.com/kedacore/keda/issues/7796) | Fix ongoing |
+| [multiversx/mx-chain-go](https://github.com/multiversx/mx-chain-go) | Float-to-int64 overflow | Private disclosure | Reported |
+| **Nil pointer dereference** | | | |
+| [runatlantis/atlantis](https://github.com/runatlantis/atlantis) | Nil pointer dereference | [#6492](https://github.com/runatlantis/atlantis/issues/6492) | Fixed |
+| [crossplane-contrib/provider-http](https://github.com/crossplane-contrib/provider-http) | Nil pointer dereference | [#178](https://github.com/crossplane-contrib/provider-http/issues/178) | Reported |
+| [kedacore/keda](https://github.com/kedacore/keda) | Nil pointer dereference | [#7798](https://github.com/kedacore/keda/issues/7798) | Fix ongoing |
