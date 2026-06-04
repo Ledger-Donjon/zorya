@@ -5,10 +5,8 @@
 #[cfg(test)]
 mod tests {
     use parser::parser::{Inst, Opcode, Size, Var, Varnode};
-    use std::collections::BTreeMap;
-    use z3::{ast::BV, Config, Context, Optimize};
+    use z3::{ast::BV, Config, Context};
     use zorya::concolic::{ConcolicExecutor, ConcolicVar, ConcreteVar, Logger};
-    use zorya::state::State;
 
     fn setup_executor() -> ConcolicExecutor<'static> {
         let cfg = Config::new();
@@ -16,27 +14,10 @@ mod tests {
         let logger = Logger::new("execution_log.txt", false).expect("Failed to create logger");
         let trace_logger =
             Logger::new("trace_log.txt", true).expect("Failed to create trace logger");
-        let state = State::default_for_tests(ctx, logger).expect("Failed to create state.");
-        let current_lines_number = 0;
-        ConcolicExecutor {
-            context: ctx,
-            solver: Optimize::new(ctx),
-            state,
-            symbol_table: BTreeMap::new(),
-            current_address: Some(0x123),
-            instruction_counter: 0,
-            unique_variables: BTreeMap::new(),
-            pcode_internal_lines_to_be_jumped: current_lines_number,
-            initialiazed_var: BTreeMap::new(),
-            inside_jump_table: false,
-            trace_logger,
-            function_symbolic_arguments: BTreeMap::new(),
-            constraint_vector: Vec::new(),
-            overlay_state: None,
-            null_check_cache: std::collections::HashMap::new(),
-            start_time: std::time::Instant::now(),
-            visited_blocks: std::collections::BTreeSet::new(),
-        }
+        let mut executor = ConcolicExecutor::new_for_tests(ctx, logger, trace_logger)
+            .expect("Failed to create executor");
+        executor.current_address = Some(0x123);
+        executor
     }
 
     #[test]

@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use parser::parser::{Inst, Opcode, Var, Varnode};
-use z3::{Config, Context, Optimize};
+use z3::{Config, Context};
 use zorya::concolic::ConcolicExecutor;
-use zorya::state::State;
 
 #[cfg(test)]
 mod tests {
@@ -25,72 +24,28 @@ mod tests {
         let logger = Logger::new("execution_log.txt", false).expect("Failed to create logger");
         let trace_logger =
             Logger::new("trace_log.txt", true).expect("Failed to create trace logger");
-        let state = State::default_for_tests(ctx, logger).expect("Failed to create state.");
+        let mut executor = ConcolicExecutor::new_for_tests(ctx, logger, trace_logger)
+            .expect("Failed to create executor");
 
-        // Initialize memory regions properly using the memory system's mmap API
-        // Store the actual addresses returned by mmap for use in tests
-        let mut actual_addresses = Vec::new();
-
-        let requested_regions = vec![
-            (0x10000, 0x1000), // 4KB region starting at 0x10000
-            (0x20000, 0x1000), // 4KB region starting at 0x20000
-            (0x30000, 0x1000), // 4KB region starting at 0x30000
-            (0x40000, 0x1000), // 4KB region starting at 0x40000
-        ];
-
-        for (start_addr, size) in requested_regions {
-            // Use mmap to create anonymous writable memory regions
-            let mmap_result = state.memory.mmap(
-                start_addr,
-                size,
-                0x1 | 0x2, // PROT_READ | PROT_WRITE
-                0x20,      // MAP_ANONYMOUS
-                -1,        // fd (ignored for anonymous mapping)
-                0,         // offset (ignored for anonymous mapping)
-            );
-
-            match mmap_result {
-                Ok(actual_addr) => {
-                    actual_addresses.push(actual_addr);
-                    println!(
-                        "Successfully created memory region at actual address 0x{:x}",
-                        actual_addr
-                    );
-                }
-                Err(e) => {
-                    println!(
-                        "Failed to create memory region at 0x{:x}: {:?}",
-                        start_addr, e
-                    );
-                }
+        for (start_addr, size) in [
+            (0x10000u64, 0x1000usize),
+            (0x20000, 0x1000),
+            (0x30000, 0x1000),
+            (0x40000, 0x1000),
+        ] {
+            match executor.state.memory.mmap(start_addr, size, 0x3, 0x20, -1, 0) {
+                Ok(actual_addr) => println!(
+                    "Successfully created memory region at actual address 0x{:x}",
+                    actual_addr
+                ),
+                Err(e) => println!(
+                    "Failed to create memory region at 0x{:x}: {:?}",
+                    start_addr, e
+                ),
             }
         }
 
-        let current_lines_number = 0;
-        let executor = ConcolicExecutor {
-            context: ctx,
-            solver: Optimize::new(ctx),
-            state,
-            symbol_table: BTreeMap::new(),
-            current_address: Some(0x123),
-            instruction_counter: 0,
-            unique_variables: BTreeMap::new(),
-            pcode_internal_lines_to_be_jumped: current_lines_number,
-            initialiazed_var: BTreeMap::new(),
-            inside_jump_table: false,
-            trace_logger,
-            function_symbolic_arguments: BTreeMap::new(),
-            constraint_vector: Vec::new(),
-            overlay_state: None,
-            null_check_cache: std::collections::HashMap::new(),
-            start_time: std::time::Instant::now(),
-            visited_blocks: std::collections::BTreeSet::new(),
-        };
-
-        // Store the actual memory addresses for tests to use
-        // We'll put them in a global or use a different approach
-        // For now, let's use the addresses we know mmap will give us based on the output
-
+        executor.current_address = Some(0x123);
         executor
     }
 

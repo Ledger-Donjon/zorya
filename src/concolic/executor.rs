@@ -150,9 +150,33 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     ) -> Result<Self, Box<dyn Error>> {
         let solver = Optimize::new(context);
         let state = State::new(context, logger)?;
+        Ok(Self::new_with_state(context, state, solver, trace_logger))
+    }
+
+    /// Test-only constructor. Uses `State::default_for_tests` instead of the
+    /// full `State::new` so integration tests don't require `ZORYA_DIR` /
+    /// `BIN_PATH` to be set in the environment. All other initialization is
+    /// identical to `new`. Not intended for production use.
+    #[doc(hidden)]
+    pub fn new_for_tests(
+        context: &'ctx Context,
+        logger: Logger,
+        trace_logger: Logger,
+    ) -> Result<Self, Box<dyn Error>> {
+        let solver = Optimize::new(context);
+        let state = State::default_for_tests(context, logger)?;
+        Ok(Self::new_with_state(context, state, solver, trace_logger))
+    }
+
+    fn new_with_state(
+        context: &'ctx Context,
+        state: State<'ctx>,
+        solver: z3::Optimize<'ctx>,
+        trace_logger: Logger,
+    ) -> Self {
         let mut event_bus = EventBus::new();
         crate::plugins::registry::register_default(&mut event_bus);
-        Ok(ConcolicExecutor {
+        ConcolicExecutor {
             context,
             solver,
             state,
@@ -160,13 +184,13 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             current_address: None,
             instruction_counter: 0,
             unique_variables: BTreeMap::new(),
-            pcode_internal_lines_to_be_jumped: 0, // number of lines to skip in case of branch instructions
+            pcode_internal_lines_to_be_jumped: 0,
             initialiazed_var: BTreeMap::new(),
             inside_jump_table: false,
             trace_logger,
             function_symbolic_arguments: BTreeMap::new(),
             constraint_vector: Vec::new(),
-            overlay_state: None, // No overlay by default
+            overlay_state: None,
             null_check_cache: std::collections::HashMap::new(),
             start_time: Instant::now(),
             visited_blocks: BTreeSet::new(),
@@ -175,7 +199,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             mem_events_surfaced: 0,
             mem_events_suppressed: 0,
             binary_text_range: None,
-        })
+        }
     }
 
     /// The single memory-event boundary between the engine and plugins.
