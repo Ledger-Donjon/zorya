@@ -1,6 +1,6 @@
 {
   "global": {
-    "binary_path": "/home/karolina-gorna/Documents/zorya/targets/20_gno_jsonrpc/harness",
+    "binary_path": "/home/karolina-gorna/Documents/zorya/targets/_third_party/nats/src/cmd/zorya_jetstream_seq/zorya_jetstream_seq_real",
     "compiler": "gc",
     "language": "go",
     "log_mode": "verbose",
@@ -9,12 +9,20 @@
   },
   "tests": [
     {
-      "args": "full 7b226a736f6e727063223a22322e30222c226964223a312c226d6574686f64223a2278222c22706172616d73223a6e756c6c7d",
+      "args": "6400000000000000 c800000000000000",
       "env_vars": {},
-      "id": "gno-parseID-iface-v6",
+      "id": "63_nats_seq_delta_underflow",
       "mode": "function",
-      "start_address": "0x644300",
-      "timeout_seconds": 600
+      "start_address": "0x4bc4a0",
+      "timeout_seconds": 300
+    },
+    {
+      "args": "31303234",
+      "env_vars": {},
+      "id": "63_nats_parseInt32_overflow",
+      "mode": "function",
+      "start_address": "0x4bc4e0",
+      "timeout_seconds": 300
     }
   ]
 }

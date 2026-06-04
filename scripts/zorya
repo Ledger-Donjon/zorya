@@ -131,7 +131,7 @@ if [[ -z "$1" || "$1" == -* ]]; then
   echo -e "  ${GREEN}--mode${RESET} <start|main|function|advanced> [addr]"
   echo -e "                                  Analysis starting point"
   echo -e "  ${GREEN}--thread-scheduling${RESET} <all-threads|main-only>"
-  echo -e "                                  Thread scheduling strategy (Go GC only)"
+  echo -e "                                  Thread scheduling strategy (Go GC, C, C++)"
   echo -e "  ${GREEN}--arg${RESET} <args...>               Binary arguments"
   echo -e "  ${GREEN}--symbolic-registers${RESET} <regs>   (Advanced) Registers to make symbolic (e.g. \"RAX RDI\")"
   echo -e "  ${GREEN}--no-symbolic-registers${RESET}      (Advanced) Skip symbolic registers (no prompt)"

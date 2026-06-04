@@ -44,3 +44,4 @@ results/execution_trace_runtime-mcommoninit.txt
 /results/mcp_analysis_stdout.txt
 /results/mcp_analysis_stderr.txt
 .cursor/
+/paper_runs/
