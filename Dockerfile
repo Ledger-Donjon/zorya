@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     clang \
     libclang-dev \
+    libz3-dev \
     binutils-dev \
     git \
     curl \
@@ -64,7 +65,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     libgomp1 \
-    libz3-4 \
+    libz3-dev \
     python3 \
     python3-pip \
     openjdk-21-jdk \
