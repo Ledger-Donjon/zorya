@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Example plugin manifest.
+#
+# A future build script will scan src/plugins/builtin/*/manifest.yaml at
+# compile time and auto-generate the registration list. For now the
+# manifest is documentary: registration happens via the `register` factory
+# in mod.rs (see registry.rs).
+
+name: example
+version: 0.1.0
+api: 1
+description: |
+  Counts memory reads and writes. Copy-paste template for new plugins —
+  not registered by default.
+
+# Cargo feature gate. Set in zorya's top-level Cargo.toml under [features].
+feature: plugin-example
+
+# Events this plugin subscribes to. Must match the `wants()` set in the
+# Plugin impl; mismatch is reported by the build-time validator (TODO).
+subscribes:
+  - MemRead
+  - MemWrite
+
+# Symbols the engine should resolve at load time and notify the plugin
+# about via Event::Call. Unresolved symbols become deferred bindings that
+# bind retroactively the first time the address is called.
+symbols: []

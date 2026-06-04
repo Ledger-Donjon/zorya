@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 KMSEC (PTY) LTD - https://kmsecurity.co.za
+# SPDX-FileCopyrightText: 2026 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: volos
+version: 0.1.0
+api: 1
+description: |
+  Volos data-race detector — Plugin port of the upstream zorya-volos fork
+  by Keith Makan / KMSEC (https://github.com/kmsec137/zorya-volos).
+  Tracks per-cell access history with a finite-state automaton
+  (Virgin → Exclusive → Shared → SharedModified → Raceable → Reported)
+  and emits one finding per witness pair at end-of-trace.
+
+upstream: https://github.com/kmsec137/zorya-volos
+attribution: |
+  Original Volos design and implementation: Keith Makan (KMSEC PTY LTD).
+  This is a plugin-layer port preserving the FSA, the unprotected /
+  inconsistent-locking race rules, and the per-cell access history.
+
+# Cargo feature gate. Add `plugin-volos = []` to the workspace
+# Cargo.toml [features] section to enable.
+feature: plugin-volos
+
+subscribes:
+  - MemRead
+  - MemWrite
+  - Call
+  - ThreadSpawn
+  - ThreadExit
+
+# Symbols the engine resolves at load time and notifies the plugin
+# about via Event::Call. Unresolved symbols become deferred bindings
+# (Go binaries lazy-resolve some of these).
+symbols:
+  - runtime.lock
+  - runtime.lock2
+  - runtime.unlock
+  - runtime.unlock2
+  - sync.(*Mutex).Lock
+  - sync.(*Mutex).Unlock
+  - sync.(*RWMutex).Lock
+  - sync.(*RWMutex).Unlock
+  - sync.(*RWMutex).RLock
+  - sync.(*RWMutex).RUnlock
+  # C / pthread mutex family (resolve to plt_* stubs in -no-pie binaries;
+  # the Call handler normalises the plt_ prefix before matching).
+  - pthread_mutex_lock
+  - pthread_mutex_trylock
+  - pthread_mutex_unlock
+  - pthread_rwlock_wrlock
+  - pthread_rwlock_rdlock
+  - pthread_rwlock_unlock
+  - pthread_spin_lock
+  - pthread_spin_unlock
+
+env:
+  VOLOS_VERBOSE: "Set to 1 to enable per-event tracing on stderr."
