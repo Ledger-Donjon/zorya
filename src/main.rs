@@ -1334,9 +1334,7 @@ fn execute_instructions_from(
             let mut tm = executor.state.thread_manager.lock().unwrap();
             tm.tick_instruction();
             let pre_switch_tid = tm.current_tid;
-            if let Ok(Some(_new_tid)) =
-                tm.maybe_switch_thread(CheckpointType::FunctionCall)
-            {
+            if let Ok(Some(_new_tid)) = tm.maybe_switch_thread(CheckpointType::FunctionCall) {
                 // Save the outgoing thread, pinning its resume RIP to the
                 // current instruction boundary. The RIP register can be stale
                 // after a sequential instruction (it tracks the executed op,

@@ -17,6 +17,7 @@
 /results/initialization_data/*
 /results/function_signature_arg_types.json
 /results/function_signature_arg_registers.json
+/results/plugin_findings.txt
 /tests/programs/broken-calculator/broken-calculator-tinygo_ghidra
 /tests/programs/broken-calculator/broken-calculator-tinygo
 /tests/programs/crashme/crashme_ghidra

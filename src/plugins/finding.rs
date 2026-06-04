@@ -49,7 +49,13 @@ pub struct Finding {
 }
 
 impl Finding {
-    pub fn new(plugin: &'static str, rule: &'static str, severity: Severity, pc: u64, title: impl Into<String>) -> Self {
+    pub fn new(
+        plugin: &'static str,
+        rule: &'static str,
+        severity: Severity,
+        pc: u64,
+        title: impl Into<String>,
+    ) -> Self {
         Self {
             plugin,
             rule,

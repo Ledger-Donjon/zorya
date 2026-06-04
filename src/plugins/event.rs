@@ -130,18 +130,10 @@ pub enum Event<'ctx, 'e> {
     /// Per-pcode pre-execute notification. Disabled by default; enabled only
     /// when at least one plugin subscribes via `wants(EventKind::InstrPre)`.
     /// Use sparingly — this is the hot path.
-    InstrPre {
-        pc: u64,
-        op: Opcode,
-        tid: u64,
-    },
+    InstrPre { pc: u64, op: Opcode, tid: u64 },
 
     /// Per-pcode post-execute notification. Same gating as `InstrPre`.
-    InstrPost {
-        pc: u64,
-        op: Opcode,
-        tid: u64,
-    },
+    InstrPost { pc: u64, op: Opcode, tid: u64 },
 }
 
 /// Discriminant-only event kind, used by plugins to declare subscriptions

@@ -27,7 +27,12 @@ mod tests {
             .expect("Failed to create executor");
 
         for (start_addr, size) in [(0x10000u64, 0x1000usize), (0x20000, 0x1000)] {
-            if executor.state.memory.mmap(start_addr, size, 0x3, 0x20, -1, 0).is_err() {
+            if executor
+                .state
+                .memory
+                .mmap(start_addr, size, 0x3, 0x20, -1, 0)
+                .is_err()
+            {
                 println!("Failed to create memory region at 0x{:x}", start_addr);
             }
         }

@@ -3533,36 +3533,30 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         for (_addr, insts) in instructions_map.iter().rev() {
             for inst in insts.iter().rev() {
                 match inst.opcode {
-                    Opcode::Copy => {
-                        if base_bv.is_none() {
-                            // Delegate to `handle_copy` to extract the base register
-                            self.handle_copy(inst.clone())?;
-                            base_bv = Some(
-                                self.varnode_to_concolic(inst.output.as_ref().unwrap())?
-                                    .get_symbolic_value_bv(context),
-                            );
-                        }
+                    Opcode::Copy if base_bv.is_none() => {
+                        // Delegate to `handle_copy` to extract the base register
+                        self.handle_copy(inst.clone())?;
+                        base_bv = Some(
+                            self.varnode_to_concolic(inst.output.as_ref().unwrap())?
+                                .get_symbolic_value_bv(context),
+                        );
                     }
-                    Opcode::IntMult => {
-                        if scale_bv.is_none() {
-                            // Delegate to `handle_int_mult` to extract the scaled value
-                            executor_int::handle_int_mult(self, inst.clone())?;
-                            scale_bv = Some(
-                                self.varnode_to_concolic(inst.output.as_ref().unwrap())?
-                                    .get_symbolic_value_bv(context),
-                            );
-                        }
+                    Opcode::IntMult if scale_bv.is_none() => {
+                        // Delegate to `handle_int_mult` to extract the scaled value
+                        executor_int::handle_int_mult(self, inst.clone())?;
+                        scale_bv = Some(
+                            self.varnode_to_concolic(inst.output.as_ref().unwrap())?
+                                .get_symbolic_value_bv(context),
+                        );
                     }
-                    Opcode::IntAdd => {
-                        if index_bv.is_none() {
-                            // Delegate to `handle_int_add` to calculate the final index
-                            executor_int::handle_int_add(self, inst.clone())?;
-                            index_bv = Some(
-                                self.varnode_to_concolic(inst.output.as_ref().unwrap())?
-                                    .get_symbolic_value_bv(context),
-                            );
-                            break; // No need to continue once the final index is resolved
-                        }
+                    Opcode::IntAdd if index_bv.is_none() => {
+                        // Delegate to `handle_int_add` to calculate the final index
+                        executor_int::handle_int_add(self, inst.clone())?;
+                        index_bv = Some(
+                            self.varnode_to_concolic(inst.output.as_ref().unwrap())?
+                                .get_symbolic_value_bv(context),
+                        );
+                        break; // No need to continue once the final index is resolved
                     }
                     _ => {}
                 }

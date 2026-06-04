@@ -521,16 +521,22 @@ impl<'ctx> ThreadManager<'ctx> {
             .to_lowercase();
         let compiler = std::env::var("COMPILER").unwrap_or_default().to_lowercase();
 
-        let scheduling_supported = matches!(
-            source_lang.as_str(),
-            "go" | "c" | "c++"
-        ) && !(source_lang == "go" && compiler == "tinygo");
+        let scheduling_supported = matches!(source_lang.as_str(), "go" | "c" | "c++")
+            && !(source_lang == "go" && compiler == "tinygo");
 
         if !scheduling_supported {
             tprintln!(
                 "[SCHEDULER] Thread scheduling not enabled for lang={} compiler={}, using MainOnly",
-                if source_lang.is_empty() { "none" } else { &source_lang },
-                if compiler.is_empty() { "none" } else { &compiler }
+                if source_lang.is_empty() {
+                    "none"
+                } else {
+                    &source_lang
+                },
+                if compiler.is_empty() {
+                    "none"
+                } else {
+                    &compiler
+                }
             );
             self.scheduling_policy = SchedulingPolicy::MainOnly;
             return;

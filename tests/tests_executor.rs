@@ -33,7 +33,11 @@ mod tests {
             (0x30000, 0x1000),
             (0x40000, 0x1000),
         ] {
-            match executor.state.memory.mmap(start_addr, size, 0x3, 0x20, -1, 0) {
+            match executor
+                .state
+                .memory
+                .mmap(start_addr, size, 0x3, 0x20, -1, 0)
+            {
                 Ok(actual_addr) => println!(
                     "Successfully created memory region at actual address 0x{:x}",
                     actual_addr

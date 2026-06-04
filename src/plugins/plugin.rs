@@ -71,11 +71,7 @@ pub trait Plugin<'ctx>: 'ctx {
     /// Event entry point. Default is a no-op so plugins implement only what
     /// they care about. Return [`Verdict::Continue`] for events the plugin
     /// observed but doesn't want to influence.
-    fn on_event(
-        &mut self,
-        _ev: &Event<'ctx, '_>,
-        _ctx: &EventCtx<'ctx, '_>,
-    ) -> Verdict {
+    fn on_event(&mut self, _ev: &Event<'ctx, '_>, _ctx: &EventCtx<'ctx, '_>) -> Verdict {
         Verdict::Continue
     }
 

@@ -83,11 +83,7 @@ impl<'ctx> EventBus<'ctx> {
     /// Dispatch an event to all interested plugins, folding their verdicts
     /// via [`Verdict::escalate`]. Re-entrant calls return
     /// [`Verdict::Continue`] without invoking any handler.
-    pub fn dispatch(
-        &mut self,
-        ev: &Event<'ctx, '_>,
-        ctx: &EventCtx<'ctx, '_>,
-    ) -> Verdict {
+    pub fn dispatch(&mut self, ev: &Event<'ctx, '_>, ctx: &EventCtx<'ctx, '_>) -> Verdict {
         if self.depth.get() > 0 {
             return Verdict::Continue;
         }
