@@ -12,8 +12,6 @@
 //! Integration tests that exercise dispatch from `executor.rs` land
 //! alongside the dispatch-site wiring in a follow-up PR.
 
-#![cfg(test)]
-
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -37,10 +35,7 @@ fn fresh_ctx() -> Context {
 }
 
 /// Build a usable `EventCtx` from a `Context` and a findings buffer.
-fn mk_ctx<'ctx, 's>(
-    ctx: &'ctx Context,
-    findings: &'s RefCell<Vec<Finding>>,
-) -> EventCtx<'ctx, 's> {
+fn mk_ctx<'ctx, 's>(ctx: &'ctx Context, findings: &'s RefCell<Vec<Finding>>) -> EventCtx<'ctx, 's> {
     EventCtx::new(ctx, 0x1000, 1, 0, Instant::now(), findings)
 }
 
@@ -77,12 +72,14 @@ fn verdict_escalation_picks_more_severe() {
 
 #[test]
 fn verdict_rank_ordering_is_strict() {
-    assert!(Verdict::Continue.rank() < Verdict::ReportAndContinue(
-        Finding::new("p", "r", Severity::Info, 0, "")
-    ).rank());
-    assert!(Verdict::ReportAndContinue(
-        Finding::new("p", "r", Severity::Info, 0, "")
-    ).rank() < Verdict::StopPath("").rank());
+    assert!(
+        Verdict::Continue.rank()
+            < Verdict::ReportAndContinue(Finding::new("p", "r", Severity::Info, 0, "")).rank()
+    );
+    assert!(
+        Verdict::ReportAndContinue(Finding::new("p", "r", Severity::Info, 0, "")).rank()
+            < Verdict::StopPath("").rank()
+    );
     assert!(Verdict::StopPath("").rank() < Verdict::AbortAnalysis("").rank());
 }
 
@@ -141,7 +138,10 @@ fn event_kind_round_trip() {
     };
     assert_eq!(spawn.kind(), EventKind::ThreadSpawn);
 
-    let panic = Event::Panic { pc: 0x5000, kind: "runtime.nilPanic" };
+    let panic = Event::Panic {
+        pc: 0x5000,
+        kind: "runtime.nilPanic",
+    };
     assert_eq!(panic.kind(), EventKind::Panic);
 
     drop(ctx);
@@ -227,8 +227,12 @@ impl RecorderPlugin {
 }
 
 impl<'ctx> Plugin<'ctx> for RecorderPlugin {
-    fn name(&self) -> &'static str { "recorder" }
-    fn wants(&self) -> HashSet<EventKind> { self.subscribes.clone() }
+    fn name(&self) -> &'static str {
+        "recorder"
+    }
+    fn wants(&self) -> HashSet<EventKind> {
+        self.subscribes.clone()
+    }
     fn on_event(&mut self, ev: &Event<'ctx, '_>, _ctx: &EventCtx<'ctx, '_>) -> Verdict {
         self.seen.push(ev.kind());
         std::mem::replace(&mut self.next_verdict, Verdict::Continue)
@@ -249,15 +253,15 @@ fn example_plugin_counts_reads_and_writes_via_bus() {
     where
         'a: 'ctx,
     {
-        fn name(&self) -> &'static str { "counter-mirror" }
-        fn wants(&self) -> HashSet<EventKind> {
-            [EventKind::MemRead, EventKind::MemWrite].into_iter().collect()
+        fn name(&self) -> &'static str {
+            "counter-mirror"
         }
-        fn on_event(
-            &mut self,
-            ev: &Event<'ctx, '_>,
-            _ctx: &EventCtx<'ctx, '_>,
-        ) -> Verdict {
+        fn wants(&self) -> HashSet<EventKind> {
+            [EventKind::MemRead, EventKind::MemWrite]
+                .into_iter()
+                .collect()
+        }
+        fn on_event(&mut self, ev: &Event<'ctx, '_>, _ctx: &EventCtx<'ctx, '_>) -> Verdict {
             match ev {
                 Event::MemRead { .. } => self.reads.set(self.reads.get() + 1),
                 Event::MemWrite { .. } => self.writes.set(self.writes.get() + 1),
@@ -371,7 +375,11 @@ fn verdict_folding_across_plugins_picks_worst() {
     bus.add(Box::new(RecorderPlugin::new(
         [EventKind::MemRead].into_iter().collect(),
         Verdict::ReportAndContinue(Finding::new(
-            "recorder-3", "rule", Severity::Warning, 0x10, "noted",
+            "recorder-3",
+            "rule",
+            Severity::Warning,
+            0x10,
+            "noted",
         )),
     )));
 
@@ -410,15 +418,13 @@ fn reentrant_dispatch_short_circuits() {
     where
         'a: 'ctx,
     {
-        fn name(&self) -> &'static str { "reentrant" }
+        fn name(&self) -> &'static str {
+            "reentrant"
+        }
         fn wants(&self) -> HashSet<EventKind> {
             [EventKind::MemRead].into_iter().collect()
         }
-        fn on_event(
-            &mut self,
-            _ev: &Event<'ctx, '_>,
-            _ctx: &EventCtx<'ctx, '_>,
-        ) -> Verdict {
+        fn on_event(&mut self, _ev: &Event<'ctx, '_>, _ctx: &EventCtx<'ctx, '_>) -> Verdict {
             self.inner_calls.set(self.inner_calls.get() + 1);
             Verdict::Continue
         }
@@ -436,7 +442,9 @@ fn reentrant_dispatch_short_circuits() {
     // logic in EventBus::dispatch; here we only verify that a normal
     // single dispatch increments the counter exactly once.
     let mut bus: EventBus<'_> = EventBus::new();
-    bus.add(Box::new(Reentrant { inner_calls: &calls }));
+    bus.add(Box::new(Reentrant {
+        inner_calls: &calls,
+    }));
 
     let ectx = mk_ctx(&ctx, &findings);
 
@@ -467,7 +475,9 @@ fn run_init_and_finish_invoke_each_plugin() {
         finish_called: bool,
     }
     impl<'ctx> Plugin<'ctx> for Lifecycle {
-        fn name(&self) -> &'static str { "lifecycle" }
+        fn name(&self) -> &'static str {
+            "lifecycle"
+        }
         fn on_init(&mut self, _ctx: &EventCtx<'ctx, '_>) {
             self.init_called = true;
         }
@@ -487,7 +497,9 @@ fn run_init_and_finish_invoke_each_plugin() {
     where
         'a: 'ctx,
     {
-        fn name(&self) -> &'static str { "flag" }
+        fn name(&self) -> &'static str {
+            "flag"
+        }
         fn on_init(&mut self, _ctx: &EventCtx<'ctx, '_>) {
             let (_init, finish) = self.flags.get();
             self.flags.set((true, finish));
@@ -513,5 +525,8 @@ fn run_init_and_finish_invoke_each_plugin() {
     assert_eq!(flags.get(), (true, true));
 
     // Suppress unused-struct warning for the Lifecycle helper above.
-    let _l = Lifecycle { init_called: false, finish_called: false };
+    let _l = Lifecycle {
+        init_called: false,
+        finish_called: false,
+    };
 }

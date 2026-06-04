@@ -641,7 +641,9 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let ctx = self.context;
         // Re-entrancy guard inside `dispatch_with` makes this safe even
         // when `get_current_goroutine_id` itself reads engine memory.
-        let _ = self.event_bus.dispatch_with(ctx, pc, tid, goid, icnt, st, ev);
+        let _ = self
+            .event_bus
+            .dispatch_with(ctx, pc, tid, goid, icnt, st, ev);
     }
 
     /// Check if overlay mode is active
@@ -2937,7 +2939,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .map(|s| s.starts_with("plt_"))
             .unwrap_or(false);
         if !target_is_external {
-        self.push_function_frame(data_to_call_concrete);
+            self.push_function_frame(data_to_call_concrete);
         }
 
         // Update the RIP register to the branch target address (overlay-aware)

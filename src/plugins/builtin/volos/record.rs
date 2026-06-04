@@ -16,19 +16,14 @@ use std::fmt;
 use super::vector_clock::VolosVC;
 
 /// Operation type captured by a `Volos` record.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AccessType {
     Read,
     Write,
     /// Only used for the initial sentinel record placed when a region is
     /// first created. Never produced by the executor.
+    #[default]
     New,
-}
-
-impl Default for AccessType {
-    fn default() -> Self {
-        AccessType::New
-    }
 }
 
 impl fmt::Display for AccessType {
@@ -120,9 +115,7 @@ impl Volos {
     /// intersection. Used by the race detector to decide whether two
     /// accesses are protected by a common mutex.
     pub fn shares_lock(&self, other: &Volos) -> bool {
-        self.locks_held
-            .iter()
-            .any(|l| other.locks_held.contains(l))
+        self.locks_held.iter().any(|l| other.locks_held.contains(l))
     }
 }
 

@@ -10,6 +10,7 @@ use parser::parser::{Inst, Opcode};
 use std::collections::BTreeMap;
 use std::io::Write;
 
+#[allow(dead_code)]
 const DEFAULT_MAX_OVERLAY_DEPTH: usize = 15;
 
 macro_rules! log {

@@ -28,7 +28,10 @@ pub struct ExamplePlugin {
 
 impl ExamplePlugin {
     pub fn new() -> Self {
-        Self { reads: 0, writes: 0 }
+        Self {
+            reads: 0,
+            writes: 0,
+        }
     }
 
     /// Read-only access to the running counters; used in tests to verify
@@ -54,14 +57,12 @@ impl<'ctx> Plugin<'ctx> for ExamplePlugin {
     }
 
     fn wants(&self) -> HashSet<EventKind> {
-        [EventKind::MemRead, EventKind::MemWrite].into_iter().collect()
+        [EventKind::MemRead, EventKind::MemWrite]
+            .into_iter()
+            .collect()
     }
 
-    fn on_event(
-        &mut self,
-        ev: &Event<'ctx, '_>,
-        _ctx: &EventCtx<'ctx, '_>,
-    ) -> Verdict {
+    fn on_event(&mut self, ev: &Event<'ctx, '_>, _ctx: &EventCtx<'ctx, '_>) -> Verdict {
         match ev {
             Event::MemRead { .. } => self.reads += 1,
             Event::MemWrite { .. } => self.writes += 1,

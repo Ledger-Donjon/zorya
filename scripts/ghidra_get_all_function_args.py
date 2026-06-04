@@ -64,7 +64,11 @@ def main():
                 if varnode:
                     offset = varnode.getAddress().getOffset()
                     arguments.append(
-                        {"name": name, "type": datatype, "location": "Stack[%s]" % offset}
+                        {
+                            "name": name,
+                            "type": datatype,
+                            "location": "Stack[%s]" % offset,
+                        }
                     )
                 else:
                     arguments.append(

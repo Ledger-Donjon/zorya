@@ -23,8 +23,9 @@ use super::record::{AccessType, Volos};
 /// The transitions follow the original volos design: an unprotected
 /// SharedModified access promotes to Raceable; once reported, the cell
 /// stays in Reported to avoid duplicate findings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum VolosState {
+    #[default]
     Virgin,
     Exclusive,
     Shared,
@@ -63,8 +64,8 @@ impl VolosState {
                     if v1.thread_id == v2.thread_id {
                         continue;
                     }
-                    let one_is_write = v1.access_type == AccessType::Write
-                        || v2.access_type == AccessType::Write;
+                    let one_is_write =
+                        v1.access_type == AccessType::Write || v2.access_type == AccessType::Write;
                     if one_is_write && !v1.shares_lock(v2) {
                         return VolosState::Raceable;
                     }
@@ -98,12 +99,6 @@ impl fmt::Display for VolosState {
 pub struct CellHistory {
     pub state: VolosState,
     pub accesses: Vec<Volos>,
-}
-
-impl Default for VolosState {
-    fn default() -> Self {
-        VolosState::Virgin
-    }
 }
 
 /// A memory region with per-cell access tracking.
@@ -167,8 +162,8 @@ impl VolosRegion {
                     if v1.thread_id == v2.thread_id {
                         continue;
                     }
-                    let either_write = v1.access_type == AccessType::Write
-                        || v2.access_type == AccessType::Write;
+                    let either_write =
+                        v1.access_type == AccessType::Write || v2.access_type == AccessType::Write;
                     if !either_write {
                         continue;
                     }

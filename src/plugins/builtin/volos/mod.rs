@@ -19,12 +19,13 @@
 //! Volos race detector — a plugin port of the KMSEC zorya-volos fork.
 //!
 //! Subscribes to:
-//!   * `MemRead`     — appends a `Read` record for the address range.
-//!   * `MemWrite`    — appends a `Write` record for the address range.
-//!   * `Call`        — when the target symbol is a known lock primitive,
-//!                     updates the per-thread lockset.
-//!   * `ThreadSpawn` — initialises a vector clock for the new thread.
-//!   * `ThreadExit`  — flushes any thread-local bookkeeping.
+//!
+//! * `MemRead`     — appends a `Read` record for the address range.
+//! * `MemWrite`    — appends a `Write` record for the address range.
+//! * `Call`        — when the target symbol is a known lock primitive,
+//!   updates the per-thread lockset.
+//! * `ThreadSpawn` — initialises a vector clock for the new thread.
+//! * `ThreadExit`  — flushes any thread-local bookkeeping.
 //!
 //! At `on_finish` the plugin runs the race-check pass over its accumulated
 //! `VolosRegion` map and emits one finding per witness pair.
@@ -134,7 +135,7 @@ impl VolosPlugin {
             go_ids: HashMap::new(),
             next_go_id: 0,
             region: VolosRegion::new(0, u64::MAX),
-            verbose: std::env::var("VOLOS_VERBOSE").map_or(false, |v| v == "1"),
+            verbose: std::env::var("VOLOS_VERBOSE").is_ok_and(|v| v == "1"),
             reads: 0,
             writes: 0,
             lock_acquires: 0,
@@ -288,14 +289,16 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
         ]
     }
 
-    fn on_event(
-        &mut self,
-        ev: &Event<'ctx, '_>,
-        ctx: &EventCtx<'ctx, '_>,
-    ) -> Verdict {
+    fn on_event(&mut self, ev: &Event<'ctx, '_>, ctx: &EventCtx<'ctx, '_>) -> Verdict {
         let real_goid = ctx.current_goid;
         match ev {
-            Event::MemRead { addr, size, pc, tid, .. } => {
+            Event::MemRead {
+                addr,
+                size,
+                pc,
+                tid,
+                ..
+            } => {
                 self.reads += 1;
                 let bytes = (*size as u64).div_ceil(8);
                 let rec = self.build_record(*tid, AccessType::Read, *addr, bytes, *pc, real_goid);
@@ -305,7 +308,13 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
                 ));
                 self.region.add_record(rec);
             }
-            Event::MemWrite { addr, size, pc, tid, .. } => {
+            Event::MemWrite {
+                addr,
+                size,
+                pc,
+                tid,
+                ..
+            } => {
                 self.writes += 1;
                 let bytes = (*size as u64).div_ceil(8);
                 let rec = self.build_record(*tid, AccessType::Write, *addr, bytes, *pc, real_goid);
@@ -315,8 +324,14 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
                 ));
                 self.region.add_record(rec);
             }
-            Event::Call { target, symbol, tid, arg0, .. } => {
-                if let Some(sym) = symbol {
+            Event::Call {
+                target,
+                symbol: Some(sym),
+                tid,
+                arg0,
+                ..
+            } => {
+                {
                     // Normalise PLT-resolved C symbols (`plt_pthread_mutex_lock`)
                     // to their bare primitive name before matching.
                     let name = strip_plt(sym);
@@ -352,7 +367,14 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
                     }
                 }
             }
-            Event::ThreadSpawn { child_tid, parent_tid, .. } => {
+            Event::Call { .. } => {
+                // symbol is None — not a tracked primitive, nothing to do.
+            }
+            Event::ThreadSpawn {
+                child_tid,
+                parent_tid,
+                ..
+            } => {
                 self.threads_spawned += 1;
 
                 // Make sure the parent already has a go_id assigned
@@ -420,7 +442,9 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
             .with_detail(format!(
                 "Access 1 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
                 v1.thread_id,
-                v1.go_id.map(|g| g.to_string()).unwrap_or_else(|| "?".into()),
+                v1.go_id
+                    .map(|g| g.to_string())
+                    .unwrap_or_else(|| "?".into()),
                 v1.access_type,
                 v1.pc,
                 v1.locks_held,
@@ -429,7 +453,9 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
             .with_detail(format!(
                 "Access 2 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
                 v2.thread_id,
-                v2.go_id.map(|g| g.to_string()).unwrap_or_else(|| "?".into()),
+                v2.go_id
+                    .map(|g| g.to_string())
+                    .unwrap_or_else(|| "?".into()),
                 v2.access_type,
                 v2.pc,
                 v2.locks_held,
@@ -438,9 +464,7 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
             .with_detail(format!("Reason: {}", reason));
             // We're outside a per-event dispatch here so we push directly
             // into the shared findings buffer.
-            ctx.findings
-                .borrow_mut()
-                .push(finding);
+            ctx.findings.borrow_mut().push(finding);
         }
     }
 }
@@ -941,10 +965,8 @@ mod tests {
         late.node_id = "b".into();
         late.tick_at("b"); // a:1, b:1   →  early < late
 
-        let r1 = Volos::new(1, AccessType::Write, Vec::new(), early)
-            .with_addr_size(0x1234, 1);
-        let r2 = Volos::new(2, AccessType::Write, Vec::new(), late)
-            .with_addr_size(0x1234, 1);
+        let r1 = Volos::new(1, AccessType::Write, Vec::new(), early).with_addr_size(0x1234, 1);
+        let r2 = Volos::new(2, AccessType::Write, Vec::new(), late).with_addr_size(0x1234, 1);
 
         let mut region = VolosRegion::new(0, u64::MAX);
         region.add_record(r1);
