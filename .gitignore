@@ -45,3 +45,9 @@ results/execution_trace_runtime-mcommoninit.txt
 /results/mcp_analysis_stderr.txt
 .cursor/
 /paper_runs/
+/tests/programs/**/*_ghidra/
+/tests/programs/race-counter-c/race-counter-c
+/tests/programs/race-counter-c-simple/race-counter-c-simple
+/tests/programs/race-counter-c-mutex/race-counter-c-mutex
+/tests/programs/race-counter-c-mixed/race-counter-c-mixed
+/tests/programs/race-counter/race-counter
