@@ -4,6 +4,7 @@
 
 pub mod concolic;
 pub mod fuzzer;
+pub mod plugins;
 pub mod state;
 pub mod target_info;
 
@@ -59,6 +60,22 @@ pub fn tty_write(text: &str) {
             let _ = write!(f, "{}", text);
             let _ = f.flush();
         }
+    }
+}
+
+/// Erase the sticky coverage bar from the terminal and forget its text.
+///
+/// Must be called once when execution finishes, otherwise the bar text stays
+/// painted on the last terminal rows (998/999) and the shell prompt is drawn
+/// on top of it — the user sees prompt remnants like `$ 1 (0.18%) | t:2m1s …`.
+pub fn clear_coverage_bar() {
+    if TTY.is_some() {
+        // Jump to the two reserved rows, erase each, then drop the cursor onto
+        // the (now blank) separator row so the shell prompt starts clean.
+        tty_write("\x1b[999;1H\x1b[2K\x1b[998;1H\x1b[2K");
+    }
+    if let Ok(mut guard) = COVERAGE_BAR.lock() {
+        guard.clear();
     }
 }
 

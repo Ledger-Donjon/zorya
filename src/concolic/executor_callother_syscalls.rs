@@ -8,6 +8,7 @@
 use crate::{
     concolic::ConcreteVar,
     executor::ConcolicExecutor,
+    plugins::event::Event,
     state::memory_x86_64::{MemoryValue, Sigaction},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -1247,9 +1248,26 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 "clone: returned TID {} to parent thread",
                 new_tid
             );
+
+            // Plugin dispatch: a new OS-level thread / Go `m` was created.
+            // The volos plugin uses this to fork the parent's vector
+            // clock onto the child so subsequent accesses on the child
+            // are correctly causally ordered after the spawn.
+            let parent_tid = executor
+                .state
+                .thread_manager
+                .lock()
+                .map(|tm| tm.current_tid)
+                .unwrap_or(0);
+            executor.dispatch_event(&Event::ThreadSpawn {
+                parent_tid,
+                child_tid: new_tid,
+                entry: entry_point,
+                flags: clone_flags,
+            });
         }
         60 => {
-            // sys_exit
+            // sys_exit — terminates the calling thread (not the whole process).
             log!(executor.state.logger.clone(), "Syscall type: sys_exit");
             let status = cpu_state_guard
                 .get_register_by_offset(0x38, 64)
@@ -1275,6 +1293,66 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 status,
                 SymbolicVar::Int(BV::from_u64(executor.context, status, 64)),
             );
+
+            // Plugin dispatch: notify plugins that this thread is done.
+            let exiting_tid = executor
+                .state
+                .thread_manager
+                .lock()
+                .map(|tm| tm.current_tid)
+                .unwrap_or(0);
+            executor.dispatch_event(&Event::ThreadExit {
+                tid: exiting_tid,
+                code: status as i32,
+            });
+
+            // Mark the thread as exited in the scheduler, then switch to the
+            // next ready thread. If no other threads are ready, terminate the
+            // whole simulation (all threads have finished their work).
+            {
+                let mut tm = executor.state.thread_manager.lock().unwrap();
+                let _ = tm.exit_thread(exiting_tid, status as i32);
+
+                match tm.maybe_switch_thread(crate::state::CheckpointType::Syscall) {
+                    Ok(Some(new_tid)) => {
+                        // Save exiting thread's CPU state (for completeness) and
+                        // load the next thread's saved state.
+                        let cpu_snap = executor.state.cpu_state.lock().unwrap().clone();
+                        if let Some(old_thread) = tm.threads.get_mut(&exiting_tid) {
+                            old_thread.cpu_state = cpu_snap;
+                        }
+                        if let Ok(new_thread) = tm.current_thread() {
+                            let new_cpu = new_thread.cpu_state.clone();
+                            let mut cpu_guard = executor.state.cpu_state.lock().unwrap();
+                            *cpu_guard = new_cpu;
+                        }
+                        log!(
+                            executor.state.logger.clone(),
+                            "[SCHEDULER] sys_exit: switched from TID {} to TID {}",
+                            exiting_tid,
+                            new_tid
+                        );
+                    }
+                    Ok(None) => {
+                        // No more ready threads — all work is done.
+                        drop(tm);
+                        log!(
+                            executor.state.logger.clone(),
+                            "[SCHEDULER] sys_exit TID {}: no more ready threads, terminating",
+                            exiting_tid
+                        );
+                        executor.state.exit_status = Some(status as i32);
+                        executor.state.is_terminated = true;
+                    }
+                    Err(e) => {
+                        log!(
+                            executor.state.logger.clone(),
+                            "[SCHEDULER] sys_exit: switch error: {}",
+                            e
+                        );
+                    }
+                }
+            }
         }
         97 => {
             // sys_getrlimit
@@ -2032,6 +2110,22 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 status,
                 SymbolicVar::Int(BV::from_u64(executor.context, status, 64)),
             );
+
+            // Plugin dispatch: the calling thread is exiting along with
+            // the rest of the process. We only fire `ThreadExit` for the
+            // current thread here; the bus's `run_finish` (called from
+            // `main.rs` after the loop terminates) gives plugins a final
+            // hook to flush per-process state.
+            let exiting_tid = executor
+                .state
+                .thread_manager
+                .lock()
+                .map(|tm| tm.current_tid)
+                .unwrap_or(0);
+            executor.dispatch_event(&Event::ThreadExit {
+                tid: exiting_tid,
+                code: status as i32,
+            });
         }
         228 => {
             // sys_clock_gettime

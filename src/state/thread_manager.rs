@@ -199,6 +199,12 @@ pub struct ThreadManager<'ctx> {
 
     /// Instructions per time slice before considering a switch
     pub time_slice_instructions: usize,
+
+    /// Maps a joined thread's TID to the TID of the thread blocked in
+    /// `pthread_join` waiting for it. When the joined thread exits, the
+    /// waiter is moved back to `Ready`. Populated by the `pthread_join`
+    /// hook (see `ConcolicExecutor::handle_external_boundary`).
+    pub join_waiters: BTreeMap<u64, u64>,
 }
 
 impl<'ctx> ThreadManager<'ctx> {
@@ -233,6 +239,7 @@ impl<'ctx> ThreadManager<'ctx> {
             current_switch_depth: 0,
             instruction_count: 0,
             time_slice_instructions: 1000, // Switch after 1000 instructions
+            join_waiters: BTreeMap::new(),
         }
     }
 
@@ -294,6 +301,96 @@ impl<'ctx> ThreadManager<'ctx> {
         self.threads.insert(new_tid, new_thread);
 
         Ok(new_tid)
+    }
+
+    /// Register a brand-new thread whose CPU state has already been fully
+    /// prepared by the caller (entry point in RIP, child stack in RSP, the
+    /// first argument in RDI, etc.). Used by the `pthread_create` hook, which
+    /// — unlike `clone_thread` — does not derive the child purely from a
+    /// `clone(2)` register convention but from the SysV call arguments.
+    ///
+    /// Returns the freshly allocated child TID. The thread starts `Ready`.
+    pub fn spawn_with_cpu(
+        &mut self,
+        cpu_state: CpuState<'ctx>,
+        entry_point: u64,
+        stack_pointer: u64,
+        fs_base: u64,
+    ) -> u64 {
+        let new_tid = self.next_tid;
+        self.next_tid += 1;
+        let parent_tid = self.current_tid;
+
+        let thread = OSThread {
+            tid: new_tid,
+            parent_tid,
+            cpu_state,
+            stack_pointer,
+            fs_base,
+            gs_base: 0,
+            entry_point,
+            status: ThreadStatus::Ready,
+            clone_flags: 0,
+            child_tid_ptr: None,
+            child_cleartid_ptr: None,
+        };
+
+        tprintln!(
+            "[THREAD] Spawned TID={} (entry=0x{:x}, stack=0x{:x}) from parent TID={}",
+            new_tid,
+            entry_point,
+            stack_pointer,
+            parent_tid
+        );
+        self.threads.insert(new_tid, thread);
+        new_tid
+    }
+
+    /// Returns true if `tid` is unknown or has already exited. Used by the
+    /// `pthread_join` hook to decide whether the join can return immediately.
+    pub fn is_thread_exited(&self, tid: u64) -> bool {
+        self.threads
+            .get(&tid)
+            .map(|t| matches!(t.status, ThreadStatus::Exited(_)))
+            .unwrap_or(true)
+    }
+
+    /// Mark the current thread `Blocked` and record that it is waiting for
+    /// `target` to exit (the `pthread_join` semantics).
+    pub fn block_current_for_join(&mut self, target: u64) {
+        let cur = self.current_tid;
+        if let Some(t) = self.threads.get_mut(&cur) {
+            t.status = ThreadStatus::Blocked;
+        }
+        self.join_waiters.insert(target, cur);
+    }
+
+    /// When `exited` finishes, move any thread blocked in `pthread_join` on it
+    /// back to `Ready` so the scheduler can resume it.
+    pub fn wake_joiners_of(&mut self, exited: u64) {
+        if let Some(waiter) = self.join_waiters.remove(&exited) {
+            if let Some(t) = self.threads.get_mut(&waiter) {
+                if t.status == ThreadStatus::Blocked {
+                    t.status = ThreadStatus::Ready;
+                }
+            }
+        }
+    }
+
+    /// Pick the next `Ready` thread in round-robin order (public wrapper used
+    /// by the external-call handler for explicit yields).
+    pub fn pick_next_ready(&self) -> Option<u64> {
+        self.get_next_thread_rr()
+    }
+
+    /// Count active (non-exited) threads other than `tid`. Used to decide
+    /// whether an unresolved external call should terminate the run (no other
+    /// work left) or simply return to its caller.
+    pub fn other_active_count(&self, tid: u64) -> usize {
+        self.threads
+            .iter()
+            .filter(|(&t, th)| t != tid && !matches!(th.status, ThreadStatus::Exited(_)))
+            .count()
     }
 
     /// Switch to a different thread
@@ -407,29 +504,46 @@ impl<'ctx> ThreadManager<'ctx> {
         Ok(())
     }
 
-    /// Set the scheduling policy from environment variable
-    /// Only enables thread scheduling for Go GC binaries (not TinyGo or other languages)
+    /// Set the scheduling policy from environment variable.
+    ///
+    /// Thread scheduling is supported for:
+    /// - Go GC binaries (`--lang go --compiler gc`) — cooperative at function calls,
+    ///   goroutine stacks are captured in the GDB dump.
+    /// - C / C++ binaries (`--lang c` / `--lang c++`) — pthreads threads are also
+    ///   captured in the GDB dump as separate OS threads; the same cooperative round-
+    ///   robin scheduler works because Zorya's execution model is single-threaded and
+    ///   switches only at function-call checkpoints regardless of language.
+    ///
+    /// TinyGo and other languages remain `MainOnly` until explicitly tested.
     pub fn configure_from_env(&mut self) {
-        // Check language and compiler - only enable for Go GC binaries
         let source_lang = std::env::var("SOURCE_LANG")
             .unwrap_or_default()
             .to_lowercase();
         let compiler = std::env::var("COMPILER").unwrap_or_default().to_lowercase();
 
-        let is_go_gc = source_lang == "go" && compiler == "gc";
+        let scheduling_supported = matches!(
+            source_lang.as_str(),
+            "go" | "c" | "c++"
+        ) && !(source_lang == "go" && compiler == "tinygo");
 
-        if !is_go_gc {
+        if !scheduling_supported {
             tprintln!(
-                "[SCHEDULER] Thread scheduling only supported for Go GC binaries (detected: lang={}, compiler={})", 
+                "[SCHEDULER] Thread scheduling not enabled for lang={} compiler={}, using MainOnly",
                 if source_lang.is_empty() { "none" } else { &source_lang },
                 if compiler.is_empty() { "none" } else { &compiler }
             );
-            tprintln!("[SCHEDULER] Using MainOnly policy");
             self.scheduling_policy = SchedulingPolicy::MainOnly;
             return;
         }
 
-        tprintln!("[SCHEDULER] Detected Go GC binary, thread scheduling available");
+        if source_lang == "go" && compiler == "gc" {
+            tprintln!("[SCHEDULER] Detected Go GC binary, thread scheduling available");
+        } else {
+            tprintln!(
+                "[SCHEDULER] Detected {} binary, thread scheduling available",
+                source_lang
+            );
+        }
 
         if let Ok(policy_str) = std::env::var("THREAD_SCHEDULING") {
             match policy_str.to_lowercase().as_str() {
@@ -506,30 +620,41 @@ impl<'ctx> ThreadManager<'ctx> {
 
     /// Get the next thread to run (round-robin)
     fn get_next_thread_rr(&self) -> Option<u64> {
-        let ready_threads: Vec<u64> = self
+        // Build the ordered list of all non-exited threads (BTreeMap gives sorted TIDs).
+        // We must include the *currently running* thread here so we can locate its
+        // position — it has status Running, not Ready, and would be absent from a
+        // Ready-only list, causing `found_current` to never flip and the scheduler
+        // to always wrap back to the first Ready thread instead of advancing.
+        let all_tids: Vec<u64> = self
             .threads
             .iter()
-            .filter(|(_, t)| t.status == ThreadStatus::Ready)
+            .filter(|(_, t)| !matches!(t.status, ThreadStatus::Exited(_)))
             .map(|(tid, _)| *tid)
             .collect();
 
-        if ready_threads.is_empty() {
+        if all_tids.is_empty() {
             return None;
         }
 
-        // Find the next thread after current_tid in round-robin order
-        let mut found_current = false;
-        for tid in &ready_threads {
-            if found_current {
-                return Some(*tid);
+        // Find the index of the current thread, then scan forward (with wrap-around)
+        // for the next thread whose status is Ready.
+        let current_pos = all_tids.iter().position(|&tid| tid == self.current_tid);
+        let start = current_pos.map_or(0, |p| p + 1);
+        let n = all_tids.len();
+
+        for i in 0..n {
+            let tid = all_tids[(start + i) % n];
+            if tid == self.current_tid {
+                continue;
             }
-            if *tid == self.current_tid {
-                found_current = true;
+            if let Some(t) = self.threads.get(&tid) {
+                if t.status == ThreadStatus::Ready {
+                    return Some(tid);
+                }
             }
         }
 
-        // Wrap around to the first ready thread
-        ready_threads.first().copied()
+        None
     }
 
     /// Perform a thread switch at a checkpoint

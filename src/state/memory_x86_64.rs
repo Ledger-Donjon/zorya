@@ -896,9 +896,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
             proposed_address
         };
 
-        println!("Calculated start_address: 0x{:x}", start_address);
-        println!("Length: {}", length);
-
         // Ensure end_address does not exceed MAX_USER_ADDRESS
         let end_address = start_address
             .checked_add(length as u64)

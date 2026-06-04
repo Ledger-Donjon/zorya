@@ -20,6 +20,8 @@ use super::ConcolicEnum;
 pub use super::ConcreteVar;
 pub use super::SymbolicVar;
 use crate::concolic::ConcolicVar;
+use crate::plugins::event::{AccessOrigin, Event, EventKind, MemAccessKind};
+use crate::plugins::EventBus;
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::evaluate_args_z3;
 #[allow(unused_imports)]
@@ -45,6 +47,41 @@ macro_rules! log {
     }};
 }
 
+/// Whether `dispatch_event` should pay the cost of extracting the Go
+/// goroutine id for this event kind. Only data-race-style events need it;
+/// `Call` matches symbols by name, syscalls and thread events identify the
+/// thread by `tid` directly. Keeping the negative cases explicit avoids
+/// accidental regressions when new event variants are added.
+#[inline]
+fn event_kind_needs_goid(kind: crate::plugins::event::EventKind) -> bool {
+    use crate::plugins::event::EventKind::*;
+    matches!(kind, MemRead | MemWrite)
+}
+
+/// Synthetic return address pushed onto a spawned thread's stack by the
+/// `pthread_create` hook. When the thread's start routine executes its final
+/// `ret`, it pops this address into RIP. Because the address has no lifted
+/// pcode, the main execution loop hands it to
+/// [`ConcolicExecutor::handle_external_boundary`], which recognises the
+/// sentinel as "this thread's start routine returned" and exits the thread —
+/// the moral equivalent of glibc's thread trampoline calling `pthread_exit`.
+///
+/// Chosen well outside any real mapping (canonical non-address high range) so
+/// it can never collide with a genuine code or data address.
+pub const THREAD_EXIT_SENTINEL: u64 = 0x5a5a_5a5a_dead_0000;
+
+/// Result of handling an address that has no lifted pcode (a PLT stub, the
+/// thread-exit sentinel, or an otherwise unresolved target). Returned by
+/// [`ConcolicExecutor::handle_external_boundary`] to drive the main loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalOutcome {
+    /// Continue execution at this address (a function return target, or the
+    /// entry point of a thread we just switched to).
+    Resume(u64),
+    /// No runnable work remains; stop the simulation.
+    Terminate,
+}
+
 #[derive(Debug)]
 pub struct ConcolicExecutor<'ctx> {
     pub context: &'ctx Context,
@@ -64,6 +101,45 @@ pub struct ConcolicExecutor<'ctx> {
     pub null_check_cache: std::collections::HashMap<String, (bool, usize)>, // Per-variable cache: maps symbolic variable name → (was_sat, constraint_len). If was_sat=true the variable is permanently skipped (vulnerability already reported). If was_sat=false it is re-checked only when constraint_len changes. For Go struct pointers this is pre-seeded with (false, 0) at initialization so the solver is never invoked.
     pub start_time: Instant, // Execution start time for elapsed time tracking
     pub visited_blocks: BTreeSet<u64>, // Tracks which basic-block addresses have been entered during execution (for block-level coverage metrics)
+    /// Plugin event bus. Receives binary-originated `MemRead` / `MemWrite` /
+    /// `Call` / `ThreadSpawn` / `ThreadExit` events from the dispatch
+    /// sites in this file and `executor_callother_syscalls.rs`. Built-in
+    /// plugins are registered at construction time via
+    /// `crate::plugins::registry::register_default`. Engine-internal
+    /// memory accesses bypass the bus by going directly through
+    /// `state.memory.read_*` / `write_*` (the memory layer never fires
+    /// events).
+    pub event_bus: EventBus<'ctx>,
+
+    /// Per-instruction goroutine-id cache used by `dispatch_event`.
+    ///
+    /// `extract_gid_from_tls` is a 3-memory-read chain (FS_OFFSET → g_ptr →
+    /// g.goid). Go runtime code can emit dozens of LOAD/STORE pcode ops per
+    /// x86 instruction; without this cache every one of them would re-walk
+    /// TLS even though the goid is invariant for the duration of a single
+    /// top-level instruction. The tuple key is `(pc, tid)`; whenever the
+    /// executor advances `current_address` or the scheduler switches threads
+    /// the cache miss recomputes naturally.
+    cached_goid: Option<(u64, u64, Option<u64>)>,
+
+    /// Audit counters for the binary-vs-engine memory-access boundary.
+    ///
+    /// Every memory access that flows through [`Self::emit_mem_access`] is
+    /// counted as either *surfaced* (origin = `Binary`, a plugin event was
+    /// considered) or *suppressed* (origin = `Engine`, dropped before the
+    /// bus). These let the boundary be observed at end-of-run instead of
+    /// being an invisible architectural invariant — see the summary logged
+    /// by `finalize_plugin_analysis`.
+    pub mem_events_surfaced: u64,
+    pub mem_events_suppressed: u64,
+
+    /// Executable `[start, end)` PC range of the *main analyzed binary*, set
+    /// from its ELF in [`Self::populate_symbol_table`]. When `Some`,
+    /// [`Self::emit_mem_access`] only surfaces accesses whose executing PC is
+    /// in this range, so memory traffic from dynamically-linked libc / ld
+    /// (which Zorya also runs) doesn't pollute race analysis. `None` ⇒ no
+    /// confinement (preserves prior behaviour).
+    pub binary_text_range: Option<(u64, u64)>,
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -74,6 +150,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     ) -> Result<Self, Box<dyn Error>> {
         let solver = Optimize::new(context);
         let state = State::new(context, logger)?;
+        let mut event_bus = EventBus::new();
+        crate::plugins::registry::register_default(&mut event_bus);
         Ok(ConcolicExecutor {
             context,
             solver,
@@ -92,7 +170,454 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             null_check_cache: std::collections::HashMap::new(),
             start_time: Instant::now(),
             visited_blocks: BTreeSet::new(),
+            event_bus,
+            cached_goid: None,
+            mem_events_surfaced: 0,
+            mem_events_suppressed: 0,
+            binary_text_range: None,
         })
+    }
+
+    /// The single memory-event boundary between the engine and plugins.
+    ///
+    /// This is the **only** place a memory access becomes a plugin
+    /// `MemRead` / `MemWrite` event. It makes the binary-vs-engine boundary
+    /// explicit and auditable: callers pass an [`AccessOrigin`], and the
+    /// gate below is the one line that decides what plugins are allowed to
+    /// observe.
+    ///
+    /// - `AccessOrigin::Binary` accesses (driven by `LOAD` / `STORE` pcode
+    ///   ops from the analyzed program) are surfaced to subscribers.
+    /// - `AccessOrigin::Engine` accesses (Zorya's own bookkeeping) are
+    ///   suppressed here, *before* any `Event` is built or the
+    ///   `thread_manager` lock is taken.
+    ///
+    /// Engine-internal code that performs raw reads/writes through
+    /// `state.memory.*` does not call this at all; routing such a path here
+    /// with `AccessOrigin::Engine` is the supported way to make a shared
+    /// access path safe (the suppression counter records it).
+    pub fn emit_mem_access(
+        &mut self,
+        origin: AccessOrigin,
+        kind: MemAccessKind,
+        addr: u64,
+        size: u32,
+    ) {
+        // ---- THE BOUNDARY ----
+        // Engine bookkeeping never reaches plugins.
+        if origin != AccessOrigin::Binary {
+            self.mem_events_suppressed += 1;
+            return;
+        }
+        // Confine analysis to the binary's own code: drop accesses executed by
+        // dynamically-linked library code (libc / ld). Their internal stack/
+        // heap writes are not part of the program's concurrency model and
+        // otherwise race against the binary's legitimate accesses.
+        if let Some((start, end)) = self.binary_text_range {
+            let pc = self.current_address.unwrap_or(0);
+            if pc < start || pc >= end {
+                self.mem_events_suppressed += 1;
+                return;
+            }
+        }
+        self.mem_events_surfaced += 1;
+
+        // Hot-path early-exit: skip PC/TID computation and Event
+        // construction when nothing subscribes to this kind.
+        let event_kind = kind.event_kind();
+        if !self.event_bus.is_subscribed(event_kind) {
+            return;
+        }
+
+        let pc = self.current_address.unwrap_or(0);
+        let tid = self
+            .state
+            .thread_manager
+            .lock()
+            .map(|tm| tm.current_tid)
+            .unwrap_or(0);
+
+        match kind {
+            MemAccessKind::Read => self.dispatch_event(&Event::MemRead {
+                addr,
+                size,
+                concrete: &[],
+                symbolic: &[],
+                pc,
+                tid,
+            }),
+            MemAccessKind::Write => self.dispatch_event(&Event::MemWrite {
+                addr,
+                size,
+                concrete: &[],
+                symbolic: &[],
+                pc,
+                tid,
+            }),
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // External-function boundary: PLT stubs, library calls, thread exit.
+    //
+    // Zorya only lifts pcode for the binary's own functions. When control
+    // flow reaches an address with no lifted pcode (a `pthread_create@plt`
+    // stub, the thread-exit sentinel, a libc return target, …) the main loop
+    // calls `handle_external_boundary`. This is the single place where the
+    // engine decides what an "external" call means, instead of silently
+    // terminating the whole run.
+    //
+    // Two architectural features live here:
+    //   1. `pthread_create` symbol hook — spawns a scheduler thread at the
+    //      start routine so multi-threaded C binaries need no source changes.
+    //   2. PLT fallback — unknown externals (incl. `pthread_join`) return to
+    //      their caller or yield to another ready thread rather than aborting.
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// Concrete read of a 64-bit general register by offset.
+    fn read_reg64(&self, offset: u64) -> u64 {
+        self.state
+            .cpu_state
+            .lock()
+            .unwrap()
+            .get_register_by_offset(offset, 64)
+            .and_then(|v| v.get_concrete_value().ok())
+            .unwrap_or(0)
+    }
+
+    /// Concrete write of a 64-bit general register by offset.
+    fn write_reg64(&mut self, offset: u64, value: u64) {
+        let sym = BV::from_u64(self.context, value, 64);
+        let cv = ConcolicVar::new_concrete_and_symbolic_int(value, sym, self.context);
+        let _ = self
+            .state
+            .cpu_state
+            .lock()
+            .unwrap()
+            .set_register_value_by_offset(offset, cv, 64);
+    }
+
+    /// Emulate a `ret`: pop the return address off the current stack and set
+    /// RIP to it. Returns the popped address, or `None` if the stack read
+    /// fails. RSP (0x20) is advanced by 8; RIP (0x288) is updated so the CPU
+    /// register file stays consistent with the loop's `current_rip`.
+    fn return_from_external(&mut self) -> Option<u64> {
+        let rsp = self.read_reg64(0x20);
+        let ret = self
+            .state
+            .memory
+            .read_u64(rsp, &mut self.state.logger.clone())
+            .ok()?
+            .concrete
+            .to_u64();
+        self.write_reg64(0x20, rsp.wrapping_add(8));
+        self.write_reg64(0x288, ret);
+        Some(ret)
+    }
+
+    /// Save the running thread's CPU state and switch to the next `Ready`
+    /// thread in round-robin order. Returns that thread's RIP, or `None` if
+    /// no other thread is ready to run.
+    fn yield_to_next_ready(&mut self) -> Option<u64> {
+        // Lock ordering: thread_manager first, then cpu_state (matches the
+        // rest of the engine).
+        let mut tm = self.state.thread_manager.lock().unwrap();
+        let cur = tm.current_tid;
+        let next = tm.pick_next_ready()?;
+        if next == cur {
+            return None;
+        }
+
+        let snap = self.state.cpu_state.lock().unwrap().clone();
+        if let Some(old) = tm.threads.get_mut(&cur) {
+            old.cpu_state = snap;
+        }
+        tm.switch_to_thread(next).ok()?;
+        let new_cpu = tm.threads.get(&next)?.cpu_state.clone();
+        *self.state.cpu_state.lock().unwrap() = new_cpu;
+        drop(tm);
+
+        Some(self.read_reg64(0x288))
+    }
+
+    /// `pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+    ///                 void *(*start_routine)(void *), void *arg)`
+    ///
+    /// SysV arg registers: RDI=thread, RSI=attr, RDX=start_routine, RCX=arg.
+    ///
+    /// Allocates a private stack for the child, seeds its register file
+    /// (entry point, stack, first argument, return sentinel), registers it
+    /// with the scheduler as `Ready`, writes the child TID back through the
+    /// `thread` out-pointer, and reports success (RAX=0) to the caller.
+    fn pthread_create_hook(&mut self) -> Result<(), String> {
+        const PROT_RW: i32 = 0x1 | 0x2; // PROT_READ | PROT_WRITE
+        const MAP_PRIVATE_ANON: i32 = 0x2 | 0x20; // MAP_PRIVATE | MAP_ANONYMOUS
+        const CHILD_STACK_SIZE: usize = 0x10000; // 64 KiB
+
+        let thread_out = self.read_reg64(0x38); // RDI
+        let start_routine = self.read_reg64(0x10); // RDX
+        let arg = self.read_reg64(0x8); // RCX
+        let fs_base = self.read_reg64(0x110); // FS_OFFSET (shared TLS is fine here)
+
+        // Allocate a private stack for the child.
+        let stack_base = self
+            .state
+            .memory
+            .mmap(0, CHILD_STACK_SIZE, PROT_RW, MAP_PRIVATE_ANON, -1, 0)
+            .map_err(|e| format!("pthread_create: child stack mmap failed: {:?}", e))?;
+
+        // Stack grows down. Leave headroom and keep 16-byte alignment, then
+        // place the return sentinel at the top so the start routine's final
+        // `ret` pops it.
+        let child_rsp = (stack_base + CHILD_STACK_SIZE as u64 - 256) & !0xfu64;
+        let sentinel_sym = BV::from_u64(self.context, THREAD_EXIT_SENTINEL, 64);
+        let sentinel_val = MemoryValue::new(THREAD_EXIT_SENTINEL, sentinel_sym, 64);
+        self.state
+            .memory
+            .write_u64(child_rsp, &sentinel_val)
+            .map_err(|e| format!("pthread_create: failed to seed child stack: {:?}", e))?;
+
+        // Build the child's register file from a clone of the parent's, then
+        // override the call-relevant registers with correct offsets.
+        let mut child_cpu = self.state.cpu_state.lock().unwrap().clone();
+        let set = |cpu: &mut crate::state::cpu_state::CpuState<'ctx>, off: u64, val: u64| {
+            let sym = BV::from_u64(self.context, val, 64);
+            let cv = ConcolicVar::new_concrete_and_symbolic_int(val, sym, self.context);
+            let _ = cpu.set_register_value_by_offset(off, cv, 64);
+        };
+        set(&mut child_cpu, 0x20, child_rsp); // RSP
+        set(&mut child_cpu, 0x28, child_rsp); // RBP
+        set(&mut child_cpu, 0x288, start_routine); // RIP
+        set(&mut child_cpu, 0x38, arg); // RDI = first arg to start_routine
+        set(&mut child_cpu, 0x0, 0); // RAX
+
+        let parent_tid;
+        let child_tid;
+        {
+            let mut tm = self.state.thread_manager.lock().unwrap();
+            parent_tid = tm.current_tid;
+            child_tid = tm.spawn_with_cpu(child_cpu, start_routine, child_rsp, fs_base);
+        }
+
+        // Write the child TID back through the `thread` out-pointer.
+        if thread_out != 0 {
+            let tid_sym = BV::from_u64(self.context, child_tid, 64);
+            let tid_val = MemoryValue::new(child_tid, tid_sym, 64);
+            let _ = self.state.memory.write_u64(thread_out, &tid_val);
+        }
+
+        // Success: pthread_create returns 0.
+        self.write_reg64(0x0, 0);
+
+        log!(
+            self.state.logger.clone(),
+            "[PTHREAD] pthread_create: spawned TID {} at start_routine 0x{:x} (arg=0x{:x}, stack=0x{:x})",
+            child_tid,
+            start_routine,
+            arg,
+            child_rsp
+        );
+
+        self.dispatch_event(&Event::ThreadSpawn {
+            parent_tid,
+            child_tid,
+            entry: start_routine,
+            flags: 0,
+        });
+
+        Ok(())
+    }
+
+    /// Handle an address that has no lifted pcode. See the section comment
+    /// above for the design. Returns how the main loop should proceed.
+    pub fn handle_external_boundary(&mut self, addr: u64) -> ExternalOutcome {
+        // 1. Thread-exit sentinel: the current thread's start routine returned.
+        if addr == THREAD_EXIT_SENTINEL {
+            let exiting_tid = {
+                let tm = self.state.thread_manager.lock().unwrap();
+                tm.current_tid
+            };
+            log!(
+                self.state.logger.clone(),
+                "[PTHREAD] thread TID {} returned from start routine (sentinel), exiting",
+                exiting_tid
+            );
+            self.dispatch_event(&Event::ThreadExit {
+                tid: exiting_tid,
+                code: 0,
+            });
+            {
+                let mut tm = self.state.thread_manager.lock().unwrap();
+                let _ = tm.exit_thread(exiting_tid, 0);
+                tm.wake_joiners_of(exiting_tid);
+            }
+            return match self.yield_to_next_ready() {
+                Some(rip) => ExternalOutcome::Resume(rip),
+                None => {
+                    self.state.is_terminated = true;
+                    self.state.exit_status = Some(0);
+                    ExternalOutcome::Terminate
+                }
+            };
+        }
+
+        // 2. Resolve the symbol at this address (PLT stubs are named
+        //    "plt_<libc-name>" by the loader in this file).
+        let raw_name = self
+            .symbol_table
+            .get(&format!("{:x}", addr))
+            .cloned()
+            .unwrap_or_default();
+        let func = raw_name
+            .strip_prefix("plt_")
+            .unwrap_or(&raw_name)
+            .to_string();
+
+        // 3. pthread_create — symbol hook that spawns a scheduler thread.
+        if func.contains("pthread_create") {
+            if let Err(e) = self.pthread_create_hook() {
+                log!(self.state.logger.clone(), "[PTHREAD] {}", e);
+            }
+            return match self.return_from_external() {
+                Some(ret) => ExternalOutcome::Resume(ret),
+                None => ExternalOutcome::Terminate,
+            };
+        }
+
+        // 4. pthread_join — block until the joined thread exits, yielding to
+        //    a ready thread meanwhile.
+        if func.contains("pthread_join") {
+            let target = self.read_reg64(0x38); // RDI = pthread_t value (child TID)
+            let already_done = {
+                let tm = self.state.thread_manager.lock().unwrap();
+                tm.is_thread_exited(target)
+            };
+            if already_done {
+                self.write_reg64(0x0, 0); // pthread_join returns 0
+                return match self.return_from_external() {
+                    Some(ret) => ExternalOutcome::Resume(ret),
+                    None => ExternalOutcome::Terminate,
+                };
+            }
+            // Park the caller and run the joinee (or any other ready thread).
+            {
+                let mut tm = self.state.thread_manager.lock().unwrap();
+                tm.block_current_for_join(target);
+            }
+            log!(
+                self.state.logger.clone(),
+                "[PTHREAD] pthread_join: blocking on TID {}",
+                target
+            );
+            return match self.yield_to_next_ready() {
+                Some(rip) => ExternalOutcome::Resume(rip),
+                None => {
+                    // Nothing else can run — avoid deadlock by returning.
+                    self.write_reg64(0x0, 0);
+                    match self.return_from_external() {
+                        Some(ret) => ExternalOutcome::Resume(ret),
+                        None => ExternalOutcome::Terminate,
+                    }
+                }
+            };
+        }
+
+        // 5. Unknown external (libc return target, unhooked PLT stub, …).
+        //    If other threads are still active, behave like a no-op call that
+        //    returns 0. Otherwise the program has effectively finished (e.g.
+        //    main returned into libc) — stop the run.
+        let other_active = {
+            let tm = self.state.thread_manager.lock().unwrap();
+            let cur = tm.current_tid;
+            tm.other_active_count(cur)
+        };
+        if other_active == 0 {
+            log!(
+                self.state.logger.clone(),
+                "[EXTERNAL] unresolved address 0x{:x} ('{}') and no other active threads; terminating",
+                addr,
+                if raw_name.is_empty() { "?" } else { &raw_name }
+            );
+            self.state.is_terminated = true;
+            if self.state.exit_status.is_none() {
+                self.state.exit_status = Some(0);
+            }
+            return ExternalOutcome::Terminate;
+        }
+
+        log!(
+            self.state.logger.clone(),
+            "[EXTERNAL] skipping unresolved call to 0x{:x} ('{}'), returning 0",
+            addr,
+            if raw_name.is_empty() { "?" } else { &raw_name }
+        );
+        self.write_reg64(0x0, 0);
+        match self.return_from_external() {
+            Some(ret) => ExternalOutcome::Resume(ret),
+            None => match self.yield_to_next_ready() {
+                Some(rip) => ExternalOutcome::Resume(rip),
+                None => ExternalOutcome::Terminate,
+            },
+        }
+    }
+
+    /// Dispatch a binary-originated event to every subscribed plugin.
+    ///
+    /// The helper centralises four concerns so call sites (handle_load,
+    /// handle_store, handle_call, sys_clone, sys_exit, …) stay short:
+    ///
+    ///   1. Skip dispatch entirely when no plugin subscribes to this
+    ///      event kind (subscriber-set bitmap short-circuit). This is
+    ///      checked **first**, before computing PC / TID / goid, so the
+    ///      hot LOAD/STORE path is free when nothing is listening.
+    ///   2. Pull the current PC and OS-level TID out of engine state.
+    ///   3. Lazily extract the Go-runtime goroutine id, with a per-
+    ///      instruction `(pc, tid)` cache. `extract_gid_from_tls` walks
+    ///      three memory cells; on Go runtime code the same instruction
+    ///      can emit dozens of LOAD/STORE pcode ops, so caching turns
+    ///      O(pcode-ops) memory reads into O(1) per top-level instruction.
+    ///      The cache invalidates implicitly when `current_address` advances
+    ///      or the scheduler switches threads. Goid extraction is also
+    ///      skipped for event kinds that do not consume it (e.g. `Call`).
+    ///   4. Build the `EventCtx` against the bus's own findings buffer
+    ///      so the borrow checker is happy with the field-disjoint
+    ///      access pattern.
+    ///
+    /// This is the *only* path through which events reach plugins; the
+    /// memory layer never fires events.
+    pub fn dispatch_event(&mut self, ev: &Event<'ctx, '_>) {
+        let kind = ev.kind();
+        if !self.event_bus.is_subscribed(kind) {
+            return;
+        }
+
+        let pc = self.current_address.unwrap_or(0);
+        let tid = self
+            .state
+            .thread_manager
+            .lock()
+            .map(|tm| tm.current_tid)
+            .unwrap_or(0);
+
+        let goid = if event_kind_needs_goid(kind) {
+            match self.cached_goid {
+                Some((cpc, ctid, g)) if cpc == pc && ctid == tid => g,
+                _ => {
+                    let g = self.get_current_goroutine_id().ok();
+                    self.cached_goid = Some((pc, tid, g));
+                    g
+                }
+            }
+        } else {
+            None
+        };
+
+        let icnt = self.instruction_counter;
+        let st = self.start_time;
+        let ctx = self.context;
+        // Re-entrancy guard inside `dispatch_with` makes this safe even
+        // when `get_current_goroutine_id` itself reads engine memory.
+        let _ = self.event_bus.dispatch_with(ctx, pc, tid, goid, icnt, st, ev);
     }
 
     /// Check if overlay mode is active
@@ -407,6 +932,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     pub fn populate_symbol_table(&mut self, elf_data: &[u8]) -> Result<(), goblin::error::Error> {
         let elf = Elf::parse(elf_data)?;
 
+        // Record the binary's executable PC range (its executable PT_LOAD
+        // segments) so `emit_mem_access` can confine analysis to the binary's
+        // own code. no-pie binaries load at their ELF vaddrs, matching the
+        // absolute addresses used elsewhere in the executor.
+        self.binary_text_range = elf
+            .program_headers
+            .iter()
+            .filter(|ph| ph.p_type == goblin::elf::program_header::PT_LOAD && ph.is_executable())
+            .map(|ph| (ph.p_vaddr, ph.p_vaddr + ph.p_memsz))
+            .reduce(|(lo, hi), (s, e)| (lo.min(s), hi.max(e)));
+
         // Populate static function symbols from the symbol table
         for sym in &elf.syms {
             if goblin::elf::sym::st_type(sym.st_info) == goblin::elf::sym::STT_FUNC {
@@ -427,7 +963,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         }
 
-        // Resolve .plt section entries if present
+        // Map each `.rela.plt` GOT slot to its imported symbol name. This is
+        // the authoritative source for PLT-stub names: an imported function's
+        // `st_value` is 0, so matching PLT entries by symbol value (the old
+        // `resolve_got_function` path) never succeeds — every entry would
+        // collapse to a synthetic `plt_function_<addr>`. The relocation table,
+        // by contrast, ties each GOT slot (`r_offset`) to a dynamic-symbol
+        // index, giving us real names like `pthread_create` that the
+        // pthread_create / pthread_join hooks match on.
+        let mut got_slot_to_name: std::collections::HashMap<u64, String> =
+            std::collections::HashMap::new();
+        for reloc in elf.pltrelocs.iter() {
+            if let Some(dynsym) = elf.dynsyms.get(reloc.r_sym) {
+                if let Some(name) = elf.dynstrtab.get_at(dynsym.st_name) {
+                    if !name.is_empty() {
+                        got_slot_to_name.insert(reloc.r_offset, name.to_string());
+                    }
+                }
+            }
+        }
+
+        // Resolve .plt section entries if present.
         if let Some(plt_section) = elf.section_headers.iter().find(|section| {
             if let Some(name) = elf.shdr_strtab.get_at(section.sh_name) {
                 name == ".plt"
@@ -438,23 +994,47 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             let plt_start = plt_section.sh_addr;
             let plt_size = plt_section.sh_size;
             let plt_end = plt_start + plt_size;
+            let plt_file_off = plt_section.sh_offset;
 
-            // Process each address in .plt section
             for addr in (plt_start..plt_end).step_by(16) {
-                // Check if this address is already resolved
-                if let Some(_symbol_name) = self.symbol_table.get(&format!("{:x}", addr)) {
-                    continue; // Skip if already resolved
+                if self.symbol_table.contains_key(&format!("{:x}", addr)) {
+                    continue; // already resolved (e.g. a named static symbol)
                 }
 
-                // Try resolving via GOT
-                if let Some(external_name) = self.resolve_got_function(&elf, addr) {
-                    self.symbol_table
-                        .insert(format!("{:x}", addr), format!("plt_{}", external_name));
-                } else {
-                    // Fallback to synthetic naming if unresolved
-                    self.symbol_table
-                        .insert(format!("{:x}", addr), format!("plt_function_{:x}", addr));
+                // Decode the classic PLT stub `ff 25 <disp32>` (jmp *GOT(%rip))
+                // to find which GOT slot it dereferences, then look the slot
+                // up in the relocation map. The jmp may sit a few bytes into
+                // the entry (endbr64 prefix), so scan the first 8 bytes.
+                let file_off = (plt_file_off + (addr - plt_start)) as usize;
+                let mut resolved: Option<String> = None;
+                if file_off + 16 <= elf_data.len() {
+                    let stub = &elf_data[file_off..file_off + 16];
+                    for i in 0..(stub.len().saturating_sub(6)) {
+                        if stub[i] == 0xff && stub[i + 1] == 0x25 {
+                            let disp = i32::from_le_bytes([
+                                stub[i + 2],
+                                stub[i + 3],
+                                stub[i + 4],
+                                stub[i + 5],
+                            ]);
+                            // GOT addr = address of the instruction after the
+                            // 6-byte `ff 25 disp32` + displacement (RIP-relative).
+                            let insn_end = addr.wrapping_add(i as u64 + 6);
+                            let got_addr = insn_end.wrapping_add(disp as i64 as u64);
+                            if let Some(name) = got_slot_to_name.get(&got_addr) {
+                                resolved = Some(name.clone());
+                            }
+                            break;
+                        }
+                    }
                 }
+
+                // Fallback chain: GOT-slot name → legacy value match → synthetic.
+                let label = resolved
+                    .or_else(|| self.resolve_got_function(&elf, addr))
+                    .map(|n| format!("plt_{}", n))
+                    .unwrap_or_else(|| format!("plt_function_{:x}", addr));
+                self.symbol_table.insert(format!("{:x}", addr), label);
             }
         }
 
@@ -2283,29 +2863,6 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return Err("Invalid instruction format for CALL".to_string());
         }
 
-        // Thread scheduling checkpoint: Consider switching threads at function call
-        {
-            let mut tm = self.state.thread_manager.lock().unwrap();
-            tm.tick_instruction();
-            if let Ok(Some(new_tid)) =
-                tm.maybe_switch_thread(crate::state::CheckpointType::FunctionCall)
-            {
-                // Thread switched - update CPU state from new thread
-                if let Ok(new_thread) = tm.current_thread() {
-                    let mut cpu_guard = self.state.cpu_state.lock().unwrap();
-                    *cpu_guard = new_thread.cpu_state.clone();
-                    drop(cpu_guard);
-
-                    log!(
-                        self.state.logger.clone(),
-                        "[SCHEDULER] Switched to thread {}, updated CPU state",
-                        new_tid
-                    );
-                }
-            }
-            drop(tm);
-        }
-
         // Fetch the branch target (input0)
         // Fetch the data to be stored (treated as assembly address directly)
         log!(
@@ -2343,8 +2900,21 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             data_to_call_concrete
         );
 
-        // Push a new function frame onto the call stack with the CORRECT target function address
+        // Push a new function frame onto the call stack with the CORRECT
+        // target function address — but only for the binary's own functions.
+        // External / PLT targets (pthread_create, pthread_join, …) are
+        // intercepted at the call boundary by `handle_external_boundary` and
+        // never get a real lifted frame; tracking one here would leave a
+        // dangling "freed" frame after the intercept returns, producing
+        // spurious use-after-free reports against the caller's live stack.
+        let target_is_external = self
+            .symbol_table
+            .get(&format!("{:x}", data_to_call_concrete))
+            .map(|s| s.starts_with("plt_"))
+            .unwrap_or(false);
+        if !target_is_external {
         self.push_function_frame(data_to_call_concrete);
+        }
 
         // Update the RIP register to the branch target address (overlay-aware)
         self.set_register_overlay_aware(0x288, data_to_call_concolic, 64)?;
@@ -2361,6 +2931,39 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             data_to_call_concrete,
             SymbolicVar::Int(BV::from_u64(self.context, data_to_call_concrete, 64)),
         );
+
+        // Plugin dispatch: binary-originated direct call. Resolve the
+        // target address against the symbol table so plugins (e.g. volos)
+        // can match well-known names like `runtime.lock` without doing
+        // their own lookup. For unresolved or PLT-stubbed targets the
+        // `symbol` field is `None`; plugins that need symbol matching
+        // typically do `symbol_hooks()` so the registry can warn at load
+        // time about lazy / stripped names.
+        if self.event_bus.is_subscribed(EventKind::Call) {
+            let target_hex = format!("{:x}", data_to_call_concrete);
+            let symbol_owned: Option<String> = self.symbol_table.get(&target_hex).cloned();
+            let pc_for_event = self.current_address.unwrap_or(0);
+            let tid_for_event = self
+                .state
+                .thread_manager
+                .lock()
+                .map(|tm| tm.current_tid)
+                .unwrap_or(0);
+            self.dispatch_event(&Event::Call {
+                pc: pc_for_event,
+                target: data_to_call_concrete,
+                symbol: symbol_owned.as_deref(),
+                tid: tid_for_event,
+                arg0: self.read_reg64(0x38), // RDI
+            });
+        }
+
+        // NOTE: Thread scheduling is intentionally NOT performed here. All
+        // thread switches happen at a single checkpoint at the top of the
+        // per-instruction loop in `execute_instructions_from` (main.rs), which
+        // is a clean x86-instruction boundary. Switching mid-instruction (e.g.
+        // here, between a CALL's pcode micro-ops) corrupts the incoming
+        // thread's CPU state.
 
         Ok(())
     }
@@ -2412,6 +3015,29 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Update current_address to the new RIP
         self.current_address = Some(target_address_concrete);
+
+        // Plugin dispatch: indirect call. Same shape as `handle_call`,
+        // just with a runtime-resolved target. Symbol resolution still
+        // works because by this point `target_address_concrete` is
+        // concretised.
+        if self.event_bus.is_subscribed(EventKind::Call) {
+            let target_hex = format!("{:x}", target_address_concrete);
+            let symbol_owned: Option<String> = self.symbol_table.get(&target_hex).cloned();
+            let pc_for_event = self.current_address.unwrap_or(0);
+            let tid_for_event = self
+                .state
+                .thread_manager
+                .lock()
+                .map(|tm| tm.current_tid)
+                .unwrap_or(0);
+            self.dispatch_event(&Event::Call {
+                pc: pc_for_event,
+                target: target_address_concrete,
+                symbol: symbol_owned.as_deref(),
+                tid: tid_for_event,
+                arg0: self.read_reg64(0x38), // RDI
+            });
+        }
 
         Ok(())
     }
@@ -2853,6 +3479,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 SymbolicVar::Int(mem_value.symbolic.clone().to_bv(self.context)),
             );
         }
+
+        // Memory-event boundary: this LOAD is a binary-originated read.
+        // The single choke-point applies the binary-vs-engine gate, the
+        // subscriber short-circuit, and PC/TID resolution.
+        self.emit_mem_access(
+            AccessOrigin::Binary,
+            MemAccessKind::Read,
+            pointer_offset_concrete,
+            load_size_bits,
+        );
+
         Ok(())
     }
 
@@ -3395,6 +4032,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             _ => {}
         }
 
+        // Memory-event boundary: this STORE is a binary-originated write.
+        // Mirrors the dispatch site at the end of `handle_load`.
+        self.emit_mem_access(
+            AccessOrigin::Binary,
+            MemAccessKind::Write,
+            pointer_offset_concrete,
+            data_size_bits,
+        );
+
         Ok(())
     }
 
@@ -3417,6 +4063,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             self.state.logger.clone(),
             "* Fetching source from instruction.input[0]"
         );
+        // Ghidra lifts `mov reg, [fixed_addr]` as Copy from a Memory varnode.
+        // Emit MemRead before the actual read so plugins see it.
+        if let Var::Memory(src_addr) = &instruction.inputs[0].var {
+            let src_size_bits = instruction.inputs[0].size.to_bitvector_size();
+            self.emit_mem_access(
+                AccessOrigin::Binary,
+                MemAccessKind::Read,
+                *src_addr,
+                src_size_bits,
+            );
+        }
         let source_concolic = self
             .varnode_to_concolic(&instruction.inputs[0])?
             .to_concolic_var()
@@ -3557,6 +4214,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 self.set_register_overlay_aware(*offset, new_concolic_var, output_size_bits)?;
             }
             Var::Memory(addr) => {
+                let write_addr = *addr;
                 let mem_value = MemoryValue {
                     concrete: concrete_chunks[0],
                     symbolic: new_symbolic.to_bv(self.context),
@@ -3564,8 +4222,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 };
                 self.state
                     .memory
-                    .write_value(*addr, &mem_value)
+                    .write_value(write_addr, &mem_value)
                     .map_err(|e| e.to_string())?;
+                // Ghidra lifts `mov [fixed_addr], imm` as Copy to a Memory varnode
+                // (not as Store).  Route through the same choke-point so plugins
+                // see these writes alongside Store-based ones.
+                self.emit_mem_access(
+                    AccessOrigin::Binary,
+                    MemAccessKind::Write,
+                    write_addr,
+                    output_size_bits,
+                );
             }
             _ => return Err("[ERROR] Unsupported output type in COPY".to_string()),
         }
@@ -4118,6 +4785,23 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     /// Check if a memory access is to a freed stack frame (dangling pointer)
     /// Returns (is_dangling, function_addr, frame_rsp) if dangling
     pub fn check_dangling_pointer_access(&self, address: u64) -> Option<(u64, u64)> {
+        // The freed-stack-frame tracker is a single, global, thread-unaware
+        // structure. Under multi-threaded scheduling each thread runs on its
+        // own stack (the main thread's high stack, plus mmap'd pthread child
+        // stacks), and the scheduler interleaves them. A frame "freed" when
+        // one thread returns therefore aliases memory that is still live on
+        // another thread's stack, which surfaces as a flood of bogus
+        // use-after-free reports. Until the tracker is made per-thread, only
+        // run this detector for single-threaded execution.
+        {
+            let tm = self.state.thread_manager.lock().unwrap();
+            if tm.scheduling_policy != crate::state::SchedulingPolicy::MainOnly
+                || tm.threads.len() > 1
+            {
+                return None;
+            }
+        }
+
         // Get current RSP
         let current_rsp = self
             .state

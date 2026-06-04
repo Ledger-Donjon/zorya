@@ -43,7 +43,7 @@ use zorya::state::overlay_path_analysis::{
 };
 use zorya::state::panic_reach::precompute_panic_reach;
 use zorya::state::simplify_z3::extract_underlying_condition_from_flag_ast;
-use zorya::state::thread_manager::{CheckpointType, ThreadStatus};
+use zorya::state::thread_manager::CheckpointType;
 use zorya::target_info::GLOBAL_TARGET_INFO;
 use zorya::{teprintln, tprintln};
 
@@ -64,6 +64,82 @@ const IGNORED_TINYGO_FUNCS: &[&str] = &[
     // "runtime.markRoot",
     // "runtime.findGlobals",
 ];
+
+/// End-of-analysis hook for the plugin event bus.
+///
+/// Runs every plugin's `on_finish`, drains the accumulated findings, and
+/// writes them to `results/plugin_findings.txt`. Idempotent: calling it
+/// after every termination path of the executor loop is safe; the second
+/// call sees an empty `findings` buffer and writes a header-only file.
+///
+/// We split this out as a helper because `execute_instructions_from`
+/// has multiple early-return paths (sys_exit_group termination, hard
+/// errors, panic-detected termination). Funnelling all of them through
+/// this single call keeps the contract "every analysis run produces a
+/// findings report, exactly once" intact.
+fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
+    let pc = executor.current_address.unwrap_or(0);
+    let tid = executor
+        .state
+        .thread_manager
+        .lock()
+        .map(|tm| tm.current_tid)
+        .unwrap_or(0);
+    let goid = executor.get_current_goroutine_id().ok();
+    let icnt = executor.instruction_counter;
+    let st = executor.start_time;
+    let z3_ctx = executor.context;
+
+    // 1. on_finish — plugins like volos run their end-of-trace race
+    //    check here and push findings into the bus's buffer.
+    let n = executor
+        .event_bus
+        .run_finish_with(z3_ctx, pc, tid, goid, icnt, st);
+    log!(
+        executor.state.logger,
+        "[PLUGINS] on_finish complete: {} findings",
+        n
+    );
+
+    // Memory-access boundary audit. Makes the binary-vs-engine split
+    // observable: how many accesses were surfaced to plugins (binary
+    // LOAD/STORE pcode ops) vs suppressed as engine-internal bookkeeping.
+    log!(
+        executor.state.logger,
+        "[PLUGINS] mem-access boundary: {} surfaced (binary), {} suppressed (engine)",
+        executor.mem_events_surfaced,
+        executor.mem_events_suppressed
+    );
+
+    // 2. Drain and write to disk. Always create the file — even with zero
+    //    findings — so callers (CI, scripts, the user) can reliably check
+    //    `results/plugin_findings.txt` after every run without having to
+    //    handle a missing file as a special case.
+    let findings = executor.event_bus.take_findings();
+    let _ = std::fs::create_dir_all("results");
+    if let Ok(mut f) = std::fs::File::create("results/plugin_findings.txt") {
+        let _ = writeln!(f, "# zorya plugin findings");
+        let _ = writeln!(f, "# {} finding(s)", findings.len());
+        if findings.is_empty() {
+            let _ = writeln!(f, "# No issues found.");
+        }
+        for finding in &findings {
+            let _ = writeln!(
+                f,
+                "\n[{}::{}] {} (pc=0x{:x}, severity={:?})",
+                finding.plugin, finding.rule, finding.title, finding.pc, finding.severity
+            );
+            for d in &finding.details {
+                let _ = writeln!(f, "    {}", d);
+            }
+        }
+        log!(
+            executor.state.logger,
+            "[PLUGINS] Wrote {} finding(s) to results/plugin_findings.txt",
+            findings.len()
+        );
+    }
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Initialize wall-clock timer to measure time until first SAT state
@@ -131,8 +207,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    // Normalize scheduler env and set defaults early (before thread manager config)
-    // Thread scheduling is only available for Go GC binaries (not TinyGo or C/C++)
+    // Normalize scheduler env and set defaults early (before thread manager config).
+    // Thread scheduling is supported for Go GC, C, and C++ binaries; TinyGo stays
+    // MainOnly because its goroutine scheduler doesn't match the cooperative model.
     {
         let source_lang_norm = env::var("SOURCE_LANG")
             .unwrap_or_else(|_| String::new())
@@ -143,7 +220,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         let sched_choice = env::var("THREAD_SCHEDULING")
             .unwrap_or_else(|_| String::new())
             .to_lowercase();
-        if source_lang_norm == "go" && compiler_norm == "gc" {
+
+        let scheduling_supported = matches!(source_lang_norm.as_str(), "go" | "c" | "c++")
+            && !(source_lang_norm == "go" && compiler_norm == "tinygo");
+
+        if scheduling_supported {
             match sched_choice.as_str() {
                 "all-threads" | "all_threads" | "roundrobin" | "round_robin" | "rr" => {
                     env::set_var("THREAD_SCHEDULING", "round_robin");
@@ -151,28 +232,49 @@ fn main() -> Result<(), Box<dyn Error>> {
                         "[THREAD-CONFIG] Enabled multi-thread scheduling (cooperative at function calls)"
                     );
 
-                    // THREAD_SWITCH_DEPTH: Maximum number of thread context switches to explore
-                    // Each switch creates a new execution path to explore different thread interleavings
-                    // Default: 100 switches
                     if env::var("THREAD_SWITCH_DEPTH").is_err() {
                         env::set_var("THREAD_SWITCH_DEPTH", "100");
                         tprintln!("[THREAD-CONFIG] Set thread switch depth to 100");
                     }
 
-                    // THREAD_TIME_SLICE: Number of P-code instructions to execute before considering a thread switch
-                    // Thread switches only happen at function calls AFTER this instruction count is reached
-                    // Default: 10000 instructions
                     if env::var("THREAD_TIME_SLICE").is_err() {
-                        env::set_var("THREAD_TIME_SLICE", "10000");
+                        // Time-slice defaults are tuned per language family.
+                        //
+                        // Go GC — 10 000 instructions
+                        //   Go emits goroutines via `runtime.newproc` which itself runs
+                        //   thousands of pcode ops (allocator, scheduler bookkeeping).
+                        //   A large slice lets each goroutine run a meaningful block of
+                        //   work before switching, keeping overhead low.
+                        //
+                        // C / C++ — 50 instructions
+                        //   pthreads threads are already alive in the GDB dump when
+                        //   Zorya starts (captured while spinning at a barrier).  The
+                        //   test entry point (`zorya_entry`) exits via direct_exit()
+                        //   (SYS_exit), so Zorya's sys_exit handler switches to the
+                        //   writers without ever relying on the time-slice.  50 gives
+                        //   each writer enough pcode ops to exit zorya_spin, write to
+                        //   counter, and call direct_exit() in a single slice, keeping
+                        //   context-switch noise minimal.
+                        //
+                        // To tune: change the constants below.  Do NOT expose this as
+                        // a CLI flag — the right value is an implementation detail of
+                        // how the binary under test is structured, not a user concern.
+                        let default_slice = if source_lang_norm == "go" {
+                            "10000"
+                        } else {
+                            "50"
+                        };
+                        env::set_var("THREAD_TIME_SLICE", default_slice);
                         tprintln!(
-                            "[THREAD-CONFIG] Set time slice to 10000 instructions (optimized for symbolic execution)"
+                            "[THREAD-CONFIG] Set time slice to {} instructions",
+                            default_slice
                         );
                     }
                 }
                 "main-only" | "main_only" | "mainonly" | "none" => {
                     env::set_var("THREAD_SCHEDULING", "main_only");
                     tprintln!(
-                        "[THREAD-CONFIG] Using main-only thread policy (single goroutine execution)"
+                        "[THREAD-CONFIG] Using main-only thread policy (single thread execution)"
                     );
                 }
                 _ => {
@@ -974,6 +1076,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     // *****************************
 
+    // Erase the sticky coverage bar from rows 998/999 so the shell prompt
+    // does not get painted on top of leftover bar text.
+    zorya::clear_coverage_bar();
+
     Ok(())
 }
 
@@ -1173,10 +1279,110 @@ fn execute_instructions_from(
         );
         teprintln!("{}", msg);
         log!(executor.state.logger, "{}", msg);
+        finalize_plugin_analysis(executor);
         return;
     }
 
-    while let Some(instructions) = instructions_map.get(&current_rip) {
+    loop {
+        // External-function boundary check. `current_rip` is "external" when:
+        //   * it has no lifted pcode (the thread-exit sentinel, or a libc
+        //     return target), or
+        //   * it is a PLT stub. PLT stubs *do* carry lifted pcode (the `.plt`
+        //     section is executable), but executing it would run the lazy
+        //     resolver / jump into libc, which Zorya does not model. We
+        //     intercept at the named stub instead.
+        //
+        // The external-call handler spawns threads (pthread_create), satisfies
+        // joins (pthread_join), yields to another ready thread, or terminates —
+        // rather than silently ending the whole run.
+        let treat_as_external = current_rip == zorya::executor::THREAD_EXIT_SENTINEL
+            || !instructions_map.contains_key(&current_rip)
+            || executor
+                .symbol_table
+                .get(&format!("{:x}", current_rip))
+                .map(|s| s.starts_with("plt_"))
+                .unwrap_or(false);
+        if treat_as_external {
+            if executor.state.is_terminated {
+                break;
+            }
+            match executor.handle_external_boundary(current_rip) {
+                zorya::executor::ExternalOutcome::Resume(next_rip) => {
+                    current_rip = next_rip;
+                    continue;
+                }
+                zorya::executor::ExternalOutcome::Terminate => break,
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Thread-scheduling checkpoint — the SINGLE authoritative switch
+        // point. It runs here, at the top of the per-instruction loop, which
+        // is an x86 *instruction* boundary: `current_rip` is the next whole
+        // instruction the running thread will execute and the CPU state is
+        // fully consistent (no half-applied pcode micro-ops in flight).
+        //
+        // This placement is load-bearing. Earlier the switch lived inside the
+        // inner pcode loop, so the time slice could expire *between* the
+        // micro-ops of one instruction (e.g. between `mov rsp,rbp` and
+        // `pop rbp` of a `leave`). Switching there restored the incoming
+        // thread's registers and then ran the outgoing instruction's leftover
+        // micro-ops against them, corrupting the incoming thread (a stray
+        // `pop rbp` clobbered main's RBP and crashed the run). Keeping the one
+        // checkpoint here makes that class of corruption impossible.
+        {
+            let mut tm = executor.state.thread_manager.lock().unwrap();
+            tm.tick_instruction();
+            let pre_switch_tid = tm.current_tid;
+            if let Ok(Some(_new_tid)) =
+                tm.maybe_switch_thread(CheckpointType::FunctionCall)
+            {
+                // Save the outgoing thread, pinning its resume RIP to the
+                // current instruction boundary. The RIP register can be stale
+                // after a sequential instruction (it tracks the executed op,
+                // not the next one), so we set it explicitly before snapshotting
+                // to guarantee a clean re-entry.
+                {
+                    let mut cpu = executor.state.cpu_state.lock().unwrap();
+                    let rip_cv = ConcolicVar::new_concrete_and_symbolic_int(
+                        current_rip,
+                        BV::from_u64(executor.context, current_rip, 64),
+                        executor.context,
+                    );
+                    let _ = cpu.set_register_value_by_offset(0x288, rip_cv, 64);
+                    let snap = cpu.clone();
+                    drop(cpu);
+                    if let Some(old_thread) = tm.threads.get_mut(&pre_switch_tid) {
+                        old_thread.cpu_state = snap;
+                    }
+                }
+
+                // Load the incoming thread's saved CPU state and resume the
+                // outer loop at its RIP (the external-boundary check at the top
+                // handles sentinels / PLT stubs for the incoming thread).
+                if let Ok(new_thread) = tm.current_thread() {
+                    let new_cpu = new_thread.cpu_state.clone();
+                    *executor.state.cpu_state.lock().unwrap() = new_cpu;
+                }
+                drop(tm);
+
+                current_rip = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x288, 64)
+                    .unwrap()
+                    .get_concrete_value()
+                    .unwrap();
+                continue;
+            }
+        }
+
+        let instructions = match instructions_map.get(&current_rip) {
+            Some(insts) => insts,
+            None => break,
+        };
         if current_rip == end_address {
             log!(
                 executor.state.logger,
@@ -1639,6 +1845,7 @@ fn execute_instructions_from(
                             "Execution terminated with status: {:?}",
                             executor.state.exit_status
                         );
+                        finalize_plugin_analysis(executor);
                         return; // Exit the function as execution has terminated
                     }
                 }
@@ -1650,66 +1857,22 @@ fn execute_instructions_from(
                             "Process terminated via syscall with exit status: {:?}",
                             executor.state.exit_status
                         );
+                        finalize_plugin_analysis(executor);
                         return; // Exit the function as execution has terminated
                     } else {
                         // Handle other errors as needed
                         log!(executor.state.logger, "Unhandled execution error: {}", e);
+                        finalize_plugin_analysis(executor);
                         return; // Exit the function or handle the error appropriately
                     }
                 }
             }
 
-            // Tick instruction counter and check if we should switch threads
-            {
-                let mut thread_manager = executor.state.thread_manager.lock().unwrap();
-                thread_manager.tick_instruction();
-
-                // Debug: Log thread scheduling status every 100 instructions
-                if thread_manager.instruction_count.is_multiple_of(100)
-                    && thread_manager.instruction_count > 0
-                {
-                    let ready_threads: Vec<_> = thread_manager
-                        .threads
-                        .iter()
-                        .filter(|(_, t)| t.status == ThreadStatus::Ready)
-                        .map(|(tid, _)| tid)
-                        .collect();
-                    log!(
-                        executor.state.logger,
-                        "[SCHEDULER DEBUG] Instruction count: {}, Policy: {:?}, Ready threads: {:?}, Current TID: {}",
-                        thread_manager.instruction_count,
-                        thread_manager.scheduling_policy,
-                        ready_threads,
-                        thread_manager.current_tid
-                    );
-                }
-
-                // Check for thread switch based on time slice (FunctionCall checkpoint checks instruction count)
-                match thread_manager.maybe_switch_thread(CheckpointType::FunctionCall) {
-                    Ok(Some(new_tid)) => {
-                        let old_tid = thread_manager.current_tid;
-                        log!(
-                            executor.state.logger,
-                            "[SCHEDULER] Switching from TID {} to TID {} at RIP 0x{:x} (instruction count: {})",
-                            old_tid,
-                            new_tid,
-                            current_rip,
-                            thread_manager.instruction_count
-                        );
-                        // Thread switch happened, new_tid is now current
-                    }
-                    Ok(None) => {
-                        // No thread switch (could be: no ready threads, policy disabled, or time slice not expired)
-                    }
-                    Err(e) => {
-                        log!(
-                            executor.state.logger,
-                            "[SCHEDULER] Error during thread switch attempt: {}",
-                            e
-                        );
-                    }
-                }
-            }
+            // NOTE: Thread scheduling is performed once per x86 instruction at
+            // the top of the outer loop (see the "Thread-scheduling checkpoint"
+            // block above). It must NOT be done here, inside the pcode-micro-op
+            // loop, because a switch between micro-ops of a single instruction
+            // corrupts the incoming thread's registers.
 
             // For debugging
             //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
@@ -2350,6 +2513,13 @@ fn execute_instructions_from(
         get_gated_by_reach(),
         get_allowed_by_xref_fallback()
     );
+    // Note: addresses with no lifted pcode (PLT stubs such as pthread_create /
+    // pthread_join, the thread-exit sentinel, or unresolved libc targets) are
+    // handled inside the loop by `ConcolicExecutor::handle_external_boundary`,
+    // which spawns threads, satisfies joins, or yields to other ready threads.
+    // Reaching this point means the loop hit a genuine `break`
+    // (`is_terminated`, end address, or no runnable work remaining).
+    finalize_plugin_analysis(executor);
 }
 
 // Function to initialize the symbolic part of os.Args
