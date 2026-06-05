@@ -91,10 +91,13 @@ fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
     let z3_ctx = executor.context;
 
     // 1. on_finish — plugins like volos run their end-of-trace race
-    //    check here and push findings into the bus's buffer.
+    //    check here and push findings into the bus's buffer. The final
+    //    path condition is threaded through so detectors that solve for an
+    //    input class at end-of-trace can reuse the engine's constraints.
+    let path_constraints = &executor.constraint_vector;
     let n = executor
         .event_bus
-        .run_finish_with(z3_ctx, pc, tid, goid, icnt, st);
+        .run_finish_with(z3_ctx, pc, tid, goid, icnt, st, path_constraints);
     log!(
         executor.state.logger,
         "[PLUGINS] on_finish complete: {} findings",
@@ -858,9 +861,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             tprintln!("**************************************************************************");
             tprintln!("Initializing symbolic variables for the program arguments (os.Args)...");
             initialize_symbolic_part_args(&mut executor, os_args_addr)?;
+            log!(executor.state.logger, "Updating argc and argv on the stack");
+            update_argc_argv(&mut executor, &arguments)?;
+        } else if mode == "main" {
+            // A C/C++ binary halted at the user `main` reads argc/argv from the
+            // System V argument registers RDI/RSI (saved into the stack frame by
+            // the prologue), NOT from the kernel `_start` layout at rsp+8. Build
+            // a real, partially-symbolic argv and point RDI/RSI at it so that
+            // input-dependent branches on argv become symbolic path conditions.
+            tprintln!("**************************************************************************");
+            tprintln!("Initializing symbolic variables for the program arguments (argv)...");
+            setup_c_main_args(&mut executor, &arguments, &binary_path)?;
+        } else {
+            // C/C++ at the ELF entry (`_start`): the kernel stack layout applies.
+            log!(executor.state.logger, "Updating argc and argv on the stack");
+            update_argc_argv(&mut executor, &arguments)?;
         }
-        log!(executor.state.logger, "Updating argc and argv on the stack");
-        update_argc_argv(&mut executor, &arguments)?;
     } else if mode == "advanced" {
         log!(
             executor.state.logger,
@@ -1578,21 +1594,42 @@ fn execute_instructions_from(
                     .ok();
 
                 let involves_tracked_symbolic = if let Some(cond) = condition_symbolic_tmp {
-                    let cond_var = cond.to_concolic_var().unwrap();
-                    let expr_string = format!("{:?}", cond_var.symbolic);
-                    let keys: Vec<&String> = executor.function_symbolic_arguments.keys().collect();
-                    let found = keys
-                        .iter()
-                        .any(|arg_name| expr_string.contains(arg_name.as_str()));
-                    if !found {
-                        log!(
-                            executor.state.logger,
-                            "Branch at 0x{:x}: condition does not involve tracked keys {:?}",
-                            current_rip,
-                            keys
-                        );
+                    // Fast path 1: if branch condition is concrete, it cannot involve
+                    // tracked symbolic inputs. Avoid expensive AST stringification.
+                    let cond_bv = cond.get_symbolic_value_bv(executor.context);
+                    if cond_bv.as_u64().is_some() {
+                        false
+                    } else {
+                        // Fast path 2: for multithreaded C/C++ runs, skip negate-path
+                        // pre-analysis in shared libraries (libc/ld/VDSO) where branch
+                        // conditions are large solver terms unrelated to argv tracking.
+                        let source_lang_norm = std::env::var("SOURCE_LANG")
+                            .unwrap_or_default()
+                            .to_lowercase();
+                        let is_c_family =
+                            source_lang_norm == "c" || source_lang_norm == "c++";
+                        let in_shared_lib_space = current_rip >= 0x7000_0000_0000;
+                        if is_c_family && in_shared_lib_space {
+                            false
+                        } else {
+                            let cond_var = cond.to_concolic_var().unwrap();
+                            let expr_string = format!("{:?}", cond_var.symbolic);
+                            let keys: Vec<&String> =
+                                executor.function_symbolic_arguments.keys().collect();
+                            let found = keys
+                                .iter()
+                                .any(|arg_name| expr_string.contains(arg_name.as_str()));
+                            if !found {
+                                log!(
+                                    executor.state.logger,
+                                    "Branch at 0x{:x}: condition does not involve tracked keys {:?}",
+                                    current_rip,
+                                    keys
+                                );
+                            }
+                            found
+                        }
                     }
-                    found
                 } else {
                     false
                 };
@@ -1875,6 +1912,10 @@ fn execute_instructions_from(
             // For debugging
             //log!(executor.state.logger, "Printing memory content around 0x{:x} with range 0x{:x}", address, range);
             //executor.state.print_memory_content(address, range);
+            if std::env::var("ZORYA_DUMP_REGS_EACH_INST")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false)
+            {
             let register0x0 = executor
                 .state
                 .cpu_state
@@ -2186,6 +2227,7 @@ fn execute_instructions_from(
                 "The value of register at offset 0x110 - FS_OFFSET is {:x}",
                 register0x110.concrete
             );
+            }
 
             // Check if there's a requested jump within the current block
             if executor.pcode_internal_lines_to_be_jumped != 0 {
@@ -2839,6 +2881,126 @@ fn update_argc_argv(
         argv_ptr_base + argc * 8,
         &MemoryValue::new(0, BV::from_u64(executor.context, 0, 64), 64),
     )?;
+
+    Ok(())
+}
+
+/// Set up `argc`/`argv` for a C/C++ binary stopped at the user `main`.
+///
+/// Unlike [`update_argc_argv`], which reconstructs the kernel `_start` stack
+/// layout at `rsp+8`, a binary halted at `main` has already gone through libc
+/// startup and reads its parameters from the System V argument registers:
+/// `RDI = argc`, `RSI = argv`. This function:
+///
+///   1. Allocates a fresh private/anonymous R/W region for the `argv` pointer
+///      array plus the NUL-terminated argument strings.
+///   2. Writes `argv[0]` (the program name) as concrete bytes and every
+///      *user-supplied* argument as fresh symbolic bytes (printable-ASCII
+///      bounded), registering each byte so negated-path exploration and the
+///      path condition pick them up.
+///   3. Points `RDI`/`RSI` at the freshly built vector.
+///
+/// The symbolic argument bytes are what let input-dependent branches (e.g.
+/// `if (argv[1][0] == 'K')`) surface in the path condition, which downstream
+/// plugins such as `volos` use to classify input-gated concurrency bugs.
+fn setup_c_main_args(
+    executor: &mut ConcolicExecutor,
+    arguments: &str,
+    binary_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // argv[0] = program name (concrete); user arguments follow and are symbolic.
+    let mut argv: Vec<String> = vec![binary_path.to_string()];
+    if arguments != "none" {
+        argv.extend(shell_words::split(arguments)?);
+    }
+    let argc = argv.len() as u64;
+
+    // Allocate a private, anonymous, read/write region for the pointer array
+    // followed by the argument strings.
+    const PROT_RW: i32 = 0x1 | 0x2; // PROT_READ | PROT_WRITE
+    const MAP_PRIVATE_ANON: i32 = 0x2 | 0x20; // MAP_PRIVATE | MAP_ANONYMOUS
+    const ARGV_REGION_SIZE: usize = 0x1000; // 4 KiB is ample for argv + strings
+    let ptr_array_base = executor
+        .state
+        .memory
+        .mmap(0, ARGV_REGION_SIZE, PROT_RW, MAP_PRIVATE_ANON, -1, 0)
+        .map_err(|e| format!("setup_c_main_args: argv mmap failed: {:?}", e))?;
+
+    // Strings start right after the pointer array (argc entries + NULL term).
+    let mut cursor = ptr_array_base + (argc + 1) * 8;
+
+    for (i, arg) in argv.iter().enumerate() {
+        // argv[i] pointer -> current string address (concrete).
+        executor.state.memory.write_value(
+            ptr_array_base + (i as u64) * 8,
+            &MemoryValue::new(cursor, BV::from_u64(executor.context, cursor, 64), 64),
+        )?;
+
+        let bytes = arg.as_bytes();
+        for (off, &b) in bytes.iter().enumerate() {
+            let mv = if i == 0 {
+                // Program name: keep concrete.
+                MemoryValue::new(b as u64, BV::from_u64(executor.context, b as u64, 8), 8)
+            } else {
+                // User argument byte: fresh symbolic with printable-ASCII bound.
+                let name = format!("arg{}_byte{}", i, off);
+                let sym = BV::fresh_const(executor.context, &name, 8);
+                let lo = BV::from_u64(executor.context, 32, 8);
+                let hi = BV::from_u64(executor.context, 126, 8);
+                executor.solver.assert(&(sym.bvuge(&lo) & sym.bvule(&hi)));
+                executor
+                    .function_symbolic_arguments
+                    .insert(name, SymbolicVar::Int(sym.clone()));
+                MemoryValue::new(b as u64, sym, 8)
+            };
+            executor
+                .state
+                .memory
+                .write_value(cursor + off as u64, &mv)?;
+        }
+        // NUL terminator (concrete).
+        executor.state.memory.write_value(
+            cursor + bytes.len() as u64,
+            &MemoryValue::new(0, BV::from_u64(executor.context, 0, 8), 8),
+        )?;
+
+        // Advance the cursor past the string + NUL, 8-byte aligned.
+        cursor = (cursor + bytes.len() as u64 + 1 + 7) & !7u64;
+    }
+
+    // argv[argc] = NULL.
+    executor.state.memory.write_value(
+        ptr_array_base + argc * 8,
+        &MemoryValue::new(0, BV::from_u64(executor.context, 0, 64), 64),
+    )?;
+
+    // Point the SysV argument registers at the freshly built vector:
+    //   RDI (offset 0x38) = argc, RSI (offset 0x30) = argv.
+    {
+        let mut cpu = executor.state.cpu_state.lock().unwrap();
+        let argc_cv = ConcolicVar::new_concrete_and_symbolic_int(
+            argc,
+            BV::from_u64(executor.context, argc, 64),
+            executor.context,
+        );
+        cpu.set_register_value_by_offset(0x38, argc_cv, 64)
+            .map_err(|e| format!("setup_c_main_args: set RDI failed: {}", e))?;
+        let argv_cv = ConcolicVar::new_concrete_and_symbolic_int(
+            ptr_array_base,
+            BV::from_u64(executor.context, ptr_array_base, 64),
+            executor.context,
+        );
+        cpu.set_register_value_by_offset(0x30, argv_cv, 64)
+            .map_err(|e| format!("setup_c_main_args: set RSI failed: {}", e))?;
+    }
+
+    log!(
+        executor.state.logger,
+        "C argv set up at 0x{:x}: argc={} ({} symbolic argument(s))",
+        ptr_array_base,
+        argc,
+        argc.saturating_sub(1)
+    );
 
     Ok(())
 }

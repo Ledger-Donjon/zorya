@@ -19,6 +19,13 @@ macro_rules! log {
     }};
 }
 
+#[inline]
+fn int_arith_oracles_enabled() -> bool {
+    std::env::var("ZORYA_INT_ARITH_ORACLES")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 // Function to handle INT_CARRY instruction
 pub fn handle_int_carry(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
     if instruction.opcode != Opcode::IntCarry || instruction.inputs.len() != 2 {
@@ -267,7 +274,8 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // Guard 1: adding zero is always safe — skip immediately (unless
     // in overlay mode where concrete values are the safe base-path values
     // and the symbolic arguments are unconstrained).
-    if ((concrete0 != 0 && concrete1 != 0) || executor.is_overlay_mode())
+    if int_arith_oracles_enabled()
+        && ((concrete0 != 0 && concrete1 != 0) || executor.is_overlay_mode())
         && !executor.function_symbolic_arguments.is_empty()
         && output_size_bits >= 32
     {
@@ -516,7 +524,8 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     // concrete operands or overlay mode.
     let concrete0_sub = input0_var.get_concrete_value();
     let concrete1_sub = input1_var.get_concrete_value();
-    if ((concrete0_sub != 0 && concrete1_sub != 0) || executor.is_overlay_mode())
+    if int_arith_oracles_enabled()
+        && ((concrete0_sub != 0 && concrete1_sub != 0) || executor.is_overlay_mode())
         && !executor.function_symbolic_arguments.is_empty()
         && output_size_bits >= 32
     {
@@ -2579,7 +2588,10 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // Strategy: zero-extend both operands to 2×N bits, multiply at full
     // width, and ask Z3: "can the upper N bits be non-zero?"
     // A SAT answer means there exists an input that causes overflow.
-    if !executor.function_symbolic_arguments.is_empty() && output_size_bits >= 32 {
+    if int_arith_oracles_enabled()
+        && !executor.function_symbolic_arguments.is_empty()
+        && output_size_bits >= 32
+    {
         let input0_bv = input0_var.get_symbolic_value_bv(executor.context);
         let input1_bv = input1_var.get_symbolic_value_bv(executor.context);
 

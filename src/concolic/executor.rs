@@ -639,11 +639,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let icnt = self.instruction_counter;
         let st = self.start_time;
         let ctx = self.context;
+        // Borrow the current path condition (disjoint field from
+        // `event_bus`) so detectors can stamp each access with the
+        // predicate `φ` under which this concrete path was taken.
+        let path_constraints = &self.constraint_vector;
         // Re-entrancy guard inside `dispatch_with` makes this safe even
         // when `get_current_goroutine_id` itself reads engine memory.
         let _ = self
             .event_bus
-            .dispatch_with(ctx, pc, tid, goid, icnt, st, ev);
+            .dispatch_with(ctx, pc, tid, goid, icnt, st, path_constraints, ev);
     }
 
     /// Check if overlay mode is active
@@ -2520,6 +2524,35 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         false
     }
 
+    /// Control expensive memory safety solver oracles (symbolic NULL / dangling).
+    ///
+    /// Behavior:
+    /// - If `ZORYA_MEM_SAFETY_ORACLES` is set, it is authoritative (`1/true` enables).
+    /// - Otherwise, auto-disable for multithreaded C/C++ runs (race-oriented scenarios),
+    ///   where these checks are high-cost and not needed for concurrency findings.
+    fn memory_safety_oracles_enabled(&self) -> bool {
+        if let Ok(v) = std::env::var("ZORYA_MEM_SAFETY_ORACLES") {
+            return v == "1" || v.eq_ignore_ascii_case("true");
+        }
+
+        let source_lang = std::env::var("SOURCE_LANG")
+            .unwrap_or_default()
+            .to_lowercase();
+        let sched = std::env::var("THREAD_SCHEDULING")
+            .unwrap_or_default()
+            .to_lowercase();
+        let multithread = matches!(
+            sched.as_str(),
+            "round_robin" | "all-threads" | "all_threads" | "rr"
+        );
+
+        if (source_lang == "c" || source_lang == "c++") && multithread {
+            return false;
+        }
+
+        true
+    }
+
     // Check if a symbolic pointer address could be NULL using the Z3 solver.
     // Active on both the concrete path and during overlay execution.
     //
@@ -3172,32 +3205,34 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // This detects cases where the concrete path is non-null but an alternative input
         // could make the pointer NULL (e.g. Go nil interface/map dereferences).
         // For Go struct pointers with a non-null constraint this is a no-op (cache hit).
-        self.check_symbolic_null_dereference(
-            &pointer_offset_concolic,
-            pointer_offset_concrete,
-            "LOAD",
-            &instruction,
-        );
-
-        // Check for dangling pointer access (freed stack frame)
-        if let Some((func_addr, frame_rsp)) =
-            self.check_dangling_pointer_access(pointer_offset_concrete)
-        {
-            crate::state::evaluate_z3::report_vulnerability(
-                &mut self.state.logger.clone(),
-                "Dangling pointer access — Use-After-Free (LOAD)",
-                self.current_address.unwrap_or(0),
-                &[
-                    "Opcode: LOAD",
-                    "Detection method: Exploring the current path with a symbolic check on the pointer",
-                    &format!("Accessed address: 0x{:x}", pointer_offset_concrete),
-                    &format!(
-                        "Memory belongs to freed stack frame from function 0x{:x} (frame RSP: 0x{:x})",
-                        func_addr, frame_rsp
-                    ),
-                    "This is a Use-After-Free vulnerability (stack memory reuse).",
-                ],
+        if self.memory_safety_oracles_enabled() {
+            self.check_symbolic_null_dereference(
+                &pointer_offset_concolic,
+                pointer_offset_concrete,
+                "LOAD",
+                &instruction,
             );
+
+            // Check for dangling pointer access (freed stack frame)
+            if let Some((func_addr, frame_rsp)) =
+                self.check_dangling_pointer_access(pointer_offset_concrete)
+            {
+                crate::state::evaluate_z3::report_vulnerability(
+                    &mut self.state.logger.clone(),
+                    "Dangling pointer access — Use-After-Free (LOAD)",
+                    self.current_address.unwrap_or(0),
+                    &[
+                        "Opcode: LOAD",
+                        "Detection method: Exploring the current path with a symbolic check on the pointer",
+                        &format!("Accessed address: 0x{:x}", pointer_offset_concrete),
+                        &format!(
+                            "Memory belongs to freed stack frame from function 0x{:x} (frame RSP: 0x{:x})",
+                            func_addr, frame_rsp
+                        ),
+                        "This is a Use-After-Free vulnerability (stack memory reuse).",
+                    ],
+                );
+            }
         }
 
         // Cases covered : 'void a(void) { b(); c(); }', do the 'reinitialization'' of variables used by b() when b() finishes.
@@ -3631,32 +3666,34 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
         // Symbolic NULL check: detect if the store address could be NULL on an alternative path.
         // For Go struct pointers with a non-null constraint this is a no-op (cache hit).
-        self.check_symbolic_null_dereference(
-            &pointer_offset_var,
-            pointer_offset_concrete,
-            "STORE",
-            &instruction,
-        );
-
-        // Check for dangling pointer access (freed stack frame)
-        if let Some((func_addr, frame_rsp)) =
-            self.check_dangling_pointer_access(pointer_offset_concrete)
-        {
-            crate::state::evaluate_z3::report_vulnerability(
-                &mut self.state.logger.clone(),
-                "Dangling pointer write — Use-After-Free (STORE)",
-                self.current_address.unwrap_or(0),
-                &[
-                    "Opcode: STORE",
-                    "Detection method: Exploring the current path with a symbolic check on the pointer",
-                    &format!("Written address: 0x{:x}", pointer_offset_concrete),
-                    &format!(
-                        "Memory belongs to freed stack frame from function 0x{:x} (frame RSP: 0x{:x})",
-                        func_addr, frame_rsp
-                    ),
-                    "This is a Use-After-Free vulnerability (stack memory reuse).",
-                ],
+        if self.memory_safety_oracles_enabled() {
+            self.check_symbolic_null_dereference(
+                &pointer_offset_var,
+                pointer_offset_concrete,
+                "STORE",
+                &instruction,
             );
+
+            // Check for dangling pointer access (freed stack frame)
+            if let Some((func_addr, frame_rsp)) =
+                self.check_dangling_pointer_access(pointer_offset_concrete)
+            {
+                crate::state::evaluate_z3::report_vulnerability(
+                    &mut self.state.logger.clone(),
+                    "Dangling pointer write — Use-After-Free (STORE)",
+                    self.current_address.unwrap_or(0),
+                    &[
+                        "Opcode: STORE",
+                        "Detection method: Exploring the current path with a symbolic check on the pointer",
+                        &format!("Written address: 0x{:x}", pointer_offset_concrete),
+                        &format!(
+                            "Memory belongs to freed stack frame from function 0x{:x} (frame RSP: 0x{:x})",
+                            func_addr, frame_rsp
+                        ),
+                        "This is a Use-After-Free vulnerability (stack memory reuse).",
+                    ],
+                );
+            }
         }
 
         // Fetch the data to be stored

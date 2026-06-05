@@ -58,6 +58,21 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
 ### Environment
 
 - `LOG_MODE=trace_only`: disables `results/execution_log.txt` creation, while preserving `results/execution_trace.txt`
+- `ZORYA_DUMP_REGS_EACH_INST=1`: enables per-instruction full register dumps (RAX..R15/flags/YMM) in the executor logs. Disabled by default because it can severely slow long runs.
+- `ZORYA_INT_ARITH_ORACLES=1`: enables expensive integer arithmetic solver oracles (`INT_ADD`/`INT_SUB`/`INT_MULT` overflow/underflow SAT checks). Disabled by default to keep concolic instruction throughput high during race-focused runs.
+- `ZORYA_MEM_SAFETY_ORACLES=1`: enables symbolic NULL / dangling-pointer memory safety checks in `LOAD`/`STORE`. By default, these checks are auto-disabled for multithreaded C/C++ runs (`--thread-scheduling all-threads`) to avoid stalls in race-analysis workflows.
+
+### Analysis profiles
+
+Use one of these profiles depending on your goal:
+
+- **Fast race profile** (recommended for volos race discovery):
+  - Keep defaults for `ZORYA_INT_ARITH_ORACLES` and `ZORYA_MEM_SAFETY_ORACLES` (both effectively off in this workflow).
+  - Prefer `LOG_MODE=trace_only` unless you need full instruction logs.
+- **Full vulnerability profile** (max checks, slower):
+  - Set `ZORYA_INT_ARITH_ORACLES=1`
+  - Set `ZORYA_MEM_SAFETY_ORACLES=1`
+  - Optionally keep `LOG_MODE=trace_only` to reduce I/O overhead.
 
 ### Notes
 

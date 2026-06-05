@@ -711,24 +711,28 @@ impl<'ctx> MemoryX86_64<'ctx> {
             concrete_bytes.extend_from_slice(&value.concrete.to_le_bytes()[..byte_size]);
         }
 
-        // Prepare symbolic bytes
-        let mut symbolic_bytes = Vec::with_capacity(byte_size);
-        for i in 0..byte_size {
-            let low = (i * 8) as u32;
-            let high = if low + 7 >= value.size {
-                value.size - 1
-            } else {
-                low + 7
-            };
-            let byte_bv = value.symbolic.extract(high, low);
-            symbolic_bytes.push(byte_bv);
-        }
-
-        // Write concrete and symbolic parts separately
-        let symbolic: Vec<Option<Rc<BV<'ctx>>>> = symbolic_bytes
-            .into_iter()
-            .map(|bv| Some(Rc::new(bv)))
-            .collect();
+        // Fast path: avoid building per-byte symbolic extracts when the value is
+        // fully concrete (numeral BV). This is the common case in libc-heavy
+        // traces and removes a large amount of Z3 AST allocation in STORE paths.
+        let symbolic: Vec<Option<Rc<BV<'ctx>>>> = if value.symbolic.as_u64().is_some() {
+            vec![None; byte_size]
+        } else {
+            let mut symbolic_bytes = Vec::with_capacity(byte_size);
+            for i in 0..byte_size {
+                let low = (i * 8) as u32;
+                let high = if low + 7 >= value.size {
+                    value.size - 1
+                } else {
+                    low + 7
+                };
+                let byte_bv = value.symbolic.extract(high, low);
+                symbolic_bytes.push(byte_bv);
+            }
+            symbolic_bytes
+                .into_iter()
+                .map(|bv| Some(Rc::new(bv)))
+                .collect()
+        };
 
         // Write to memory
         self.write_memory(address, &concrete_bytes, &symbolic)
