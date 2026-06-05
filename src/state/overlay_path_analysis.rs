@@ -9,6 +9,7 @@ use crate::state::overlay_state::OverlayState;
 use parser::parser::{Inst, Opcode};
 use std::collections::BTreeMap;
 use std::io::Write;
+use z3::ast::Bool;
 
 #[allow(dead_code)]
 const DEFAULT_MAX_OVERLAY_DEPTH: usize = 15;
@@ -41,6 +42,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     untaken_address: u64,
     instructions_map: &BTreeMap<u64, Vec<Inst>>,
     max_depth: usize,
+    explored_gate: Option<Bool<'ctx>>,
 ) -> OverlayPathAnalysisResult {
     log!(
         executor.state.logger,
@@ -89,6 +91,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     // These are temporary computation results that must be preserved across overlay exploration
     let saved_unique_variables = executor.unique_variables.clone();
     let saved_current_address = executor.current_address;
+    let saved_constraint_vector = executor.constraint_vector.clone();
 
     // Save call stack state before overlay (for dangling pointer detection cleanup)
     let saved_call_stack_depth = executor.state.call_stack.len();
@@ -152,6 +155,12 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     // UNSAT variable might become SAT and must be re-checked).
     executor.null_check_cache.retain(|_, &mut (sat, _)| sat);
 
+    // Overlay execution explores the untaken branch. Attach that gate so events
+    // emitted from speculative instructions carry the correct path predicate.
+    if let Some(gate) = explored_gate {
+        executor.constraint_vector.push(gate);
+    }
+
     // Execute instructions using the existing executor infrastructure
     let result = execute_with_overlay(executor, untaken_address, instructions_map, max_depth);
 
@@ -182,6 +191,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     executor.unique_variables = saved_unique_variables;
     executor.current_address = saved_current_address;
     executor.null_check_cache = saved_null_check_cache;
+    executor.constraint_vector = saved_constraint_vector;
     log!(
         executor.state.logger,
         "[OVERLAY] Restored {} unique variables after overlay exploration",

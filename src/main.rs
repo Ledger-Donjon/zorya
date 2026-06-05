@@ -1706,11 +1706,23 @@ fn execute_instructions_from(
                                 .and_then(|v| v.parse().ok())
                                 .unwrap_or(15);
 
+                            // Overlay explores the opposite branch, so compute the
+                            // corresponding gate and carry it during speculative
+                            // execution. This keeps plugin path predicates coherent.
+                            let cond_bv = conditional_flag.symbolic.to_bv(executor.context);
+                            let branch_taken_to_explore = conditional_flag_u64 == 0;
+                            let explored_condition = extract_underlying_condition_from_flag_ast(
+                                &cond_bv,
+                                branch_taken_to_explore,
+                                &mut executor.state.logger.clone(),
+                            );
+
                             let analysis_result = analyze_untaken_path_with_overlay(
                                 executor,
                                 address_of_negated_path_exploration,
                                 instructions_map,
                                 overlay_depth,
+                                Some(explored_condition),
                             );
 
                             // Refresh coverage bar : overlay may have added new blocks
@@ -1728,16 +1740,6 @@ fn execute_instructions_from(
                                     vuln_addr,
                                     _desc,
                                 ) => {
-                                    // Derive the path condition
-                                    let cond_bv = conditional_flag.symbolic.to_bv(executor.context);
-                                    let branch_taken_to_explore = conditional_flag_u64 == 0;
-                                    let _explored_condition =
-                                        extract_underlying_condition_from_flag_ast(
-                                            &cond_bv,
-                                            branch_taken_to_explore,
-                                            &mut executor.state.logger.clone(),
-                                        );
-
                                     // Try to find a satisfying input
                                     let _ = evaluate_args_z3(
                                             executor,
