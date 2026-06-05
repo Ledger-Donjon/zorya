@@ -1606,8 +1606,7 @@ fn execute_instructions_from(
                         let source_lang_norm = std::env::var("SOURCE_LANG")
                             .unwrap_or_default()
                             .to_lowercase();
-                        let is_c_family =
-                            source_lang_norm == "c" || source_lang_norm == "c++";
+                        let is_c_family = source_lang_norm == "c" || source_lang_norm == "c++";
                         let in_shared_lib_space = current_rip >= 0x7000_0000_0000;
                         if is_c_family && in_shared_lib_space {
                             false
@@ -1916,317 +1915,317 @@ fn execute_instructions_from(
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false)
             {
-            let register0x0 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x0, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x0 - RAX is {:x} and symbolic {}",
-                register0x0.concrete,
-                register0x0.symbolic.simplify().to_string()
-            );
-            let register0x8 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x8, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x8 - RCX is {:x} and symbolic {}",
-                register0x8.concrete,
-                register0x8.symbolic.simplify().to_string()
-            );
-            let register0x10 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x10, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x10 - RDX is {:x} and symbolic {}",
-                register0x10.concrete,
-                register0x10.symbolic.simplify().to_string()
-            );
-            let register0x18 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x18, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x18 - RBX is {:x} and symbolic {}",
-                register0x18.concrete,
-                register0x18.symbolic.simplify().to_string()
-            );
-            let register0x20 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x20, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x20 - RSP is {:x} and symbolic {}",
-                register0x20.concrete,
-                register0x20.symbolic.simplify().to_string()
-            );
-            let register0x28 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x28, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x28 - RBP is {:x} and symbolic {}",
-                register0x28.concrete,
-                register0x28.symbolic.simplify().to_string()
-            );
-            let register0x30 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x30, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x30 - RSI is {:x} and symbolic {}",
-                register0x30.concrete,
-                register0x30.symbolic.simplify().to_string()
-            );
-            let register0x38 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x38, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x38 - RDI is {:x} and symbolic {}",
-                register0x38.concrete,
-                register0x38.symbolic.simplify().to_string()
-            );
-            let register0x80 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x80, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x80 - R8 is {:x} and symbolic {}",
-                register0x80.concrete,
-                register0x80.symbolic.simplify().to_string()
-            );
-            let register0x88 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x88, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x88 - R9 is {:x} and symbolic {}",
-                register0x88.concrete,
-                register0x88.symbolic.simplify().to_string()
-            );
-            let register0x90 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x90, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x90 - R10 is {:x} and symbolic {}",
-                register0x90.concrete,
-                register0x90.symbolic.simplify().to_string()
-            );
-            let register0x98 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x98, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x98 - R11 is {:x} and symbolic {}",
-                register0x98.concrete,
-                register0x98.symbolic.simplify().to_string()
-            );
-            let register0xa0 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0xa0, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0xa0 - R12 is {:x} and symbolic {}",
-                register0xa0.concrete,
-                register0xa0.symbolic.simplify().to_string()
-            );
-            let register0xa8 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0xa8, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0xa8 - R13 is {:x} and symbolic {}",
-                register0xa8.concrete,
-                register0xa8.symbolic.simplify().to_string()
-            );
-            let register0xb0 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0xb0, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0xb0 - R14 is {:x} and symbolic {}",
-                register0xb0.concrete,
-                register0xb0.symbolic.simplify().to_string()
-            );
-            let register0xb8 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0xb8, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0xb8 - R15 is {:x} and symbolic {}",
-                register0xb8.concrete,
-                register0xb8.symbolic.simplify().to_string()
-            );
-            let register0x1200 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x1200, 256)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x1200 - YMM0 is {:x}, i.e. {:?}",
-                register0x1200.concrete,
-                register0x1200.concrete
-            );
-            let register0x1220 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x1220, 256)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x1220 - YMM1 is {:x}, i.e. {:?}",
-                register0x1220.concrete,
-                register0x1220.concrete
-            );
-            let register0x200 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x200, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x200 - CF is {:x} and symbolic {}",
-                register0x200.concrete,
-                register0x200.symbolic.simplify().to_string()
-            );
-            let register0x202 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x202, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x202 - PF is {:x} and symbolic {}",
-                register0x202.concrete,
-                register0x202.symbolic.simplify().to_string()
-            );
-            let register0x206 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x206, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x206 - ZF is {:x} and symbolic {}",
-                register0x206.concrete,
-                register0x206.symbolic.simplify().to_string()
-            );
-            let register0x207 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x207, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x207 - SF is {:x} and symbolic {}",
-                register0x207.concrete,
-                register0x207.symbolic.simplify().to_string()
-            );
-            let register0x20b = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x20b, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x20b - OF is {:x} and symbolic {}",
-                register0x20b.concrete,
-                register0x20b.symbolic.simplify().to_string()
-            );
-            let register0x110 = executor
-                .state
-                .cpu_state
-                .lock()
-                .unwrap()
-                .get_register_by_offset(0x110, 64)
-                .unwrap();
-            log!(
-                executor.state.logger,
-                "The value of register at offset 0x110 - FS_OFFSET is {:x}",
-                register0x110.concrete
-            );
+                let register0x0 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x0, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x0 - RAX is {:x} and symbolic {}",
+                    register0x0.concrete,
+                    register0x0.symbolic.simplify().to_string()
+                );
+                let register0x8 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x8, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x8 - RCX is {:x} and symbolic {}",
+                    register0x8.concrete,
+                    register0x8.symbolic.simplify().to_string()
+                );
+                let register0x10 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x10, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x10 - RDX is {:x} and symbolic {}",
+                    register0x10.concrete,
+                    register0x10.symbolic.simplify().to_string()
+                );
+                let register0x18 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x18, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x18 - RBX is {:x} and symbolic {}",
+                    register0x18.concrete,
+                    register0x18.symbolic.simplify().to_string()
+                );
+                let register0x20 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x20, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x20 - RSP is {:x} and symbolic {}",
+                    register0x20.concrete,
+                    register0x20.symbolic.simplify().to_string()
+                );
+                let register0x28 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x28, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x28 - RBP is {:x} and symbolic {}",
+                    register0x28.concrete,
+                    register0x28.symbolic.simplify().to_string()
+                );
+                let register0x30 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x30, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x30 - RSI is {:x} and symbolic {}",
+                    register0x30.concrete,
+                    register0x30.symbolic.simplify().to_string()
+                );
+                let register0x38 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x38, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x38 - RDI is {:x} and symbolic {}",
+                    register0x38.concrete,
+                    register0x38.symbolic.simplify().to_string()
+                );
+                let register0x80 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x80, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x80 - R8 is {:x} and symbolic {}",
+                    register0x80.concrete,
+                    register0x80.symbolic.simplify().to_string()
+                );
+                let register0x88 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x88, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x88 - R9 is {:x} and symbolic {}",
+                    register0x88.concrete,
+                    register0x88.symbolic.simplify().to_string()
+                );
+                let register0x90 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x90, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x90 - R10 is {:x} and symbolic {}",
+                    register0x90.concrete,
+                    register0x90.symbolic.simplify().to_string()
+                );
+                let register0x98 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x98, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x98 - R11 is {:x} and symbolic {}",
+                    register0x98.concrete,
+                    register0x98.symbolic.simplify().to_string()
+                );
+                let register0xa0 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0xa0, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0xa0 - R12 is {:x} and symbolic {}",
+                    register0xa0.concrete,
+                    register0xa0.symbolic.simplify().to_string()
+                );
+                let register0xa8 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0xa8, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0xa8 - R13 is {:x} and symbolic {}",
+                    register0xa8.concrete,
+                    register0xa8.symbolic.simplify().to_string()
+                );
+                let register0xb0 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0xb0, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0xb0 - R14 is {:x} and symbolic {}",
+                    register0xb0.concrete,
+                    register0xb0.symbolic.simplify().to_string()
+                );
+                let register0xb8 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0xb8, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0xb8 - R15 is {:x} and symbolic {}",
+                    register0xb8.concrete,
+                    register0xb8.symbolic.simplify().to_string()
+                );
+                let register0x1200 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x1200, 256)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x1200 - YMM0 is {:x}, i.e. {:?}",
+                    register0x1200.concrete,
+                    register0x1200.concrete
+                );
+                let register0x1220 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x1220, 256)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x1220 - YMM1 is {:x}, i.e. {:?}",
+                    register0x1220.concrete,
+                    register0x1220.concrete
+                );
+                let register0x200 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x200, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x200 - CF is {:x} and symbolic {}",
+                    register0x200.concrete,
+                    register0x200.symbolic.simplify().to_string()
+                );
+                let register0x202 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x202, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x202 - PF is {:x} and symbolic {}",
+                    register0x202.concrete,
+                    register0x202.symbolic.simplify().to_string()
+                );
+                let register0x206 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x206, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x206 - ZF is {:x} and symbolic {}",
+                    register0x206.concrete,
+                    register0x206.symbolic.simplify().to_string()
+                );
+                let register0x207 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x207, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x207 - SF is {:x} and symbolic {}",
+                    register0x207.concrete,
+                    register0x207.symbolic.simplify().to_string()
+                );
+                let register0x20b = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x20b, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x20b - OF is {:x} and symbolic {}",
+                    register0x20b.concrete,
+                    register0x20b.symbolic.simplify().to_string()
+                );
+                let register0x110 = executor
+                    .state
+                    .cpu_state
+                    .lock()
+                    .unwrap()
+                    .get_register_by_offset(0x110, 64)
+                    .unwrap();
+                log!(
+                    executor.state.logger,
+                    "The value of register at offset 0x110 - FS_OFFSET is {:x}",
+                    register0x110.concrete
+                );
             }
 
             // Check if there's a requested jump within the current block

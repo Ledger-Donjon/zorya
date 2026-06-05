@@ -139,11 +139,22 @@ fn scenario_input_dependent_race() {
     let guard: Bool = arg._eq(&BV::from_u64(&ctx, 0x4B, 8)); // == 'K'
 
     let writes = vec![
-        Write { tid: 1, pc: 0x4b8033, phi: vec![guard] }, // gated A
-        Write { tid: 2, pc: 0x4b7f53, phi: vec![] },       // unconditional B
+        Write {
+            tid: 1,
+            pc: 0x4b8033,
+            phi: vec![guard],
+        }, // gated A
+        Write {
+            tid: 2,
+            pc: 0x4b7f53,
+            phi: vec![],
+        }, // unconditional B
     ];
     let findings = run_scenario(&ctx, &[], &writes);
-    print_findings("S1 input-dependent (crashme-style: write iff arg=='K')", &findings);
+    print_findings(
+        "S1 input-dependent (crashme-style: write iff arg=='K')",
+        &findings,
+    );
 
     assert!(
         findings
@@ -165,11 +176,22 @@ fn scenario_input_dependent_race() {
 fn scenario_input_independent_race() {
     let ctx = Context::new(&Config::new());
     let writes = vec![
-        Write { tid: 1, pc: 0x4b8033, phi: vec![] },
-        Write { tid: 2, pc: 0x4b7f53, phi: vec![] },
+        Write {
+            tid: 1,
+            pc: 0x4b8033,
+            phi: vec![],
+        },
+        Write {
+            tid: 2,
+            pc: 0x4b7f53,
+            phi: vec![],
+        },
     ];
     let findings = run_scenario(&ctx, &[], &writes);
-    print_findings("S2 input-independent (race-counter: unconditional writes)", &findings);
+    print_findings(
+        "S2 input-independent (race-counter: unconditional writes)",
+        &findings,
+    );
 
     assert!(
         findings.iter().any(|f| f.rule == "data-race-unprotected"),
@@ -190,11 +212,22 @@ fn scenario_valid_guard_is_input_independent() {
     let taut: Bool = Bool::or(&ctx, &[&n.bvslt(&zero), &n.bvsge(&zero)]); // n<0 ∨ n>=0
 
     let writes = vec![
-        Write { tid: 1, pc: 0x4b8033, phi: vec![taut] },
-        Write { tid: 2, pc: 0x4b7f53, phi: vec![] },
+        Write {
+            tid: 1,
+            pc: 0x4b8033,
+            phi: vec![taut],
+        },
+        Write {
+            tid: 2,
+            pc: 0x4b7f53,
+            phi: vec![],
+        },
     ];
     let findings = run_scenario(&ctx, &[], &writes);
-    print_findings("S3 valid guard (n<0 ∨ n>=0 ≡ true) → input-independent", &findings);
+    print_findings(
+        "S3 valid guard (n<0 ∨ n>=0 ≡ true) → input-independent",
+        &findings,
+    );
 
     assert!(
         findings.iter().any(|f| f.rule == "data-race-unprotected"),
@@ -215,18 +248,53 @@ fn scenario_mutex_protected_no_race() {
     let ctx = Context::new(&Config::new());
     const MTX: u64 = 0x600000;
     let locks = vec![
-        Lock { tid: 1, pc: 0x10, sym: "runtime.lock", target: MTX, acquire: true },
-        Lock { tid: 2, pc: 0x20, sym: "runtime.lock", target: MTX, acquire: true },
-        Lock { tid: 1, pc: 0x30, sym: "runtime.unlock", target: MTX, acquire: false },
-        Lock { tid: 2, pc: 0x40, sym: "runtime.unlock", target: MTX, acquire: false },
+        Lock {
+            tid: 1,
+            pc: 0x10,
+            sym: "runtime.lock",
+            target: MTX,
+            acquire: true,
+        },
+        Lock {
+            tid: 2,
+            pc: 0x20,
+            sym: "runtime.lock",
+            target: MTX,
+            acquire: true,
+        },
+        Lock {
+            tid: 1,
+            pc: 0x30,
+            sym: "runtime.unlock",
+            target: MTX,
+            acquire: false,
+        },
+        Lock {
+            tid: 2,
+            pc: 0x40,
+            sym: "runtime.unlock",
+            target: MTX,
+            acquire: false,
+        },
     ];
     let writes = vec![
-        Write { tid: 1, pc: 0x4b8033, phi: vec![] },
-        Write { tid: 2, pc: 0x4b7f53, phi: vec![] },
+        Write {
+            tid: 1,
+            pc: 0x4b8033,
+            phi: vec![],
+        },
+        Write {
+            tid: 2,
+            pc: 0x4b7f53,
+            phi: vec![],
+        },
     ];
     let findings = run_scenario(&ctx, &locks, &writes);
     print_findings("S4 mutex-protected (shared lock) → no race", &findings);
-    assert!(findings.is_empty(), "shared lock must suppress the race: {findings:?}");
+    assert!(
+        findings.is_empty(),
+        "shared lock must suppress the race: {findings:?}"
+    );
 }
 
 /// Scenario 5 — schedule-only artefact: the two writes are guarded by
@@ -242,11 +310,22 @@ fn scenario_infeasible_is_schedule_only() {
     let g2: Bool = n._eq(&BV::from_i64(&ctx, 2, 32));
 
     let writes = vec![
-        Write { tid: 1, pc: 0x4b8033, phi: vec![g1] },
-        Write { tid: 2, pc: 0x4b7f53, phi: vec![g2] },
+        Write {
+            tid: 1,
+            pc: 0x4b8033,
+            phi: vec![g1],
+        },
+        Write {
+            tid: 2,
+            pc: 0x4b7f53,
+            phi: vec![g2],
+        },
     ];
     let findings = run_scenario(&ctx, &[], &writes);
-    print_findings("S5 contradictory guards (n==1 vs n==2) → schedule-only", &findings);
+    print_findings(
+        "S5 contradictory guards (n==1 vs n==2) → schedule-only",
+        &findings,
+    );
 
     assert!(
         findings.iter().any(|f| f.rule == "data-race-schedule-only"),

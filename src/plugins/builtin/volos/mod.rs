@@ -445,14 +445,16 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
         ]
     }
 
-    fn on_event(
-        &mut self,
-        ev: &Event<'ctx, '_>,
-        ctx: &EventCtx<'ctx, '_>,
-    ) -> Verdict {
+    fn on_event(&mut self, ev: &Event<'ctx, '_>, ctx: &EventCtx<'ctx, '_>) -> Verdict {
         let real_goid = ctx.current_goid;
         match ev {
-            Event::MemRead { addr, size, pc, tid, .. } => {
+            Event::MemRead {
+                addr,
+                size,
+                pc,
+                tid,
+                ..
+            } => {
                 self.reads += 1;
                 let bytes = (*size as u64).div_ceil(8);
                 let rid = self.capture_path_condition(ctx.path_constraints());
@@ -461,12 +463,22 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                     .with_record_id(rid);
                 self.vlog(format!(
                     "READ  @0x{:x} size={} tid={} go={:?} locks_held={:?} |φ|={}",
-                    rec.addr, rec.size, rec.thread_id, rec.go_id, rec.locks_held,
+                    rec.addr,
+                    rec.size,
+                    rec.thread_id,
+                    rec.go_id,
+                    rec.locks_held,
                     ctx.path_constraints().len()
                 ));
                 self.region.add_record(rec);
             }
-            Event::MemWrite { addr, size, pc, tid, .. } => {
+            Event::MemWrite {
+                addr,
+                size,
+                pc,
+                tid,
+                ..
+            } => {
                 self.writes += 1;
                 let bytes = (*size as u64).div_ceil(8);
                 let rid = self.capture_path_condition(ctx.path_constraints());
@@ -475,12 +487,22 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                     .with_record_id(rid);
                 self.vlog(format!(
                     "WRITE @0x{:x} size={} tid={} go={:?} locks_held={:?} |φ|={}",
-                    rec.addr, rec.size, rec.thread_id, rec.go_id, rec.locks_held,
+                    rec.addr,
+                    rec.size,
+                    rec.thread_id,
+                    rec.go_id,
+                    rec.locks_held,
                     ctx.path_constraints().len()
                 ));
                 self.region.add_record(rec);
             }
-            Event::Call { target, symbol: Some(sym), tid, arg0, .. } => {
+            Event::Call {
+                target,
+                symbol: Some(sym),
+                tid,
+                arg0,
+                ..
+            } => {
                 {
                     // Normalise PLT-resolved C symbols (`plt_pthread_mutex_lock`)
                     // to their bare primitive name before matching.
@@ -520,7 +542,11 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
             Event::Call { .. } => {
                 // symbol is None — not a tracked primitive, nothing to do.
             }
-            Event::ThreadSpawn { child_tid, parent_tid, .. } => {
+            Event::ThreadSpawn {
+                child_tid,
+                parent_tid,
+                ..
+            } => {
                 self.threads_spawned += 1;
 
                 // Make sure the parent already has a go_id assigned
@@ -600,13 +626,9 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                     "input-independent (φ holds for all inputs)".to_string(),
                 ),
                 // Genuinely contingent on input (¬φ SAT) → input-gated rule.
-                InputClass::InputDependent { .. } => {
-                    (gated_rule, "input-dependent".to_string())
-                }
+                InputClass::InputDependent { .. } => (gated_rule, "input-dependent".to_string()),
                 // φ SAT but ¬φ undecided → reachable under φ; input-gated rule.
-                InputClass::Reachable { .. } => {
-                    (gated_rule, "input-gated (reachable)".to_string())
-                }
+                InputClass::Reachable { .. } => (gated_rule, "input-gated (reachable)".to_string()),
                 InputClass::Infeasible { .. } => (
                     "data-race-schedule-only",
                     "schedule-only (path conditions jointly UNSAT)".to_string(),
@@ -624,7 +646,9 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                 .with_detail(format!(
                     "Access 1 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
                     v1.thread_id,
-                    v1.go_id.map(|g| g.to_string()).unwrap_or_else(|| "?".into()),
+                    v1.go_id
+                        .map(|g| g.to_string())
+                        .unwrap_or_else(|| "?".into()),
                     v1.access_type,
                     v1.pc,
                     v1.locks_held,
@@ -633,7 +657,9 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                 .with_detail(format!(
                     "Access 2 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
                     v2.thread_id,
-                    v2.go_id.map(|g| g.to_string()).unwrap_or_else(|| "?".into()),
+                    v2.go_id
+                        .map(|g| g.to_string())
+                        .unwrap_or_else(|| "?".into()),
                     v2.access_type,
                     v2.pc,
                     v2.locks_held,
@@ -664,7 +690,11 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                             .to_string(),
                     )
                     .with_detail(format!("Witness (any input works): {}", witness(&trigger))),
-                InputClass::InputDependent { phi, trigger, escape } => finding
+                InputClass::InputDependent {
+                    phi,
+                    trigger,
+                    escape,
+                } => finding
                     .with_detail(format!("Path condition φ = φ₁ ∧ φ₂: {}", phi))
                     .with_detail(format!(
                         "Input class: input-dependent — race occurs iff input ⊨ φ; \
@@ -1247,7 +1277,8 @@ mod tests {
         let f = findings.borrow();
         assert!(!f.is_empty(), "expected an input-gated race finding");
         assert!(
-            f.iter().any(|x| x.rule == "input-gated-data-race-unprotected"),
+            f.iter()
+                .any(|x| x.rule == "input-gated-data-race-unprotected"),
             "race should be classified input-gated, got rules: {:?}",
             f.iter().map(|x| x.rule).collect::<Vec<_>>()
         );
@@ -1417,10 +1448,8 @@ mod tests {
         late.node_id = "b".into();
         late.tick_at("b"); // a:1, b:1   →  early < late
 
-        let r1 = Volos::new(1, AccessType::Write, Vec::new(), early)
-            .with_addr_size(0x1234, 1);
-        let r2 = Volos::new(2, AccessType::Write, Vec::new(), late)
-            .with_addr_size(0x1234, 1);
+        let r1 = Volos::new(1, AccessType::Write, Vec::new(), early).with_addr_size(0x1234, 1);
+        let r2 = Volos::new(2, AccessType::Write, Vec::new(), late).with_addr_size(0x1234, 1);
 
         let mut region = VolosRegion::new(0, u64::MAX);
         region.add_record(r1);
