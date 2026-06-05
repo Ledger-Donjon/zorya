@@ -23,6 +23,7 @@
 use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
+use z3::ast::Bool;
 use z3::Context;
 
 use crate::plugins::context::EventCtx;
@@ -149,6 +150,7 @@ impl<'ctx> EventBus<'ctx> {
         goid: Option<u64>,
         instruction_counter: usize,
         start_time: Instant,
+        path_constraints: &[Bool<'ctx>],
         ev: &Event<'ctx, '_>,
     ) -> Verdict {
         if self.depth.get() > 0 {
@@ -160,7 +162,8 @@ impl<'ctx> EventBus<'ctx> {
         }
 
         let ectx = EventCtx::new(z3, pc, tid, instruction_counter, start_time, &self.findings)
-            .with_goid(goid);
+            .with_goid(goid)
+            .with_path_constraints(path_constraints);
 
         self.depth.set(self.depth.get() + 1);
         let mut worst = Verdict::Continue;
@@ -182,6 +185,7 @@ impl<'ctx> EventBus<'ctx> {
     /// an `EventCtx` from the bus's own findings buffer and runs every
     /// plugin's `on_finish`. Returns the number of findings now held in
     /// the buffer (i.e. the count after `on_finish` ran).
+    #[allow(clippy::too_many_arguments)]
     pub fn run_finish_with(
         &mut self,
         z3: &'ctx Context,
@@ -190,9 +194,11 @@ impl<'ctx> EventBus<'ctx> {
         goid: Option<u64>,
         instruction_counter: usize,
         start_time: Instant,
+        path_constraints: &[Bool<'ctx>],
     ) -> usize {
         let ectx = EventCtx::new(z3, pc, tid, instruction_counter, start_time, &self.findings)
-            .with_goid(goid);
+            .with_goid(goid)
+            .with_path_constraints(path_constraints);
         for p in self.plugins.iter_mut() {
             p.on_finish(&ectx);
         }

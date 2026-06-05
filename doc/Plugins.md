@@ -143,8 +143,19 @@ Multiple `ReportAndContinue` findings are all kept.
 
 Read-only handle every plugin receives alongside an event. Holds `&State`,
 the Z3 `Context` and `Optimize` solver, the current PC / TID / instruction
-counter, and the analysis start time. It does **not** expose `&mut State`
-— plugins mutate their own state through `&mut self` on their own struct.
+counter, the best-effort Go `current_goid`, and the analysis start time. It
+does **not** expose `&mut State` — plugins mutate their own state through
+`&mut self` on their own struct.
+
+`EventCtx::path_constraints()` exposes the engine's **current path
+condition**: a borrowed view of the executor's `constraint_vector` (the
+branch constraints over tracked symbolic inputs accumulated on the path that
+reached this event). Their conjunction is the predicate `φ` under which the
+current concrete path is taken. Concurrency-aware detectors couple this with
+the access events to lift a schedule-specific witness ("these accesses raced
+on *this* run") into an input-class result ("they race for every input ⊨ φ");
+see the volos `InputClass` handling. Plugins must not stash the borrowed
+slice — clone the `Bool<'ctx>` nodes they need (cheap, valid for `'ctx`).
 
 ### `Finding`
 

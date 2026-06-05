@@ -33,6 +33,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use z3::ast::{Ast, Bool};
+use z3::{SatResult, Solver};
+
 use crate::plugins::context::EventCtx;
 use crate::plugins::event::{Event, EventKind};
 use crate::plugins::finding::{Finding, Severity};
@@ -87,13 +90,30 @@ fn strip_plt(sym: &str) -> &str {
     sym.strip_prefix("plt_").unwrap_or(sym)
 }
 
+/// Flatten a satisfied solver's model into a single-line `var -> value`
+/// witness for embedding in a finding detail. Empty when there is no model
+/// (e.g. the assertion was a closed formula with no free constants).
+fn model_string(solver: &Solver<'_>) -> String {
+    solver
+        .get_model()
+        .map(|m| {
+            format!("{}", m)
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .unwrap_or_default()
+}
+
 /// Granularity of the per-region map. Volos in the upstream fork tracks
 /// at byte granularity per memory region; for the first plugin port we
 /// keep a single global region keyed by absolute address. When
 /// `EventCtx` exposes engine-state accessors we'll shard by the actual
 /// memory regions reported by `MemoryX86_64`.
 #[derive(Debug)]
-pub struct VolosPlugin {
+pub struct VolosPlugin<'ctx> {
     /// Per-thread lockset, keyed by tid (will swap to goroutine id when
     /// engine state is exposed via `EventCtx`).
     locksets: HashMap<u64, Vec<u64>>,
@@ -115,6 +135,21 @@ pub struct VolosPlugin {
     /// for the race detector since the FSA classifies per-cell.
     region: VolosRegion,
 
+    /// Side table mapping a record id to the path condition `φ` captured
+    /// when that access fired — the ordered branch constraints (over
+    /// symbolic inputs) that gated the path reaching the access. Kept out
+    /// of the [`Volos`] record so the record/region types stay free of
+    /// Z3's `'ctx` lifetime; the record carries only the `record_id` key.
+    ///
+    /// This is what makes a race finding *input-aware*: at end-of-trace we
+    /// conjoin the two racing accesses' conditions and ask Z3 for an input
+    /// model, turning "raced on this schedule" into "races for every input
+    /// satisfying `φ₁ ∧ φ₂`".
+    path_conditions: HashMap<u64, Vec<Bool<'ctx>>>,
+
+    /// Monotonic source of `record_id`s.
+    next_record_id: u64,
+
     /// Verbose logging gated on `VOLOS_VERBOSE=1`, matching the upstream
     /// fork's behaviour.
     verbose: bool,
@@ -127,7 +162,7 @@ pub struct VolosPlugin {
     threads_spawned: u64,
 }
 
-impl VolosPlugin {
+impl<'ctx> VolosPlugin<'ctx> {
     pub fn new() -> Self {
         Self {
             locksets: HashMap::new(),
@@ -135,12 +170,89 @@ impl VolosPlugin {
             go_ids: HashMap::new(),
             next_go_id: 0,
             region: VolosRegion::new(0, u64::MAX),
+            path_conditions: HashMap::new(),
+            next_record_id: 1,
             verbose: std::env::var("VOLOS_VERBOSE").is_ok_and(|v| v == "1"),
             reads: 0,
             writes: 0,
             lock_acquires: 0,
             lock_releases: 0,
             threads_spawned: 0,
+        }
+    }
+
+    /// Allocate a fresh record id and remember the path condition `φ`
+    /// captured for it. Cloning a `Bool<'ctx>` is a cheap reference-count
+    /// bump, so snapshotting the whole slice per access is inexpensive.
+    fn capture_path_condition(&mut self, parts: &[Bool<'ctx>]) -> u64 {
+        let id = self.next_record_id;
+        self.next_record_id += 1;
+        if !parts.is_empty() {
+            self.path_conditions.insert(id, parts.to_vec());
+        }
+        id
+    }
+
+    /// Decide the *input class* of a race witness pair: is the race
+    /// input-independent, or only reachable for inputs satisfying the
+    /// conjunction of the two accesses' path conditions `φ₁ ∧ φ₂`?
+    ///
+    /// This is the single solver call that lifts a schedule-specific
+    /// witness ("these two accesses raced on the interleaving we ran") into
+    /// an input-class result ("they race for every input model of
+    /// `φ₁ ∧ φ₂`"). It reuses the shared Z3 context already owned by the
+    /// engine; no new symbolic machinery is introduced.
+    fn classify_input(&self, ctx: &'ctx z3::Context, rid1: u64, rid2: u64) -> InputClass {
+        let mut parts: Vec<&Bool<'ctx>> = Vec::new();
+        if let Some(p) = self.path_conditions.get(&rid1) {
+            parts.extend(p.iter());
+        }
+        if let Some(p) = self.path_conditions.get(&rid2) {
+            parts.extend(p.iter());
+        }
+        if parts.is_empty() {
+            // Neither access was gated by a symbolic branch: the race fires
+            // for *any* input that reaches this code.
+            return InputClass::Unconditional;
+        }
+
+        let phi = parts
+            .iter()
+            .map(|b| format!("{}", b.simplify()))
+            .collect::<Vec<_>>()
+            .join(" ∧ ");
+
+        // Query 1: φ = φ₁ ∧ φ₂. Is there an input that reaches both accesses?
+        let solver = Solver::new(ctx);
+        for p in &parts {
+            solver.assert(p);
+        }
+        let trigger = match solver.check() {
+            SatResult::Sat => model_string(&solver),
+            SatResult::Unsat => return InputClass::Infeasible { phi },
+            SatResult::Unknown => return InputClass::Unknown { phi },
+        };
+
+        // Query 2: ¬φ. Can an input *escape* the racing path? This separates
+        // a genuinely input-dependent race (¬φ SAT — some inputs avoid it)
+        // from one whose recorded guard is actually valid (¬φ UNSAT — the
+        // race fires for every input, so the outcome is input-independent
+        // even though branch constraints were captured).
+        let phi_conj = Bool::and(ctx, &parts);
+        let neg_solver = Solver::new(ctx);
+        neg_solver.assert(&phi_conj.not());
+        match neg_solver.check() {
+            // ¬φ unsatisfiable ⇒ φ valid ⇒ reachable for *every* input.
+            SatResult::Unsat => InputClass::InputIndependent { phi, trigger },
+            // ¬φ satisfiable ⇒ the race is contingent on the input class φ;
+            // `escape` is a concrete input that takes a different path.
+            SatResult::Sat => InputClass::InputDependent {
+                phi,
+                trigger,
+                escape: model_string(&neg_solver),
+            },
+            // Couldn't decide input-dependence; fall back to plain reachable.
+            SatResult::Unknown => InputClass::Reachable { phi, trigger },
         }
     }
 
@@ -222,6 +334,50 @@ impl VolosPlugin {
     }
 }
 
+/// Result of coupling a race witness to the symbolic inputs: does the race
+/// depend on program input, and if so, for which input class is it reachable?
+///
+/// Two solver queries decide this. First `φ = φ₁ ∧ φ₂` (do both accesses
+/// share a feasible input?). If `φ` is SAT, a second query on `¬φ` teases
+/// apart the two ways a "reachable" race can be input-related:
+///
+/// * `¬φ` UNSAT ⇒ `φ` is *valid* (holds for every input) ⇒ the captured
+///   guard is vacuous and the race fires regardless of input value
+///   (`InputIndependent`). Reaching the code never actually depended on
+///   the input.
+/// * `¬φ` SAT ⇒ there exist inputs *outside* `φ` that take a different
+///   path ⇒ the race outcome is genuinely *contingent* on the input
+///   (`InputDependent`), and `escape` is a concrete input that avoids the
+///   racing path.
+#[derive(Debug, Clone)]
+pub enum InputClass {
+    /// Neither racing access was gated by a symbolic branch — the race
+    /// fires for every input that reaches the code (input-independent).
+    Unconditional,
+    /// `φ` is satisfiable and *valid* (`¬φ` is UNSAT): branch constraints
+    /// were recorded but they hold for every input, so the race outcome
+    /// does not actually depend on the input value. `trigger` is a witness.
+    InputIndependent { phi: String, trigger: String },
+    /// `φ` is satisfiable and so is `¬φ`: the race is genuinely contingent
+    /// on the input. `trigger` drives the program into the race; `escape`
+    /// is an input that takes a different path and avoids it.
+    InputDependent {
+        phi: String,
+        trigger: String,
+        escape: String,
+    },
+    /// `φ` is satisfiable but the solver could not decide `¬φ` (unknown):
+    /// the race is reachable for every input ⊨ φ, but we cannot confirm
+    /// whether it is input-dependent. `trigger` is a witness.
+    Reachable { phi: String, trigger: String },
+    /// The two accesses' path conditions are jointly unsatisfiable, so no
+    /// single input drives the program down both paths. The witness is a
+    /// schedule artefact, not an input-reachable race.
+    Infeasible { phi: String },
+    /// The solver returned `unknown` for `φ` (timeout / incompleteness).
+    Unknown { phi: String },
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VolosCounters {
     pub reads: u64,
@@ -232,13 +388,13 @@ pub struct VolosCounters {
     pub tracked_cells: usize,
 }
 
-impl Default for VolosPlugin {
+impl<'ctx> Default for VolosPlugin<'ctx> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'ctx> Plugin<'ctx> for VolosPlugin {
+impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
     fn name(&self) -> &'static str {
         "volos"
     }
@@ -289,48 +445,42 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
         ]
     }
 
-    fn on_event(&mut self, ev: &Event<'ctx, '_>, ctx: &EventCtx<'ctx, '_>) -> Verdict {
+    fn on_event(
+        &mut self,
+        ev: &Event<'ctx, '_>,
+        ctx: &EventCtx<'ctx, '_>,
+    ) -> Verdict {
         let real_goid = ctx.current_goid;
         match ev {
-            Event::MemRead {
-                addr,
-                size,
-                pc,
-                tid,
-                ..
-            } => {
+            Event::MemRead { addr, size, pc, tid, .. } => {
                 self.reads += 1;
                 let bytes = (*size as u64).div_ceil(8);
-                let rec = self.build_record(*tid, AccessType::Read, *addr, bytes, *pc, real_goid);
+                let rid = self.capture_path_condition(ctx.path_constraints());
+                let rec = self
+                    .build_record(*tid, AccessType::Read, *addr, bytes, *pc, real_goid)
+                    .with_record_id(rid);
                 self.vlog(format!(
-                    "READ  @0x{:x} size={} tid={} go={:?} locks_held={:?}",
-                    rec.addr, rec.size, rec.thread_id, rec.go_id, rec.locks_held
+                    "READ  @0x{:x} size={} tid={} go={:?} locks_held={:?} |φ|={}",
+                    rec.addr, rec.size, rec.thread_id, rec.go_id, rec.locks_held,
+                    ctx.path_constraints().len()
                 ));
                 self.region.add_record(rec);
             }
-            Event::MemWrite {
-                addr,
-                size,
-                pc,
-                tid,
-                ..
-            } => {
+            Event::MemWrite { addr, size, pc, tid, .. } => {
                 self.writes += 1;
                 let bytes = (*size as u64).div_ceil(8);
-                let rec = self.build_record(*tid, AccessType::Write, *addr, bytes, *pc, real_goid);
+                let rid = self.capture_path_condition(ctx.path_constraints());
+                let rec = self
+                    .build_record(*tid, AccessType::Write, *addr, bytes, *pc, real_goid)
+                    .with_record_id(rid);
                 self.vlog(format!(
-                    "WRITE @0x{:x} size={} tid={} go={:?} locks_held={:?}",
-                    rec.addr, rec.size, rec.thread_id, rec.go_id, rec.locks_held
+                    "WRITE @0x{:x} size={} tid={} go={:?} locks_held={:?} |φ|={}",
+                    rec.addr, rec.size, rec.thread_id, rec.go_id, rec.locks_held,
+                    ctx.path_constraints().len()
                 ));
                 self.region.add_record(rec);
             }
-            Event::Call {
-                target,
-                symbol: Some(sym),
-                tid,
-                arg0,
-                ..
-            } => {
+            Event::Call { target, symbol: Some(sym), tid, arg0, .. } => {
                 {
                     // Normalise PLT-resolved C symbols (`plt_pthread_mutex_lock`)
                     // to their bare primitive name before matching.
@@ -370,11 +520,7 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
             Event::Call { .. } => {
                 // symbol is None — not a tracked primitive, nothing to do.
             }
-            Event::ThreadSpawn {
-                child_tid,
-                parent_tid,
-                ..
-            } => {
+            Event::ThreadSpawn { child_tid, parent_tid, .. } => {
                 self.threads_spawned += 1;
 
                 // Make sure the parent already has a go_id assigned
@@ -425,43 +571,132 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin {
         }
         self.vlog(format!("on_finish: {} race witness pairs", pairs.len()));
         for (addr, v1, v2, reason) in pairs {
+            // Couple the race witness to the program inputs: ask whether
+            // the two accesses' path conditions are jointly satisfiable and,
+            // if so, recover a concrete input model. This is what turns a
+            // pure-schedule witness into an input × concurrency finding.
+            let input_class = self.classify_input(ctx.ctx, v1.record_id, v2.record_id);
+
+            // Helpers to pick the plain vs input-gated rule id for the
+            // detected race reason.
+            let plain_rule = match reason {
+                RaceReason::Unprotected => "data-race-unprotected",
+                RaceReason::InconsistentLocking => "data-race-inconsistent-locking",
+            };
+            let gated_rule = match reason {
+                RaceReason::Unprotected => "input-gated-data-race-unprotected",
+                RaceReason::InconsistentLocking => "input-gated-data-race-inconsistent-locking",
+            };
+
+            // Rule id and title reflect the race's relationship to the
+            // inputs, so CI baselines can distinguish the classes.
+            let (rule, gating): (&'static str, String) = match &input_class {
+                // No gating at all → plain rule, input-independent.
+                InputClass::Unconditional => (plain_rule, "input-independent".to_string()),
+                // Guard captured but valid (¬φ UNSAT) → fires for every
+                // input → still input-independent in outcome; keep plain rule.
+                InputClass::InputIndependent { .. } => (
+                    plain_rule,
+                    "input-independent (φ holds for all inputs)".to_string(),
+                ),
+                // Genuinely contingent on input (¬φ SAT) → input-gated rule.
+                InputClass::InputDependent { .. } => {
+                    (gated_rule, "input-dependent".to_string())
+                }
+                // φ SAT but ¬φ undecided → reachable under φ; input-gated rule.
+                InputClass::Reachable { .. } => {
+                    (gated_rule, "input-gated (reachable)".to_string())
+                }
+                InputClass::Infeasible { .. } => (
+                    "data-race-schedule-only",
+                    "schedule-only (path conditions jointly UNSAT)".to_string(),
+                ),
+                InputClass::Unknown { .. } => {
+                    (plain_rule, "input-gated (solver: unknown)".to_string())
+                }
+            };
+
             let title = format!(
-                "Data race at 0x{:x}: {} ({} vs {})",
-                addr, reason, v1.access_type, v2.access_type
+                "Data race at 0x{:x} [{}]: {} ({} vs {})",
+                addr, gating, reason, v1.access_type, v2.access_type
             );
-            let finding = Finding::new(
-                "volos",
-                match reason {
-                    RaceReason::Unprotected => "data-race-unprotected",
-                    RaceReason::InconsistentLocking => "data-race-inconsistent-locking",
-                },
-                Severity::High,
-                ctx.current_pc,
-                title,
-            )
-            .with_detail(format!(
-                "Access 1 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
-                v1.thread_id,
-                v1.go_id
-                    .map(|g| g.to_string())
-                    .unwrap_or_else(|| "?".into()),
-                v1.access_type,
-                v1.pc,
-                v1.locks_held,
-                v1.vector_clock,
-            ))
-            .with_detail(format!(
-                "Access 2 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
-                v2.thread_id,
-                v2.go_id
-                    .map(|g| g.to_string())
-                    .unwrap_or_else(|| "?".into()),
-                v2.access_type,
-                v2.pc,
-                v2.locks_held,
-                v2.vector_clock,
-            ))
-            .with_detail(format!("Reason: {}", reason));
+            let mut finding = Finding::new("volos", rule, Severity::High, ctx.current_pc, title)
+                .with_detail(format!(
+                    "Access 1 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
+                    v1.thread_id,
+                    v1.go_id.map(|g| g.to_string()).unwrap_or_else(|| "?".into()),
+                    v1.access_type,
+                    v1.pc,
+                    v1.locks_held,
+                    v1.vector_clock,
+                ))
+                .with_detail(format!(
+                    "Access 2 (tid={}, go={}): {} at 0x{:x}, locks_held={:?}, vc={}",
+                    v2.thread_id,
+                    v2.go_id.map(|g| g.to_string()).unwrap_or_else(|| "?".into()),
+                    v2.access_type,
+                    v2.pc,
+                    v2.locks_held,
+                    v2.vector_clock,
+                ))
+                .with_detail(format!("Reason: {}", reason));
+
+            // Helper: render an optionally-empty model witness.
+            fn witness(m: &str) -> &str {
+                if m.is_empty() {
+                    "(trivial)"
+                } else {
+                    m
+                }
+            }
+
+            // Stamp the input × concurrency coupling onto the finding.
+            finding = match input_class {
+                InputClass::Unconditional => finding.with_detail(
+                    "Input class: input-independent (no symbolic branch gates either access)"
+                        .to_string(),
+                ),
+                InputClass::InputIndependent { phi, trigger } => finding
+                    .with_detail(format!("Path condition φ = φ₁ ∧ φ₂: {}", phi))
+                    .with_detail(
+                        "Input class: input-independent — φ is valid (¬φ UNSAT), so the race \
+                         fires for every input; the recorded branch guard is not what gates it"
+                            .to_string(),
+                    )
+                    .with_detail(format!("Witness (any input works): {}", witness(&trigger))),
+                InputClass::InputDependent { phi, trigger, escape } => finding
+                    .with_detail(format!("Path condition φ = φ₁ ∧ φ₂: {}", phi))
+                    .with_detail(format!(
+                        "Input class: input-dependent — race occurs iff input ⊨ φ; \
+                         triggering input: {}",
+                        witness(&trigger)
+                    ))
+                    .with_detail(format!(
+                        "Escape input (⊨ ¬φ, takes a different path, no race): {}",
+                        witness(&escape)
+                    )),
+                InputClass::Reachable { phi, trigger } => finding
+                    .with_detail(format!("Path condition φ = φ₁ ∧ φ₂: {}", phi))
+                    .with_detail(format!(
+                        "Input class: race reachable for every input ⊨ φ (input-dependence \
+                         undecided: ¬φ returned unknown); witness: {}",
+                        witness(&trigger)
+                    )),
+                InputClass::Infeasible { phi } => finding
+                    .with_detail(format!("Path condition φ = φ₁ ∧ φ₂: {}", phi))
+                    .with_detail(
+                        "Input class: UNSAT — no single input reaches both accesses; \
+                         schedule-only witness, not input-reachable"
+                            .to_string(),
+                    ),
+                InputClass::Unknown { phi } => finding
+                    .with_detail(format!("Path condition φ = φ₁ ∧ φ₂: {}", phi))
+                    .with_detail(
+                        "Input class: solver returned unknown for φ (timeout/incompleteness)"
+                            .to_string(),
+                    ),
+            };
+
             // We're outside a per-event dispatch here so we push directly
             // into the shared findings buffer.
             ctx.findings.borrow_mut().push(finding);
@@ -952,6 +1187,223 @@ mod tests {
         );
     }
 
+    /// **Input × concurrency coupling.** Two threads write the same cell
+    /// with no lock, but one write is gated by a symbolic branch
+    /// `os_args_1 == 0xCA`. The plugin must (a) still flag the race, (b)
+    /// classify it as *input-gated*, and (c) solve `φ` to recover the
+    /// triggering input (`os_args_1 = 0xCA`). This is the brand-new
+    /// capability: a data race reported together with the input class that
+    /// triggers it.
+    #[test]
+    fn volos_input_gated_race_is_solved() {
+        use z3::ast::Bool;
+
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(VolosPlugin::new()));
+
+        let bytes = vec![0u8; 8];
+        let sym: Vec<Option<Rc<BV<'_>>>> = vec![None; 8];
+
+        // Symbolic input byte and the branch guard that gates thread 1's
+        // write: os_args_1 == 0xCA.
+        let input = BV::new_const(&ctx, "os_args_1", 8);
+        let guard: Bool = input._eq(&BV::from_u64(&ctx, 0xCA, 8));
+        let gated_parts = vec![guard];
+
+        // Thread 1 writes 0x5000 *under* the guard φ = (os_args_1 == 0xCA).
+        let ectx_gated = EventCtx::new(&ctx, 0x100, 1, 0, Instant::now(), &findings)
+            .with_path_constraints(&gated_parts);
+        bus.dispatch(
+            &Event::MemWrite {
+                addr: 0x5000,
+                size: 64,
+                concrete: &bytes,
+                symbolic: &sym,
+                pc: 0x100,
+                tid: 1,
+            },
+            &ectx_gated,
+        );
+
+        // Thread 2 writes 0x5000 unconditionally (no path constraints).
+        let ectx_plain = EventCtx::new(&ctx, 0x200, 2, 0, Instant::now(), &findings);
+        bus.dispatch(
+            &Event::MemWrite {
+                addr: 0x5000,
+                size: 64,
+                concrete: &bytes,
+                symbolic: &sym,
+                pc: 0x200,
+                tid: 2,
+            },
+            &ectx_plain,
+        );
+
+        bus.run_finish(&ectx_gated);
+
+        let f = findings.borrow();
+        assert!(!f.is_empty(), "expected an input-gated race finding");
+        assert!(
+            f.iter().any(|x| x.rule == "input-gated-data-race-unprotected"),
+            "race should be classified input-gated, got rules: {:?}",
+            f.iter().map(|x| x.rule).collect::<Vec<_>>()
+        );
+        let blob: String = f
+            .iter()
+            .flat_map(|x| x.details.iter().cloned())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            blob.contains("Path condition φ"),
+            "finding must carry the path condition φ:\n{}",
+            blob
+        );
+        assert!(
+            blob.contains("os_args_1"),
+            "solved input model must mention the symbolic input:\n{}",
+            blob
+        );
+        // ¬φ (os_args_1 != 0xCA) is satisfiable, so this is a *genuinely
+        // input-dependent* race: the finding must say so and carry an
+        // escape input that avoids the racing path.
+        assert!(
+            blob.contains("input-dependent"),
+            "finding must classify the race as input-dependent:\n{}",
+            blob
+        );
+        assert!(
+            blob.contains("Escape input"),
+            "input-dependent finding must carry a ¬φ escape witness:\n{}",
+            blob
+        );
+    }
+
+    /// **Input-gated reachability with an input-INDEPENDENT outcome.** Both
+    /// accesses are reached under a guard `φ` that is a *tautology* over the
+    /// input (`x == 0 ∨ x != 0`). `φ` is SAT but `¬φ` is UNSAT, so the race
+    /// fires for every input: the detector must label it input-independent
+    /// (and keep the plain rule), not input-gated, even though branch
+    /// constraints were captured.
+    #[test]
+    fn volos_valid_guard_is_input_independent() {
+        use z3::ast::Bool;
+
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(VolosPlugin::new()));
+
+        let bytes = vec![0u8; 8];
+        let sym: Vec<Option<Rc<BV<'_>>>> = vec![None; 8];
+
+        // Tautological guard: (x == 0) ∨ (x != 0)  ≡  true.
+        let x = BV::new_const(&ctx, "in_byte", 8);
+        let eq0 = x._eq(&BV::from_u64(&ctx, 0, 8));
+        let taut: Bool = Bool::or(&ctx, &[&eq0, &eq0.not()]);
+        let parts = vec![taut];
+
+        let ectx_gated = EventCtx::new(&ctx, 0x100, 1, 0, Instant::now(), &findings)
+            .with_path_constraints(&parts);
+        bus.dispatch(
+            &Event::MemWrite {
+                addr: 0x5000,
+                size: 64,
+                concrete: &bytes,
+                symbolic: &sym,
+                pc: 0x100,
+                tid: 1,
+            },
+            &ectx_gated,
+        );
+        let ectx_plain = EventCtx::new(&ctx, 0x200, 2, 0, Instant::now(), &findings);
+        bus.dispatch(
+            &Event::MemWrite {
+                addr: 0x5000,
+                size: 64,
+                concrete: &bytes,
+                symbolic: &sym,
+                pc: 0x200,
+                tid: 2,
+            },
+            &ectx_plain,
+        );
+        bus.run_finish(&ectx_gated);
+
+        let f = findings.borrow();
+        assert!(
+            f.iter().any(|x| x.rule == "data-race-unprotected"),
+            "valid-guard race must keep the plain rule, got: {:?}",
+            f.iter().map(|x| x.rule).collect::<Vec<_>>()
+        );
+        let blob: String = f
+            .iter()
+            .flat_map(|x| x.details.iter().cloned())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            blob.contains("φ is valid") || blob.contains("input-independent"),
+            "finding must explain the race is input-independent (φ valid):\n{}",
+            blob
+        );
+        assert!(
+            !f.iter().any(|x| x.rule.starts_with("input-gated")),
+            "a valid guard must NOT be reported as input-gated:\n{:?}",
+            f.iter().map(|x| x.rule).collect::<Vec<_>>()
+        );
+    }
+
+    /// A race with no symbolic gating on either access must be labelled
+    /// *input-independent* and keep the plain `data-race-unprotected` rule
+    /// so existing baselines are unaffected.
+    #[test]
+    fn volos_unconditional_race_marked_input_independent() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(VolosPlugin::new()));
+
+        let ectx = mk_ctx(&ctx, &findings);
+        let bytes = vec![0u8; 8];
+        let sym: Vec<Option<Rc<BV<'_>>>> = vec![None; 8];
+
+        for (tid, pc) in [(1u64, 0x100u64), (2u64, 0x200u64)] {
+            bus.dispatch(
+                &Event::MemWrite {
+                    addr: 0x5000,
+                    size: 64,
+                    concrete: &bytes,
+                    symbolic: &sym,
+                    pc,
+                    tid,
+                },
+                &ectx,
+            );
+        }
+        bus.run_finish(&ectx);
+
+        let f = findings.borrow();
+        assert!(
+            f.iter().any(|x| x.rule == "data-race-unprotected"),
+            "unconditional race keeps the plain rule, got: {:?}",
+            f.iter().map(|x| x.rule).collect::<Vec<_>>()
+        );
+        let blob: String = f
+            .iter()
+            .flat_map(|x| x.details.iter().cloned())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            blob.contains("input-independent"),
+            "finding must be labelled input-independent:\n{}",
+            blob
+        );
+    }
+
     /// Direct unit test on the region: forge two records whose vector
     /// clocks are strictly ordered and verify `race_pairs` skips them
     /// even with empty locksets.
@@ -965,8 +1417,10 @@ mod tests {
         late.node_id = "b".into();
         late.tick_at("b"); // a:1, b:1   →  early < late
 
-        let r1 = Volos::new(1, AccessType::Write, Vec::new(), early).with_addr_size(0x1234, 1);
-        let r2 = Volos::new(2, AccessType::Write, Vec::new(), late).with_addr_size(0x1234, 1);
+        let r1 = Volos::new(1, AccessType::Write, Vec::new(), early)
+            .with_addr_size(0x1234, 1);
+        let r2 = Volos::new(2, AccessType::Write, Vec::new(), late)
+            .with_addr_size(0x1234, 1);
 
         let mut region = VolosRegion::new(0, u64::MAX);
         region.add_record(r1);

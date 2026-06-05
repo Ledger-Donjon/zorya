@@ -69,6 +69,14 @@ pub struct Volos {
     pub timestamp_ns: u128,
     /// Vector clock at the time of the access.
     pub vector_clock: VolosVC,
+    /// Monotonic id assigned by the plugin when the record is built. It
+    /// keys the plugin's side table of captured path conditions
+    /// (`VolosPlugin::path_conditions`), so the end-of-trace race pass can
+    /// recover the predicate `φ` under which *this* access was reached
+    /// without threading Z3's `'ctx` lifetime through the record/region
+    /// types. `0` for records built outside the event path (tests, the
+    /// region sentinel).
+    pub record_id: u64,
 }
 
 impl Volos {
@@ -92,12 +100,20 @@ impl Volos {
             pc: 0,
             timestamp_ns,
             vector_clock,
+            record_id: 0,
         }
     }
 
     pub fn with_addr_size(mut self, addr: u64, size: u64) -> Self {
         self.addr = addr;
         self.size = size;
+        self
+    }
+
+    /// Attach the plugin-assigned record id used to recover this access's
+    /// captured path condition at end-of-trace.
+    pub fn with_record_id(mut self, id: u64) -> Self {
+        self.record_id = id;
         self
     }
 

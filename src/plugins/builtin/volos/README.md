@@ -59,6 +59,49 @@ For every cell with two or more recorded accesses, `VolosRegion::race_pairs` con
 
 Each surviving pair becomes a `Finding` of severity `High` carrying both accesses' tid, synthetic goroutine id, pc, lockset, and full vector clock for forensics.
 
+## Input-gated races (inputs × concurrency coupling)
+
+The vanilla detector answers *"did these two accesses race on the schedule we executed?"*. That is a property of one interleaving and one concrete input. Volos additionally couples each witness to the **symbolic inputs**, answering the stronger question *"for which **class of inputs** is this race reachable?"*.
+
+The mechanism reuses machinery the engine already maintains — no new analysis:
+
+1. **Path-condition capture.** Every `MemRead` / `MemWrite` event now carries the engine's current path condition via `EventCtx::path_constraints()` — a borrowed view of the executor's `constraint_vector` (the branch constraints over tracked symbolic inputs accumulated on the path that reached the access). The plugin snapshots it into a side table keyed by a per-record id (`Volos::record_id`), so the `Volos` / `VolosRegion` types stay free of Z3's `'ctx` lifetime.
+
+2. **Up to two solver calls per witness.** At `on_finish`, for each race pair `(v1, v2)` the plugin conjoins the two accesses' path conditions `φ = φ₁ ∧ φ₂` and issues `Solver::check()` against the shared Z3 context (`VolosPlugin::classify_input`). When `φ` is satisfiable a **second** query on `¬φ` decides whether the race outcome genuinely depends on the input or just on reachability. The outcome is attached to the finding as an `InputClass`:
+
+   | `InputClass` | `φ` | `¬φ` | Meaning | Rule id |
+   | --- | --- | --- | --- | --- |
+   | `Unconditional` | (no guard captured) | — | Neither access is gated by a symbolic branch → races for **every** input that reaches the code | plain `data-race-*` |
+   | `InputIndependent { φ, trigger }` | SAT | **UNSAT** | A guard was recorded but `φ` is *valid* (holds for all inputs) → race fires regardless of input value; reaching the code never actually depended on input | plain `data-race-*` |
+   | `InputDependent { φ, trigger, escape }` | SAT | **SAT** | Genuinely contingent on input: races **iff** input ⊨ φ. `trigger` drives the race; `escape` (⊨ ¬φ) takes a different path and avoids it | `input-gated-data-race-*` |
+   | `Reachable { φ, trigger }` | SAT | unknown | Reachable for every input ⊨ φ, but input-dependence couldn't be decided | `input-gated-data-race-*` |
+   | `Infeasible { φ }` | UNSAT | — | No single input drives the program down both paths; schedule artefact, not input-reachable | `data-race-schedule-only` |
+   | `Unknown { φ }` | unknown | — | solver returned `unknown` for `φ` (timeout / incompleteness) | plain `data-race-*` |
+
+   The `¬φ` query is the piece that separates *"the race always happens, the code is just behind an input-dependent branch"* (`InputIndependent` — `φ` valid) from *"different inputs decide whether the race happens at all"* (`InputDependent` — `¬φ` has an escape witness). The input-independent case (no race↔input link) is covered three ways depending on how it arises: `Unconditional` (no guard), `InputIndependent` (vacuous guard), and the plain rule is preserved in all of them so existing baselines are unaffected.
+
+This is the distinction between *"this schedule raced"* and *"this whole input class races"*: a data race reported **together with the input that triggers it**. Run it under round-robin so both goroutines/threads actually execute:
+
+```bash
+zorya <binary> --lang go --compiler gc \
+  --thread-scheduling all-threads \
+  --mode main "$ADDR" --negate-path-exploration
+```
+
+A finding for an input-gated race looks like:
+
+```
+[volos::input-gated-data-race-unprotected] Data race at 0x59ca58 [input-dependent]: Unprotected access (Write vs Write) (pc=..., severity=High)
+    Access 1 (tid=1, go=1): Write at 0x4b8033, locks_held=[], vc=...
+    Access 2 (tid=2, go=2): Write at 0x4b7f53, locks_held=[], vc=...
+    Reason: Unprotected access
+    Path condition φ = φ₁ ∧ φ₂: (= os_args_1 #xca)
+    Input class: input-dependent — race occurs iff input ⊨ φ; triggering input: os_args_1 -> #xca
+    Escape input (⊨ ¬φ, takes a different path, no race): os_args_1 -> #x00
+```
+
+For input-independent races (e.g. the `race-counter` fixtures, whose writes are unconditional) `φ` is empty, so the finding is labelled `input-independent` and keeps its original rule id — existing CI baselines are unaffected.
+
 ## Vector-clock semantics
 
 Pre-tick, then snapshot. `build_record` increments the live thread clock **before** cloning it into the record. Without the pre-tick, a thread's first event would carry `{tid: 0}`, and the partial-order compare against another thread's `{other: 1}` would spuriously report `Some(Less)` because missing components default to 0. Pre-ticking guarantees every record's local component is at least 1, so two unrelated threads' first events compare as concurrent.
@@ -75,7 +118,7 @@ The plugin assigns a monotonic `go_id` (0, 1, 2, …) on first sight of each tid
 
 ## Tests
 
-`mod.rs` contains 9 unit tests exercising the plugin end-to-end through the bus (no executor needed):
+`mod.rs` contains unit tests exercising the plugin end-to-end through the bus (no executor needed):
 
 | Test | What it proves |
 | --- | --- |
@@ -87,6 +130,9 @@ The plugin assigns a monotonic `go_id` (0, 1, 2, …) on first sight of each tid
 | `volos_hb_filter_suppresses_fork_ordered_accesses` | Parent-write → spawn → child-write is *not* flagged (causally ordered). |
 | `volos_post_spawn_parent_access_still_races` | Parent's *post-spawn* write vs child's write *is* flagged (concurrent thanks to the parent tick). |
 | `volos_assigns_go_ids_in_first_seen_order` | Synthetic goroutine ids appear in finding details in observation order. |
+| `volos_input_gated_race_is_solved` | A race where one write is gated by `os_args_1 == 0xCA` is flagged `input-gated-data-race-unprotected`, classified **input-dependent**, carries `φ`, the triggering input, and a `¬φ` escape input. |
+| `volos_unconditional_race_marked_input_independent` | A race with no symbolic gating is labelled `input-independent` and keeps the plain `data-race-unprotected` rule. |
+| `volos_valid_guard_is_input_independent` | A race behind a *tautological* guard (`φ` SAT, `¬φ` UNSAT) is labelled **input-independent** and keeps the plain rule — not reported as input-gated. |
 | `region_race_pairs_skips_strictly_ordered_clocks` | Direct unit test on `VolosRegion`: forged records with strictly ordered clocks produce no pairs even with empty locksets. |
 
 Run them with:
@@ -181,6 +227,7 @@ cd tests/programs/race-counter && go run -race .
 | Lock-primitive bookkeeping for Go (`runtime.lock` family) | Complete. |
 | Lock-primitive bookkeeping for C (`pthread_mutex_*`, identified by RDI mutex pointer) | Complete. |
 | Vector-clock-aware race detection | Complete. |
+| Input-gated races: path-condition capture + per-witness solver query (inputs × concurrency) | Complete. |
 | Real Go `g.goid` in findings (via `EventCtx::current_goid`) | Complete. |
 | Synthetic goroutine ids (fallback when `current_goid` is unresolved) | Complete. |
 | `VOLOS_VERBOSE` stderr tracing | Functional (per-plugin file logger deferred). |

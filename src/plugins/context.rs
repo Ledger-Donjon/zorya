@@ -18,6 +18,7 @@
 use std::cell::RefCell;
 use std::time::Instant;
 
+use z3::ast::Bool;
 use z3::Context;
 
 use crate::plugins::finding::Finding;
@@ -62,6 +63,22 @@ pub struct EventCtx<'ctx, 's> {
     /// finding, but the buffer is exposed read-only here so a plugin can
     /// observe what an earlier-ordered plugin already raised.
     pub(crate) findings: &'s RefCell<Vec<Finding>>,
+
+    /// The engine's *current path condition*: the ordered set of branch
+    /// constraints (over tracked symbolic inputs) accumulated on the path
+    /// that reached this event. This is a borrowed view of the executor's
+    /// `constraint_vector`; their conjunction is the predicate `φ` under
+    /// which the current concrete path is taken.
+    ///
+    /// Concurrency-aware detectors use this to turn a schedule-specific
+    /// witness ("these two accesses raced on *this* run") into an
+    /// input-class result ("they race for every input satisfying `φ₁ ∧ φ₂`").
+    /// Empty when no symbolic input gates the path (input-independent), or
+    /// for non-symbolic runs.
+    ///
+    /// Plugins must **not** stash the `'s` slice; clone the `Bool<'ctx>`
+    /// nodes they need (cheap, reference-counted, valid for `'ctx`).
+    pub(crate) path_constraints: &'s [Bool<'ctx>],
 }
 
 impl<'ctx, 's> EventCtx<'ctx, 's> {
@@ -83,6 +100,7 @@ impl<'ctx, 's> EventCtx<'ctx, 's> {
             instruction_counter,
             start_time,
             findings,
+            path_constraints: &[],
         }
     }
 
@@ -90,6 +108,20 @@ impl<'ctx, 's> EventCtx<'ctx, 's> {
     pub fn with_goid(mut self, goid: Option<u64>) -> Self {
         self.current_goid = goid;
         self
+    }
+
+    /// Builder: attach a borrowed view of the engine's current path
+    /// constraints (the executor's `constraint_vector`).
+    pub fn with_path_constraints(mut self, parts: &'s [Bool<'ctx>]) -> Self {
+        self.path_constraints = parts;
+        self
+    }
+
+    /// The branch constraints accumulated on the path that reached this
+    /// event. Their conjunction is the path condition `φ`. Empty slice means
+    /// the path is input-independent (or the run is non-symbolic).
+    pub fn path_constraints(&self) -> &[Bool<'ctx>] {
+        self.path_constraints
     }
 
     /// Snapshot of the findings list; plugins can use this to suppress

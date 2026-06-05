@@ -11,7 +11,10 @@ description: |
   by Keith Makan / KMSEC (https://github.com/kmsec137/zorya-volos).
   Tracks per-cell access history with a finite-state automaton
   (Virgin → Exclusive → Shared → SharedModified → Raceable → Reported)
-  and emits one finding per witness pair at end-of-trace.
+  and emits one finding per witness pair at end-of-trace. Each witness is
+  coupled to the symbolic inputs: the two accesses' path conditions are
+  conjoined and solved, so a race is reported together with the input class
+  (φ) that triggers it (rule ids input-gated-data-race-*).
 
 upstream: https://github.com/kmsec137/zorya-volos
 attribution: |
