@@ -44,11 +44,11 @@
  *     --lang c \
  *     --thread-scheduling all-threads \
  *     --mode main \
- *     --arg "K" \
+ *     --arg "a" \
  *     --negate-path-exploration
  *
  * Expected: volos reports a Write vs Write data race on `counter`, classified
- * as InputDependent, with a witness assignment for arg1_byte0.
+ * as InputDependent, with a witness assignment showing arg1_byte0 = 'K'.
  */
 
 #include <pthread.h>
