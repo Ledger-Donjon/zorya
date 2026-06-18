@@ -74,6 +74,76 @@ Use one of these profiles depending on your goal:
   - Set `ZORYA_MEM_SAFETY_ORACLES=1`
   - Optionally keep `LOG_MODE=trace_only` to reduce I/O overhead.
 
+## Linux runner workflow (manual, for macOS/Rosetta users)
+
+Zorya's dump pipeline relies on Linux debugger behavior (`ptrace`/GDB register + memory capture).
+On Apple Silicon with Rosetta-translated targets, local debugger introspection can fail.
+The recommended workaround is to run Zorya on a Linux x86_64 runner (remote host or Linux VM),
+while driving it from your macOS machine.
+
+### A) One-time setup on Linux runner
+
+```bash
+git clone --recursive https://github.com/Ledger-Donjon/zorya
+cd zorya
+make ghidra-config
+make all
+```
+
+### B) Copy target binary from macOS to Linux
+
+From your macOS machine:
+
+```bash
+scp /absolute/path/to/your-binary user@linux-host:/tmp/your-binary
+```
+
+### C) Run analysis on Linux
+
+On the Linux runner:
+
+```bash
+cd ~/zorya
+zorya /tmp/your-binary \
+  --lang go \
+  --compiler gc \
+  --thread-scheduling all-threads \
+  --mode main \
+  --arg "a" \
+  --negate-path-exploration
+```
+
+### D) Retrieve results back to macOS
+
+From your macOS machine:
+
+```bash
+scp -r user@linux-host:~/zorya/results ./zorya-results
+```
+
+Main artifacts:
+- `results/plugin_findings.txt`
+- `results/vulnerability_log.txt`
+- `results/execution_trace.txt`
+- `results/execution_log.txt` (unless `LOG_MODE=trace_only`)
+
+### Optional helper script
+
+You can automate steps B/C/D with:
+
+```bash
+scripts/zorya-remote-run.sh \
+  --host user@linux-host \
+  --binary /absolute/path/to/local/binary \
+  -- --mode main --lang go --compiler gc \
+     --thread-scheduling all-threads \
+     --arg "a" \
+     --negate-path-exploration
+```
+
+The script uploads the binary, runs Zorya on the Linux host, and downloads
+`results/` into a local timestamped directory under `./zorya-remote-results`.
+
 ### Notes
 
 - Missing options can be completed interactively.

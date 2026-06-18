@@ -89,6 +89,10 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
 
 Full flag reference and examples: [doc/Usage.md](doc/Usage.md)
 
+Running from macOS/Rosetta? Use the documented Linux runner workflow:
+[doc/Usage.md#linux-runner-workflow-manual-for-macosrosetta-users](doc/Usage.md#linux-runner-workflow-manual-for-macosrosetta-users)
+and optional helper script `scripts/zorya-remote-run.sh`.
+
 ### C. Fuzzer mode
 
 For automated campaigns on multiple addresses/configurations:
