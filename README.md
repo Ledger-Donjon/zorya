@@ -216,7 +216,7 @@ Evaluation Go dataset:
 
 ## 7. Findings
 
-Bugs discovered with Zorya on real-world open-source projects. Last update: June, 4th 2026.
+Bugs discovered with Zorya on real-world open-source projects. Last update: June, 23rd 2026.
 
 | Repository | Bug / Vuln type | Report | Status |
 |---|---|---|---|
@@ -228,19 +228,21 @@ Bugs discovered with Zorya on real-world open-source projects. Last update: June
 | [seaweedfs/seaweedfs](https://github.com/seaweedfs/seaweedfs) | Index OOB | [PR #9713](https://github.com/seaweedfs/seaweedfs/pull/9713) | Fixed |
 | [zeromicro/go-zero](https://github.com/zeromicro/go-zero) | OOB slice | [#5614](https://github.com/zeromicro/go-zero/issues/5614) | Fixed |
 | [multiformats/go-multiaddr](https://github.com/multiformats/go-multiaddr) | OOB slice | [PR #289](https://github.com/multiformats/go-multiaddr/pull/289) | Fixed |
-| [pion/dtls](https://github.com/pion/dtls) | Index OOB | [commit 517ebf2](https://github.com/pion/dtls/commit/517ebf2f117d75cef9cef2a2d9b6b43a3d9b7f83) | Fixed (private, medium) |
-| [pion/stun](https://github.com/pion/stun) | OOB slice | [commit fa9f074](https://github.com/pion/stun/commit/fa9f074a33a8059c76c960b1fbee39f308002423) | Fixed (private, high) |
-| [zeromicro/go-zero](https://github.com/zeromicro/go-zero) | OOB slice | [#5607](https://github.com/zeromicro/go-zero/issues/5607) | Reported |
+| [pion/dtls](https://github.com/pion/dtls) | Index OOB | [GHSA-wg4g-wm44-ch5j](https://github.com/pion/dtls/security/advisories/GHSA-wg4g-wm44-ch5j) / CVE-2026-54908 | Fixed (medium) |
+| [pion/stun](https://github.com/pion/stun) | OOB slice | [GHSA-34rh-wp3j-6cxc](https://github.com/pion/stun/security/advisories/GHSA-34rh-wp3j-6cxc) / CVE-2026-54909 | Fixed (medium) |
+| [zeromicro/go-zero](https://github.com/zeromicro/go-zero) | OOB slice | [#5607](https://github.com/zeromicro/go-zero/issues/5607) | Fixed |
 | [multiformats/go-multiaddr](https://github.com/multiformats/go-multiaddr) | OOB slice | [#288](https://github.com/multiformats/go-multiaddr/issues/288) | Reported |
 | **Integer overflow** | | | |
 | [gochain/gochain](https://github.com/gochain/gochain) | Integer overflow | [GHSA-rmvq-87f6-4pfc](https://github.com/gochain/gochain/security/advisories/GHSA-rmvq-87f6-4pfc) | Fixed |
 | [erpc/erpc](https://github.com/erpc/erpc) | Integer overflow | [#869](https://github.com/erpc/erpc/issues/869) | Reported |
 | [trufnetwork/kwil-db](https://github.com/trufnetwork/kwil-db) | Integer overflow | [#1701](https://github.com/trufnetwork/kwil-db/issues/1701) | Reported |
-| [cometbft/cometbft](https://github.com/cometbft/cometbft) | Integer overflow | [#5846](https://github.com/cometbft/cometbft/issues/5846) | Reported |
+| [cometbft/cometbft](https://github.com/cometbft/cometbft) | Integer overflow | [#5846](https://github.com/cometbft/cometbft/issues/5846) | Fixed |
 | [gnolang/gno](https://github.com/gnolang/gno) | Integer overflow | [#5639](https://github.com/gnolang/gno/issues/5639) | Reported |
 | [XinFinOrg/XDPoSChain](https://github.com/XinFinOrg/XDPoSChain) | Integer underflow | [#2362](https://github.com/XinFinOrg/XDPoSChain/issues/2362) | Reported |
 | [kedacore/keda](https://github.com/kedacore/keda) | Float-to-int overflow | [#7796](https://github.com/kedacore/keda/issues/7796) | Fix ongoing |
 | [multiversx/mx-chain-go](https://github.com/multiversx/mx-chain-go) | Float-to-int64 overflow | Private disclosure | Reported |
+| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Int64 wrap (MPT amount) | [GHSA-xv89-94jf-8vx2](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-xv89-94jf-8vx2) | Reported |
+| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Uint64 mul overflow (MPT amount) | [GHSA-j5cw-qr86-mmv7](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-j5cw-qr86-mmv7) | Reported |
 | **Nil pointer dereference** | | | |
 | [runatlantis/atlantis](https://github.com/runatlantis/atlantis) | Nil pointer dereference | [#6492](https://github.com/runatlantis/atlantis/issues/6492) | Fixed |
 | [crossplane-contrib/provider-http](https://github.com/crossplane-contrib/provider-http) | Nil pointer dereference | [#178](https://github.com/crossplane-contrib/provider-http/issues/178) | Reported |
