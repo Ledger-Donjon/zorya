@@ -1,130 +1,289 @@
 # Zorya MCP Server
 
-MCP (Model Context Protocol) server that exposes zorya's concolic execution engine to LLM agents in Cursor and Claude Code. An LLM can autonomously load a Go/C/C++ binary, discover functions, run concolic analysis campaigns, and retrieve vulnerability findings.
+The Zorya MCP server (`zorya-mcp`) exposes the concolic execution engine as a set of tools that an LLM agent can call directly inside **Cursor**, **Claude Code**, or **GitHub Copilot**. Instead of running shell commands manually, you describe what you want to find and the agent drives the full analysis — loading the binary, picking functions, running campaigns, and surfacing vulnerability-triggering inputs.
 
-## Architecture
+<p align="center">
+  <img src="../../doc/zorya-mcp.png" alt="Zorya MCP workflow" width="700"/>
+</p>
 
-```
-LLM Agent (Cursor / Claude Code)
-    |
-    | MCP protocol (stdio, JSON-RPC)
-    v
-zorya-mcp binary
-    |
-    |-- Recon tools -----> goblin ELF parser, function_signatures*.json
-    |-- Execution tools -> scripts/zorya (single run), zorya-fuzzer (campaigns)
-    |-- Results tools ---> results/, fuzzer_results/ on disk
-    v
-Zorya engine (P-code gen, GDB dumps, concolic execution, Z3 solver)
-```
+The agent works through three phases:
 
-The server is a single Rust binary (`zorya-mcp`) built with the [rmcp](https://github.com/modelcontextprotocol/rust-sdk) SDK. It reuses the existing zorya pipeline as-is: `scripts/zorya` for single-function analysis, and `zorya-fuzzer` for multi-test campaigns using the same `FuzzerConfig` JSON format as `fuzzer_config.json`.
+- **Recon** — load the binary, list functions, resolve argument types.
+- **Execution** — submit a concolic campaign, poll for completion.
+- **Results** — read SAT witnesses (concrete inputs that trigger a bug), inspect the execution trace.
 
-## Tools
+---
 
-| Group | Tool | Description |
-|-------|------|-------------|
-| Recon | `load_binary` | Parse an ELF binary, extract entry point, sections, function count. Sets session state. |
-| Recon | `list_functions` | Paginated function listing from ELF symbol table. Supports name filter. |
-| Recon | `get_function_signature` | Lookup function signature (args, types) from DWARF/Ghidra/ELF. |
-| Recon | `list_strings` | List printable strings in the binary with optional content filter. |
-| Execution | `run_analysis` | Run concolic analysis on a single function (full pipeline: pcode + dumps + Z3). |
-| Execution | `run_campaign` | Run a multi-test campaign. Builds a `FuzzerConfig` and delegates to `zorya-fuzzer`. |
-| Execution | `get_job_status` | Poll a running job: state, elapsed time, SAT found. |
-| Execution | `cancel_job` | Kill a running analysis by PID. |
-| Results | `get_sat_states` | Read concrete vulnerability-triggering inputs found by Z3. |
-| Results | `get_execution_trace` | Read function call trace with argument context (paginated). |
-| Results | `get_campaign_summary` | Read campaign pass/fail/timeout/SAT summary. |
-| Results | `list_result_files` | Enumerate result artifacts for a test or campaign. |
+## Prerequisites
 
-## Build
+Before using the MCP server, make sure the full Zorya toolchain is installed and working on your machine. The MCP server is a thin wrapper around the same pipeline used by the CLI — it won't work without the underlying engine.
 
-From the zorya workspace root:
+**If you haven't installed Zorya yet**, follow one of these options from the repo root:
 
 ```bash
-cargo build --release --bin zorya-mcp
+# Option A — Docker (recommended, no native dependencies)
+docker build -t zorya:latest .
+
+# Option B — Native
+make ghidra-config && make all
 ```
 
-The binary is placed at `target/release/zorya-mcp`.
+Verify your installation by running a quick test:
 
-## Configuration
+```bash
+zorya tests/programs/crashme/crashme
+```
+
+Once Zorya runs correctly, proceed below.
+
+---
+
+## Step 1 — Build the MCP server
+
+From the zorya workspace root, build **all** release binaries at once. The MCP server needs both `zorya-mcp` (the server itself) and `zorya-fuzzer` (used internally by `run_campaign`):
+
+```bash
+cargo build --release
+```
+
+This places the binaries at:
+- `target/release/zorya-mcp` — the MCP server
+- `target/release/zorya-fuzzer` — the campaign runner (called internally, do not invoke directly)
+
+> If you only build `--bin zorya-mcp`, `run_campaign` will fail at runtime with a `zorya-fuzzer binary not found` error.
+
+---
+
+## Step 2 — Configure your client
+
+Pick the section that matches your editor. Replace `/absolute/path/to/zorya` with the actual path to the cloned repository on your machine.
 
 ### Cursor
 
-Add to `.cursor/mcp.json` in your project (or globally):
+Create or edit `.cursor/mcp.json` at your **project root** (or `~/.cursor/mcp.json` for a global installation):
 
 ```json
 {
   "mcpServers": {
     "zorya": {
-      "command": "/path/to/zorya/target/release/zorya-mcp",
+      "command": "/absolute/path/to/zorya/target/release/zorya-mcp",
       "env": {
-        "ZORYA_DIR": "/path/to/zorya"
+        "ZORYA_DIR": "/absolute/path/to/zorya"
       }
     }
   }
 }
 ```
 
+Restart Cursor. Go to **Settings → MCP** to confirm the `zorya` server appears with a green status indicator.
+
 ### Claude Code
 
+Register the server once from the terminal:
+
 ```bash
-claude mcp add zorya /path/to/zorya/target/release/zorya-mcp \
-  --env ZORYA_DIR=/path/to/zorya
+claude mcp add zorya /absolute/path/to/zorya/target/release/zorya-mcp \
+  --env ZORYA_DIR=/absolute/path/to/zorya
 ```
 
-### Environment
+Verify it was added:
 
-- `ZORYA_DIR` -- path to the zorya workspace root (auto-detected from binary location if not set).
+```bash
+claude mcp list
+```
 
-## Autonomous Workflow
+The `zorya` server will be available in every Claude Code session on that machine from now on.
 
-The LLM follows this loop:
+### GitHub Copilot (VS Code)
 
-1. **`load_binary`** -- register the target ELF binary (Go/C/C++)
-2. **`list_functions`** -- discover interesting functions to test
-3. **`get_function_signature`** -- understand argument types for selected targets
-4. **`run_campaign`** -- execute concolic analysis on multiple functions with chosen arguments
-5. **`get_job_status`** -- poll until the campaign completes
-6. **`get_sat_states`** -- retrieve concrete inputs that trigger vulnerabilities
-7. **Iterate** -- refine arguments, test more functions, increase timeouts
-
-### Example campaign (what the LLM builds)
-
-The `run_campaign` tool generates a config matching the `fuzzer_config.json` format:
+Create `.vscode/mcp.json` at your **workspace root**:
 
 ```json
 {
-  "global": {
-    "language": "go",
-    "compiler": "gc",
-    "binary_path": "/path/to/binary",
-    "thread_scheduling": "main-only",
-    "log_mode": "verbose",
-    "negate_path_flag": true
-  },
-  "tests": [
-    {
-      "id": "main.main-1",
-      "mode": "main",
-      "start_address": "0x4bef60",
-      "args": "2 + 3",
-      "timeout_seconds": 500
-    },
-    {
-      "id": "main.coreEngine",
-      "mode": "function",
-      "start_address": "0x4bec40",
-      "args": "5 * 0",
-      "timeout_seconds": 500
+  "servers": {
+    "zorya": {
+      "type": "stdio",
+      "command": "/absolute/path/to/zorya/target/release/zorya-mcp",
+      "env": {
+        "ZORYA_DIR": "/absolute/path/to/zorya"
+      }
     }
-  ]
+  }
 }
 ```
 
-## Source Files
+Also make sure MCP is enabled in your VS Code user settings:
 
-- `main.rs` -- binary entry point, `ZORYA_DIR` detection, stdio server startup
-- `server.rs` -- `ZoryaMcp` struct with all tool implementations (rmcp `#[tool]` macros)
-- `types.rs` -- parameter types with JSON Schema descriptions for LLM tool discovery
-- `jobs.rs` -- async job manager tracking spawned child processes
+```json
+{
+  "chat.mcp.enabled": true
+}
+```
+
+Reload VS Code. Copilot Chat will discover the `zorya` tools automatically.
+
+### About ZORYA_DIR
+
+`ZORYA_DIR` tells the server where the zorya workspace root is (the directory that contains `Cargo.toml`). If you omit it, the server tries to auto-detect the location by walking up from its own binary path — this usually works when the binary lives inside the repo (`target/release/zorya-mcp`), but setting it explicitly is safer and avoids ambiguity.
+
+---
+
+## Step 3 — Run your first analysis
+
+Once the server is connected, open a chat session in your editor and give the agent a target binary. A minimal prompt to get started:
+
+> "Load `/absolute/path/to/mybinary`, list the functions in the `main` package, pick the most interesting ones for concolic analysis, run a campaign, and tell me if any SAT states were found."
+
+The agent will call the tools in the correct order. You can also drive it step by step as described below.
+
+### Workflow walkthrough
+
+The numbered steps match the arrows in the diagram above.
+
+#### 1. Load the binary
+
+```
+load_binary(
+  binary_path = "/absolute/path/to/mybinary",
+  language    = "go",          # go | c | c++
+  compiler    = "gc",          # gc | tinygo (Go)  /  gcc | clang (C/C++)
+  thread_scheduling = "main-only"   # optional, Go gc only
+)
+```
+
+The server parses the ELF, extracts the entry point and section list, and **stores `binary_path`, `language`, `compiler`, and `thread_scheduling` in session state**. Every subsequent tool call reuses these values — you do not need to repeat them.
+
+> Build your binary with debug symbols for best results:
+> - Go: `go build -gcflags=all="-N -l" .`
+> - TinyGo: `tinygo build -gc=conservative -opt=0 .`
+
+#### 2. List functions
+
+```
+list_functions(filter="main.", limit=50)
+```
+
+Returns a paginated table of function names, addresses, and sizes sorted by address. Use `filter` to narrow to a package or prefix, and `offset`/`limit` to page through large symbol tables.
+
+#### 3. Resolve argument types
+
+```
+get_function_signature(name_or_address="main.processInput")
+# or by address:
+get_function_signature(name_or_address="0x4bec40")
+```
+
+The server looks up the function in `results/function_signatures_go.json` (produced by a previous Zorya run), then falls back to Ghidra signatures, then to the raw ELF symbol table. The result tells the agent what argument types to pass in the campaign.
+
+> Detailed argument types are only available when the binary has been analysed at least once before (the signature file is generated during pcode extraction). On a first run, the ELF fallback still returns the function address and size.
+
+#### 4. Submit a campaign
+
+`run_campaign` takes only a `tests` list. The global config (language, compiler, binary path, thread scheduling, negate-path) is taken automatically from the session state set by `load_binary`.
+
+```
+run_campaign(tests=[
+  {
+    "id":            "main.processInput-sweep",
+    "mode":          "function",   # start | main | function
+    "start_address": "0x4bec40",
+    "args":          "5",          # space-separated concrete seeds, or "none"
+    "timeout_seconds": 120
+  }
+])
+```
+
+Returns a `job_id` (integer). The analysis runs in the background; the call returns immediately. The campaign config is written to `mcp_campaign_config.json` in the workspace root for inspection.
+
+For a **single function** without running a full campaign, use `run_analysis` instead:
+
+```
+run_analysis(
+  mode          = "function",
+  start_address = "0x4bec40",
+  args          = "5",
+  negate_path   = true
+)
+```
+
+#### 5. Poll for completion
+
+```
+get_job_status(job_id=42)
+```
+
+Returns:
+- `state`: `running` | `completed` | `failed`
+- `elapsed_seconds`: time since submission
+- `exit_code`: process exit code (once finished)
+- `sat_found`: `true` if a `FOUND_SAT_STATE.txt` file was written (completed jobs only)
+
+Poll every ~10 seconds until `state` is no longer `running`.
+
+#### 6. Read findings
+
+For a **campaign**, use the test `id` you set in step 4:
+
+```
+get_sat_states(test_id="main.processInput-sweep")
+```
+
+For a **single `run_analysis`** run, omit `test_id` to read from the default `results/` directory:
+
+```
+get_sat_states()
+```
+
+Returns the raw content of `FOUND_SAT_STATE.txt` — concrete input values that triggered a vulnerability (OOB index, integer overflow, nil dereference, panic, etc.).
+
+To see a summary across all tests in a campaign:
+
+```
+get_campaign_summary()
+```
+
+Reads `fuzzer_results/fuzzer_summary.txt` and returns a pass/fail/timeout/SAT table for every test.
+
+#### 7. Inspect the trace (optional)
+
+```
+get_execution_trace(test_id="main.processInput-sweep", limit=100)
+# or for a single run:
+get_execution_trace(limit=100)
+```
+
+Returns a paginated function call trace with argument values, useful for understanding the execution path that led to the bug. Use `offset` + `limit` to page through large traces.
+
+#### 8. Iterate
+
+Based on findings, the agent refines the target list, adjusts arguments, or increases timeouts and submits a new campaign. Use `cancel_job(job_id=42)` to kill a stuck job. Use `list_result_files(test_id="main.processInput-sweep")` to enumerate all artifact files for a test.
+
+---
+
+## Tool reference
+
+| Group | Tool | Parameters | Description |
+|-------|------|------------|-------------|
+| Recon | `load_binary` | `binary_path`, `language`, `compiler`?, `thread_scheduling`? | Parse an ELF binary and store language/compiler in session state. Must be called first. |
+| Recon | `list_functions` | `filter`?, `offset`?, `limit`? | Paginated function listing from the ELF symbol table. |
+| Recon | `get_function_signature` | `name_or_address` | Resolve a function's argument types from signatures JSON, Ghidra, or ELF fallback. |
+| Recon | `list_strings` | `filter`?, `min_length`?, `offset`?, `limit`? | List printable strings from the binary (requires `strings` on PATH). |
+| Execution | `run_analysis` | `mode`, `start_address`, `args`?, `negate_path`? | Run concolic analysis on a single function. Returns `job_id`. |
+| Execution | `run_campaign` | `tests` | Run a multi-test campaign via `zorya-fuzzer`. Returns `job_id`. |
+| Execution | `get_job_status` | `job_id` | Poll a job: `state`, `elapsed_seconds`, `sat_found`, `exit_code`. |
+| Execution | `cancel_job` | `job_id` | Kill a running job by ID. |
+| Results | `get_sat_states` | `test_id`? | Read `FOUND_SAT_STATE.txt` for a campaign test or the latest single run. |
+| Results | `get_execution_trace` | `test_id`?, `offset`?, `limit`? | Read the function call trace (paginated). |
+| Results | `get_campaign_summary` | _(none)_ | Read `fuzzer_results/fuzzer_summary.txt` — pass/fail/SAT table for all tests. |
+| Results | `list_result_files` | `test_id`? | List artifact files for a test or the main `results/` directory. |
+
+---
+
+## Source files
+
+| File | Role |
+|------|------|
+| `main.rs` | Binary entry point, `ZORYA_DIR` detection, stdio server startup |
+| `server.rs` | `ZoryaMcp` struct with all tool implementations (`rmcp` `#[tool]` macros) |
+| `types.rs` | Parameter types with JSON Schema descriptions for LLM tool discovery |
+| `jobs.rs` | Async job manager tracking spawned child processes |

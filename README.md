@@ -93,7 +93,17 @@ Running from macOS/Rosetta? Use the documented Linux runner workflow:
 [doc/Usage.md#linux-runner-workflow-manual-for-macosrosetta-users](doc/Usage.md#linux-runner-workflow-manual-for-macosrosetta-users)
 and optional helper script `scripts/zorya-remote-run.sh`.
 
-### C. Fuzzer mode
+### C. MCP Server (LLM agent interface)
+
+Zorya ships a [Model Context Protocol](https://modelcontextprotocol.io/) server (`zorya-mcp`) that lets an LLM agent in **Cursor**, **Claude Code**, or **GitHub Copilot** drive the full analysis pipeline autonomously.
+
+```bash
+cargo build --release
+```
+
+Full tool reference, workflow diagram, configuration for all supported clients, and usage examples: [src/mcp/README.md](src/mcp/README.md)
+
+### D. Fuzzer mode
 
 For automated campaigns on multiple addresses/configurations:
 
