@@ -141,7 +141,7 @@ Expected outputs and result files are documented in:
 ## 4. Documentation
 
 <p align="center">
-  <img src="doc/zorya-workflow-new.png" alt="Zorya workflow" width="500"/>
+  <img src="doc/zorya-overview-full.png" alt="Zorya workflow" width="500"/>
 </p>
 
 
