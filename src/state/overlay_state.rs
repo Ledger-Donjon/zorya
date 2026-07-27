@@ -383,11 +383,8 @@ impl<'ctx> OverlayState<'ctx> {
         let mut result = Vec::with_capacity(size);
         for i in 0..size {
             let addr = address + i as u64;
-            if let Some(byte) = self.standalone_memory_writes.get(&addr) {
-                result.push(*byte);
-            } else {
-                return None; // Not all bytes present in overlay
-            }
+            let byte = self.standalone_memory_writes.get(&addr)?; // Not all bytes present in overlay
+            result.push(*byte);
         }
         Some(result)
     }
