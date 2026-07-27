@@ -141,7 +141,7 @@ Expected outputs and result files are documented in:
 ## 4. Documentation
 
 <p align="center">
-  <img src="doc/zorya_workflow.png" alt="Zorya workflow" width="500"/>
+  <img src="doc/zorya-workflow-new.png" alt="Zorya workflow" width="500"/>
 </p>
 
 
@@ -152,6 +152,7 @@ Technical details were moved under `doc/`:
 - Vulnerability detection: [doc/Vulnerability-Detection.md](doc/Vulnerability-Detection.md)
 - Compiler-aware strategies: [doc/Compiler-Aware-Strategies.md](doc/Compiler-Aware-Strategies.md)
 - Overlay path analysis: [doc/Overlay-Path-Analysis.md](doc/Overlay-Path-Analysis.md)
+- Analyzer routine: [doc/AST-exploration-overlay-execution.png](doc/AST-exploration-overlay-execution.png)
 - Strategy overview: [doc/Strategies.md](doc/Strategies.md)
 - Multi-threading: [doc/Multi-threading.md](doc/Multi-threading.md)
 - Go binary analysis details: [doc/Go-Binary-Analysis.md](doc/Go-Binary-Analysis.md)
@@ -159,11 +160,11 @@ Technical details were moved under `doc/`:
 
 ## 5. Demo videos
 
-Demo on TinyGo broken-calculator:
+Demo on broken-calculator binary compiled with TinyGo:
 [Demo](https://youtu.be/8PeSZFvr6WA)
 
-EthCC 2025 overview presentation:
-[Presentation](https://www.youtube.com/live/QpcAtfN3B9M)
+Pass the SALT 2026 presentation:
+[Presentation](https://passthesalt.ubicast.tv/videos/2026-automated-vulnerability-detection-in-go-concolic-execution-for-multi-threaded-binaries)
 
 ## 6. Academic work
 
@@ -180,16 +181,16 @@ June 2026 - From TinyGo to gc Compiler: Extending Zorya's Concolic Framework to 
 }
 ```
 
-March 2026 - Zorya: Automated Concolic Execution of Single-Threaded Go Binaries:
-[ArXiv](https://arxiv.org/abs/2512.10799)
+March 2026 - Zorya: Automated Concolic Execution of Single-Threaded Go Binaries (ACM SAC 2026):
+[ACM Digital Library](https://dl.acm.org/doi/pdf/10.1145/3748522.3779940)
 
 ```bibtex
-@article{gorna2025zorya,
+@inproceedings{gorna2026zorya,
   title={Zorya: Automated Concolic Execution of Single-Threaded Go Binaries},
   author={Gorna, Karolina and Iooss, Nicolas and Seurin, Yannick and Khatoun, Rida},
-  journal={arXiv preprint arXiv:2512.10799},
-  year={2025},
-  note={Accepted at the 41st ACM/SIGAPP Symposium On Applied Computing (SAC 2026)}
+  booktitle={Proceedings of the 41st ACM/SIGAPP Symposium on Applied Computing},
+  pages={2037--2044},
+  year={2026}
 }
 ```
 
@@ -241,8 +242,8 @@ Bugs discovered with Zorya on real-world open-source projects. Last update: June
 | [XinFinOrg/XDPoSChain](https://github.com/XinFinOrg/XDPoSChain) | Integer underflow | [#2362](https://github.com/XinFinOrg/XDPoSChain/issues/2362) | Reported |
 | [kedacore/keda](https://github.com/kedacore/keda) | Float-to-int overflow | [#7796](https://github.com/kedacore/keda/issues/7796) | Fix ongoing |
 | [multiversx/mx-chain-go](https://github.com/multiversx/mx-chain-go) | Float-to-int64 overflow | Private disclosure | Reported |
-| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Int64 wrap (MPT amount) | [GHSA-xv89-94jf-8vx2](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-xv89-94jf-8vx2) | Reported |
-| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Uint64 mul overflow (MPT amount) | [GHSA-j5cw-qr86-mmv7](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-j5cw-qr86-mmv7) | Reported |
+| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Int64 wrap (MPT amount) | [GHSA-xv89-94jf-8vx2](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-xv89-94jf-8vx2) / CVE-2026-61693 | Reported |
+| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Uint64 mul overflow (MPT amount) | [GHSA-j5cw-qr86-mmv7](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-j5cw-qr86-mmv7) / CVE-2026-61694 | Reported |
 | **Nil pointer dereference** | | | |
 | [runatlantis/atlantis](https://github.com/runatlantis/atlantis) | Nil pointer dereference | [#6492](https://github.com/runatlantis/atlantis/issues/6492) | Fixed |
 | [crossplane-contrib/provider-http](https://github.com/crossplane-contrib/provider-http) | Nil pointer dereference | [#178](https://github.com/crossplane-contrib/provider-http/issues/178) | Reported |
