@@ -232,19 +232,19 @@ Bugs discovered with Zorya on real-world open-source projects. Last update: June
 | [pion/dtls](https://github.com/pion/dtls) | Index OOB | [GHSA-wg4g-wm44-ch5j](https://github.com/pion/dtls/security/advisories/GHSA-wg4g-wm44-ch5j) / CVE-2026-54908 | Fixed (medium) |
 | [pion/stun](https://github.com/pion/stun) | OOB slice | [GHSA-34rh-wp3j-6cxc](https://github.com/pion/stun/security/advisories/GHSA-34rh-wp3j-6cxc) / CVE-2026-54909 | Fixed (medium) |
 | [zeromicro/go-zero](https://github.com/zeromicro/go-zero) | OOB slice | [#5607](https://github.com/zeromicro/go-zero/issues/5607) | Fixed |
-| [multiformats/go-multiaddr](https://github.com/multiformats/go-multiaddr) | OOB slice | [#288](https://github.com/multiformats/go-multiaddr/issues/288) | Reported |
+| [multiformats/go-multiaddr](https://github.com/multiformats/go-multiaddr) | OOB slice | [#288](https://github.com/multiformats/go-multiaddr/issues/288) | Fix ongoing |
 | **Integer overflow** | | | |
 | [gochain/gochain](https://github.com/gochain/gochain) | Integer overflow | [GHSA-rmvq-87f6-4pfc](https://github.com/gochain/gochain/security/advisories/GHSA-rmvq-87f6-4pfc) | Fixed |
 | [erpc/erpc](https://github.com/erpc/erpc) | Integer overflow | [#869](https://github.com/erpc/erpc/issues/869) | Reported |
 | [trufnetwork/kwil-db](https://github.com/trufnetwork/kwil-db) | Integer overflow | [#1701](https://github.com/trufnetwork/kwil-db/issues/1701) | Reported |
 | [cometbft/cometbft](https://github.com/cometbft/cometbft) | Integer overflow | [#5846](https://github.com/cometbft/cometbft/issues/5846) | Fixed |
-| [gnolang/gno](https://github.com/gnolang/gno) | Integer overflow | [#5639](https://github.com/gnolang/gno/issues/5639) | Reported |
-| [XinFinOrg/XDPoSChain](https://github.com/XinFinOrg/XDPoSChain) | Integer underflow | [#2362](https://github.com/XinFinOrg/XDPoSChain/issues/2362) | Reported |
+| [gnolang/gno](https://github.com/gnolang/gno) | Integer overflow | [#5639](https://github.com/gnolang/gno/issues/5639) | Fix ongoing |
+| [XinFinOrg/XDPoSChain](https://github.com/XinFinOrg/XDPoSChain) | Integer underflow | [#2362](https://github.com/XinFinOrg/XDPoSChain/issues/2362) | Fixed |
 | [kedacore/keda](https://github.com/kedacore/keda) | Float-to-int overflow | [#7796](https://github.com/kedacore/keda/issues/7796) | Fix ongoing |
 | [multiversx/mx-chain-go](https://github.com/multiversx/mx-chain-go) | Float-to-int64 overflow | Private disclosure | Reported |
-| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Int64 wrap (MPT amount) | [GHSA-xv89-94jf-8vx2](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-xv89-94jf-8vx2) / CVE-2026-61693 | Reported |
-| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Uint64 mul overflow (MPT amount) | [GHSA-j5cw-qr86-mmv7](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-j5cw-qr86-mmv7) / CVE-2026-61694 | Reported |
+| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Int64 wrap (MPT amount) | [GHSA-xv89-94jf-8vx2](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-xv89-94jf-8vx2) / CVE-2026-61693 | Fix ongoing |
+| [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Uint64 mul overflow (MPT amount) | [GHSA-j5cw-qr86-mmv7](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-j5cw-qr86-mmv7) / CVE-2026-61694 | Fixed |
 | **Nil pointer dereference** | | | |
 | [runatlantis/atlantis](https://github.com/runatlantis/atlantis) | Nil pointer dereference | [#6492](https://github.com/runatlantis/atlantis/issues/6492) | Fixed |
-| [crossplane-contrib/provider-http](https://github.com/crossplane-contrib/provider-http) | Nil pointer dereference | [#178](https://github.com/crossplane-contrib/provider-http/issues/178) | Reported |
-| [kedacore/keda](https://github.com/kedacore/keda) | Nil pointer dereference | [#7798](https://github.com/kedacore/keda/issues/7798) | Fix ongoing |
+| [crossplane-contrib/provider-http](https://github.com/crossplane-contrib/provider-http) | Nil pointer dereference | [#178](https://github.com/crossplane-contrib/provider-http/issues/178) | Fix ongoing |
+| [kedacore/keda](https://github.com/kedacore/keda) | Nil pointer dereference | [#7798](https://github.com/kedacore/keda/issues/7798) | Fixed |
