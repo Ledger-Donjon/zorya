@@ -13,16 +13,17 @@ Usage in GDB:
     (gdb) dump-threads
 """
 
-import gdb
 import json
 import os
+
+import gdb
 
 
 class DumpThreadsCommand(gdb.Command):
     """Dump all thread register states including FS/GS base to JSON files."""
 
     def __init__(self):
-        super(DumpThreadsCommand, self).__init__("dump-threads", gdb.COMMAND_USER)
+        super().__init__("dump-threads", gdb.COMMAND_USER)
 
     def read_register(self, name):
         """Safely read a register value, return None if not available."""

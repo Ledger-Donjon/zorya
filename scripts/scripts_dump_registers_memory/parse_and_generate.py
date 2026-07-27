@@ -7,7 +7,7 @@ def parse_memory_mappings(filename):
     commands = []
     start_parsing = False  # We haven't reached the memory mappings section yet.
     try:
-        with open(filename, "r") as file:
+        with open(filename) as file:
             for line in file:
                 # Look for the column header line to start parsing immediately after:
                 if "Start Addr" in line and "End Addr" in line:
@@ -30,7 +30,7 @@ def parse_memory_mappings(filename):
                             command = f"dump memory {filename} {start_addr} {end_addr}"
                             commands.append(command)
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Error: {e!s}")
 
     return commands
 
@@ -38,10 +38,9 @@ def parse_memory_mappings(filename):
 def write_commands_to_file(commands, output_file):
     try:
         with open(output_file, "w") as file:
-            for command in commands:
-                file.write(command + "\n")
+            file.writelines(command + "\n" for command in commands)
     except Exception as e:
-        print(f"Error writing to file: {str(e)}")
+        print(f"Error writing to file: {e!s}")
 
 
 # Usage

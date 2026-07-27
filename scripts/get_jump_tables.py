@@ -2,13 +2,14 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
 import json
-import pyhidra
 import os
-from pathlib import Path
 import shutil
+import sys
 import time
+from pathlib import Path
+
+import pyhidra
 
 
 def extract_jump_tables(program):
@@ -52,9 +53,7 @@ def extract_jump_tables(program):
         code_unit = listing.getCodeUnitAt(addr)
         if code_unit and isinstance(code_unit, Instruction):
             return True
-        if fm.getFunctionAt(addr) is not None:
-            return True
-        return False
+        return fm.getFunctionAt(addr) is not None
 
     jump_tables = []
     visited = set()
@@ -198,10 +197,10 @@ def main():
 
     # Expose Ghidra classes at module/global scope for helper functions
     global SymbolType, Address, Instruction, PointerDataType
-    from ghidra.program.model.symbol import SymbolType
     from ghidra.program.model.address import Address
-    from ghidra.program.model.listing import Instruction
     from ghidra.program.model.data import PointerDataType
+    from ghidra.program.model.listing import Instruction
+    from ghidra.program.model.symbol import SymbolType
 
     # ── Open (and optionally import + analyze) the binary ──────────────
     # pyhidra.open_program handles both import and analysis in a single

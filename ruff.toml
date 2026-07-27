@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
+#
+# SPDX-License-Identifier: Apache-2.0
+
+target-version = "py39"
+
+[lint]
+# Rule families enforced in this project.
+# E/W = pycodestyle  F = pyflakes  I = isort
+# UP  = pyupgrade    RUF = ruff-specific  FURB = refurb  C4 = comprehensions
+#
+# PLR (pylint-refactoring) and SIM (simplify) are intentionally omitted:
+# the scripts are complex utility programs whose structure should not be
+# forced into arbitrary complexity / branch-count limits.
+select = ["E", "W", "F", "I", "UP", "RUF", "FURB", "C4"]
+
+ignore = [
+    # ---------- line length ----------
+    # Scripts contain long strings / GDB command lines that are clearer on
+    # one line; hard-wrapping would hurt readability.
+    "E501",    # line-too-long
+
+    # ---------- try/except patterns ----------
+    # `except Exception` is acceptable in internal utility scripts that
+    # intentionally catch all errors to print a message and continue.
+    "BLE001",  # blind-except: Do not catch blind exception `Exception`
+    "S110",    # try-except-pass
+    "S112",    # try-except-continue
+
+    # ---------- shebang / file permissions ----------
+    # EXE rules check filesystem execute bits, which are not tracked by git
+    # in a portable way.  The shebangs are intentional for direct invocation.
+    "EXE001",  # shebang-not-executable
+    "EXE002",  # shebang-missing-executable-file
+]

@@ -9,11 +9,11 @@ Extract function signatures AND struct type definitions from Go binaries using l
 This script properly handles DWARF5 which has bugs in GNU binutils
 """
 
-import subprocess
 import json
-import sys
-import re
 import os
+import re
+import subprocess
+import sys
 
 # Global struct type definitions extracted from DWARF
 struct_types = {}
@@ -228,11 +228,14 @@ def parse_dwarf_output(dwarf_output, symbol_map):
                 j += 1
 
             # If DWARF address is 0, try symbol table
-            if current_function["address"] == "0x0" and current_function["name"]:
-                if current_function["name"] in symbol_map:
-                    current_function["address"] = (
-                        f"0x{symbol_map[current_function['name']]}"
-                    )
+            if (
+                current_function["address"] == "0x0"
+                and current_function["name"]
+                and current_function["name"] in symbol_map
+            ):
+                current_function["address"] = (
+                    f"0x{symbol_map[current_function['name']]}"
+                )
 
             i = j
             continue

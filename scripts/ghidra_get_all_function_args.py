@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 # SPDX-FileCopyrightText: 2025 Ledger https://www.ledger.com - INSTITUT MINES TELECOM
 #
@@ -9,20 +8,21 @@ Extracts function argument register mappings for all functions in the binary for
 and outputs a JSON file.
 """
 
-import os
 import json
+import os
+import sys
 
 
 def main():
     script_args = getScriptArgs()  # noqa: F821 — Ghidra built-in, injected at runtime
     if len(script_args) < 1:
         print("Usage: <script> <zorya_dir>")
-        exit(1)
+        sys.exit(1)
 
     zorya_dir = script_args[0]
     if not os.path.exists(zorya_dir):
-        print("ERROR: Provided ZORYA_DIR does not exist: {}".format(zorya_dir))
-        exit(1)
+        print(f"ERROR: Provided ZORYA_DIR does not exist: {zorya_dir}")
+        sys.exit(1)
 
     results_dir = os.path.join(zorya_dir, "results")
     json_file = os.path.join(results_dir, "function_signature.json")
@@ -31,13 +31,13 @@ def main():
         os.makedirs(results_dir)
     open(json_file, "w").close()
 
-    print("Function signature JSON will be saved at: {}".format(json_file))
+    print(f"Function signature JSON will be saved at: {json_file}")
 
     signatures = []
 
     if currentProgram is None:  # noqa: F821 — Ghidra built-in, injected at runtime
         print("No program loaded!")
-        exit(1)
+        sys.exit(1)
 
     fm = currentProgram.getFunctionManager()  # noqa: F821
     functions = fm.getFunctions(True)
@@ -67,7 +67,7 @@ def main():
                         {
                             "name": name,
                             "type": datatype,
-                            "location": "Stack[%s]" % offset,
+                            "location": f"Stack[{offset}]",
                         }
                     )
                 else:
@@ -90,7 +90,7 @@ def main():
     with open(json_file, "w") as f:
         json.dump({"functions": signatures}, f, indent=2)
 
-    print("Wrote {} function signatures to {}".format(count, json_file))
+    print(f"Wrote {count} function signatures to {json_file}")
 
 
 main()

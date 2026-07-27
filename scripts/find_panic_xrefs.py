@@ -4,12 +4,13 @@
 
 # find_panic_xrefs.py
 # Used in main.rs by the get_cross_references function to find cross-references to panic functions.
-import sys
-import pyhidra
+import glob
 import os
 import shutil
 import subprocess
-import glob
+import sys
+
+import pyhidra
 
 
 def main():
@@ -154,7 +155,7 @@ def main():
                         # Always include the function entry point as a seed (even if no xrefs)
                         entry = function.getEntryPoint()
                         if entry is not None:
-                            xref_addresses.add("0x{}".format(entry.toString()))
+                            xref_addresses.add(f"0x{entry.toString()}")
 
                         # Get references to this function
                         references = program.getReferenceManager().getReferencesTo(
@@ -166,9 +167,7 @@ def main():
                             if ref.getReferenceType().isCall():
                                 from_address = ref.getFromAddress()
                                 # Add the raw call site
-                                xref_addresses.add(
-                                    "0x{}".format(from_address.toString())
-                                )
+                                xref_addresses.add(f"0x{from_address.toString()}")
                                 # Also add the start of the containing basic block
                                 blk = model.getCodeBlockAt(from_address, monitor)
                                 if blk is None:
@@ -179,15 +178,11 @@ def main():
                                     for b in blocks:
                                         if b is not None:
                                             xref_addresses.add(
-                                                "0x{}".format(
-                                                    b.getFirstStartAddress().toString()
-                                                )
+                                                f"0x{b.getFirstStartAddress().toString()}"
                                             )
                                 else:
                                     xref_addresses.add(
-                                        "0x{}".format(
-                                            blk.getFirstStartAddress().toString()
-                                        )
+                                        f"0x{blk.getFirstStartAddress().toString()}"
                                     )
 
                 # Ensure results directory exists
@@ -197,8 +192,7 @@ def main():
                 # Write the addresses to a file in the results directory
                 output_file = os.path.join(results_dir, "xref_addresses.txt")
                 with open(output_file, "w") as file:
-                    for addr in sorted(xref_addresses):
-                        file.write(f"{addr}\n")
+                    file.writelines(f"{addr}\n" for addr in sorted(xref_addresses))
 
                 print(f"[INFO] Xref analysis completed. Results saved to {output_file}")
 

@@ -6,10 +6,11 @@
 # It has been replaced by a Go script located in /scripts/get-funct-arg-types/main.go
 # but is kept for reference.
 
-from elftools.elf.elffile import ELFFile
 import json
-import sys
 import os
+import sys
+
+from elftools.elf.elffile import ELFFile
 
 # Set up paths for saving results
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -75,7 +76,7 @@ def resolve_type(die, die_index, depth=0):
 
         if {"buckets", "count", "hash0", "oldbuckets"}.intersection(member_names):
             return "map[?,?]"
-        if set(["array", "len", "cap"]).issubset(member_names):
+        if {"array", "len", "cap"}.issubset(member_names):
             return "slice"
 
         return "struct"

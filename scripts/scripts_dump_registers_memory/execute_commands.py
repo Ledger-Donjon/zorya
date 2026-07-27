@@ -6,6 +6,7 @@
 # usage: (gdb) exec_cmds /path/to/dump_commands.txt
 
 import os
+
 import gdb  # type: ignore
 
 
@@ -13,7 +14,7 @@ class ExecuteCommands(gdb.Command):
     "Executes commands from a specified file."
 
     def __init__(self):
-        super(ExecuteCommands, self).__init__("exec", gdb.COMMAND_USER)
+        super().__init__("exec", gdb.COMMAND_USER)
 
     def invoke(self, arg, from_tty):
         if not arg:
@@ -26,7 +27,7 @@ class ExecuteCommands(gdb.Command):
             os.makedirs(dumps_dir)
 
         try:
-            with open(arg, "r") as file:
+            with open(arg) as file:
                 for line in file:
                     line = line.strip()
                     if line:  # Ensuring not to execute empty lines
@@ -45,7 +46,7 @@ class ExecuteCommands(gdb.Command):
                                     "Invalid command format: not enough parts to extract filename and addresses.\n"
                                 )
                         except gdb.error as e:
-                            gdb.write(f"Error executing '{line}': {str(e)}\n")
+                            gdb.write(f"Error executing '{line}': {e!s}\n")
                             if "Cannot access memory" in str(e):
                                 # Generate zero file if memory cannot be accessed
                                 zero_file_path = filename.replace(".bin", "_zero.bin")
@@ -58,7 +59,7 @@ class ExecuteCommands(gdb.Command):
                                     f"Created zero-filled file {zero_file_path} for inaccessible region from {parts[3]} to {parts[4]}.\n"
                                 )
         except Exception as e:
-            gdb.write(f"General error: {str(e)}\n")
+            gdb.write(f"General error: {e!s}\n")
 
 
 ExecuteCommands()

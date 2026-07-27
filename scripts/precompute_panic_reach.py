@@ -4,8 +4,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -14,7 +14,7 @@ try:
     from pyhidra import open_program
 except ImportError:
     print("ERROR: Pyhidra is not available in this Python environment.")
-    print("")
+    print()
     print("Please check:")
     print("  1) That Pyhidra is installed (e.g. via 'make ghidra-config' or")
     print("     'python3 -m pip install --user pyhidra').")
@@ -34,7 +34,7 @@ class BlockSet:
     the dominant cost of the reverse BFS.
     """
 
-    __slots__ = ("_keys", "_blocks")
+    __slots__ = ("_blocks", "_keys")
 
     def __init__(self):
         self._keys: set[int] = set()  # block-start offsets
@@ -85,7 +85,7 @@ def main():
 
     panic_hex = []
     if os.path.exists(xref_path):
-        with open(xref_path, "r") as f:
+        with open(xref_path) as f:
             raw = [line.strip() for line in f if line.strip()]
             # Normalize to plain hex without 0x prefix for Ghidra
             panic_hex = [h[2:] if h.lower().startswith("0x") else h for h in raw]
@@ -103,9 +103,9 @@ def main():
 
     pyhidra.start()
 
+    from ghidra.program.model.address import AddressSet
     from ghidra.program.model.block import BasicBlockModel
     from ghidra.util.task import ConsoleTaskMonitor
-    from ghidra.program.model.address import AddressSet
 
     with open_program(
         str(bin_path),
@@ -129,7 +129,7 @@ def main():
             if os.path.exists(jt_path):
                 import json
 
-                with open(jt_path, "r") as jf:
+                with open(jt_path) as jf:
                     jt = json.load(jf)
                 for tbl in jt:
                     table_base_hex = tbl.get("table_address")
@@ -496,8 +496,7 @@ def main():
                                             "PANIC_REACH_BODY_XREF_STRIDE", "1"
                                         )
                                     )
-                                    if body_stride < 1:
-                                        body_stride = 1
+                                    body_stride = max(body_stride, 1)
                                 except Exception:
                                     body_stride = 1
                                 used = 0
@@ -725,7 +724,7 @@ def main():
                 unreachable_count += 1
                 start_addr = b.getFirstStartAddress()
                 max_addr = b.getMaxAddress()
-                addr_str = f"0x{str(start_addr)}"
+                addr_str = f"0x{start_addr!s}"
 
                 # Determine containing function name once
                 try:
@@ -829,7 +828,6 @@ def main():
                     pass
             unreachable_summary["totals"]["unreachable_blocks"] = unreachable_count
         except Exception:
-            pass
             print(
                 f"[GHIDRA] Unreachable categorization took {time.time() - t_unreach:.1f}s"
             )
@@ -884,8 +882,7 @@ def main():
         with open(tainted_funcs_path, "w") as tf:
             tf.write("# Tainted functions (contain panic-reachable blocks)\n")
             tf.write(f"# Total: {len(tainted_functions)} functions\n")
-            for func_addr in sorted(tainted_functions):
-                tf.write(f"{func_addr}\n")
+            tf.writelines(f"{func_addr}\n" for func_addr in sorted(tainted_functions))
 
         # Write coverage analysis in JSON format for programmatic use
         import json
@@ -936,8 +933,7 @@ def main():
                 funcs = sorted(
                     info.get("functions", {}).items(), key=lambda kv: (-kv[1], kv[0])
                 )
-                for fname, fcount in funcs[:50]:  # cap to 50 for readability
-                    ut.write(f"  {fname} ({fcount})\n")
+                ut.writelines(f"  {fname} ({fcount})\n" for fname, fcount in funcs[:50])
 
         # Emit all start addresses of reachable blocks
         print(f"\nWriting {len(reachable)} reachable blocks to {out_path}")
@@ -966,7 +962,7 @@ def main():
                 try:
                     s = blk.getFirstStartAddress()
                     e = blk.getMaxAddress()
-                    out.write(f"0x{str(s)} 0x{str(e)}\n")
+                    out.write(f"0x{s!s} 0x{e!s}\n")
                 except Exception:
                     continue
 

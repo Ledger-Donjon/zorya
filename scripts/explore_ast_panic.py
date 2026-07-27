@@ -4,8 +4,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
 import os
+import sys
+
 import pyhidra
 
 try:
@@ -31,7 +32,7 @@ def main():
         print(f"ERROR: Expected panic xrefs at {panic_xref_path}")
         sys.exit(2)
 
-    with open(panic_xref_path, "r") as f:
+    with open(panic_xref_path) as f:
         panic_addresses_hex = [line.strip() for line in f if line.strip()]
 
     pyhidra.start()
