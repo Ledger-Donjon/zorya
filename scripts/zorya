@@ -168,6 +168,7 @@ COMPILER=""
 MODE=""
 ADDR=""
 ARGS="none"
+ARGS_SET=false
 NEGATE_PATH_FLAG=""
 THREAD_SCHEDULING=""
 FORCE_PTY="false"
@@ -205,12 +206,14 @@ while [[ $# -gt 0 ]]; do
     --no-negate-path-exploration|--no-negate)
       NEGATE_PATH_FLAG="false"; shift ;;
     --arg)
+      ARGS_SET=true
+      ARGS=""
       shift
       while [[ $# -gt 0 ]]; do
         if [[ "$1" == --* ]]; then
           break
         else
-          if [[ "$ARGS" == "none" ]]; then
+          if [[ -z "$ARGS" ]]; then
             ARGS="$1"
           else
             ARGS="$ARGS $1"
@@ -218,6 +221,7 @@ while [[ $# -gt 0 ]]; do
           shift
         fi
       done
+      [[ -z "$ARGS" ]] && ARGS="none"
       ;;
     --help|-h)
       echo -e "${CYAN}${BOLD}Zorya - Next Generation Concolic Analysis${RESET}"
@@ -260,7 +264,7 @@ done
 ##############################################################################
 
 INTERACTIVE_MODE=false
-[[ -z "$SOURCE_LANG" || -z "$MODE" || "$ARGS" == "none" || -z "$NEGATE_PATH_FLAG" ]] && INTERACTIVE_MODE=true
+[[ -z "$SOURCE_LANG" || -z "$MODE" || "$ARGS_SET" == "false" || -z "$NEGATE_PATH_FLAG" ]] && INTERACTIVE_MODE=true
 [[ "${SOURCE_LANG,,}" == "go" && -z "$COMPILER" ]] && INTERACTIVE_MODE=true
 
 if [[ "$INTERACTIVE_MODE" == "true" ]]; then
@@ -472,7 +476,7 @@ fi
 [[ "$INTERACTIVE_MODE" == "true" ]] && divider
 
 # 3. Runtime arguments
-if [[ "$ARGS" == "none" ]]; then
+if [[ "$ARGS_SET" == "false" ]]; then
   echo ""; echo "Does the binary expect any arguments? (none / e.g., x y z)"
   read -rp "[none]: " ARGS; ARGS="${ARGS:-none}"
 fi
