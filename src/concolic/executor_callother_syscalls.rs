@@ -137,6 +137,61 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         rax
     );
 
+    // Dispatch Event::Syscall to plugins (TOCTOU detector, etc.) before handling.
+    {
+        let args = [
+            cpu_state_guard
+                .get_register_by_offset(0x38, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0), // RDI
+            cpu_state_guard
+                .get_register_by_offset(0x30, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0), // RSI
+            cpu_state_guard
+                .get_register_by_offset(0x10, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0), // RDX
+            cpu_state_guard
+                .get_register_by_offset(0x90, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0), // R10
+            cpu_state_guard
+                .get_register_by_offset(0x80, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0), // R8
+            cpu_state_guard
+                .get_register_by_offset(0x88, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0), // R9
+        ];
+        let pc = cpu_state_guard
+            .get_register_by_offset(0x288, 64)
+            .map(|v| v.concrete.to_u64())
+            .unwrap_or(0);
+        let tid = executor.state.thread_manager.lock().unwrap().current_tid;
+        drop(cpu_state_guard);
+
+        let ev = Event::Syscall {
+            nr: rax,
+            args,
+            pc,
+            tid,
+        };
+        executor.event_bus.dispatch_with(
+            executor.context,
+            pc,
+            tid,
+            None,
+            executor.instruction_counter,
+            executor.start_time,
+            &[],
+            &ev,
+        );
+
+        cpu_state_guard = executor.state.cpu_state.lock().unwrap();
+    }
+
     match rax {
         0 => {
             // sys_read
@@ -2351,6 +2406,292 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 pathname_ptr,
                 SymbolicVar::Int(BV::from_u64(executor.context, pathname_ptr, 64)),
             );
+        }
+        263 => {
+            // sys_unlinkat : delete a name (and possibly the file it refers to)
+            // relative to a directory file descriptor.
+            //   int unlinkat(int dirfd, const char *pathname, int flags);
+            // Syscall arg registers: dirfd=RDI(0x38), pathname=RSI(0x30),
+            // flags=RDX(0x10).
+            log!(executor.state.logger.clone(), "Syscall type: sys_unlinkat");
+
+            // dirfd from RDI (0x38)
+            let dirfd = cpu_state_guard
+                .get_register_by_offset(0x38, 64)
+                .ok_or("Failed to retrieve 'dirfd' from RDI.")?
+                .concrete
+                .to_u64() as i64;
+
+            // pathname pointer from RSI (0x30)
+            let pathname_ptr = cpu_state_guard
+                .get_register_by_offset(0x30, 64)
+                .ok_or("Failed to retrieve 'pathname_ptr' from RSI.")?
+                .concrete
+                .to_u64();
+
+            // flags from RDX (0x10)
+            let flags = cpu_state_guard
+                .get_register_by_offset(0x10, 64)
+                .ok_or("Failed to retrieve 'flags' from RDX.")?
+                .concrete
+                .to_u64() as i32;
+
+            // Use the raw pointer as a pseudo-path for VFS tracking.
+            // Calling read_string here is intentionally avoided: the
+            // pointer often points deep inside a large mapped Go arena
+            // and scanning for a NUL terminator byte-by-byte through
+            // concolic memory is prohibitively expensive.
+            let pathname = format!("<ptr:0x{:x}>", pathname_ptr);
+
+            // Model the removal as always succeeding (first unlink).
+            // A second unlink of the same pseudo-path will yield ENOENT.
+            let ret: i64 = {
+                let mut vfs_guard = executor.state.vfs.write().unwrap();
+                match vfs_guard.unlink(&pathname) {
+                    Ok(()) => 0,
+                    Err(errno) => -(errno as i64),
+                }
+            };
+
+            log!(
+                executor.state.logger.clone(),
+                "unlinkat(dirfd={}, path='{}', flags={}) -> {}",
+                dirfd,
+                pathname,
+                flags,
+                ret
+            );
+
+            // Return value in RAX (0 on success, -errno on failure).
+            let rax_memory_value = MemoryValue {
+                concrete: ret as u64,
+                symbolic: BV::from_u64(executor.context, ret as u64, 64),
+                size: 64,
+            };
+            let rax_concolic_var = ConcolicVar::new_from_memory_value(&rax_memory_value);
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_concolic_var, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+        }
+        41 => {
+            // sys_socket : create an endpoint for communication
+            //   int socket(int domain, int type, int protocol);
+            // Kernel ABI: RDI(0x38)=domain, RSI(0x30)=type, RDX(0x10)=protocol
+            log!(executor.state.logger.clone(), "Syscall type: sys_socket");
+
+            let domain = cpu_state_guard
+                .get_register_by_offset(0x38, 64)
+                .ok_or("Failed to retrieve 'domain' from RDI.")?
+                .concrete
+                .to_u64() as i32;
+            let sock_type = cpu_state_guard
+                .get_register_by_offset(0x30, 64)
+                .ok_or("Failed to retrieve 'type' from RSI.")?
+                .concrete
+                .to_u64() as i32;
+            let protocol = cpu_state_guard
+                .get_register_by_offset(0x10, 64)
+                .ok_or("Failed to retrieve 'protocol' from RDX.")?
+                .concrete
+                .to_u64() as i32;
+
+            // Allocate a virtual FD for the socket.
+            let fd = {
+                let mut vfs_guard = executor.state.vfs.write().unwrap();
+                vfs_guard.open("<socket>")
+            };
+
+            log!(
+                executor.state.logger.clone(),
+                "socket(domain={}, type={}, protocol={}) -> fd {}",
+                domain,
+                sock_type,
+                protocol,
+                fd
+            );
+
+            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
+                concrete: fd as u64,
+                symbolic: BV::from_u64(executor.context, fd as u64, 64),
+                size: 64,
+            });
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_cv, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+        }
+        42 => {
+            // sys_connect : initiate a connection on a socket
+            //   int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+            // Model as always succeeding (return 0).
+            log!(executor.state.logger.clone(), "Syscall type: sys_connect");
+            log!(
+                executor.state.logger.clone(),
+                "connect() -> 0 (simulated success)"
+            );
+            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
+                concrete: 0,
+                symbolic: BV::from_u64(executor.context, 0, 64),
+                size: 64,
+            });
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_cv, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+        }
+        43 | 288 => {
+            // sys_accept (43) / sys_accept4 (288) : accept a connection on a socket
+            // accept4 has an extra `flags` argument but we model both identically.
+            // Return a new FD and populate the sockaddr output buffer with a
+            // minimal AF_UNIX address so Go's anyToSockaddr wrapper succeeds.
+            let name = if rax == 43 { "accept" } else { "accept4" };
+            log!(executor.state.logger.clone(), "Syscall type: sys_{}", name);
+
+            // RSI (0x30) = rsa (output sockaddr buffer)
+            // RDX (0x10) = addrlen pointer
+            let rsa_ptr = cpu_state_guard
+                .get_register_by_offset(0x30, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0);
+            let addrlen_ptr = cpu_state_guard
+                .get_register_by_offset(0x10, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0);
+
+            // Write a minimal AF_UNIX sockaddr_un to the rsa buffer:
+            // struct sockaddr_un { sa_family_t sun_family; char sun_path[108]; }
+            // sa_family = AF_UNIX (1) as a little-endian u16
+            if rsa_ptr != 0 {
+                let mut sockaddr_buf = vec![0u8; 110]; // sizeof(sockaddr_un)
+                sockaddr_buf[0] = 1; // AF_UNIX (low byte of u16 sa_family)
+                sockaddr_buf[1] = 0; // high byte
+                                     // sun_path: write a fake peer path
+                let fake_path = b"/tmp/peer\0";
+                sockaddr_buf[2..2 + fake_path.len()].copy_from_slice(fake_path);
+                let _ = executor.state.memory.write_bytes(rsa_ptr, &sockaddr_buf);
+            }
+            // Write addrlen = 110 (sizeof sockaddr_un)
+            if addrlen_ptr != 0 {
+                let addrlen_bytes = 110u32.to_le_bytes();
+                let _ = executor
+                    .state
+                    .memory
+                    .write_bytes(addrlen_ptr, &addrlen_bytes);
+            }
+
+            let fd = {
+                let mut vfs_guard = executor.state.vfs.write().unwrap();
+                vfs_guard.open("<accepted-socket>")
+            };
+            log!(executor.state.logger.clone(), "{}() -> fd {}", name, fd);
+            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
+                concrete: fd as u64,
+                symbolic: BV::from_u64(executor.context, fd as u64, 64),
+                size: 64,
+            });
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_cv, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+        }
+        49 => {
+            // sys_bind : bind a name to a socket
+            //   int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+            // Model as always succeeding (return 0).
+            log!(executor.state.logger.clone(), "Syscall type: sys_bind");
+            log!(
+                executor.state.logger.clone(),
+                "bind() -> 0 (simulated success)"
+            );
+            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
+                concrete: 0,
+                symbolic: BV::from_u64(executor.context, 0, 64),
+                size: 64,
+            });
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_cv, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+        }
+        50 => {
+            // sys_listen : listen for connections on a socket
+            //   int listen(int sockfd, int backlog);
+            // Model as always succeeding (return 0).
+            log!(executor.state.logger.clone(), "Syscall type: sys_listen");
+            log!(
+                executor.state.logger.clone(),
+                "listen() -> 0 (simulated success)"
+            );
+            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
+                concrete: 0,
+                symbolic: BV::from_u64(executor.context, 0, 64),
+                size: 64,
+            });
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_cv, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+        }
+        54 | 55 => {
+            // sys_setsockopt (54) / sys_getsockopt (55)
+            // Model as succeeding (return 0). For getsockopt with SO_PEERCRED,
+            // the ucred struct would be written to the output buffer, but for
+            // concolic execution the zero-init memory suffices.
+            let name = if rax == 54 {
+                "setsockopt"
+            } else {
+                "getsockopt"
+            };
+            log!(executor.state.logger.clone(), "Syscall type: sys_{}", name);
+            log!(
+                executor.state.logger.clone(),
+                "{}() -> 0 (simulated success)",
+                name
+            );
+            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
+                concrete: 0,
+                symbolic: BV::from_u64(executor.context, 0, 64),
+                size: 64,
+            });
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_cv, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+        }
+        267 => {
+            // sys_readlinkat : read value of a symbolic link relative to a directory fd
+            //   ssize_t readlinkat(int dirfd, const char *pathname, char *buf, size_t bufsiz);
+            // Write a fake /proc/<pid>/exe target into the buffer so the TOCTOU
+            // plugin can track the "use" of the checked credential.
+            log!(
+                executor.state.logger.clone(),
+                "Syscall type: sys_readlinkat"
+            );
+            let buf_ptr = cpu_state_guard
+                .get_register_by_offset(0x10, 64) // RDX = buf
+                .ok_or("Failed to retrieve 'buf' from RDX.")?
+                .concrete
+                .to_u64();
+            let bufsiz = cpu_state_guard
+                .get_register_by_offset(0x90, 64) // R10 = bufsiz
+                .ok_or("Failed to retrieve 'bufsiz' from R10.")?
+                .concrete
+                .to_u64();
+            // Write a synthetic target path into the buffer.
+            let fake_target = b"/usr/bin/ordain\0";
+            let write_len = fake_target.len().min(bufsiz as usize);
+            let _ = executor
+                .state
+                .memory
+                .write_bytes(buf_ptr, &fake_target[..write_len]);
+            let ret = (write_len - 1) as u64; // readlinkat returns length without NUL
+            log!(
+                executor.state.logger.clone(),
+                "readlinkat() -> {} (wrote fake target)",
+                ret
+            );
+            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
+                concrete: ret,
+                symbolic: BV::from_u64(executor.context, ret, 64),
+                size: 64,
+            });
+            cpu_state_guard
+                .set_register_value_by_offset(0x0, rax_cv, 64)
+                .map_err(|e| format!("Failed to set RAX: {}", e))?;
         }
         _ => {
             // Invalid syscall (negative numbers from thread switches or unimplemented syscalls)

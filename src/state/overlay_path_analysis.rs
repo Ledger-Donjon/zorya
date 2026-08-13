@@ -12,7 +12,7 @@ use std::io::Write;
 use z3::ast::Bool;
 
 #[allow(dead_code)]
-const DEFAULT_MAX_OVERLAY_DEPTH: usize = 15;
+pub const DEFAULT_MAX_OVERLAY_DEPTH: usize = 30;
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -460,18 +460,13 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                     );
                     if let Err(e) = crate::state::evaluate_z3::log_vuln_to_file_and_terminal(
                         &mut executor.state.logger.clone(),
-                        "Concrete NULL pointer dereference",
+                        "NULL pointer dereference",
                         current_addr,
                         "LOAD",
-                        "Exploring the not taken path with Overlay Execution",
                         &desc,
                         pointer_name.as_deref(),
                     ) {
-                        log!(
-                            executor.state.logger,
-                            "[OVERLAY] Error logging vulnerability: {}",
-                            e
-                        );
+                        log!(executor.state.logger, "[OVERLAY] Error logging bug: {}", e);
                     }
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "NULL_DEREF_LOAD".to_string(),
@@ -509,18 +504,13 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
                     let desc = format!("Null pointer write (STORE) at instruction {}", inst_idx);
                     if let Err(e) = crate::state::evaluate_z3::log_vuln_to_file_and_terminal(
                         &mut executor.state.logger.clone(),
-                        "Concrete NULL pointer dereference",
+                        "NULL pointer dereference",
                         current_addr,
                         "STORE",
-                        "Exploring the not taken path with Overlay Execution",
                         &desc,
                         pointer_name.as_deref(),
                     ) {
-                        log!(
-                            executor.state.logger,
-                            "[OVERLAY] Error logging vulnerability: {}",
-                            e
-                        );
+                        log!(executor.state.logger, "[OVERLAY] Error logging bug: {}", e);
                     }
                     return Some(OverlayPathAnalysisResult::VulnerabilityFound(
                         "NULL_DEREF_STORE".to_string(),

@@ -2,14 +2,24 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, SeekFrom};
 use std::sync::{Arc, Mutex};
+
+/// errno returned when a path does not exist (No such file or directory).
+pub const ENOENT: i32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct VirtualFileSystem {
     open_files: HashMap<u32, Arc<Mutex<FileDescriptor>>>,
     file_counter: u32,
+    /// Names of files that were removed via `unlink`. A path in this set no
+    /// longer exists in the virtual namespace, so a subsequent `unlink` (or a
+    /// use of a stale reference) resolves to ENOENT — this is what lets the
+    /// analysis reason about double-unlink / remove-after-remove races.
+    removed_paths: HashSet<String>,
+    /// Names of files opened during this run, used as the known namespace.
+    known_paths: HashSet<String>,
 }
 
 impl Default for VirtualFileSystem {
@@ -23,17 +33,45 @@ impl VirtualFileSystem {
         VirtualFileSystem {
             open_files: HashMap::new(),
             file_counter: 0,
+            removed_paths: HashSet::new(),
+            known_paths: HashSet::new(),
         }
     }
 
     /// Opens a file and returns a file descriptor.
-    pub fn open(&mut self, _filename: &str) -> u32 {
+    pub fn open(&mut self, filename: &str) -> u32 {
+        // Opening (re)establishes the name in the namespace: clear any prior
+        // removal so create-then-remove sequences behave sensibly.
+        if !filename.is_empty() {
+            self.removed_paths.remove(filename);
+            self.known_paths.insert(filename.to_string());
+        }
         let fd = self.file_counter;
         self.file_counter += 1;
         // Mock behavior for opening a file with a size, e.g., 1024 bytes
         self.open_files
             .insert(fd, Arc::new(Mutex::new(FileDescriptor::new(fd, 1024))));
         fd
+    }
+
+    /// Removes a name from the virtual filesystem namespace.
+    ///
+    /// Returns `Ok(())` when the name existed and is now removed. Returns
+    /// `Err(ENOENT)` when the name was already removed earlier in this run,
+    /// modelling a real `unlink` of a non-existent path.
+    pub fn unlink(&mut self, filename: &str) -> Result<(), i32> {
+        if self.removed_paths.contains(filename) {
+            // Already gone — a second removal fails with ENOENT.
+            return Err(ENOENT);
+        }
+        self.known_paths.remove(filename);
+        self.removed_paths.insert(filename.to_string());
+        Ok(())
+    }
+
+    /// Returns true if the path currently exists (has not been unlinked).
+    pub fn exists(&self, filename: &str) -> bool {
+        !self.removed_paths.contains(filename)
     }
 
     /// Reads data from a file descriptor into a buffer.

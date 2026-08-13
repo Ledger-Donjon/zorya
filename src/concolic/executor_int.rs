@@ -233,9 +233,13 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     let result_concrete = input0_var
         .get_concrete_value()
         .wrapping_add(input1_var.get_concrete_value());
-    let result_symbolic = input0_var
-        .get_symbolic_value_bv(executor.context)
-        .bvadd(&input1_var.get_symbolic_value_bv(executor.context));
+    let bv0 = input0_var.get_symbolic_value_bv(executor.context);
+    let bv1 = input1_var.get_symbolic_value_bv(executor.context);
+    let result_symbolic = if bv0.as_u64().is_some() && bv1.as_u64().is_some() {
+        BV::from_u64(executor.context, result_concrete, output_size_bits)
+    } else {
+        bv0.bvadd(&bv1)
+    };
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         result_concrete,
         result_symbolic,
@@ -501,9 +505,13 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
         _ => result_concrete & ((1 << output_size_bits) - 1),
     };
 
-    let result_symbolic = input0_var
-        .get_symbolic_value_bv(executor.context)
-        .bvsub(&input1_var.get_symbolic_value_bv(executor.context));
+    let bv0 = input0_var.get_symbolic_value_bv(executor.context);
+    let bv1 = input1_var.get_symbolic_value_bv(executor.context);
+    let result_symbolic = if bv0.as_u64().is_some() && bv1.as_u64().is_some() {
+        BV::from_u64(executor.context, truncated_result as u64, output_size_bits)
+    } else {
+        bv0.bvsub(&bv1)
+    };
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         truncated_result as u64,
         result_symbolic.clone(),
@@ -752,7 +760,11 @@ pub fn handle_int_xor(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
     );
 
     // Perform BV XOR on properly sized operands
-    let result_symbolic = input0_bv.bvxor(&input1_bv);
+    let result_symbolic = if input0_bv.as_u64().is_some() && input1_bv.as_u64().is_some() {
+        BV::from_u64(executor.context, result_concrete, output_size_bits)
+    } else {
+        input0_bv.bvxor(&input1_bv)
+    };
 
     // Create the result ConcolicVar
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
@@ -2104,9 +2116,13 @@ pub fn handle_int_and(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
 
     // Perform the AND operation
     let result_concrete = input0_var.get_concrete_value() & input1_var.get_concrete_value();
-    let result_symbolic = input0_var
-        .get_symbolic_value_bv(executor.context)
-        .bvand(&input1_var.get_symbolic_value_bv(executor.context));
+    let bv0 = input0_var.get_symbolic_value_bv(executor.context);
+    let bv1 = input1_var.get_symbolic_value_bv(executor.context);
+    let result_symbolic = if bv0.as_u64().is_some() && bv1.as_u64().is_some() {
+        BV::from_u64(executor.context, result_concrete, output_size_bits)
+    } else {
+        bv0.bvand(&bv1)
+    };
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         result_concrete,
         result_symbolic,
@@ -2188,7 +2204,11 @@ pub fn handle_int_or(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     );
 
     // Perform bitwise OR on properly sized operands
-    let result_symbolic = input0_bv.bvor(&input1_bv);
+    let result_symbolic = if input0_bv.as_u64().is_some() && input1_bv.as_u64().is_some() {
+        BV::from_u64(executor.context, result_concrete, output_size_bits)
+    } else {
+        input0_bv.bvor(&input1_bv)
+    };
 
     if result_symbolic.get_size() == 0 {
         return Err("Symbolic value is null".to_string());
@@ -2333,6 +2353,8 @@ pub fn handle_int_left(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     // This eliminates ite expressions for overflow conditions
     let result_symbolic = if shift_amount >= output_size_bits as usize {
         BV::from_u64(executor.context, 0, output_size_bits)
+    } else if sized_input0.as_u64().is_some() && sized_input1.as_u64().is_some() {
+        BV::from_u64(executor.context, result_concrete, output_size_bits)
     } else {
         sized_input0.bvshl(&sized_input1)
     };
@@ -2407,17 +2429,20 @@ pub fn handle_int_right(executor: &mut ConcolicExecutor, instruction: Inst) -> R
     // Perform the right shift operation
     let shift_amount = input1_var.get_concrete_value();
 
-    // Use Z3 BitVector for shifting
-    let shift_bv = BV::from_u64(executor.context, shift_amount, output_size_bits);
-    let result_symbolic = input0_var
-        .get_symbolic_value_bv(executor.context)
-        .bvlshr(&shift_bv);
-
     // Compute concrete value
     let result_concrete = if shift_amount >= output_size_bits as u64 {
         0
     } else {
         input0_var.get_concrete_value() >> shift_amount
+    };
+
+    // Use Z3 BitVector for shifting
+    let input0_bv = input0_var.get_symbolic_value_bv(executor.context);
+    let result_symbolic = if input0_bv.as_u64().is_some() {
+        BV::from_u64(executor.context, result_concrete, output_size_bits)
+    } else {
+        let shift_bv = BV::from_u64(executor.context, shift_amount, output_size_bits);
+        input0_bv.bvlshr(&shift_bv)
     };
 
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
@@ -2564,9 +2589,13 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
     let result_concrete = input0_var
         .get_concrete_value()
         .wrapping_mul(input1_var.get_concrete_value());
-    let result_symbolic = input0_var
-        .get_symbolic_value_bv(executor.context)
-        .bvmul(&input1_var.get_symbolic_value_bv(executor.context));
+    let bv0 = input0_var.get_symbolic_value_bv(executor.context);
+    let bv1 = input1_var.get_symbolic_value_bv(executor.context);
+    let result_symbolic = if bv0.as_u64().is_some() && bv1.as_u64().is_some() {
+        BV::from_u64(executor.context, result_concrete, output_size_bits)
+    } else {
+        bv0.bvmul(&bv1)
+    };
     let result_value = ConcolicVar::new_concrete_and_symbolic_int(
         result_concrete,
         result_symbolic,

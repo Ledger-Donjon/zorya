@@ -11,6 +11,13 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::process::Command;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static SIGINT_RECEIVED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn sigint_handler(_: libc::c_int) {
+    SIGINT_RECEIVED.store(true, Ordering::SeqCst);
+}
 
 use parser::parser::{Inst, Opcode, Var};
 use z3::{
@@ -39,7 +46,7 @@ use zorya::state::gating_stats::{
 };
 use zorya::state::memory_x86_64::MemoryValue;
 use zorya::state::overlay_path_analysis::{
-    analyze_untaken_path_with_overlay, OverlayPathAnalysisResult,
+    analyze_untaken_path_with_overlay, OverlayPathAnalysisResult, DEFAULT_MAX_OVERLAY_DEPTH,
 };
 use zorya::state::panic_reach::precompute_panic_reach;
 use zorya::state::simplify_z3::extract_underlying_condition_from_flag_ast;
@@ -145,6 +152,15 @@ fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Install SIGINT handler so Ctrl+C triggers graceful shutdown
+    // (finalize_plugin_analysis runs before exit).
+    unsafe {
+        libc::signal(
+            libc::SIGINT,
+            sigint_handler as *const () as libc::sighandler_t,
+        );
+    }
+
     // Initialize wall-clock timer to measure time until first SAT state
     init_sat_timer_start();
     // Record command line invocation for SAT result file
@@ -195,6 +211,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                             if !val.starts_with("--") {
                                 if let Some(v) = args_iter.next() {
                                     env::set_var("COMPILER", v);
+                                }
+                            }
+                        }
+                    } else if let Some(val) = args_iter.peek() {
+                        if !val.starts_with("--") {
+                            args_iter.next();
+                        }
+                    }
+                }
+                "--plugin" => {
+                    if env::var("ZORYA_PLUGINS").is_err() {
+                        if let Some(val) = args_iter.peek() {
+                            if !val.starts_with("--") {
+                                if let Some(v) = args_iter.next() {
+                                    env::set_var("ZORYA_PLUGINS", v);
                                 }
                             }
                         }
@@ -317,35 +348,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let logger = Logger::new(logger_path, false).expect("Failed to create logger"); // detailed log (file only when not trace_only)
 
-    // Detect whether the shell wrapper is teeing all terminal output to the
-    // trace file.  When it is, we must NOT also write directly to the file
-    // from the Rust binary — that would produce duplicate lines.
-    //
-    // Two modes:
-    //   ZORYA_TRACE_BY_SHELL=1  → shell handles the file; use stdout-only logger.
-    //   otherwise               → binary writes the file itself; use append-mode
-    //                             logger so it doesn't overwrite the TRACE_FILE
-    //                             handle (which also opens in append mode).
+    // Detect whether the shell wrapper is teeing pre-analysis output to the
+    // trace file. When running via the wrapper, it truncates the file and
+    // captures pcode-gen/GDB output via tee. The Rust binary always appends
+    // its own analysis output (symbols, warnings, findings) to the same file.
     let trace_by_shell = std::env::var("ZORYA_TRACE_BY_SHELL")
         .map(|v| v == "1")
         .unwrap_or(false);
 
-    let trace_logger = if trace_by_shell {
-        // Shell is teeing stdout → file.  Logger must not write to the file.
-        Logger::new_stdout_only().expect("Failed to create stdout-only trace logger")
-    } else {
-        // Standalone run: truncate the trace file once, then open both handles
-        // in append mode so they serialize writes correctly.
-        let _ = std::fs::File::create("results/execution_trace.txt"); // truncate
-        Logger::new_append("results/execution_trace.txt", true)
-            .expect("Failed to create trace logger")
-    };
+    // In standalone mode, truncate the trace file first (the shell wrapper
+    // already does this before invoking us). Then open in append mode so
+    // both the Logger and the global TRACE_FILE handle coexist.
+    if !trace_by_shell {
+        let _ = std::fs::File::create("results/execution_trace.txt");
+    }
+
+    let trace_logger = Logger::new_append("results/execution_trace.txt", true)
+        .expect("Failed to create trace logger");
+
+    // Initialize the global TRACE_FILE handle so tprintln!/teprintln!
+    // messages (warnings, findings, plugin output) are always captured.
+    zorya::init_trace_file("results/execution_trace.txt");
 
     if !trace_by_shell {
-        // Initialise the global TRACE_FILE handle (append mode) used by
-        // tprintln!/teprintln!.  Only needed when not running via the wrapper.
-        zorya::init_trace_file("results/execution_trace.txt");
-
         // Mirror the "Running command:" line into the trace file so the file
         // is self-contained when running without the shell wrapper.
         if let Ok(cmd) = std::env::var("ZORYA_CMD") {
@@ -389,6 +414,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         executor.state.logger,
         "The symbols table has been populated."
     );
+
+    // Build and install the runtime thread filter so the scheduler skips
+    // threads stuck in Go runtime maintenance functions (sysmon, GC, netpoll).
+    let runtime_filter = executor.build_runtime_thread_filter(&elf_data);
+    if !runtime_filter.is_empty() {
+        log!(
+            executor.state.logger,
+            "Runtime thread filter: {} function ranges loaded.",
+            runtime_filter.len()
+        );
+        executor
+            .state
+            .thread_manager
+            .lock()
+            .unwrap()
+            .set_runtime_filter(runtime_filter);
+    }
 
     log!(
         executor.state.logger,
@@ -1299,7 +1341,92 @@ fn execute_instructions_from(
         return;
     }
 
+    // ─── Function summary table ───────────────────────────────────────────
+    // Pre-computed input/output relations for Go runtime helpers. Allows the
+    // engine to skip thousands of instructions inside allocators / channel
+    // creation and reach application-level synchronisation logic within budget.
+    let summary_table = zorya::summaries::SummaryTable::new();
+    if summary_table.is_enabled() {
+        tprintln!(
+            "[SUMMARY] Function summary table loaded ({} entries)",
+            summary_table.entry_count()
+        );
+    }
+
+    // Log active plugins
+    {
+        let plugin_count = executor.event_bus.plugin_count();
+        if plugin_count > 0 {
+            let plugins_env = std::env::var("ZORYA_PLUGINS").unwrap_or_else(|_| "all".to_string());
+            tprintln!(
+                "[PLUGINS] {} plugin(s) active (--plugin \"{}\")",
+                plugin_count,
+                plugins_env
+            );
+        } else {
+            tprintln!("[PLUGINS] No plugins active (--plugin \"none\")");
+        }
+    }
+    // Synthetic heap: a region above all real mappings where summaries allocate.
+    // Start at 0x7000_0000_0000 — well above the Go heap (~0xc000_000000)
+    // and below the stack (~0x7fff_...) to avoid collisions.
+    let mut summary_heap_ptr: u64 = 0x7000_0000_0000;
+    // Allocate a 16 MiB backing region so that stores into summary-allocated
+    // objects succeed.  Without this, write_bytes silently fails and any
+    // instruction that writes to a summary-allocated pointer crashes with
+    // WriteOutOfBounds.
+    const SUMMARY_HEAP_SIZE: usize = 16 * 1024 * 1024;
+    let _ = executor.state.memory.mmap(
+        summary_heap_ptr,
+        SUMMARY_HEAP_SIZE,
+        0x3,  // PROT_READ | PROT_WRITE
+        0x30, // MAP_FIXED | MAP_ANONYMOUS
+        -1,
+        0,
+    );
+
+    // ─── Main-return detection ──────────────────────────────────────────
+    // Capture the return address sitting at [RSP] when we enter main.main.
+    // Once RIP lands on this address, main.main has returned and all
+    // application logic is done — runtime cleanup is not interesting.
+    let main_return_address: u64 = {
+        let rsp = executor
+            .state
+            .cpu_state
+            .lock()
+            .unwrap()
+            .get_register_by_offset(0x20, 64)
+            .map(|v| v.concrete.to_u64())
+            .unwrap_or(0);
+        executor
+            .state
+            .memory
+            .read_u64(rsp, &mut executor.state.logger.clone())
+            .map(|cv| cv.concrete.to_u64())
+            .unwrap_or(0)
+    };
+
+    let mut math_big_warned = false;
+
     loop {
+        // Graceful shutdown on Ctrl+C: break out of the loop so
+        // finalize_plugin_analysis can run and emit findings.
+        if SIGINT_RECEIVED.load(Ordering::Relaxed) {
+            zorya::clear_coverage_bar();
+            teprintln!("\n[SIGINT] Graceful shutdown.");
+            break;
+        }
+
+        // ─── Main-return termination ────────────────────────────────────
+        // If RIP has landed on the return address we captured at entry,
+        // main.main has returned. Everything after this is runtime cleanup
+        // (deferred closures, exit syscalls) — no application bugs to find.
+        if main_return_address != 0 && current_rip == main_return_address {
+            zorya::clear_coverage_bar();
+            teprintln!("\n[ANALYSIS] main.main returned, analysis complete.");
+            break;
+        }
+
         // External-function boundary check. `current_rip` is "external" when:
         //   * it has no lifted pcode (the thread-exit sentinel, or a libc
         //     return target), or
@@ -1318,6 +1445,141 @@ fn execute_instructions_from(
                 .get(&format!("{:x}", current_rip))
                 .map(|s| s.starts_with("plt_"))
                 .unwrap_or(false);
+
+        // ─── Function summary intercept ───────────────────────────────────
+        // Before executing pcode for a known runtime helper, check if the
+        // summary table has a pre-computed model. If so, apply the summary
+        // effect (allocate, set return value) and simulate a return — saving
+        // thousands of instructions inside malloc/channel-creation paths.
+        if !treat_as_external {
+            let maybe_sym = executor
+                .symbol_table
+                .get(&format!("{:x}", current_rip))
+                .cloned();
+            if let Some(ref sym_name) = maybe_sym {
+                if let Some(effect) = summary_table.lookup(sym_name) {
+                    log!(
+                        executor.state.logger.clone(),
+                        "[SUMMARY] Applying summary for {} at 0x{:x}",
+                        sym_name,
+                        current_rip
+                    );
+                    let outcome = zorya::summaries::apply(
+                        effect,
+                        executor.context,
+                        &executor.state.cpu_state,
+                        &executor.state.memory,
+                        &mut summary_heap_ptr,
+                    );
+                    if let zorya::summaries::ApplyOutcome::ChannelCreated { ptr } = outcome {
+                        let tid = { executor.state.thread_manager.lock().unwrap().current_tid };
+                        for plugin in executor.event_bus.plugins_mut() {
+                            if plugin.name() == "chancheck" {
+                                let p = unsafe {
+                                    &mut *(&mut **plugin
+                                        as *mut dyn zorya::plugins::plugin::Plugin<'_>
+                                        as *mut zorya::plugins::builtin::chancheck::ChanCheckPlugin<
+                                            '_,
+                                        >)
+                                };
+                                p.register_channel(ptr, tid);
+                                break;
+                            }
+                        }
+                    }
+                    zorya::summaries::clear_error_registers(
+                        effect,
+                        executor.context,
+                        &executor.state.cpu_state,
+                    );
+                    // Simulate function return: pop the return address from the
+                    // stack ([RSP]) and advance RSP. This works whether the helper
+                    // was entered via CALL (return address is the caller's next
+                    // instruction) or via a Go tail-call JMP (return address is the
+                    // original caller, already on the stack).
+                    let rsp = executor
+                        .state
+                        .cpu_state
+                        .lock()
+                        .unwrap()
+                        .get_register_by_offset(0x20, 64)
+                        .map(|v| v.concrete.to_u64())
+                        .unwrap_or(0);
+                    let ret_addr = executor
+                        .state
+                        .memory
+                        .read_u64(rsp, &mut executor.state.logger.clone())
+                        .map(|cv| cv.concrete.to_u64())
+                        .unwrap_or(0);
+                    // Guard against a degenerate return address that would put us
+                    // right back at this same summarized entry (would loop forever).
+                    if ret_addr == 0 || ret_addr == current_rip {
+                        log!(
+                            executor.state.logger.clone(),
+                            "[SUMMARY] {} at 0x{:x}: invalid return address 0x{:x} at [RSP=0x{:x}]; terminating this path",
+                            sym_name,
+                            current_rip,
+                            ret_addr,
+                            rsp
+                        );
+                        break;
+                    }
+                    // Advance RSP (pop the return slot)
+                    let new_rsp = rsp + 8;
+                    let rsp_cv = ConcolicVar::new_concrete_and_symbolic_int(
+                        new_rsp,
+                        BV::from_u64(executor.context, new_rsp, 64),
+                        executor.context,
+                    );
+                    let _ = executor
+                        .state
+                        .cpu_state
+                        .lock()
+                        .unwrap()
+                        .set_register_value_by_offset(0x20, rsp_cv, 64);
+                    // Only pop a call-stack frame if the top frame actually belongs
+                    // to this function (i.e. it was entered via CALL). For tail-call
+                    // JMP entries no frame was pushed, so we must not pop the
+                    // caller's frame.
+                    let has_own_frame = executor
+                        .state
+                        .call_stack
+                        .last()
+                        .map(|f| f.function_addr == current_rip)
+                        .unwrap_or(false);
+                    if has_own_frame {
+                        executor.pop_function_frame();
+                    }
+                    // Critical: keep the RIP register (0x288) in sync with the
+                    // return target. The main loop reads 0x288 as `possible_new_rip`
+                    // at block boundaries; if we only update the local `current_rip`
+                    // and leave 0x288 pointing at the summarized entry, the very
+                    // next fall-through block will spuriously "change control flow"
+                    // back into the summarized function with a corrupt stack.
+                    let ret_rip_cv = ConcolicVar::new_concrete_and_symbolic_int(
+                        ret_addr,
+                        BV::from_u64(executor.context, ret_addr, 64),
+                        executor.context,
+                    );
+                    let _ = executor
+                        .state
+                        .cpu_state
+                        .lock()
+                        .unwrap()
+                        .set_register_value_by_offset(0x288, ret_rip_cv, 64);
+                    log!(
+                        executor.state.logger.clone(),
+                        "[SUMMARY] {} at 0x{:x} → RET to 0x{:x}",
+                        sym_name,
+                        current_rip,
+                        ret_addr
+                    );
+                    current_rip = ret_addr;
+                    continue;
+                }
+            }
+        }
+
         if treat_as_external {
             if executor.state.is_terminated {
                 break;
@@ -1436,6 +1698,10 @@ fn execute_instructions_from(
 
         // This block is only to get data about the execution in results/execution_trace.txt
         if let Some(symbol_name) = executor.symbol_table.get(&current_rip_hex) {
+            if !math_big_warned && symbol_name.starts_with("math/big.") {
+                math_big_warned = true;
+                tprintln!("[WARNING] Entering math/big function ({}). Arbitrary-precision arithmetic is not summarized and may cause Z3 expression blowup or crash.", symbol_name);
+            }
             // If entering strconv numeric parsing, proactively constrain argument bytes to digits
             if symbol_name == "strconv.Atoi" || symbol_name == "strconv.ParseInt" {
                 if let Some((_, args)) = function_args_map.get(&current_rip) {
@@ -1550,6 +1816,13 @@ fn execute_instructions_from(
                         arg_values.join(", ")
                     );
                     log!(executor.trace_logger, "{}", log_string);
+                } else {
+                    log!(
+                        executor.trace_logger,
+                        "Address: {:x}, Symbol: {}",
+                        current_rip,
+                        symbol_name
+                    );
                 }
             } else {
                 log!(
@@ -1704,7 +1977,7 @@ fn execute_instructions_from(
                             let overlay_depth: usize = std::env::var("OVERLAY_DEPTH")
                                 .ok()
                                 .and_then(|v| v.parse().ok())
-                                .unwrap_or(15);
+                                .unwrap_or(DEFAULT_MAX_OVERLAY_DEPTH);
 
                             // Overlay explores the opposite branch, so compute the
                             // corresponding gate and carry it during speculative
@@ -2655,6 +2928,26 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
 
     if !python_script_path.exists() {
         panic!("Python script not found at {:?}", python_script_path);
+    }
+
+    // Reuse a previously computed xref table when present (e.g. produced once by
+    // the fuzzer's "done once" precompute step). Re-running Pyhidra per test is
+    // the dominant setup cost on large binaries and also bumps the mtime of
+    // xref_addresses.txt, which would in turn invalidate the panic-reachability
+    // BFS cache. Skipping it here keeps both caches warm so the per-test time
+    // budget is spent on concolic execution instead of static setup.
+    // Force a recompute by setting ZORYA_FORCE_PANIC_XREF=1.
+    let force_xref = std::env::var("ZORYA_FORCE_PANIC_XREF")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let xref_path = Path::new("results/xref_addresses.txt");
+    let xref_cached = xref_path.exists()
+        && fs::metadata(xref_path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false);
+    if !force_xref && xref_cached {
+        tprintln!("[GHIDRA] Reusing existing results/xref_addresses.txt (skipping Pyhidra panic-xref recompute).");
+        return Ok(());
     }
 
     tprintln!("[GHIDRA] Launching Ghidra + Pyhidra to collect panic cross-references (this may take a bit)...");

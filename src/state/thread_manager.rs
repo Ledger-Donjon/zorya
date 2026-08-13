@@ -205,6 +205,12 @@ pub struct ThreadManager<'ctx> {
     /// waiter is moved back to `Ready`. Populated by the `pthread_join`
     /// hook (see `ConcolicExecutor::handle_external_boundary`).
     pub join_waiters: BTreeMap<u64, u64>,
+
+    /// Address ranges of known runtime-only functions (sysmon, netpoll,
+    /// gcBgMarkWorker, etc.). Threads whose saved RIP falls inside any of
+    /// these ranges are skipped during scheduling — they remain in the
+    /// thread list and become eligible again once they leave runtime code.
+    runtime_filter_ranges: Vec<(u64, u64)>,
 }
 
 impl<'ctx> ThreadManager<'ctx> {
@@ -240,6 +246,7 @@ impl<'ctx> ThreadManager<'ctx> {
             instruction_count: 0,
             time_slice_instructions: 1000, // Switch after 1000 instructions
             join_waiters: BTreeMap::new(),
+            runtime_filter_ranges: Vec::new(),
         }
     }
 
@@ -612,16 +619,34 @@ impl<'ctx> ThreadManager<'ctx> {
             return false;
         }
 
-        // Consider switching at syscalls and function calls
+        // Switch at synchronisation checkpoints (syscalls, memory barriers)
+        // where concurrency bugs can manifest. Avoid switching at arbitrary
+        // function calls — per the thesis, preemption belongs at the
+        // checkpoint between a check and its dependent use, not at random
+        // time-slice boundaries that waste budget on irrelevant interleavings.
         match checkpoint_type {
             CheckpointType::Syscall => true,
-            CheckpointType::FunctionCall => {
-                // Switch at function calls only if time slice expired
-                self.instruction_count >= self.time_slice_instructions
-            }
             CheckpointType::MemoryBarrier => true,
             CheckpointType::Yield => true,
+            CheckpointType::FunctionCall => false,
         }
+    }
+
+    /// Set the runtime filter ranges. Threads whose saved RIP is inside any
+    /// of these [start, end) ranges will be skipped during scheduling.
+    pub fn set_runtime_filter(&mut self, ranges: Vec<(u64, u64)>) {
+        tprintln!(
+            "[SCHEDULER] Runtime thread filter set with {} function ranges",
+            ranges.len()
+        );
+        self.runtime_filter_ranges = ranges;
+    }
+
+    /// Check if the given RIP falls inside any runtime-only function range.
+    fn is_rip_in_runtime_filter(&self, rip: u64) -> bool {
+        self.runtime_filter_ranges
+            .iter()
+            .any(|&(start, end)| rip >= start && rip < end)
     }
 
     /// Get the next thread to run (round-robin)
@@ -655,6 +680,22 @@ impl<'ctx> ThreadManager<'ctx> {
             }
             if let Some(t) = self.threads.get(&tid) {
                 if t.status == ThreadStatus::Ready {
+                    // Skip threads stuck in runtime-only functions (sysmon, GC, netpoll)
+                    if !self.runtime_filter_ranges.is_empty() {
+                        let thread_rip = t
+                            .cpu_state
+                            .get_register_by_offset(0x288, 64)
+                            .map(|v| v.concrete.to_u64())
+                            .unwrap_or(0);
+                        if self.is_rip_in_runtime_filter(thread_rip) {
+                            tprintln!(
+                                "[SCHEDULER] Skipping TID {} — RIP 0x{:x} is in runtime-only code",
+                                tid,
+                                thread_rip
+                            );
+                            continue;
+                        }
+                    }
                     return Some(tid);
                 }
             }

@@ -1071,6 +1071,57 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         Ok(())
     }
 
+    /// Build address ranges for Go runtime-only functions that should be
+    /// excluded from thread scheduling. Returns `(start, start+size)` pairs
+    /// for functions like `runtime.sysmon`, `runtime.netpoll`, `runtime.retake`,
+    /// and `runtime.gcBgMarkWorker` whose execution is irrelevant to
+    /// application-level vulnerability detection.
+    pub fn build_runtime_thread_filter(&self, elf_data: &[u8]) -> Vec<(u64, u64)> {
+        const RUNTIME_ONLY_PREFIXES: &[&str] = &[
+            "runtime.sysmon",
+            "runtime.retake",
+            "runtime.netpoll",
+            "runtime.gcBgMarkWorker",
+            "runtime.gcMarkDone",
+            "runtime.gcStart",
+            "runtime.gcDrain",
+            "runtime.schedule",
+            "runtime.findRunnable",
+            "runtime.stopm",
+            "runtime.notesleep",
+            "runtime.notetsleep",
+            "runtime.futexsleep",
+            "runtime.usleep",
+            "runtime.timeSleepUntil",
+            "runtime.(*sysmonState).shouldRelax",
+        ];
+
+        let elf = match Elf::parse(elf_data) {
+            Ok(e) => e,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut ranges = Vec::new();
+        for sym in &elf.syms {
+            if goblin::elf::sym::st_type(sym.st_info) != goblin::elf::sym::STT_FUNC {
+                continue;
+            }
+            if sym.st_size == 0 {
+                continue;
+            }
+            if let Some(name) = elf.strtab.get_at(sym.st_name) {
+                if RUNTIME_ONLY_PREFIXES
+                    .iter()
+                    .any(|prefix| name == *prefix || name.starts_with(&format!("{}.", prefix)))
+                {
+                    ranges.push((sym.st_value, sym.st_value + sym.st_size));
+                }
+            }
+        }
+
+        ranges
+    }
+
     // Find the enclosing function symbol name for an address using the existing hex-keyed table
     pub fn enclosing_symbol_name(&self, addr: u64) -> Option<String> {
         let mut best: Option<(u64, &String)> = None;
@@ -2588,11 +2639,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             return false;
         }
 
+        // Second fast path: try simplify() which collapses (concat #xAB #xCD ...)
+        // into a single numeral. This is cheap for constant-only concat trees
+        // (common after loading concrete values from memory) but we cap it to
+        // avoid expensive simplification of truly symbolic expressions.
+        let simplified = pointer_bv.simplify();
+        if simplified.as_u64().is_some() {
+            return false;
+        }
+
         // Format the expression ONCE to find which tracked variable appears.
-        // We intentionally NEVER call simplify() — it can be very expensive
-        // for large expression trees and is unnecessary: we check the BASE
-        // tracked variable for NULL, not the derived expression.
-        let expr_string = format!("{:?}", pointer_bv);
+        let expr_string = format!("{:?}", simplified);
 
         // Find the tracked symbolic variable whose Z3 name appears in the
         // expression.  We match on the *formatted BV* (e.g. "b_ptr!141"),

@@ -6,6 +6,7 @@ pub mod concolic;
 pub mod fuzzer;
 pub mod plugins;
 pub mod state;
+pub mod summaries;
 pub mod target_info;
 
 pub use concolic::{concolic_var, executor};

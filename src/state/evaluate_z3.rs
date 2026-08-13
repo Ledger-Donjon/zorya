@@ -63,7 +63,7 @@ pub fn report_vulnerability(
 
     // -- log file --
     log!(logger, "{}", bar);
-    log!(logger, "VULNERABILITY: {}", vuln_type);
+    log!(logger, "BUG / VULNERABILITY: {}", vuln_type);
     log!(logger, "  Address: 0x{:x}", address);
     log!(logger, "  Elapsed: {}", elapsed_str);
     for line in details {
@@ -74,7 +74,7 @@ pub fn report_vulnerability(
     // -- terminal (stdout) --
     tprintln!();
     tprintln!("{}", bar);
-    tprintln!("VULNERABILITY: {}", vuln_type);
+    tprintln!("BUG / VULNERABILITY: {}", vuln_type);
     tprintln!("  Address: 0x{:x}", address);
     tprintln!("  Elapsed: {}", elapsed_str);
     for line in details {
@@ -84,43 +84,49 @@ pub fn report_vulnerability(
     tprintln!();
 }
 
-/// Log a concrete vulnerability (no Z3 evaluation needed) to both FOUND_SAT_STATE.txt and terminal.
-/// Used when the pointer is concretely NULL during overlay execution — Z3 is not required
-/// because the NULL dereference is certain on this path.
+/// Log a bug found on the overlay concolic path to both FOUND_SAT_STATE.txt and terminal.
+/// Used when the pointer is concretely NULL during overlay execution. The Z3 CBRANCH check
+/// that follows will determine the triggering input values.
 pub fn log_vuln_to_file_and_terminal(
     logger: &mut crate::state::state_manager::Logger,
     vuln_type: &str,
     address: u64,
     opcode_str: &str,
-    detection_method: &str,
     description: &str,
     pointer_name: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let elapsed = get_elapsed_since_start();
     let mode = std::env::var("MODE").unwrap_or_else(|_| "unknown".to_string());
 
-    // --- Terminal report (same format as report_vulnerability) ---
+    // --- Terminal report ---
     let bar = "========================================================================";
     let elapsed_str = format!("{:.3}s", elapsed.as_secs_f64());
 
     log!(logger, "{}", bar);
-    log!(logger, "VULNERABILITY: {}", vuln_type);
-    log!(logger, "  Address: 0x{:x}", address);
+    log!(
+        logger,
+        "BUG / VULNERABILITY (overlay concolic path): {}",
+        vuln_type
+    );
+    log!(logger, "  Crash address: 0x{:x}", address);
     log!(logger, "  Elapsed: {}", elapsed_str);
     log!(logger, "  Opcode: {}", opcode_str);
-    log!(logger, "  Detection method: {}", detection_method);
     log!(logger, "  {}", description);
+    log!(
+        logger,
+        "  (Z3 solver will now determine the triggering input, see CBRANCH analysis)"
+    );
     log!(logger, "  More details in: results/FOUND_SAT_STATE.txt");
     log!(logger, "{}\n", bar);
 
     tprintln!();
     tprintln!("{}", bar);
-    tprintln!("VULNERABILITY: {}", vuln_type);
-    tprintln!("  Address: 0x{:x}", address);
+    tprintln!("BUG / VULNERABILITY (overlay concolic path): {}", vuln_type);
+    tprintln!("  Crash address: 0x{:x}", address);
     tprintln!("  Elapsed: {}", elapsed_str);
     tprintln!("  Opcode: {}", opcode_str);
-    tprintln!("  Detection method: {}", detection_method);
     tprintln!("  {}", description);
+    tprintln!("  (Z3 solver will now determine the triggering input, see CBRANCH analysis)");
     tprintln!("  More details in: results/FOUND_SAT_STATE.txt");
     tprintln!("{}", bar);
     tprintln!();
@@ -148,7 +154,7 @@ pub fn log_vuln_to_file_and_terminal(
     }
     writeln!(
         file,
-        "[*] CONCRETE VULNERABILITY FOUND (no Z3 evaluation needed)"
+        "[*] BUG DETECTED (overlay concolic path, not the concrete execution)"
     )?;
     writeln!(file, "Timestamp: {}", timestamp_str)?;
     writeln!(file, "Mode: {}", mode)?;
@@ -158,11 +164,10 @@ pub fn log_vuln_to_file_and_terminal(
         elapsed.as_secs(),
         elapsed.subsec_millis()
     )?;
-    writeln!(file, "Instruction Address: 0x{:x}", address)?;
+    writeln!(file, "Crash Address: 0x{:x}", address)?;
     writeln!(file, "{}", "-".repeat(60))?;
-    writeln!(file, "Vulnerability: {}", vuln_type)?;
+    writeln!(file, "Bug: {}", vuln_type)?;
     writeln!(file, "Opcode: {}", opcode_str)?;
-    writeln!(file, "Detection method: {}", detection_method)?;
     writeln!(file, "{}", description)?;
     writeln!(file)?;
     if let Some(ptr_name) = pointer_name {
@@ -170,9 +175,20 @@ pub fn log_vuln_to_file_and_terminal(
     }
     writeln!(
         file,
-        "The pointer at this address is concretely NULL on the overlay (not-taken) path."
+        "This bug was found on the OVERLAY CONCOLIC path, not on the concrete execution."
     )?;
-    writeln!(file, "No symbolic variable needs a specific value — any input reaching this path will dereference NULL.")?;
+    writeln!(
+        file,
+        "The pointer is unconditionally NULL once this code path is entered."
+    )?;
+    writeln!(
+        file,
+        "The Z3 constraint solver analysis (CBRANCH) below determines what"
+    )?;
+    writeln!(
+        file,
+        "input values are needed to reach this path from the program entry."
+    )?;
     writeln!(file, "{}", "=".repeat(80))?;
 
     file.flush()?;
@@ -1365,11 +1381,11 @@ pub fn evaluate_args_z3<'ctx>(
                     let addr = instruction_addr.or(panic_addr).unwrap_or(0);
                     report_vulnerability(
                         &mut executor.state.logger.clone(),
-                        "Satisfiable path to panic/vulnerability",
+                        "Satisfiable path to panic/crash",
                         addr,
                         &[
                             "Opcode: CBRANCH",
-                            "Detection method: Exploring the not taken path with Overlay Execution",
+                            "Detection method: Overlay concolic path exploration",
                             "More details in: results/FOUND_SAT_STATE.txt",
                         ],
                     );
@@ -1529,11 +1545,11 @@ pub fn evaluate_args_z3<'ctx>(
                 let addr = instruction_addr.or(branch_target_addr).unwrap_or(0);
                 report_vulnerability(
                     &mut executor.state.logger.clone(),
-                    "Satisfiable path to panic/vulnerability",
+                    "Satisfiable path to panic/crash",
                     addr,
                     &[
                         "Opcode: CBRANCH",
-                        "Detection method: Exploring the not taken path with Overlay Execution",
+                        "Detection method: Overlay concolic path exploration",
                         "More details in: results/FOUND_SAT_STATE.txt",
                     ],
                 );

@@ -13,7 +13,10 @@ use std::rc::Rc;
 use std::sync::RwLock;
 
 use regex::Regex;
-use z3::{ast::BV, Context};
+use z3::{
+    ast::{Ast, BV},
+    Context,
+};
 
 use super::VirtualFileSystem;
 use crate::concolic::{ConcolicVar, ConcreteVar, Logger, SymbolicVar};
@@ -353,20 +356,30 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     /// Reads a null-terminated string from memory (concrete data only).
     pub fn read_string(&self, address: u64) -> Result<String, MemoryError> {
-        let mut result = Vec::new();
-        let mut addr = address;
+        // Read in bulk rather than one byte at a time. A single read_memory
+        // call of `CHUNK` bytes does one region lookup + memcpy, avoiding the
+        // massive overhead of locking per byte.
+        const CHUNK: usize = 4096; // Linux PATH_MAX — no legit C string exceeds this.
 
-        loop {
-            let (concrete, _) = self.read_memory(addr, 1)?;
-            let byte = concrete[0];
-            if byte == 0 {
-                break;
+        let concrete = match self.read_memory(address, CHUNK) {
+            Ok((bytes, _)) => bytes,
+            Err(_) => {
+                // Region doesn't cover the full CHUNK; fall back to a smaller
+                // attempt so we can still read short strings at region edges.
+                match self.read_memory(address, 256) {
+                    Ok((bytes, _)) => bytes,
+                    Err(e) => return Err(e),
+                }
             }
-            result.push(byte);
-            addr += 1;
-        }
+        };
 
-        String::from_utf8(result).map_err(|_| MemoryError::InvalidString)
+        // Scan the bulk buffer for a NUL terminator.
+        match concrete.iter().position(|&b| b == 0) {
+            Some(pos) => {
+                String::from_utf8(concrete[..pos].to_vec()).map_err(|_| MemoryError::InvalidString)
+            }
+            None => Err(MemoryError::InvalidString),
+        }
     }
 
     /// Reads exactly one byte from memory, returning a ConcolicVar (concrete and symbolic).
@@ -714,25 +727,26 @@ impl<'ctx> MemoryX86_64<'ctx> {
         // Fast path: avoid building per-byte symbolic extracts when the value is
         // fully concrete (numeral BV). This is the common case in libc-heavy
         // traces and removes a large amount of Z3 AST allocation in STORE paths.
-        let symbolic: Vec<Option<Rc<BV<'ctx>>>> = if value.symbolic.as_u64().is_some() {
-            vec![None; byte_size]
-        } else {
-            let mut symbolic_bytes = Vec::with_capacity(byte_size);
-            for i in 0..byte_size {
-                let low = (i * 8) as u32;
-                let high = if low + 7 >= value.size {
-                    value.size - 1
-                } else {
-                    low + 7
-                };
-                let byte_bv = value.symbolic.extract(high, low);
-                symbolic_bytes.push(byte_bv);
-            }
-            symbolic_bytes
-                .into_iter()
-                .map(|bv| Some(Rc::new(bv)))
-                .collect()
-        };
+        let symbolic: Vec<Option<Rc<BV<'ctx>>>> =
+            if value.symbolic.as_u64().is_some() || value.symbolic.simplify().as_u64().is_some() {
+                vec![None; byte_size]
+            } else {
+                let mut symbolic_bytes = Vec::with_capacity(byte_size);
+                for i in 0..byte_size {
+                    let low = (i * 8) as u32;
+                    let high = if low + 7 >= value.size {
+                        value.size - 1
+                    } else {
+                        low + 7
+                    };
+                    let byte_bv = value.symbolic.extract(high, low);
+                    symbolic_bytes.push(byte_bv);
+                }
+                symbolic_bytes
+                    .into_iter()
+                    .map(|bv| Some(Rc::new(bv)))
+                    .collect()
+            };
 
         // Write to memory
         self.write_memory(address, &concrete_bytes, &symbolic)
