@@ -68,8 +68,12 @@ Interactive mode asks for:
 - optional function/address details
 - optional binary arguments
 - optional negated-path exploration
+- plugin selection
 
-Advanced mode allows explicit symbolic register and memory selection.
+> **Note:** Program arguments (e.g. `os.Args` for Go, `argv` for C/C++) are
+> automatically made symbolic by default. The `--symbolic-registers` and
+> `--symbolic-memory` flags are only needed in `advanced` mode when you want
+> fine-grained control over additional symbolic inputs.
 
 Detailed interactive and flag behavior: [doc/Usage.md](doc/Usage.md)
 
@@ -81,6 +85,7 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   --thread-scheduling <all-threads|main-only> \
   [--arg "<arg1> <arg2>"] \
   [--negate-path-exploration|--no-negate-path-exploration] \
+  [--plugin "<plugin1 plugin2>"|all|none] \
   [--force-pty] \
   [--symbolic-registers "REG1 REG2|all"] \
   [--symbolic-memory "0xADDR:SIZE ..."] \

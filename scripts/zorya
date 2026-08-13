@@ -139,6 +139,8 @@ if [[ -z "$1" || "$1" == -* ]]; then
   echo -e "  ${GREEN}--no-symbolic-memory${RESET}          (Advanced) Skip symbolic memory (no prompt)"
   echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
   echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
+  echo -e "  ${GREEN}--plugin${RESET} <\"plugin1 plugin2\"|all|none>"
+  echo -e "                                  Plugins to activate (volos, toctou, chancheck, all, none)"
   echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
   echo -e "                                  process see a real terminal, e.g. for Go's"
   echo -e "                                  isatty checks in kubectl)"
@@ -147,6 +149,7 @@ if [[ -z "$1" || "$1" == -* ]]; then
   echo -e "  zorya ./myprogram --lang go --compiler tinygo --mode main --arg \"input\""
   echo -e "  zorya /path/to/binary --lang c --mode function 0x401000"
   echo -e "  zorya /path/to/binary --lang go --mode advanced 0x401000 --symbolic-registers \"RAX RDI\" --no-symbolic-memory"
+  echo -e "  zorya /path/to/binary --lang go --compiler gc --mode main --plugin \"volos toctou\""
   echo ""
   exit 1
 fi
@@ -174,6 +177,7 @@ THREAD_SCHEDULING=""
 FORCE_PTY="false"
 SYMBOLIC_REGISTERS=""
 SYMBOLIC_MEMORY=""
+PLUGINS=""
 
 # Argument parsing loop
 while [[ $# -gt 0 ]]; do
@@ -205,6 +209,16 @@ while [[ $# -gt 0 ]]; do
       NEGATE_PATH_FLAG="true"; shift ;;
     --no-negate-path-exploration|--no-negate)
       NEGATE_PATH_FLAG="false"; shift ;;
+    --plugin)
+      PLUGINS="$2"; shift 2
+      VALID_PLUGINS="none volos toctou chancheck all"
+      for p in $PLUGINS; do
+        if ! echo "$VALID_PLUGINS" | grep -qw "$p"; then
+          echo "ERROR: Unknown plugin '$p'. Valid options: $VALID_PLUGINS"
+          exit 1
+        fi
+      done
+      ;;
     --arg)
       ARGS_SET=true
       ARGS=""
@@ -243,6 +257,8 @@ while [[ $# -gt 0 ]]; do
       echo -e "  ${GREEN}--no-symbolic-memory${RESET}          (Advanced) Skip symbolic memory (no prompt)"
       echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
       echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
+      echo -e "  ${GREEN}--plugin${RESET} <\"plugin1 plugin2\"|all|none>"
+      echo -e "                                  Plugins to activate (volos, toctou, chancheck, all, none)"
       echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
       echo -e "                                  process see a real terminal)"
       echo -e "  ${GREEN}--help${RESET}, ${GREEN}-h${RESET}                    Show this help message"
@@ -251,6 +267,7 @@ while [[ $# -gt 0 ]]; do
       echo -e "  zorya ./myprogram --lang go --compiler tinygo --mode main --arg \"input\""
       echo -e "  zorya /path/to/binary --lang c --mode function 0x401000"
       echo -e "  zorya /path/to/binary --lang go --mode advanced 0x401000 --symbolic-registers \"RAX RDI\" --no-symbolic-memory"
+      echo -e "  zorya /path/to/binary --lang go --compiler gc --mode main --plugin \"volos toctou\""
       echo ""
       exit 0
       ;;
@@ -264,7 +281,7 @@ done
 ##############################################################################
 
 INTERACTIVE_MODE=false
-[[ -z "$SOURCE_LANG" || -z "$MODE" || "$ARGS_SET" == "false" || -z "$NEGATE_PATH_FLAG" ]] && INTERACTIVE_MODE=true
+[[ -z "$SOURCE_LANG" || -z "$MODE" || "$ARGS_SET" == "false" || -z "$NEGATE_PATH_FLAG" || -z "$PLUGINS" ]] && INTERACTIVE_MODE=true
 [[ "${SOURCE_LANG,,}" == "go" && -z "$COMPILER" ]] && INTERACTIVE_MODE=true
 
 if [[ "$INTERACTIVE_MODE" == "true" ]]; then
@@ -494,12 +511,40 @@ if [[ -z "$NEGATE_PATH_FLAG" ]]; then
 fi
 [[ "$INTERACTIVE_MODE" == "true" ]] && divider
 
+# 5. Plugin selection
+if [[ -z "$PLUGINS" ]]; then
+  VALID_PLUGINS="none volos toctou chancheck all"
+  while true; do
+    echo ""; echo "Which plugin(s) do you want to activate? (none / volos / toctou / chancheck / all)"
+    echo "  - none: No plugins (pure concolic execution)"
+    echo "  - volos: Data-race detector"
+    echo "  - toctou: Time-of-check-time-of-use detector"
+    echo "  - chancheck: Send-on-closed-channel detector (Go)"
+    echo "  - all: Enable all plugins"
+    echo "  Combine with spaces, e.g.: volos toctou"
+    read -rp "[all]: " PLUGINS; PLUGINS="${PLUGINS:-all}"
+
+    PLUGINS_VALID=true
+    for p in $PLUGINS; do
+      if ! echo "$VALID_PLUGINS" | grep -qw "$p"; then
+        echo ""; echo "  Unknown plugin '$p'. Valid options: $VALID_PLUGINS"
+        PLUGINS_VALID=false
+        PLUGINS=""
+        break
+      fi
+    done
+    [[ "$PLUGINS_VALID" == "true" ]] && break
+  done
+fi
+[[ "$INTERACTIVE_MODE" == "true" ]] && divider
+
 ##############################################################################
 #                        ENV EXPORTS & FINAL COMMAND
 ##############################################################################
 
 export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH NEGATE_PATH_FLAG="$NEGATE_PATH_FLAG" FORCE_PTY
 export SYMBOLIC_REGISTERS SYMBOLIC_MEMORY
+export ZORYA_PLUGINS="$PLUGINS"
 
 # Build final command string (using original path for display, but actual execution uses absolute)
 CMD="$ZORYA_DIR/zorya $BIN_PATH_ORIGINAL --mode $MODE"
@@ -519,6 +564,7 @@ else
   CMD+=" --no-symbolic-memory"
 fi
 [[ "$NEGATE_PATH_FLAG" == "true" ]] && CMD+=" --negate-path-exploration" || CMD+=" --no-negate-path-exploration"
+[[ -n "$PLUGINS" && "$PLUGINS" != "none" ]] && CMD+=" --plugin \"$PLUGINS\""
 [[ "$FORCE_PTY" == "true" ]] && CMD+=" --force-pty"
 
 echo "*************************************************************************************"

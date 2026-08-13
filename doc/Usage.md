@@ -19,6 +19,7 @@ Interactive prompts cover:
 6. Advanced symbolic selections (registers/memory)
 7. Optional binary arguments
 8. Negated-path exploration toggle
+9. Plugin selection: `none`, `volos`, `toctou`, `chancheck`, `all` (or combinations)
 
 ## Command-line mode
 
@@ -28,6 +29,7 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   [--thread-scheduling <all-threads|main-only>] \
   [--arg "<arg1> <arg2>"] \
   [--negate-path-exploration|--no-negate-path-exploration] \
+  [--plugin "<plugin1> <plugin2>"|all|none] \
   [--force-pty] \
   [--symbolic-registers "REG1 REG2|all"] \
   [--symbolic-memory "0xADDR1:SIZE1 0xADDR2:SIZE2"] \
@@ -48,12 +50,24 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   - `main-only`: execute only main thread
 - `--negate-path-exploration`: enable symbolic negated branch exploration
 - `--no-negate-path-exploration`: disable negated branch exploration
+- `--plugin`: plugins to activate at runtime
+  - `all` (default): enable all compiled-in plugins
+  - `none`: disable all plugins (pure concolic execution)
+  - `"volos toctou"`: space-separated list of specific plugins
+  - Available plugins: `volos` (data-race), `toctou` (TOCTOU), `chancheck` (send-on-closed-channel)
 - `--force-pty`: run GDB sessions inside a PTY to preserve TTY-gated behavior
 - `--arg`: pass runtime arguments to the analyzed binary
 - `--symbolic-registers` (advanced): space-separated registers (or `all`)
 - `--symbolic-memory` (advanced): ranges `0xADDR:SIZE`
 - `--no-symbolic-registers` (advanced): explicit no-register symbolic selection
 - `--no-symbolic-memory` (advanced): explicit no-memory symbolic selection
+
+> **Automatic symbolic inputs:** Program arguments (`os.Args` for Go, `argv`
+> for C/C++) are automatically made symbolic in `main` and `start` modes.
+> Most analyses do NOT need `--symbolic-registers` or `--symbolic-memory`.
+> These flags exist only for `advanced` mode when you want to inject symbolic
+> values at arbitrary registers or memory locations (e.g. analyzing a function
+> in isolation).
 
 ### Environment
 
@@ -110,7 +124,8 @@ zorya /tmp/your-binary \
   --thread-scheduling all-threads \
   --mode main \
   --arg "a" \
-  --negate-path-exploration
+  --negate-path-exploration \
+  --plugin "volos toctou"
 ```
 
 ### D) Retrieve results back to macOS
@@ -138,7 +153,8 @@ scripts/zorya-remote-run.sh \
   -- --mode main --lang go --compiler gc \
      --thread-scheduling all-threads \
      --arg "a" \
-     --negate-path-exploration
+     --negate-path-exploration \
+     --plugin all
 ```
 
 The script uploads the binary, runs Zorya on the Linux host, and downloads
