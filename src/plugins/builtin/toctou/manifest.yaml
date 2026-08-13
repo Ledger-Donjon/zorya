@@ -1,0 +1,43 @@
+# TOCTOU detector plugin manifest
+# SPDX-License-Identifier: Apache-2.0
+
+name: toctou
+version: 0.0.5
+description: >
+  Detects time-of-check-time-of-use race conditions at the syscall level.
+  Targets patterns like SO_PEERCRED→readlink(/proc/pid/exe), stat→open,
+  and access→open where a race window allows resource substitution.
+
+subscriptions:
+  - Syscall
+  - SyscallRet
+  - Call
+  - ThreadSwitch
+
+environment:
+  TOCTOU_VERBOSE: "Verbose by default (1). Set to 0 to suppress per-event log messages."
+
+rules:
+  - id: check-use-race
+    severity: Critical (with thread switch) / Error (without)
+    description: >
+      A security-sensitive property was checked and then used with a race
+      window between the two operations. An attacker who can influence the
+      resource in that window (PID recycling, symlink swap, file rename)
+      can bypass the check.
+
+patterns:
+  - name: peercred-readlink
+    check: "getsockopt(fd, SOL_SOCKET, SO_PEERCRED)"
+    use: "readlinkat(AT_FDCWD, /proc/<pid>/exe)"
+    attack: "PID recycling — original process exits, malicious process takes same PID"
+
+  - name: stat-open
+    check: "stat(path) / lstat(path) / fstatat(dirfd, path)"
+    use: "openat(dirfd, path, flags)"
+    attack: "Symlink swap or rename in the race window"
+
+  - name: access-open
+    check: "access(path, mode) / faccessat(dirfd, path, mode)"
+    use: "openat(dirfd, path, flags)"
+    attack: "Permission check bypass via file replacement"

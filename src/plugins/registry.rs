@@ -19,29 +19,46 @@
 
 use crate::plugins::EventBus;
 
+/// Determine which plugins are enabled based on the `ZORYA_PLUGINS` env var.
+/// Returns a set of lowercase plugin names, or None meaning "all".
+fn enabled_plugins() -> Option<Vec<String>> {
+    let val = std::env::var("ZORYA_PLUGINS").unwrap_or_else(|_| "all".to_string());
+    let val = val.trim().to_lowercase();
+    if val.is_empty() || val == "all" {
+        return None; // all plugins enabled
+    }
+    if val == "none" {
+        return Some(Vec::new()); // no plugins
+    }
+    Some(val.split_whitespace().map(|s| s.to_string()).collect())
+}
+
+fn is_enabled(name: &str, filter: &Option<Vec<String>>) -> bool {
+    match filter {
+        None => true,
+        Some(list) => list.iter().any(|s| s == name),
+    }
+}
+
 /// Register every built-in plugin enabled via Cargo features. Called from
 /// the engine's startup path right after `State` is constructed.
 pub fn register_default<'ctx>(_bus: &mut EventBus<'ctx>) {
-    // Built-in plugins are wired in via their own `register()` factories.
-    // Keep the calls feature-gated so users can compile a stripped-down
-    // engine for benchmarking.
-    //
-    // #[cfg(feature = "plugin-panic-reach")]
-    // crate::plugins::builtin::panic_reach::register(_bus);
-    //
-    // #[cfg(feature = "plugin-coverage")]
-    // crate::plugins::builtin::coverage::register(_bus);
+    let filter = enabled_plugins();
 
-    // Volos race detector — plugin port of the upstream zorya-volos fork
-    // (https://github.com/kmsec137/zorya-volos). Receives MemRead /
-    // MemWrite / Call (lock primitives) / ThreadSpawn / ThreadExit
-    // events from the executor handlers and emits one finding per
-    // witness pair at end-of-trace.
     #[cfg(feature = "plugin-volos")]
-    crate::plugins::builtin::volos::register(_bus);
+    if is_enabled("volos", &filter) {
+        crate::plugins::builtin::volos::register(_bus);
+    }
 
-    // The example plugin is intentionally not registered here; it serves
-    // as a copy-paste template, not a default detector.
+    #[cfg(feature = "plugin-chancheck")]
+    if is_enabled("chancheck", &filter) {
+        crate::plugins::builtin::chancheck::register(_bus);
+    }
+
+    #[cfg(feature = "plugin-toctou")]
+    if is_enabled("toctou", &filter) {
+        crate::plugins::builtin::toctou::register(_bus);
+    }
 }
 
 /// Convenience for tests: register everything that ships with Zorya,

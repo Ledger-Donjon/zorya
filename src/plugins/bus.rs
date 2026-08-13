@@ -81,6 +81,13 @@ impl<'ctx> EventBus<'ctx> {
         self.plugins.len()
     }
 
+    /// Mutable access to the plugin list. Used by the summary engine and
+    /// tests to register channels or invoke plugin-specific methods that
+    /// are not part of the `Plugin` trait.
+    pub fn plugins_mut(&mut self) -> &mut [Box<dyn Plugin<'ctx>>] {
+        &mut self.plugins
+    }
+
     /// Dispatch an event to all interested plugins, folding their verdicts
     /// via [`Verdict::escalate`]. Re-entrant calls return
     /// [`Verdict::Continue`] without invoking any handler.

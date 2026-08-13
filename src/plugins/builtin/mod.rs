@@ -12,5 +12,7 @@
 //!    [`crate::plugins::registry::register_default`] under a
 //!    `#[cfg(feature = "plugin-<name>")]` gate.
 
+pub mod chancheck;
 pub mod example;
+pub mod toctou;
 pub mod volos;

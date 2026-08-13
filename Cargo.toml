@@ -13,8 +13,10 @@ default-run = "zorya"
 # library unconditionally (so `cargo test` covers them), but its
 # automatic registration in `crate::plugins::registry::register_default`
 # is feature-gated so users can ship a stripped-down engine.
-default = ["plugin-volos"]
+default = ["plugin-volos", "plugin-chancheck", "plugin-toctou"]
 plugin-volos = []
+plugin-chancheck = []
+plugin-toctou = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
