@@ -14,6 +14,11 @@ subscriptions:
   - Call
   - ThreadSwitch
 
+# In addition to the events above, the plugin implements the on_overlay_end
+# lifecycle hook to evaluate checks reached only during overlay concolic
+# execution of an untaken (input-gated) branch. See the overlay-check-reachable
+# rule below.
+
 environment:
   TOCTOU_VERBOSE: "Verbose by default (1). Set to 0 to suppress per-event log messages."
 
@@ -22,9 +27,21 @@ rules:
     severity: Critical (with thread switch) / Error (without)
     description: >
       A security-sensitive property was checked and then used with a race
-      window between the two operations. An attacker who can influence the
-      resource in that window (PID recycling, symlink swap, file rename)
-      can bypass the check.
+      window between the two operations, both observed on the analyzed path.
+      An attacker who can influence the resource in that window (PID recycling,
+      symlink swap, file rename) can bypass the check.
+
+  - id: overlay-check-reachable
+    severity: High
+    requires: "--negate-path-exploration (NEGATE_PATH_FLAG=true)"
+    description: >
+      A credential check (getsockopt SO_PEERCRED) was proven reachable on an
+      untaken, input-gated branch via overlay concolic execution, and the input
+      that reaches it was solved with Z3. The paired use (readlink /proc/<pid>/exe)
+      was not executed concretely in the overlay, so this is reported as a
+      *potential* TOCTOU together with the triggering input. Only SO_PEERCRED is
+      flagged from a lone check, since the peer PID is meaningless without a
+      subsequent identity use.
 
 patterns:
   - name: peercred-readlink

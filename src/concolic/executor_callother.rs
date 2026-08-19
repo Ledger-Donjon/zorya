@@ -1022,15 +1022,15 @@ fn handle_swi(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), 
         }
         // Add handling for other interrupts as needed
         _ => {
-            // In overlay mode (speculative execution), gracefully handle unimplemented interrupts
+            // In overlay mode (overlay concolic execution), gracefully handle unimplemented interrupts
             // These are typically unreachable code paths (e.g., BIOS interrupts like INT 0x10 in Linux binaries)
             if executor.is_overlay_mode() {
                 log!(
                     executor.state.logger,
-                    "[OVERLAY] Ignoring unimplemented SWI {} (speculative path - likely unreachable in practice)",
+                    "[OVERLAY] Ignoring unimplemented SWI {} (overlay concolic execution path - likely unreachable in practice)",
                     interrupt_number
                 );
-                // Return success - this is a speculative path that wouldn't execute in practice
+                // Return success - this is an overlay concolic execution path that wouldn't execute in practice
                 return Ok(());
             }
 

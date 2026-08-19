@@ -1053,7 +1053,7 @@ impl<'ctx> MemoryX86_64<'ctx> {
 
     // Checks if we already have a MemoryRegion covering `[start_addr, start_addr + size)`.
     // If not, create one with zero-initialized data and the given `prot_flags`.
-    fn ensure_region_exists(
+    pub fn ensure_region_exists(
         &self,
         start_addr: u64,
         size: usize,

@@ -26,8 +26,15 @@ pub enum SummaryEffect {
     /// Allocates a byte slice `[]byte` of the given length and returns the
     /// slice header (ptr, len, cap) in (RAX, RBX, RCX).
     /// Models: `runtime.rawbyteslice(size int) []byte`
-    /// Also: `runtime.stringtoslicebyte(buf *[tmpBuf]byte, s string) []byte`
     AllocSlice,
+
+    /// Converts a Go string to a `[]byte` by allocating a new buffer and
+    /// copying the source string bytes (including symbolic values) into it.
+    /// Models: `runtime.stringtoslicebyte(buf *[tmpBuf]byte, s string) []byte`
+    ///
+    /// Go ABI: RAX=buf (ignored), BX=string.ptr, CX=string.len
+    /// Returns: AX=data_ptr, BX=len, CX=cap
+    StringToSliceByte,
 
     /// Creates a channel and returns the `*hchan` pointer in RAX.
     /// Models: `runtime.makechan(t *chantype, size int) *hchan`
@@ -133,7 +140,7 @@ pub static RUNTIME_SUMMARIES: Lazy<Vec<FunctionSummary>> = Lazy::new(|| {
         },
         FunctionSummary {
             name: "runtime.stringtoslicebyte",
-            effect: SummaryEffect::AllocSlice,
+            effect: SummaryEffect::StringToSliceByte,
         },
         FunctionSummary {
             name: "runtime.makeslice",

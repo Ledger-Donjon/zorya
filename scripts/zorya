@@ -79,23 +79,16 @@ INIT_DATA_DIR="$ZORYA_DIR/results/initialization_data"
 mkdir -p "$INIT_DATA_DIR"
 
 # ── Trace file setup ────────────────────────────────────────────────────────
-# Truncate execution_trace.txt at the very start of each run, then redirect
-# ALL terminal output (stdout + stderr) through `tee` so that every line
-# printed to the terminal — including pcode generation, GDB dumps, VDSO
-# extraction, and the Rust binary's own output — is also captured in the
-# trace file in the correct chronological order.
-#
-# The Rust binary detects ZORYA_TRACE_BY_SHELL=1 and switches to
-# stdout-only loggers so it does NOT write directly to the file (which
-# would create duplicate lines alongside the ones tee writes).
+# Setup output is piped through a synchronous pipeline that flushes before the
+# Rust binary runs, so the trace file is always in chronological order.
+# The Rust binary appends its own trace (ZORYA_TRACE_BY_SHELL=1 = don't truncate).
 TRACE_FILE="$ZORYA_DIR/results/execution_trace.txt"
 mkdir -p "$ZORYA_DIR/results"
-> "$TRACE_FILE"                                         # truncate / create
+> "$TRACE_FILE"
 export ZORYA_TRACE_BY_SHELL=1
-# Tee all output (stdout + stderr) to the trace file, stripping ANSI colour
-# escape sequences so the file contains plain text while the terminal still
-# sees colours.  The sed pattern matches ESC [ … <letter> (SGR, cursor, etc.)
-exec > >(tee >(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' >> "$TRACE_FILE")) 2>&1
+
+# Mirror setup output to terminal (with colour) while file gets ANSI-stripped.
+if [[ -w /dev/tty ]]; then TERM_MIRROR=/dev/tty; else TERM_MIRROR=/dev/stdout; fi
 
 ##############################################################################
 #                         HELPER FUNCTIONS
@@ -567,60 +560,64 @@ fi
 [[ -n "$PLUGINS" && "$PLUGINS" != "none" ]] && CMD+=" --plugin \"$PLUGINS\""
 [[ "$FORCE_PTY" == "true" ]] && CMD+=" --force-pty"
 
-echo "*************************************************************************************"
-echo "Running command: $CMD"
-echo ""
 export ZORYA_CMD="$CMD"
 
-# Step 1: Pcode generation
-cd "$PCODE_GENERATOR_DIR" || exit 1
-# Pin CARGO_TARGET_DIR so pcode_generator (which derives its output dir from
-# current_exe()) writes results into $PCODE_GENERATOR_DIR/results/ even when
-# the surrounding env injects a different CARGO_TARGET_DIR
-# (e.g. Cursor's /tmp/cursor-sandbox-cache/...).
-CARGO_TARGET_DIR="$PCODE_GENERATOR_DIR/target" \
-  RUSTFLAGS="--cap-lints=allow" cargo run --release "$BIN_PATH" --low-pcode
-
-PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
-[[ ! -f "$PCODE_FILE" ]] && { echo "Pcode generation failed."; exit 1; }
-
-# Step 2: Generate dumps
-echo ""; echo "Generating memory and CPU register dumps…"
-chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
-if ! "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS"; then
+# ── Setup phase (synchronous capture into trace file) ───────────────────────
+# Pipeline flushes before the Rust binary runs; PIPESTATUS[0] propagates errors.
+{
+  echo "*************************************************************************************"
+  echo "Running command: $CMD"
   echo ""
-  echo -e "\033[31m${BOLD}Zorya cannot continue without valid memory and CPU dumps. Aborting.${RESET}"
-  exit 1
-fi
 
-# Step 2.5: Extract and analyze VDSO
-echo ""; echo "Extracting VDSO from process memory…"
-chmod +x "$ZORYA_DIR/scripts/extract_vdso.sh"
-"$ZORYA_DIR/scripts/extract_vdso.sh" "$BIN_PATH" "$ADDR" "$ARGS"
+  # Step 1: Pcode generation
+  cd "$PCODE_GENERATOR_DIR" || exit 1
+  # Pin CARGO_TARGET_DIR to avoid sandbox-injected paths.
+  CARGO_TARGET_DIR="$PCODE_GENERATOR_DIR/target" \
+    RUSTFLAGS="--cap-lints=allow" cargo run --release "$BIN_PATH" --low-pcode
 
-if [[ -f "$INIT_DATA_DIR/vdso/vdso.so" && -s "$INIT_DATA_DIR/vdso/vdso.so" && -f "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" ]]; then
-  VDSO_BASE=$(cat "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" | tr -d '[:space:]')
-  if [[ -n "$VDSO_BASE" && "$VDSO_BASE" =~ ^0x[0-9a-fA-F]+$ ]]; then
-    echo ""; echo "Generating p-code for VDSO (base: $VDSO_BASE)…"
-    chmod +x "$ZORYA_DIR/scripts/generate_vdso_pcode.sh"
-    "$ZORYA_DIR/scripts/generate_vdso_pcode.sh" "$INIT_DATA_DIR/vdso/vdso.so" "$VDSO_BASE"
-  else
-    echo "⚠ Warning: VDSO base address is empty or invalid ('$VDSO_BASE'), continuing without VDSO support"
+  PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
+  [[ ! -f "$PCODE_FILE" ]] && { echo "Pcode generation failed."; exit 1; }
+
+  # Step 2: Generate dumps
+  echo ""; echo "Generating memory and CPU register dumps…"
+  chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
+  if ! "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS"; then
+    echo ""
+    echo -e "\033[31m${BOLD}Zorya cannot continue without valid memory and CPU dumps. Aborting.${RESET}"
+    exit 1
   fi
-else
-  echo "⚠ Warning: VDSO extraction failed or produced empty output, continuing without VDSO support"
-fi
 
-# Step 3: Run Zorya core
-echo ""; 
-echo "*********************************************************************************************"
-echo "Completed the generation of memory and CPU register dumps, and the P-Code file of the binary."
-echo "Launching Zorya now..."
-echo "*********************************************************************************************"
-echo ""
+  # Step 2.5: Extract and analyze VDSO
+  echo ""; echo "Extracting VDSO from process memory…"
+  chmod +x "$ZORYA_DIR/scripts/extract_vdso.sh"
+  "$ZORYA_DIR/scripts/extract_vdso.sh" "$BIN_PATH" "$ADDR" "$ARGS"
 
+  if [[ -f "$INIT_DATA_DIR/vdso/vdso.so" && -s "$INIT_DATA_DIR/vdso/vdso.so" && -f "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" ]]; then
+    VDSO_BASE=$(cat "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" | tr -d '[:space:]')
+    if [[ -n "$VDSO_BASE" && "$VDSO_BASE" =~ ^0x[0-9a-fA-F]+$ ]]; then
+      echo ""; echo "Generating p-code for VDSO (base: $VDSO_BASE)…"
+      chmod +x "$ZORYA_DIR/scripts/generate_vdso_pcode.sh"
+      "$ZORYA_DIR/scripts/generate_vdso_pcode.sh" "$INIT_DATA_DIR/vdso/vdso.so" "$VDSO_BASE"
+    else
+      echo "⚠ Warning: VDSO base address is empty or invalid ('$VDSO_BASE'), continuing without VDSO support"
+    fi
+  else
+    echo "⚠ Warning: VDSO extraction failed or produced empty output, continuing without VDSO support"
+  fi
+
+  # Step 3: Launch banner
+  echo ""
+  echo "*********************************************************************************************"
+  echo "Completed the generation of memory and CPU register dumps, and the P-Code file of the binary."
+  echo "Launching Zorya now..."
+  echo "*********************************************************************************************"
+  echo ""
+} 2>&1 | tee "$TERM_MIRROR" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' >> "$TRACE_FILE"
+
+setup_rc=${PIPESTATUS[0]}
+[[ "$setup_rc" -ne 0 ]] && exit "$setup_rc"
+
+# Step 4: Run Zorya (appends trace directly to $TRACE_FILE).
 cd "$ZORYA_DIR" || exit 1
-# Same reasoning as the pcode_generator invocation above: pin CARGO_TARGET_DIR
-# so artifacts land inside the workspace.
 CARGO_TARGET_DIR="$ZORYA_DIR/target" \
   RUSTFLAGS="--cap-lints=allow" cargo run --release -- --write-args "$ARGS"

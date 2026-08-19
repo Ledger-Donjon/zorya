@@ -109,6 +109,58 @@ pub fn apply<'ctx>(
             ApplyOutcome::Ok
         }
 
+        SummaryEffect::StringToSliceByte => {
+            // Go ABI for stringtoslicebyte:
+            //   Input:  RAX=buf (tmpBuf, ignored), BX=string.ptr, CX=string.len
+            //   Output: AX=data_ptr, BX=len, CX=cap
+            // We allocate a new buffer, copy the source string bytes (preserving
+            // symbolic values), and return the slice header.
+            let (src_ptr, src_len) = {
+                let cpu_lock = cpu.lock().unwrap();
+                let sp = cpu_lock
+                    .get_register_by_offset(0x18, 64) // BX = string ptr
+                    .map(|v| v.concrete.to_u64())
+                    .unwrap_or(0);
+                let sl = cpu_lock
+                    .get_register_by_offset(0x8, 64) // CX = string len
+                    .map(|v| v.concrete.to_u64())
+                    .unwrap_or(0);
+                (sp, sl)
+            };
+            let alloc_size = if src_len == 0 { 1 } else { src_len.min(4096) };
+            let dst_ptr = *heap_ptr;
+            *heap_ptr += (alloc_size + 15) & !15;
+
+            // Copy bytes from source string to new buffer, preserving symbolic values
+            if src_ptr != 0 && src_len > 0 {
+                let copy_len = src_len.min(4096) as usize;
+                if let Ok((concrete, symbolic)) = memory.read_memory(src_ptr, copy_len) {
+                    let _ = memory.write_memory(dst_ptr, &concrete, &symbolic);
+                }
+            } else {
+                let zeros = vec![0u8; alloc_size as usize];
+                let _ = memory.write_bytes(dst_ptr, &zeros);
+            }
+
+            let ptr_cv = ConcolicVar::new_concrete_and_symbolic_int(
+                dst_ptr,
+                BV::from_u64(z3_ctx, dst_ptr, 64),
+                z3_ctx,
+            );
+            let len_cv = ConcolicVar::new_concrete_and_symbolic_int(
+                alloc_size,
+                BV::from_u64(z3_ctx, alloc_size, 64),
+                z3_ctx,
+            );
+            {
+                let mut cpu_lock = cpu.lock().unwrap();
+                let _ = cpu_lock.set_register_value_by_offset(0x0, ptr_cv, 64); // AX = ptr
+                let _ = cpu_lock.set_register_value_by_offset(0x18, len_cv.clone(), 64); // BX = len
+                let _ = cpu_lock.set_register_value_by_offset(0x8, len_cv, 64); // CX = cap
+            }
+            ApplyOutcome::Ok
+        }
+
         SummaryEffect::MakeChan => {
             let hchan_size: u64 = 96;
             let ptr = *heap_ptr;
@@ -177,7 +229,7 @@ pub fn clear_error_registers<'ctx>(
     cpu: &Rc<Mutex<CpuState<'ctx>>>,
 ) {
     match effect {
-        SummaryEffect::AllocSlice => {
+        SummaryEffect::AllocSlice | SummaryEffect::StringToSliceByte => {
             let zero_di =
                 ConcolicVar::new_concrete_and_symbolic_int(0, BV::from_u64(z3_ctx, 0, 64), z3_ctx);
             let _ = cpu

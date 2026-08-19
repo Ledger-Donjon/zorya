@@ -143,6 +143,27 @@ zorya /absolute/path/to/zorya/tests/programs/crashme/crashme
 Expected outputs and result files are documented in:
 [doc/Quickstart.md](doc/Quickstart.md)
 
+### Example: TOCTOU detection with input solving
+
+Zorya detects Time-of-Check-Time-of-Use vulnerabilities through overlay concolic execution. When a vulnerability is gated behind a specific input, Zorya uses Z3 to solve the triggering condition and reports it in source-level terms:
+
+```
+zorya tests/programs/toctou-test2-with-input/toctou-test2-with-input \
+  --lang go --compiler gc --mode main \
+  --thread-scheduling all-threads --arg "a" \
+  --negate-path-exploration --plugin "toctou chancheck"
+```
+
+Output in `results/plugin_findings.txt`:
+
+```
+[toctou::overlay-check-reachable] Potential TOCTOU: SO_PEERCRED(fd=<runtime-assigned>)
+    reachable on input-gated path (use not reached in overlay)
+    Triggering input (Z3-solved): os.Args[1][0] = 0x02 (decimal 2)
+```
+
+This tells you that providing a first argument whose first byte is `2` reaches the `getsockopt(SO_PEERCRED)` → `readlinkat(/proc/<pid>/exe)` race window. The finding includes an attack narrative, reproduction steps, and mitigations.
+
 ## 4. Documentation
 
 <p align="center">

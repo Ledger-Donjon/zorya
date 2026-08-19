@@ -79,4 +79,14 @@ pub trait Plugin<'ctx>: 'ctx {
     /// post-pass analyses here (cross-check passes over accumulated
     /// state, summary writers, baseline comparisons).
     fn on_finish(&mut self, _ctx: &EventCtx<'ctx, '_>) {}
+
+    /// Called once each time an overlay concolic execution (untaken-path
+    /// exploration) is about to be torn down and control returns to the main
+    /// execution. `ctx.path_constraints()` holds the path condition φ that the
+    /// overlay accumulated (the input gate(s) that made the untaken branch
+    /// reachable). Plugins use this to evaluate — with Z3 — the inputs that
+    /// drive events they recorded *during* the overlay (e.g. a TOCTOU check
+    /// reached only on the untaken branch), and remember them for reporting at
+    /// `on_finish`. Default is a no-op.
+    fn on_overlay_end(&mut self, _ctx: &EventCtx<'ctx, '_>) {}
 }

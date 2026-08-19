@@ -97,12 +97,23 @@ pub trait Plugin<'ctx>: 'ctx {
     fn on_event(&mut self, ev: &Event<'ctx, '_>, ctx: &EventCtx<'ctx, '_>) -> Verdict {
         Verdict::Continue
     }
+    fn on_overlay_end(&mut self, ctx: &EventCtx<'ctx, '_>) {}
     fn on_finish(&mut self, ctx: &EventCtx<'ctx, '_>) {}
 }
 ```
 
 Default implementations on every method mean a new plugin only writes
 the methods it cares about.
+
+`on_overlay_end` is a lifecycle hook (not tied to an `EventKind`) invoked once
+each time an overlay concolic execution — the exploration of an untaken branch,
+enabled by `--negate-path-exploration` — is about to be torn down and control
+returns to the main path. `ctx.path_constraints()` then holds the clean
+overlay-entry path condition `φ` (the input gate that made the untaken branch
+reachable). A plugin uses this to Z3-solve the inputs that drive events it
+recorded *during* the overlay and remember them for reporting at `on_finish`.
+The TOCTOU detector uses it to flag a credential check that is only reachable on
+an input-gated branch; see `src/plugins/builtin/toctou/README.md`.
 
 ### `Event` enum
 
@@ -201,6 +212,7 @@ core files, the standard refactor is:
    | Hooking a specific function symbol (locks, allocators, runtime calls)        | `on_event(Call { symbol: Some(name), .. })`          |
    | Reaction to thread creation                                                  | `on_event(ThreadSpawn { .. })`                       |
    | Reaction to scheduling                                                       | `on_event(ThreadSwitch { .. })`                      |
+   | Reasoning about an untaken (overlay-explored) branch before teardown         | `on_overlay_end(ctx)`                                |
    | End-of-trace summary / cross-check pass                                      | `on_finish(...)`                                     |
    | Inline `println!` / `[TAG]` log lines in core                                | per-plugin sub-logger owned by the plugin            |
    | Extra parameters threaded through memory APIs (`extra: ExtraCtx`, `internal: bool`) | not needed — re-entrancy guard handles recursion |

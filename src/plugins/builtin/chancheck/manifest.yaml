@@ -1,0 +1,35 @@
+# Channel-invariant detector plugin manifest
+# SPDX-License-Identifier: Apache-2.0
+
+name: chancheck
+version: 0.0.5
+description: >
+  Detects send-on-closed-channel panics — a Go-specific synchronisation
+  fault where a goroutine sends on a channel that another goroutine has
+  closed under a crafted input. Reports the triggering input class.
+
+subscriptions:
+  - Call
+  - ThreadSpawn
+  - ThreadExit
+
+symbols:
+  - runtime.makechan
+  - runtime.makechan64
+  - runtime.closechan
+  - runtime.chansend1
+  - runtime.chansend
+  - runtime.chanrecv1
+  - runtime.chanrecv2
+  - runtime.chanrecv
+
+environment:
+  CHANCHECK_VERBOSE: "Set to 1 to enable per-event stderr tracing"
+
+rules:
+  - id: send-on-closed-channel
+    severity: Critical
+    description: >
+      A send was attempted on a channel that was already closed by another
+      goroutine. The Go runtime panics on this. Finding includes the input
+      model (if input-gated) and the interleaving witness.

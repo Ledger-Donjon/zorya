@@ -87,7 +87,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
         drop(tm);
     }
 
-    // Check if we're in overlay mode (speculative execution)
+    // Check if we're in overlay mode (overlay concolic execution)
     let in_overlay_mode = executor.is_overlay_mode();
 
     // Lock the CPU state - needed for all register accesses in syscall handlers
@@ -116,16 +116,16 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
     log!(executor.state.logger.clone(), "Syscall number: {}", rax);
 
     // Validate syscall number - in overlay mode, invalid syscalls are common
-    // due to speculative execution with incomplete register state
+    // due to overlay concolic execution with incomplete register state
     let max_valid_syscall: u64 = 500; // Linux has ~400 syscalls, use 500 as reasonable upper bound
     if rax > max_valid_syscall && in_overlay_mode {
         log!(
                 executor.state.logger.clone(),
-                "[OVERLAY] Invalid syscall number {} (likely pointer/garbage) - stopping speculative execution",
+                "[OVERLAY] Invalid syscall number {} (likely pointer/garbage) - stopping overlay concolic execution",
                 rax
             );
         return Err(format!(
-            "Invalid syscall number {} in overlay mode - stopping speculative execution",
+            "Invalid syscall number {} in overlay mode - stopping overlay concolic execution",
             rax
         ));
     }
@@ -139,38 +139,29 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
 
     // Dispatch Event::Syscall to plugins (TOCTOU detector, etc.) before handling.
     {
-        let args = [
-            cpu_state_guard
-                .get_register_by_offset(0x38, 64)
-                .map(|v| v.concrete.to_u64())
-                .unwrap_or(0), // RDI
-            cpu_state_guard
-                .get_register_by_offset(0x30, 64)
-                .map(|v| v.concrete.to_u64())
-                .unwrap_or(0), // RSI
-            cpu_state_guard
-                .get_register_by_offset(0x10, 64)
-                .map(|v| v.concrete.to_u64())
-                .unwrap_or(0), // RDX
-            cpu_state_guard
-                .get_register_by_offset(0x90, 64)
-                .map(|v| v.concrete.to_u64())
-                .unwrap_or(0), // R10
-            cpu_state_guard
-                .get_register_by_offset(0x80, 64)
-                .map(|v| v.concrete.to_u64())
-                .unwrap_or(0), // R8
-            cpu_state_guard
-                .get_register_by_offset(0x88, 64)
-                .map(|v| v.concrete.to_u64())
-                .unwrap_or(0), // R9
-        ];
-        let pc = cpu_state_guard
-            .get_register_by_offset(0x288, 64)
-            .map(|v| v.concrete.to_u64())
-            .unwrap_or(0);
-        let tid = executor.state.thread_manager.lock().unwrap().current_tid;
+        // Read the syscall arguments overlay-aware. In overlay mode the argument
+        // registers (e.g. the shuffle performed inside linux.Syscall6) live in
+        // the overlay CPU shadow, NOT the base state — reading the base state
+        // here would hand the plugins stale values and getsockopt/readlinkat
+        // would fail to classify. Drop the base CPU lock first because
+        // get_register_overlay_aware may re-acquire it on the base-state path.
         drop(cpu_state_guard);
+        let read_reg = |off: u64| {
+            executor
+                .get_register_overlay_aware(off, 64)
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0)
+        };
+        let args = [
+            read_reg(0x38), // RDI
+            read_reg(0x30), // RSI
+            read_reg(0x10), // RDX
+            read_reg(0x90), // R10
+            read_reg(0x80), // R8
+            read_reg(0x88), // R9
+        ];
+        let pc = read_reg(0x288);
+        let tid = executor.state.thread_manager.lock().unwrap().current_tid;
 
         let ev = Event::Syscall {
             nr: rax,
@@ -178,16 +169,12 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             pc,
             tid,
         };
-        executor.event_bus.dispatch_with(
-            executor.context,
-            pc,
-            tid,
-            None,
-            executor.instruction_counter,
-            executor.start_time,
-            &[],
-            &ev,
-        );
+        // Route through dispatch_event so the event carries the executor's
+        // current path condition φ (constraint_vector). During overlay
+        // concolic execution this includes the input-gate constraint that
+        // made this syscall reachable (e.g. arg1_byte_0 == 'V'), which the
+        // TOCTOU detector later solves with Z3 to report the triggering input.
+        executor.dispatch_event(&ev);
 
         cpu_state_guard = executor.state.cpu_state.lock().unwrap();
     }
@@ -2556,6 +2543,13 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 .map(|v| v.concrete.to_u64())
                 .unwrap_or(0);
 
+            log!(
+                executor.state.logger.clone(),
+                "[DEBUG] accept4: RSI(rsa_ptr)=0x{:x}, RDX(addrlen_ptr)=0x{:x}",
+                rsa_ptr,
+                addrlen_ptr
+            );
+
             // Write a minimal AF_UNIX sockaddr_un to the rsa buffer:
             // struct sockaddr_un { sa_family_t sun_family; char sun_path[108]; }
             // sa_family = AF_UNIX (1) as a little-endian u16
@@ -2563,18 +2557,70 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 let mut sockaddr_buf = vec![0u8; 110]; // sizeof(sockaddr_un)
                 sockaddr_buf[0] = 1; // AF_UNIX (low byte of u16 sa_family)
                 sockaddr_buf[1] = 0; // high byte
-                                     // sun_path: write a fake peer path
                 let fake_path = b"/tmp/peer\0";
                 sockaddr_buf[2..2 + fake_path.len()].copy_from_slice(fake_path);
-                let _ = executor.state.memory.write_bytes(rsa_ptr, &sockaddr_buf);
+                if let Err(e) = executor.state.memory.write_bytes(rsa_ptr, &sockaddr_buf) {
+                    log!(
+                        executor.state.logger.clone(),
+                        "[WARN] accept4: write_bytes to rsa_ptr 0x{:x} failed ({:?}), creating region",
+                        rsa_ptr, e
+                    );
+                    executor
+                        .state
+                        .memory
+                        .ensure_region_exists(rsa_ptr, 110, 0x3)
+                        .map_err(|e| {
+                            format!(
+                                "accept4: failed to map rsa buffer at 0x{:x}: {:?}",
+                                rsa_ptr, e
+                            )
+                        })?;
+                    executor
+                        .state
+                        .memory
+                        .write_bytes(rsa_ptr, &sockaddr_buf)
+                        .map_err(|e| {
+                            format!(
+                                "accept4: retry write to rsa 0x{:x} still failed: {:?}",
+                                rsa_ptr, e
+                            )
+                        })?;
+                }
             }
             // Write addrlen = 110 (sizeof sockaddr_un)
             if addrlen_ptr != 0 {
                 let addrlen_bytes = 110u32.to_le_bytes();
-                let _ = executor
+                if let Err(e) = executor
                     .state
                     .memory
-                    .write_bytes(addrlen_ptr, &addrlen_bytes);
+                    .write_bytes(addrlen_ptr, &addrlen_bytes)
+                {
+                    log!(
+                        executor.state.logger.clone(),
+                        "[WARN] accept4: write_bytes to addrlen_ptr 0x{:x} failed ({:?}), creating region",
+                        addrlen_ptr, e
+                    );
+                    executor
+                        .state
+                        .memory
+                        .ensure_region_exists(addrlen_ptr, 4, 0x3)
+                        .map_err(|e| {
+                            format!(
+                                "accept4: failed to map addrlen at 0x{:x}: {:?}",
+                                addrlen_ptr, e
+                            )
+                        })?;
+                    executor
+                        .state
+                        .memory
+                        .write_bytes(addrlen_ptr, &addrlen_bytes)
+                        .map_err(|e| {
+                            format!(
+                                "accept4: retry write to addrlen 0x{:x} still failed: {:?}",
+                                addrlen_ptr, e
+                            )
+                        })?;
+                }
             }
 
             let fd = {
@@ -2643,14 +2689,21 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 "{}() -> 0 (simulated success)",
                 name
             );
-            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
-                concrete: 0,
-                symbolic: BV::from_u64(executor.context, 0, 64),
-                size: 64,
-            });
-            cpu_state_guard
-                .set_register_value_by_offset(0x0, rax_cv, 64)
-                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+            // Write the return value overlay-aware. In overlay mode the base
+            // cpu_state write would be invisible to the overlay (RAX would keep
+            // the syscall number), sending getsockoptUcred down its error path
+            // and preventing the overlay from ever reaching the readlink "use".
+            drop(cpu_state_guard);
+            executor.set_register_overlay_aware(
+                0x0,
+                ConcolicVar::new_concrete_and_symbolic_int(
+                    0,
+                    BV::from_u64(executor.context, 0, 64),
+                    executor.context,
+                ),
+                64,
+            )?;
+            // cpu_state_guard intentionally left dropped: this arm is terminal.
         }
         267 => {
             // sys_readlinkat : read value of a symbolic link relative to a directory fd
@@ -2661,19 +2714,20 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 executor.state.logger.clone(),
                 "Syscall type: sys_readlinkat"
             );
-            let buf_ptr = cpu_state_guard
-                .get_register_by_offset(0x10, 64) // RDX = buf
-                .ok_or("Failed to retrieve 'buf' from RDX.")?
-                .concrete
-                .to_u64();
-            let bufsiz = cpu_state_guard
-                .get_register_by_offset(0x90, 64) // R10 = bufsiz
-                .ok_or("Failed to retrieve 'bufsiz' from R10.")?
-                .concrete
-                .to_u64();
+            // Read args overlay-aware (see the getsockopt handler above): in
+            // overlay mode the argument registers live in the overlay shadow.
+            drop(cpu_state_guard);
+            let buf_ptr = executor
+                .get_register_overlay_aware(0x10, 64) // RDX = buf
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0);
+            let bufsiz = executor
+                .get_register_overlay_aware(0x90, 64) // R10 = bufsiz
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0);
             // Write a synthetic target path into the buffer.
             let fake_target = b"/usr/bin/ordain\0";
-            let write_len = fake_target.len().min(bufsiz as usize);
+            let write_len = fake_target.len().min(bufsiz as usize).max(1);
             let _ = executor
                 .state
                 .memory
@@ -2684,14 +2738,17 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                 "readlinkat() -> {} (wrote fake target)",
                 ret
             );
-            let rax_cv = ConcolicVar::new_from_memory_value(&MemoryValue {
-                concrete: ret,
-                symbolic: BV::from_u64(executor.context, ret, 64),
-                size: 64,
-            });
-            cpu_state_guard
-                .set_register_value_by_offset(0x0, rax_cv, 64)
-                .map_err(|e| format!("Failed to set RAX: {}", e))?;
+            // Write the return value overlay-aware so os.Readlink sees success.
+            executor.set_register_overlay_aware(
+                0x0,
+                ConcolicVar::new_concrete_and_symbolic_int(
+                    ret,
+                    BV::from_u64(executor.context, ret, 64),
+                    executor.context,
+                ),
+                64,
+            )?;
+            // cpu_state_guard intentionally left dropped: this arm is terminal.
         }
         _ => {
             // Invalid syscall (negative numbers from thread switches or unimplemented syscalls)
@@ -2701,7 +2758,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             if in_overlay_mode {
                 log!(
                     executor.state.logger.clone(),
-                    "[OVERLAY] Unhandled syscall {} in overlay mode - stopping speculative execution",
+                    "[OVERLAY] Unhandled syscall {} in overlay mode - stopping overlay concolic execution",
                     signed_rax
                 );
                 return Err(format!("Unhandled syscall {} in overlay mode", signed_rax));

@@ -188,6 +188,33 @@ impl<'ctx> EventBus<'ctx> {
         worst
     }
 
+    /// Counterpart of [`Self::dispatch_with`] for the end of an overlay
+    /// concolic execution. Builds an `EventCtx` carrying the overlay's path
+    /// condition φ and runs every plugin's `on_overlay_end`. Any findings a
+    /// plugin pushes via [`Verdict`] are not collected here (the hook returns
+    /// no verdict); plugins that produce findings from this callback push them
+    /// through `ctx.findings` directly, mirroring `on_finish`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_overlay_end_with(
+        &mut self,
+        z3: &'ctx Context,
+        pc: u64,
+        tid: u64,
+        goid: Option<u64>,
+        instruction_counter: usize,
+        start_time: Instant,
+        path_constraints: &[Bool<'ctx>],
+    ) {
+        let ectx = EventCtx::new(z3, pc, tid, instruction_counter, start_time, &self.findings)
+            .with_goid(goid)
+            .with_path_constraints(path_constraints);
+        self.depth.set(self.depth.get() + 1);
+        for p in self.plugins.iter_mut() {
+            p.on_overlay_end(&ectx);
+        }
+        self.depth.set(self.depth.get() - 1);
+    }
+
     /// Counterpart of [`Self::dispatch_with`] for end-of-analysis. Builds
     /// an `EventCtx` from the bus's own findings buffer and runs every
     /// plugin's `on_finish`. Returns the number of findings now held in

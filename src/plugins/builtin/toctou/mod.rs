@@ -54,11 +54,26 @@
 //! 4. Couple with Z3: if both check and use are on the same concrete path
 //!    (φ_check ∧ φ_use satisfiable), report the triggering input.
 //!
+//! ## Overlay-only checks (input-gated vulnerabilities)
+//!
+//! When the vulnerable check sits on a branch the concrete run never takes
+//! (e.g. gated on `input[0] == 'V'`), the engine reaches it via overlay
+//! concolic execution of the untaken branch. There the original concrete input
+//! is retained, so execution usually cannot be driven all the way to the paired
+//! use. Instead, `on_overlay_end` is invoked with the clean overlay-entry path
+//! condition φ = (main path up to the branch) ∧ (gate selecting the untaken
+//! branch). For each `SO_PEERCRED` check recorded on that branch the plugin
+//! solves φ with Z3; if satisfiable it remembers the triggering input and, at
+//! `on_finish`, reports a *potential* TOCTOU (`overlay-check-reachable`). This
+//! requires `--negate-path-exploration` (`NEGATE_PATH_FLAG=true`).
+//!
 //! ## Subscriptions
 //!
 //! - `Syscall` / `SyscallRet` — to intercept the check and use syscalls
 //! - `Call` — to intercept Go wrappers (e.g. `os.Readlink`, `net.FileConn`)
 //! - `ThreadSwitch` — to detect context switches in the race window
+//! - `on_overlay_end` (lifecycle hook, not an event) — to evaluate checks
+//!   reached only on an untaken, input-gated branch
 
 use std::collections::HashSet;
 
@@ -121,6 +136,119 @@ enum UseKind {
     Connect { fd: u64 },
 }
 
+/// Valid Linux file descriptors are small non-negative integers. During
+/// overlay concolic execution the concrete fd carried into a syscall can be a
+/// simulated or stale value (e.g. a code address inherited from unreliable
+/// overlay register/stack state) rather than a real descriptor. We only render
+/// the numeric fd when it is plausibly a descriptor; otherwise we label it as
+/// runtime-assigned so findings never surface misleading code-address numbers.
+const MAX_PLAUSIBLE_FD: u64 = 1 << 20;
+
+/// Render a syscall fd for display, guarding against implausible values that
+/// come from unreliable overlay concrete state.
+fn fd_display(fd: u64) -> String {
+    if fd <= MAX_PLAUSIBLE_FD {
+        format!("fd={}", fd)
+    } else {
+        "fd=<runtime-assigned>".to_string()
+    }
+}
+
+/// Translate raw Z3 model output into a source-level description.
+///
+/// `arg1_byte_0!239 -> #x02` becomes `os.Args[1][0] = 0x02` (Go) or
+/// `argv[1][0] = 0x02` (C/C++).
+fn humanize_z3_model(raw: &str) -> String {
+    let is_go = std::env::var("SOURCE_LANG")
+        .map(|v| v.eq_ignore_ascii_case("go"))
+        .unwrap_or(true);
+
+    raw.split("; ")
+        .map(|assign| {
+            let Some((lhs, rhs)) = assign.split_once(" -> ") else {
+                return assign.to_string();
+            };
+            let var_name = lhs.split('!').next().unwrap_or(lhs);
+            let human_name = humanize_var_name(var_name, is_go);
+            let human_val = humanize_z3_value(rhs.trim());
+            format!("{} = {}", human_name, human_val)
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn humanize_var_name(name: &str, is_go: bool) -> String {
+    if let Some(rest) = name.strip_prefix("arg") {
+        if let Some((i_str, byte_part)) = rest.split_once("_byte_") {
+            if let (Ok(i), Ok(j)) = (i_str.parse::<usize>(), byte_part.parse::<usize>()) {
+                return if is_go {
+                    format!("os.Args[{}][{}]", i, j)
+                } else {
+                    format!("argv[{}][{}]", i, j)
+                };
+            }
+        }
+    }
+    if let Some(reg) = name.strip_prefix("reg_") {
+        return reg.to_uppercase();
+    }
+    name.to_string()
+}
+
+fn humanize_z3_value(val: &str) -> String {
+    if let Some(hex_str) = val.strip_prefix("#x") {
+        if let Ok(n) = u64::from_str_radix(hex_str, 16) {
+            let annotation = if (0x20..=0x7e).contains(&(n as u8)) && n <= 0x7e {
+                format!(" ('{}')", n as u8 as char)
+            } else if n <= 0xff {
+                format!(" (decimal {})", n)
+            } else {
+                String::new()
+            };
+            return format!("0x{:02x}{}", n, annotation);
+        }
+    }
+    if let Some(bin_str) = val.strip_prefix("#b") {
+        if let Ok(n) = u64::from_str_radix(bin_str, 2) {
+            return format!("0x{:02x}", n);
+        }
+    }
+    val.to_string()
+}
+
+impl CheckKind {
+    /// Human-readable, display-sanitized description of this check.
+    fn describe(&self) -> String {
+        match self {
+            CheckKind::PeerCred { fd } => format!("SO_PEERCRED({})", fd_display(*fd)),
+            CheckKind::Stat { path } => format!("stat({})", path),
+            CheckKind::Access { path } => format!("access({})", path),
+            CheckKind::ReadlinkProc { path, .. } => format!("readlink({})", path),
+        }
+    }
+}
+
+impl UseKind {
+    /// Human-readable, display-sanitized description of this use.
+    fn describe(&self) -> String {
+        match self {
+            UseKind::Open { path } => format!("open({})", path),
+            UseKind::ReadlinkExe { path, .. } => format!("readlink({})", path),
+            UseKind::Connect { fd } => format!("connect({})", fd_display(*fd)),
+        }
+    }
+}
+
+impl ToctouRole {
+    /// Human-readable, display-sanitized description of this role.
+    fn describe(&self) -> String {
+        match self {
+            ToctouRole::Check(k) => format!("Check({})", k.describe()),
+            ToctouRole::Use(k) => format!("Use({})", k.describe()),
+        }
+    }
+}
+
 /// One recorded event in the TOCTOU timeline.
 #[derive(Debug, Clone)]
 struct ToctouEvent<'ctx> {
@@ -132,6 +260,18 @@ struct ToctouEvent<'ctx> {
     path_phi: Vec<Bool<'ctx>>,
 }
 
+/// A "check" observed *only* on an untaken branch during overlay concolic
+/// execution, for which no concrete "use" was reached before the overlay was
+/// torn down. We remember it — together with the Z3-solved input that makes
+/// the check reachable — so we can report the potential TOCTOU at `on_finish`
+/// even though the use never executed on any concrete path.
+#[derive(Debug, Clone)]
+struct PendingOverlayCheck<'ctx> {
+    check: ToctouEvent<'ctx>,
+    /// Human-readable Z3 model (triggering input), if φ was satisfiable.
+    model_str: Option<String>,
+}
+
 /// The TOCTOU detector plugin.
 pub struct ToctouPlugin<'ctx> {
     events: Vec<ToctouEvent<'ctx>>,
@@ -140,6 +280,16 @@ pub struct ToctouPlugin<'ctx> {
     verbose: bool,
     violations_found: u64,
     reported_use_indices: Vec<usize>,
+    /// Index into `events` up to which `on_overlay_end` has already scanned
+    /// for overlay-only checks. Ensures each check is evaluated once even
+    /// across multiple overlay round-trips.
+    overlay_scanned_upto: usize,
+    /// Checks reached only on an untaken (overlay) branch whose input we
+    /// solved with Z3, pending a potential-TOCTOU report at `on_finish`.
+    pending_overlay_checks: Vec<PendingOverlayCheck<'ctx>>,
+    /// PCs of checks already covered by a *confirmed* check→use finding, so
+    /// the overlay-only reporter doesn't emit a duplicate potential finding.
+    reported_check_pcs: Vec<u64>,
 }
 
 impl<'ctx> ToctouPlugin<'ctx> {
@@ -150,6 +300,9 @@ impl<'ctx> ToctouPlugin<'ctx> {
             verbose: !std::env::var("TOCTOU_VERBOSE").is_ok_and(|v| v == "0"),
             violations_found: 0,
             reported_use_indices: Vec::new(),
+            overlay_scanned_upto: 0,
+            pending_overlay_checks: Vec::new(),
+            reported_check_pcs: Vec::new(),
         }
     }
 
@@ -187,12 +340,10 @@ impl<'ctx> ToctouPlugin<'ctx> {
         }
         // Also print to terminal for immediate user visibility (uses teprintln
         // so the coverage bar is properly handled)
-        teprintln!();
         teprintln!(
             "[TOCTOU] *** BUG / VULNERABILITY DETECTED: {} ***",
             finding.title
         );
-        teprintln!();
     }
 
     /// Classify a syscall as check, use, or irrelevant.
@@ -310,10 +461,10 @@ impl<'ctx> ToctouPlugin<'ctx> {
                 f = f.with_detail(String::new());
                 f = f.with_detail("─── ATTACK NARRATIVE ───".to_string());
                 f = f.with_detail(format!(
-                    "The program obtains the peer PID via getsockopt(fd={}, SOL_SOCKET, SO_PEERCRED) \
+                    "The program obtains the peer PID via getsockopt({}, SOL_SOCKET, SO_PEERCRED) \
                      and then verifies the peer's identity by reading /proc/<pid>/exe. Between these \
                      two operations, the PID can be recycled by the kernel if the original peer exits.",
-                    fd
+                    fd_display(*fd)
                 ));
                 f = f.with_detail(String::new());
                 f = f.with_detail("─── REPRODUCTION STEPS ───".to_string());
@@ -511,8 +662,11 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
                 if let Some(role) = Self::classify_syscall(*nr, args, path_hint.as_deref()) {
                     let is_use = matches!(role, ToctouRole::Use(_));
                     self.vlog(format!(
-                        "Recorded {:?} at pc=0x{:x} tid={} ic={}",
-                        role, pc, tid, ctx.instruction_counter
+                        "Recorded {} at pc=0x{:x} tid={} ic={}",
+                        role.describe(),
+                        pc,
+                        tid,
+                        ctx.instruction_counter
                     ));
                     self.events.push(ToctouEvent {
                         role,
@@ -561,6 +715,7 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
 
                             self.violations_found += 1;
                             self.reported_use_indices.push(use_idx);
+                            self.reported_check_pcs.push(self.events[ci].pc);
                             let check = &self.events[ci];
                             let use_ev = &self.events[use_idx];
                             let window_size =
@@ -571,11 +726,11 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
                                 };
 
                             let check_desc = match &check.role {
-                                ToctouRole::Check(k) => format!("{:?}", k),
+                                ToctouRole::Check(k) => k.describe(),
                                 _ => unreachable!(),
                             };
                             let use_desc = match &use_ev.role {
-                                ToctouRole::Use(k) => format!("{:?}", k),
+                                ToctouRole::Use(k) => k.describe(),
                                 _ => unreachable!(),
                             };
 
@@ -661,7 +816,7 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
                                         if !model_str.is_empty() {
                                             finding = finding.with_detail(format!(
                                                 "Triggering input: {}",
-                                                model_str
+                                                humanize_z3_model(&model_str)
                                             ));
                                         }
                                     }
@@ -712,6 +867,84 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
         Verdict::Continue
     }
 
+    fn on_overlay_end(&mut self, ctx: &EventCtx<'ctx, '_>) {
+        // Scan events recorded since the previous overlay teardown. A TOCTOU
+        // "check" reached only on this untaken branch is a candidate: the
+        // overlay proved the check reachable for some input, but the paired
+        // "use" may never execute (e.g. the overlay bailed onto a runtime
+        // error path before reaching readlink). Rather than forcing the
+        // overlay all the way to the use, we solve — with Z3 — the input that
+        // makes the check reachable and remember it for reporting at
+        // on_finish. This is the plugin-side, Z3-backed check requested in
+        // place of steering concrete execution.
+        let start = self.overlay_scanned_upto.min(self.events.len());
+        for idx in start..self.events.len() {
+            let ev = &self.events[idx];
+
+            // Only credential checks (SO_PEERCRED) are, on their own, strong
+            // enough evidence of a check→use TOCTOU: the peer PID they
+            // retrieve is meaningless unless later used to verify identity
+            // (the /proc/<pid>/exe readlink). Other check kinds (stat/access)
+            // still require their paired use to avoid flagging every benign
+            // stat.
+            if !matches!(ev.role, ToctouRole::Check(CheckKind::PeerCred { .. })) {
+                continue;
+            }
+
+            // Solve the clean overlay-entry φ handed to us: the main path
+            // condition up to the branch ∧ the gate that selects the untaken
+            // (vulnerable) branch. This is the input class that reaches the
+            // check. We deliberately do NOT conjoin the check's own recorded
+            // path_phi: during overlay the engine keeps the original concrete
+            // input, so the branch constraints accumulated after the gate are
+            // derived from that concrete value and would contradict the gate,
+            // making φ spuriously UNSAT.
+            let phi = ctx.path_constraints();
+
+            let model_str = if phi.is_empty() {
+                None
+            } else {
+                let solver = Solver::new(ctx.ctx);
+                for p in phi {
+                    solver.assert(p);
+                }
+                match solver.check() {
+                    SatResult::Sat => solver.get_model().map(|m| {
+                        format!("{}", m)
+                            .lines()
+                            .map(|l| l.trim())
+                            .filter(|l| !l.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    }),
+                    _ => {
+                        // φ is UNSAT: the check is not actually reachable on
+                        // this branch under the accumulated constraints.
+                        self.vlog(format!(
+                            "Overlay check at pc=0x{:x} has UNSAT path condition; not a reachable candidate",
+                            ev.pc
+                        ));
+                        continue;
+                    }
+                }
+            };
+
+            self.vlog(format!(
+                "Overlay-only check {} at pc=0x{:x} (ic={}) recorded as potential TOCTOU; input solved={}",
+                ev.role.describe(),
+                ev.pc,
+                ev.instruction_counter,
+                model_str.is_some()
+            ));
+
+            self.pending_overlay_checks.push(PendingOverlayCheck {
+                check: ev.clone(),
+                model_str,
+            });
+        }
+        self.overlay_scanned_upto = self.events.len();
+    }
+
     fn on_finish(&mut self, ctx: &EventCtx<'ctx, '_>) {
         // Sweep for any unreported check→use pairs (handles events injected
         // directly into `self.events` without going through on_event).
@@ -753,6 +986,7 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
                 }
 
                 self.violations_found += 1;
+                self.reported_check_pcs.push(self.events[ci].pc);
                 let check = &self.events[ci];
                 let use_ev = &self.events[use_idx];
                 let window_size = if use_ev.instruction_counter > check.instruction_counter {
@@ -762,11 +996,11 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
                 };
 
                 let check_desc = match &check.role {
-                    ToctouRole::Check(k) => format!("{:?}", k),
+                    ToctouRole::Check(k) => k.describe(),
                     _ => unreachable!(),
                 };
                 let use_desc = match &use_ev.role {
-                    ToctouRole::Use(k) => format!("{:?}", k),
+                    ToctouRole::Use(k) => k.describe(),
                     _ => unreachable!(),
                 };
 
@@ -833,6 +1067,84 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
                 ctx.findings.borrow_mut().push(finding);
                 break;
             }
+        }
+
+        // Report checks reached only on an untaken (overlay) branch that were
+        // never paired with a concrete use. The overlay proved the check
+        // reachable and Z3 solved the triggering input; for SO_PEERCRED that
+        // is sufficient to flag the check→use credential TOCTOU without ever
+        // executing the readlink. Take the list out to satisfy the borrow
+        // checker while we mutate self.
+        let pending = std::mem::take(&mut self.pending_overlay_checks);
+        for pend in &pending {
+            let check = &pend.check;
+            // Skip if a confirmed (or already-reported potential) finding
+            // already covered this check pc.
+            if self.reported_check_pcs.contains(&check.pc) {
+                continue;
+            }
+            let check_desc = match &check.role {
+                ToctouRole::Check(k) => k.describe(),
+                _ => continue,
+            };
+
+            self.violations_found += 1;
+            self.reported_check_pcs.push(check.pc);
+
+            let title = format!(
+                "Potential TOCTOU: {} reachable on input-gated path (use not reached in overlay)",
+                check_desc
+            );
+
+            let mut finding = Finding::new(
+                "toctou",
+                "overlay-check-reachable",
+                Severity::High,
+                check.pc,
+                title,
+            )
+            .with_detail(format!(
+                "Check: syscall {} at pc=0x{:x}, tid={}, ic={}",
+                check.syscall_nr, check.pc, check.tid, check.instruction_counter
+            ))
+            .with_detail(
+                "This check was reached during overlay concolic execution of an untaken \
+                 branch. The overlay proved the check is reachable for a specific input, \
+                 but the paired use (readlink(/proc/<pid>/exe)) was not executed before \
+                 the overlay ended. For SO_PEERCRED the retrieved peer PID is only \
+                 meaningful when later used to verify identity, so a reachable check on an \
+                 attacker-influenced path is sufficient to flag the vulnerable code path."
+                    .to_string(),
+            );
+
+            if let Some(model) = &pend.model_str {
+                finding = finding.with_detail(format!("Triggering input (Z3-solved): {}", humanize_z3_model(model)));
+            } else {
+                finding = finding.with_detail(
+                    "Path condition was input-independent (no symbolic gate); the check is \
+                     unconditionally reachable."
+                        .to_string(),
+                );
+            }
+
+            // Reuse the rich PeerCred attack narrative by pairing the check
+            // with a synthetic /proc/<pid>/exe use (the statically-implied
+            // use that the overlay did not reach concretely).
+            let synthetic_use = ToctouEvent {
+                role: ToctouRole::Use(UseKind::ReadlinkExe {
+                    path: "/proc/<pid>/exe".to_string(),
+                    pid: None,
+                }),
+                syscall_nr: SYS_READLINKAT,
+                tid: check.tid,
+                pc: check.pc,
+                instruction_counter: check.instruction_counter + 1,
+                path_phi: Vec::new(),
+            };
+            finding = Self::add_attack_narrative(finding, check, &synthetic_use, 0);
+
+            self.write_finding_to_disk(&finding);
+            ctx.findings.borrow_mut().push(finding);
         }
 
         if self.violations_found > 0 {

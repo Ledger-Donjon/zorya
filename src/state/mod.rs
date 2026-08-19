@@ -23,7 +23,10 @@ pub use cpu_state::CpuState;
 pub use evaluate_z3::evaluate_args_z3;
 pub use function_signatures::FunctionSignature;
 pub use memory_x86_64::MemoryX86_64;
-pub use overlay_path_analysis::{analyze_untaken_path_with_overlay, OverlayPathAnalysisResult};
+pub use overlay_path_analysis::{
+    analyze_untaken_path_with_overlay, OverlayPathAnalysisResult, DEFAULT_MAX_OVERLAY_DEPTH,
+    PLUGIN_MAX_OVERLAY_DEPTH,
+};
 pub use overlay_state::{CpuStateOverlay, MemoryRegionOverlay, OverlayState};
 pub use runtime_info::{RuntimeGOffsets, RuntimeInfo};
 pub use state_manager::State;

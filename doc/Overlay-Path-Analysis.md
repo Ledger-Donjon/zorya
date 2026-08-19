@@ -25,7 +25,13 @@ For every conditional branch involving symbolic variables, Zorya:
    - `DIV/REM` where divisor could be 0 → **DIV_BY_ZERO**
    - Memory access to freed stack frame → **DANGLING_POINTER**
 5. **Reports vulnerability** with SMT constraints to trigger it
-6. **Discards overlay** and continues normal execution
+6. **Notifies plugins** via the `on_overlay_end` hook, passing the clean
+   overlay-entry path condition `φ` (the input gate that made the untaken branch
+   reachable) so detectors can Z3-solve the inputs that drive events they
+   observed during the overlay. The TOCTOU detector uses this to flag a
+   credential check reachable only on an input-gated branch — see
+   [`src/plugins/builtin/toctou/README.md`](../src/plugins/builtin/toctou/README.md).
+7. **Discards overlay** and continues normal execution
 
 ## Overlay Mechanism
 

@@ -42,6 +42,7 @@ use crate::plugins::finding::{Finding, Severity};
 use crate::plugins::plugin::Plugin;
 use crate::plugins::verdict::Verdict;
 use crate::plugins::EventBus;
+use crate::teprintln;
 
 pub mod record;
 pub mod region;
@@ -172,7 +173,7 @@ impl<'ctx> VolosPlugin<'ctx> {
             region: VolosRegion::new(0, u64::MAX),
             path_conditions: HashMap::new(),
             next_record_id: 1,
-            verbose: std::env::var("VOLOS_VERBOSE").is_ok_and(|v| v == "1"),
+            verbose: !std::env::var("VOLOS_VERBOSE").is_ok_and(|v| v == "0"),
             reads: 0,
             writes: 0,
             lock_acquires: 0,
@@ -327,9 +328,9 @@ impl<'ctx> VolosPlugin<'ctx> {
 
     fn vlog(&self, msg: impl AsRef<str>) {
         if self.verbose {
-            // Plugin-private channel. When the per-plugin Logger lands in
-            // EventCtx this becomes ctx.sub_logger("volos").
-            eprintln!("[VOLOS] {}", msg.as_ref());
+            teprintln!();
+            teprintln!("[VOLOS] {}", msg.as_ref());
+            teprintln!();
         }
     }
 }
@@ -592,10 +593,15 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
     fn on_finish(&mut self, ctx: &EventCtx<'ctx, '_>) {
         let pairs = self.region.race_pairs();
         if pairs.is_empty() {
-            self.vlog("on_finish: no races detected");
+            teprintln!(
+                "[VOLOS] No data races found ({} reads, {} writes, {} lock ops observed)",
+                self.reads,
+                self.writes,
+                self.lock_acquires + self.lock_releases
+            );
             return;
         }
-        self.vlog(format!("on_finish: {} race witness pairs", pairs.len()));
+        let pairs_count = pairs.len();
         for (addr, v1, v2, reason) in pairs {
             // Couple the race witness to the program inputs: ask whether
             // the two accesses' path conditions are jointly satisfiable and,
@@ -731,6 +737,8 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
             // into the shared findings buffer.
             ctx.findings.borrow_mut().push(finding);
         }
+        teprintln!("[VOLOS] *** BUG / VULNERABILITY DETECTED: {} data race(s) found ({} reads, {} writes observed) ***",
+            pairs_count, self.reads, self.writes);
     }
 }
 

@@ -650,6 +650,30 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .dispatch_with(ctx, pc, tid, goid, icnt, st, path_constraints, ev);
     }
 
+    /// Notify plugins that an overlay concolic execution is about to be torn
+    /// down and control is returning to the main execution. The caller passes
+    /// the *clean* overlay-entry path condition φ (main path up to the branch
+    /// ∧ the gate selecting the untaken branch) so detectors can Z3-solve the
+    /// inputs that drove events they recorded during the overlay (e.g. a
+    /// TOCTOU check reached only on the untaken branch). The executor's live
+    /// `constraint_vector` is deliberately *not* used here: it also holds the
+    /// branch constraints the overlay accumulated on the original concrete
+    /// input, which would contradict the gate.
+    pub fn dispatch_overlay_end(&mut self, path_phi: &[Bool<'ctx>]) {
+        let pc = self.current_address.unwrap_or(0);
+        let tid = self
+            .state
+            .thread_manager
+            .lock()
+            .map(|tm| tm.current_tid)
+            .unwrap_or(0);
+        let icnt = self.instruction_counter;
+        let st = self.start_time;
+        let ctx = self.context;
+        self.event_bus
+            .run_overlay_end_with(ctx, pc, tid, None, icnt, st, path_phi);
+    }
+
     /// Check if overlay mode is active
     pub fn is_overlay_mode(&self) -> bool {
         self.overlay_state.is_some()
@@ -2339,7 +2363,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     // All control‑flow updates (including in overlay mode) are done by the
     // callers (e.g. `handle_branch`, `handle_callind`) via
     // `set_register_overlay_aware`. Previously this function was also writing
-    // to RIP directly, which broke overlay isolation by leaking speculative
+    // to RIP directly, which broke overlay isolation by leaking overlay concolic execution
     // RIP values into the base state.
     pub fn extract_branch_target_address(
         &mut self,

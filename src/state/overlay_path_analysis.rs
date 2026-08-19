@@ -6,13 +6,39 @@
 /// This performs full concolic execution on unexplored paths using copy-on-write state
 use crate::executor::ConcolicExecutor;
 use crate::state::overlay_state::OverlayState;
+use crate::summaries::SummaryTable;
 use parser::parser::{Inst, Opcode};
 use std::collections::BTreeMap;
 use std::io::Write;
 use z3::ast::Bool;
 
-#[allow(dead_code)]
 pub const DEFAULT_MAX_OVERLAY_DEPTH: usize = 30;
+
+pub const PLUGIN_MAX_OVERLAY_DEPTH: usize = 500;
+
+/// Go runtime syscall-scheduler bookkeeping functions that the overlay must
+/// NOT step into. They manipulate the goroutine (`g`) / machine (`m`) scheduler
+/// structures — reading fields like `g.m`, `g.sched`, `m.p` — which live in
+/// runtime memory that is only partially reflected in the overlay concolic
+/// execution shadow. Executing them in overlay concolic execution yields
+/// `ReadOutOfBounds` (e.g. a read
+/// at offset 0x30 off a null base) or steps into `runtime.abort` (INT3/SWI),
+/// terminating the overlay before it reaches the syscalls we care about.
+fn is_overlay_skippable_runtime_fn(name: &str) -> bool {
+    matches!(
+        name,
+        "runtime.entersyscall"
+            | "runtime.exitsyscall"
+            | "runtime.reentersyscall"
+            | "runtime.entersyscallblock"
+            | "runtime.exitsyscallfast"
+            | "runtime.exitsyscall0"
+            | "runtime.save"
+            | "runtime.casgstatus"
+            | "runtime.getcallerfp"
+            | "runtime.getfp"
+    )
+}
 
 macro_rules! log {
     ($logger:expr, $($arg:tt)*) => {{
@@ -50,7 +76,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     );
     log!(
         executor.state.logger,
-        "║  OVERLAY MODE: Exploring UNTAKEN path (speculative execution)        ║"
+        "║  OVERLAY MODE: Exploring UNTAKEN path (overlay concolic execution)        ║"
     );
     log!(
         executor.state.logger,
@@ -144,7 +170,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     executor.overlay_state = Some(overlay_state);
 
     // Save the NULL check cache so we can restore it after overlay exploration.
-    // The overlay runs on a speculative path — its SAT/UNSAT results must not
+    // The overlay runs on a overlay concolic execution path — its SAT/UNSAT results must not
     // pollute the real execution's cache, and the real execution's cached
     // results must survive overlay round-trips.
     let saved_null_check_cache = executor.null_check_cache.clone();
@@ -155,14 +181,38 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     // UNSAT variable might become SAT and must be re-checked).
     executor.null_check_cache.retain(|_, &mut (sat, _)| sat);
 
+    // Overlay-entry path condition φ: the main path condition accumulated up
+    // to this branch, conjoined with the gate that selects the untaken
+    // (vulnerable) branch. This is the *clean* predicate describing the input
+    // class that reaches the branch. It must NOT be mixed with the branch
+    // constraints the overlay accumulates afterwards: the overlay keeps the
+    // original concrete input, so those later constraints are derived from that
+    // concrete value and would contradict the gate (making φ trivially UNSAT).
+    // We hand this clean φ to plugins at overlay end so they can Z3-solve the
+    // triggering input for anything they observed on this path.
+    let overlay_entry_phi: Vec<Bool<'ctx>> = {
+        let mut v = saved_constraint_vector.clone();
+        if let Some(gate) = &explored_gate {
+            v.push(gate.clone());
+        }
+        v
+    };
+
     // Overlay execution explores the untaken branch. Attach that gate so events
-    // emitted from speculative instructions carry the correct path predicate.
+    // emitted from overlay concolic execution instructions carry the correct path predicate.
     if let Some(gate) = explored_gate {
         executor.constraint_vector.push(gate);
     }
 
     // Execute instructions using the existing executor infrastructure
     let result = execute_with_overlay(executor, untaken_address, instructions_map, max_depth);
+
+    // Before tearing down the overlay, give plugins a chance to reason about
+    // what they observed on this untaken path. We pass the clean overlay-entry
+    // φ (main path ∧ gate) so a detector like TOCTOU can Z3-solve the concrete
+    // inputs that drive a check it recorded here and remember them for
+    // reporting once we are back on the real path.
+    executor.dispatch_overlay_end(&overlay_entry_phi);
 
     // Collect metrics before clearing overlay state
     if executor.overlay_state.is_some() {
@@ -173,7 +223,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     executor.overlay_state = None;
 
     // Restore call stack state - remove any frames pushed/freed during overlay
-    // This prevents speculative execution from polluting dangling pointer detection
+    // This prevents overlay concolic execution from polluting dangling pointer detection
     executor.state.call_stack.truncate(saved_call_stack_depth);
     executor
         .state
@@ -265,24 +315,37 @@ fn execute_with_overlay<'ctx>(
     let mut current_addr = start_address;
     let mut visited = std::collections::HashSet::new();
     let mut instruction_count = 0;
+    let mut overlay_call_stack: Vec<u64> = Vec::new();
+
+    // Function summaries must be applied during overlay concolic execution too.
+    // Without this, the overlay steps into the full pcode body of runtime
+    // helpers like `runtime.newobject` → `mallocgc`, which wander through the
+    // Go allocator/scheduler and eventually hit `runtime.abort` (INT3/SWI),
+    // killing the overlay concolic execution path before it reaches the interesting syscalls
+    // (e.g. the getsockopt/readlink TOCTOU check→use pair). The summary heap
+    // uses a distinct base from the main loop's so the two never collide.
+    let overlay_summary_table = SummaryTable::new();
+    let mut overlay_summary_heap_ptr: u64 = 0x7000_8000_0000;
 
     log!(
         executor.state.logger,
-        "[OVERLAY] Speculative execution starting at 0x{:x}",
+        "[OVERLAY] Overlay concolic execution starting at 0x{:x}",
         current_addr
     );
 
     while instruction_count < max_depth {
-        // Check for loops
-        if visited.contains(&current_addr) {
+        // Check for loops (keyed on address + call depth to allow recursive calls)
+        let visit_key = (current_addr, overlay_call_stack.len());
+        if visited.contains(&visit_key) {
             log!(
                 executor.state.logger,
-                "[OVERLAY] Loop detected at 0x{:x}, stopping speculative execution",
-                current_addr
+                "[OVERLAY] Loop detected at 0x{:x} (call depth {}), stopping overlay concolic execution",
+                current_addr,
+                overlay_call_stack.len()
             );
             return OverlayPathAnalysisResult::DepthLimitReached;
         }
-        visited.insert(current_addr);
+        visited.insert(visit_key);
 
         // Count overlay-explored blocks in the global coverage metric.
         // visited_blocks is NOT restored after overlay cleanup, so these
@@ -293,9 +356,21 @@ fn execute_with_overlay<'ctx>(
         let instructions = match instructions_map.get(&current_addr) {
             Some(insts) => insts,
             None => {
+                // Address not in the instruction map (external library, etc.)
+                // If we're inside a call, treat as returning from it
+                if let Some(return_addr) = overlay_call_stack.pop() {
+                    log!(
+                        executor.state.logger,
+                        "[OVERLAY] No instructions at 0x{:x}, returning to caller 0x{:x}",
+                        current_addr,
+                        return_addr
+                    );
+                    current_addr = return_addr;
+                    continue;
+                }
                 log!(
                     executor.state.logger,
-                    "[OVERLAY]  No instructions at 0x{:x}, stopping speculative execution",
+                    "[OVERLAY] No instructions at 0x{:x}, stopping overlay concolic execution",
                     current_addr
                 );
                 return OverlayPathAnalysisResult::DepthLimitReached;
@@ -336,6 +411,98 @@ fn execute_with_overlay<'ctx>(
                 return vuln_result;
             }
 
+            // Intercept runtime calls BEFORE executing them. Two cases:
+            //
+            //  1. Summarizable runtime calls (runtime.newobject, mallocgc,
+            //     slicebytetostring, gcWriteBarrier, …). The main loop applies
+            //     these summaries; the overlay must do the same or it steps into
+            //     the allocator and hits runtime.abort (SWI), aborting the
+            //     overlay concolic execution path before the check→use syscalls are reached.
+            //
+            //  2. Go syscall-scheduler bookkeeping (runtime.entersyscall,
+            //     exitsyscall, reentersyscall, save, …). These manipulate the
+            //     goroutine/M scheduler structures and read fields such as
+            //     g.m off unmapped shadow memory, producing spurious
+            //     ReadOutOfBounds errors that kill the overlay concolic execution path. They
+            //     carry NO data flow relevant to TOCTOU/chancheck detection, so
+            //     the overlay skips them entirely and flows straight through
+            //     Syscall6 → RawSyscall6 → linux.Syscall6 → the real SYSCALL,
+            //     where Event::Syscall is dispatched to the plugins.
+            if inst.opcode == Opcode::Call {
+                if let Some(target_varnode) = inst.inputs.first() {
+                    if let parser::parser::Var::Memory(target) = target_varnode.var {
+                        let sym = executor.symbol_table.get(&format!("{:x}", target)).cloned();
+                        if let Some(sym_name) = sym {
+                            if is_overlay_skippable_runtime_fn(&sym_name) {
+                                // The x86 `call` is lowered to several p-code ops;
+                                // the return-address push (RSP -= 8) has ALREADY
+                                // executed by the time we reach the `Call` op here.
+                                // Skipping the callee also skips its `ret` (which
+                                // would pop, RSP += 8), so we must undo the push
+                                // ourselves to keep RSP balanced — otherwise every
+                                // subsequent [rsp+disp] access in the caller is
+                                // shifted by 8 bytes (reading the wrong stack slot,
+                                // e.g. the saved syscall number turns into a stale
+                                // return address, yielding a garbage syscall nr).
+                                if let Some(rsp) = executor.get_register_overlay_aware(0x20, 64) {
+                                    if let Ok(rsp_val) = rsp.get_concrete_value() {
+                                        let new_rsp = rsp_val.wrapping_add(8);
+                                        let _ = executor.set_register_overlay_aware(
+                                            0x20,
+                                            crate::concolic::ConcolicVar::new_concrete_and_symbolic_int(
+                                                new_rsp,
+                                                z3::ast::BV::from_u64(
+                                                    executor.context,
+                                                    new_rsp,
+                                                    64,
+                                                ),
+                                                executor.context,
+                                            ),
+                                            64,
+                                        );
+                                    }
+                                }
+                                log!(
+                                    executor.state.logger,
+                                    "[OVERLAY] Skipping scheduler bookkeeping fn {} at 0x{:x} (no-op, RSP rebalanced +8, avoids unmapped scheduler-state reads)",
+                                    sym_name,
+                                    target
+                                );
+                                current_addr = next_addr;
+                                explicit_control_flow = true;
+                                break;
+                            }
+                            if let Some(effect) = overlay_summary_table.lookup(&sym_name) {
+                                let effect = effect.clone();
+                                log!(
+                                    executor.state.logger,
+                                    "[OVERLAY] Applying summary for {} at call target 0x{:x} (skipping body)",
+                                    sym_name,
+                                    target
+                                );
+                                let _ = crate::summaries::apply(
+                                    &effect,
+                                    executor.context,
+                                    &executor.state.cpu_state,
+                                    &executor.state.memory,
+                                    &mut overlay_summary_heap_ptr,
+                                );
+                                crate::summaries::clear_error_registers(
+                                    &effect,
+                                    executor.context,
+                                    &executor.state.cpu_state,
+                                );
+                                // Simulate the function return: continue at the
+                                // fallthrough block (the post-call return point).
+                                current_addr = next_addr;
+                                explicit_control_flow = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Execute instruction using existing executor infrastructure
             // The executor will automatically use overlay mode for reads/writes
             // CALLOTHER operations are executed normally - overlay handles memory correctly
@@ -368,21 +535,98 @@ fn execute_with_overlay<'ctx>(
                             );
                             return OverlayPathAnalysisResult::DepthLimitReached;
                         }
+                        Opcode::Call => {
+                            // Follow function calls: extract target and enter the callee
+                            if let Some(target_varnode) = inst.inputs.first() {
+                                if let parser::parser::Var::Memory(target) = target_varnode.var {
+                                    // Only follow if the target is in the instruction map
+                                    if instructions_map.contains_key(&target) {
+                                        // Push return address (next block after current)
+                                        overlay_call_stack.push(next_addr);
+                                        log!(
+                                            executor.state.logger,
+                                            "[OVERLAY] Entering function call to 0x{:x} (return to 0x{:x}, stack depth {})",
+                                            target,
+                                            next_addr,
+                                            overlay_call_stack.len()
+                                        );
+                                        current_addr = target;
+                                        explicit_control_flow = true;
+                                        break;
+                                    } else {
+                                        log!(
+                                            executor.state.logger,
+                                            "[OVERLAY] Call target 0x{:x} not in instruction map, skipping",
+                                            target
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         Opcode::Return => {
-                            log!(
-                                executor.state.logger,
-                                "[OVERLAY] Reached return at 0x{:x}, ending the overlay execution",
-                                current_addr
-                            );
-                            return OverlayPathAnalysisResult::Safe;
+                            if let Some(return_addr) = overlay_call_stack.pop() {
+                                log!(
+                                    executor.state.logger,
+                                    "[OVERLAY] Returning from function to 0x{:x} (stack depth {})",
+                                    return_addr,
+                                    overlay_call_stack.len()
+                                );
+                                current_addr = return_addr;
+                                explicit_control_flow = true;
+                                break;
+                            } else {
+                                log!(
+                                    executor.state.logger,
+                                    "[OVERLAY] Reached return at top level (0x{:x}), ending overlay",
+                                    current_addr
+                                );
+                                return OverlayPathAnalysisResult::Safe;
+                            }
                         }
                         Opcode::CBranch => {
-                            // For simplicity, don't follow conditional branches in overlay
-                            // Continue with fallthrough
-                            log!(
-                                executor.state.logger,
-                                "[OVERLAY] Ignoring CBranch, continuing with fallthrough"
-                            );
+                            // Evaluate the branch condition concretely and follow
+                            // the correct edge. Blindly taking the fallthrough (the
+                            // old behaviour) walks the overlay into Go runtime
+                            // error/abort paths — e.g. reentersyscall's scheduler
+                            // checks fall through to runtime.abort (INT3/SWI),
+                            // killing the overlay concolic execution path before it reaches the
+                            // syscalls we care about. The concrete state is valid
+                            // here, so we can decide the branch exactly as the main
+                            // executor would.
+                            let cond_taken = inst
+                                .inputs
+                                .get(1)
+                                .and_then(|vn| executor.varnode_to_concolic(vn).ok())
+                                .and_then(|c| c.to_concolic_var())
+                                .map(|cv| cv.concrete.to_u64() != 0)
+                                .unwrap_or(false);
+
+                            if cond_taken {
+                                if let Some(target_varnode) = inst.inputs.first() {
+                                    if let parser::parser::Var::Memory(target) = target_varnode.var
+                                    {
+                                        log!(
+                                            executor.state.logger,
+                                            "[OVERLAY] CBranch taken to 0x{:x}",
+                                            target
+                                        );
+                                        current_addr = target;
+                                        explicit_control_flow = true;
+                                        break;
+                                    }
+                                }
+                                // Pcode-relative (intra-instruction) branch target:
+                                // keep the safe fallthrough behaviour.
+                                log!(
+                                    executor.state.logger,
+                                    "[OVERLAY] CBranch taken but non-memory target; continuing fallthrough"
+                                );
+                            } else {
+                                log!(
+                                    executor.state.logger,
+                                    "[OVERLAY] CBranch not taken, continuing with fallthrough"
+                                );
+                            }
                         }
                         _ => {
                             // Normal instruction, continue
@@ -407,7 +651,7 @@ fn execute_with_overlay<'ctx>(
             if instruction_count >= max_depth {
                 log!(
                     executor.state.logger,
-                    "[OVERLAY] Reached max depth at 0x{:x}, stopping speculative execution",
+                    "[OVERLAY] Reached max depth at 0x{:x}, stopping overlay concolic execution",
                     current_addr
                 );
                 return OverlayPathAnalysisResult::DepthLimitReached;

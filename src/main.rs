@@ -47,6 +47,7 @@ use zorya::state::gating_stats::{
 use zorya::state::memory_x86_64::MemoryValue;
 use zorya::state::overlay_path_analysis::{
     analyze_untaken_path_with_overlay, OverlayPathAnalysisResult, DEFAULT_MAX_OVERLAY_DEPTH,
+    PLUGIN_MAX_OVERLAY_DEPTH,
 };
 use zorya::state::panic_reach::precompute_panic_reach;
 use zorya::state::simplify_z3::extract_underlying_condition_from_flag_ast;
@@ -356,9 +357,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(|v| v == "1")
         .unwrap_or(false);
 
-    // In standalone mode, truncate the trace file first (the shell wrapper
-    // already does this before invoking us). Then open in append mode so
-    // both the Logger and the global TRACE_FILE handle coexist.
+    // Only truncate when running standalone; the wrapper already truncated
+    // and wrote the setup preamble — re-truncating would wipe it.
+    let _ = std::fs::create_dir_all("results");
     if !trace_by_shell {
         let _ = std::fs::File::create("results/execution_trace.txt");
     }
@@ -1977,10 +1978,16 @@ fn execute_instructions_from(
                             let overlay_depth: usize = std::env::var("OVERLAY_DEPTH")
                                 .ok()
                                 .and_then(|v| v.parse().ok())
-                                .unwrap_or(DEFAULT_MAX_OVERLAY_DEPTH);
+                                .unwrap_or_else(|| {
+                                    if executor.event_bus.plugin_count() > 0 {
+                                        PLUGIN_MAX_OVERLAY_DEPTH
+                                    } else {
+                                        DEFAULT_MAX_OVERLAY_DEPTH
+                                    }
+                                });
 
                             // Overlay explores the opposite branch, so compute the
-                            // corresponding gate and carry it during speculative
+                            // corresponding gate and carry it during overlay concolic
                             // execution. This keeps plugin path predicates coherent.
                             let cond_bv = conditional_flag.symbolic.to_bv(executor.context);
                             let branch_taken_to_explore = conditional_flag_u64 == 0;

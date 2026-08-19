@@ -115,7 +115,7 @@ const GO_STACK_PREEMPT: u64 = 0xfffffffffffffade;
 const GO_G_STACKGUARD0_OFFSET: u64 = 0x10;
 
 /// Default offset of stack.lo in runtime.g struct.
-const GO_G_STACK_LO_OFFSET: u64 = 0x0;
+const _GO_G_STACK_LO_OFFSET: u64 = 0x0;
 
 /// Clear the Go goroutine stackPreempt flag if it is set.
 ///
@@ -169,50 +169,26 @@ pub fn clear_go_stack_preempt<'a>(executor: &mut ConcolicExecutor<'a>) -> bool {
         }
     };
 
-    if stackguard0_val != GO_STACK_PREEMPT {
+    if stackguard0_val == GO_STACK_PREEMPT {
         log!(
             executor.state.logger,
-            "[GO-PREEMPT] stackguard0 = 0x{:x} (not stackPreempt) - no clearing needed",
-            stackguard0_val
+            "[GO-PREEMPT] Detected stackPreempt (0x{:x}) in goroutine g=0x{:x}",
+            GO_STACK_PREEMPT,
+            g_ptr
         );
-        return false;
     }
 
-    log!(
-        executor.state.logger,
-        "[GO-PREEMPT] Detected stackPreempt (0x{:x}) in goroutine g=0x{:x}",
-        GO_STACK_PREEMPT,
-        g_ptr
-    );
-
-    // Read stack.lo to get the safe replacement value
-    let stack_lo_addr = g_ptr + GO_G_STACK_LO_OFFSET;
-    let stack_lo = match executor.state.memory.read_value(
-        stack_lo_addr,
+    // Always disable the stack overflow check for concolic execution.
+    // We set stackguard0 = 0 so that `cmp 0x10(%r14),%rsp; jbe morestack`
+    // never triggers (RSP is always > 0). The concolic executor cannot grow
+    // goroutine stacks, and deep call nesting would otherwise cause spurious
+    // morestack → abort → SWI panics.
+    let new_guard_val: u64 = 0;
+    let new_stackguard = MemoryValue::new(
+        new_guard_val,
+        BV::from_u64(executor.context, new_guard_val, 64),
         64,
-        &mut executor.state.logger.clone(),
-    ) {
-        Ok(val) => val.concrete.to_u64(),
-        Err(e) => {
-            log!(
-                executor.state.logger,
-                "[GO-PREEMPT] Cannot read stack.lo at 0x{:x}: {:?}",
-                stack_lo_addr,
-                e
-            );
-            return false;
-        }
-    };
-
-    log!(
-        executor.state.logger,
-        "[GO-PREEMPT] stack.lo = 0x{:x}, replacing stackguard0",
-        stack_lo
     );
-
-    // Write stack.lo to stackguard0 (clearing the preemption flag)
-    let new_stackguard =
-        MemoryValue::new(stack_lo, BV::from_u64(executor.context, stack_lo, 64), 64);
 
     match executor
         .state
@@ -222,12 +198,9 @@ pub fn clear_go_stack_preempt<'a>(executor: &mut ConcolicExecutor<'a>) -> bool {
         Ok(()) => {
             log!(
                 executor.state.logger,
-                "[GO-PREEMPT] ✓ Cleared stackPreempt: stackguard0 at 0x{:x} set to 0x{:x}",
+                "[GO-PREEMPT] ✓ Disabled stack check: stackguard0 at 0x{:x} set to 0 (was 0x{:x})",
                 stackguard0_addr,
-                stack_lo
-            );
-            println!(
-                "[GO-PREEMPT] Cleared goroutine stackPreempt flag (was blocking function execution)"
+                stackguard0_val
             );
             true
         }
