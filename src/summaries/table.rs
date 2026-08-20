@@ -164,6 +164,19 @@ pub static RUNTIME_SUMMARIES: Lazy<Vec<FunctionSummary>> = Lazy::new(|| {
             name: "runtime.makechan64",
             effect: SummaryEffect::MakeChan,
         },
+        // ─── Channel operations (tracked by chancheck via Event::Call) ───
+        FunctionSummary {
+            name: "runtime.closechan",
+            effect: SummaryEffect::Nop,
+        },
+        FunctionSummary {
+            name: "runtime.chansend1",
+            effect: SummaryEffect::Nop,
+        },
+        FunctionSummary {
+            name: "runtime.chansend",
+            effect: SummaryEffect::Nop,
+        },
         // ─── GC / write barrier (no-ops for concolic) ─────────────────────
         FunctionSummary {
             name: "runtime.gcWriteBarrier",
