@@ -5,6 +5,7 @@
 use core::panic;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
@@ -19,11 +20,13 @@ use super::executor_int;
 use super::ConcolicEnum;
 pub use super::ConcreteVar;
 pub use super::SymbolicVar;
+use crate::concolic::symbolic_initialization::{is_stack_location, parse_stack_offset};
 use crate::concolic::ConcolicVar;
 use crate::plugins::event::{AccessOrigin, Event, EventKind, MemAccessKind};
 use crate::plugins::EventBus;
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::evaluate_args_z3;
+use crate::state::function_signatures::FunctionArgsMap;
 #[allow(unused_imports)]
 use crate::state::memory_x86_64::MemoryError;
 use crate::state::memory_x86_64::MemoryValue;
@@ -48,14 +51,13 @@ macro_rules! log {
 }
 
 /// Whether `dispatch_event` should pay the cost of extracting the Go
-/// goroutine id for this event kind. Only data-race-style events need it;
-/// `Call` matches symbols by name, syscalls and thread events identify the
-/// thread by `tid` directly. Keeping the negative cases explicit avoids
-/// accidental regressions when new event variants are added.
+/// goroutine id for this event kind. `Call` needs it so concurrency plugins
+/// (e.g. chancheck) can distinguish same-goroutine from cross-goroutine
+/// operations. Memory-access events need it for data-race detection.
 #[inline]
 fn event_kind_needs_goid(kind: crate::plugins::event::EventKind) -> bool {
     use crate::plugins::event::EventKind::*;
-    matches!(kind, MemRead | MemWrite)
+    matches!(kind, Call | MemRead | MemWrite)
 }
 
 /// Synthetic return address pushed onto a spawned thread's stack by the
@@ -80,6 +82,17 @@ pub enum ExternalOutcome {
     Resume(u64),
     /// No runnable work remains; stop the simulation.
     Terminate,
+}
+
+/// Location of a callee's first machine-word argument.
+///
+/// This comes from the callee's recovered signature. It is deliberately
+/// target-specific: a binary can contain Go ABIInternal functions, ABI0
+/// wrappers, and System V calls at the same time.
+#[derive(Debug, Clone, Copy)]
+enum CallArg0Location {
+    Register(u64),
+    Stack(i64),
 }
 
 #[derive(Debug)]
@@ -140,6 +153,9 @@ pub struct ConcolicExecutor<'ctx> {
     /// (which Zorya also runs) doesn't pollute race analysis. `None` ⇒ no
     /// confinement (preserves prior behaviour).
     pub binary_text_range: Option<(u64, u64)>,
+    /// First-argument locations recovered from function signatures, keyed by
+    /// callee address. This avoids applying one ABI convention to every call.
+    call_arg0_locations: HashMap<u64, CallArg0Location>,
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -199,6 +215,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             mem_events_surfaced: 0,
             mem_events_suppressed: 0,
             binary_text_range: None,
+            call_arg0_locations: HashMap::new(),
         }
     }
 
@@ -307,6 +324,97 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .get_register_by_offset(offset, 64)
             .and_then(|v| v.get_concrete_value().ok())
             .unwrap_or(0)
+    }
+
+    /// Configure first-argument locations from recovered function signatures.
+    ///
+    /// Entries at address zero are extractor placeholders, not callable
+    /// functions, and are intentionally ignored.
+    pub fn configure_call_argument_locations(&mut self, signatures: &FunctionArgsMap) {
+        let cpu = self.state.cpu_state.lock().unwrap();
+        self.call_arg0_locations.clear();
+
+        for (&address, (_, args)) in signatures {
+            if address == 0 {
+                continue;
+            }
+            let Some((_, locations, _)) = args.first() else {
+                continue;
+            };
+            let Some(location) = locations.first() else {
+                continue;
+            };
+
+            let location = if is_stack_location(location) {
+                parse_stack_offset(location).map(CallArg0Location::Stack)
+            } else {
+                cpu.resolve_offset_from_register_name(location)
+                    .map(CallArg0Location::Register)
+            };
+            if let Some(location) = location {
+                self.call_arg0_locations.insert(address, location);
+            }
+        }
+    }
+
+    /// Read the callee's first argument using its recovered location.
+    ///
+    /// PLT stubs are the sole exception: their target is an external System V
+    /// call boundary, so RDI is mandated by the platform ABI. No default is
+    /// used for ordinary in-binary calls.
+    fn read_call_arg0(&mut self, target: u64) -> Option<u64> {
+        let location = self.call_arg0_locations.get(&target).copied().or_else(|| {
+            self.symbol_table
+                .get(&format!("{target:x}"))
+                .filter(|name| name.starts_with("plt_"))
+                .map(|_| CallArg0Location::Register(0x38))
+        })?;
+
+        match location {
+            CallArg0Location::Register(offset) => self
+                .get_register_overlay_aware(offset, 64)
+                .and_then(|value| value.get_concrete_value().ok()),
+            CallArg0Location::Stack(offset) => {
+                let rsp = self
+                    .get_register_overlay_aware(0x20, 64)?
+                    .get_concrete_value()
+                    .ok()?;
+                let address = (rsp as i64).checked_add(offset)? as u64;
+                let (bytes, _) = self.read_memory_overlay_aware(address, 8).ok()?;
+                bytes.as_slice().try_into().ok().map(u64::from_le_bytes)
+            }
+        }
+    }
+
+    /// Emit a call event only when its first argument can be read from the
+    /// callee's signature (or from the explicit System V PLT boundary).
+    fn dispatch_call_event(&mut self, pc: u64, target: u64) {
+        if !self.event_bus.is_subscribed(EventKind::Call) {
+            return;
+        }
+        // Overlay register state is approximate; skip Call dispatch to avoid
+        // plugins receiving garbage arg0 values.
+        if self.is_overlay_mode() {
+            return;
+        }
+        let Some(arg0) = self.read_call_arg0(target) else {
+            return;
+        };
+        let target_hex = format!("{target:x}");
+        let symbol_owned = self.symbol_table.get(&target_hex).cloned();
+        let tid = self
+            .state
+            .thread_manager
+            .lock()
+            .map(|tm| tm.current_tid)
+            .unwrap_or(0);
+        self.dispatch_event(&Event::Call {
+            pc,
+            target,
+            symbol: symbol_owned.as_deref(),
+            tid,
+            arg0,
+        });
     }
 
     /// Concrete write of a 64-bit general register by offset.
@@ -1835,6 +1943,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 // For a numeral BV, extract() already produces a numeral and
                 // simplify() is a wasted O(tree_size) walk.
                 let symbolic_bv = original_register.symbolic.to_bv(self.context);
+                let reg_size = containing_offset.1;
+                let symbolic_bv = if symbolic_bv.get_size() < reg_size {
+                    symbolic_bv.zero_ext(reg_size - symbolic_bv.get_size())
+                } else {
+                    symbolic_bv
+                };
                 let high_bit = (bit_offset + u64::from(bit_size) - 1) as u32;
                 let low_bit = bit_offset as u32;
 
@@ -3072,31 +3186,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             SymbolicVar::Int(BV::from_u64(self.context, data_to_call_concrete, 64)),
         );
 
-        // Plugin dispatch: binary-originated direct call. Resolve the
-        // target address against the symbol table so plugins (e.g. volos)
-        // can match well-known names like `runtime.lock` without doing
-        // their own lookup. For unresolved or PLT-stubbed targets the
-        // `symbol` field is `None`; plugins that need symbol matching
-        // typically do `symbol_hooks()` so the registry can warn at load
-        // time about lazy / stripped names.
-        if self.event_bus.is_subscribed(EventKind::Call) {
-            let target_hex = format!("{:x}", data_to_call_concrete);
-            let symbol_owned: Option<String> = self.symbol_table.get(&target_hex).cloned();
-            let pc_for_event = self.current_address.unwrap_or(0);
-            let tid_for_event = self
-                .state
-                .thread_manager
-                .lock()
-                .map(|tm| tm.current_tid)
-                .unwrap_or(0);
-            self.dispatch_event(&Event::Call {
-                pc: pc_for_event,
-                target: data_to_call_concrete,
-                symbol: symbol_owned.as_deref(),
-                tid: tid_for_event,
-                arg0: self.read_reg64(0x38), // RDI
-            });
-        }
+        self.dispatch_call_event(self.current_address.unwrap_or(0), data_to_call_concrete);
 
         // NOTE: Thread scheduling is intentionally NOT performed here. All
         // thread switches happen at a single checkpoint at the top of the
@@ -3156,28 +3246,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Update current_address to the new RIP
         self.current_address = Some(target_address_concrete);
 
-        // Plugin dispatch: indirect call. Same shape as `handle_call`,
-        // just with a runtime-resolved target. Symbol resolution still
-        // works because by this point `target_address_concrete` is
-        // concretised.
-        if self.event_bus.is_subscribed(EventKind::Call) {
-            let target_hex = format!("{:x}", target_address_concrete);
-            let symbol_owned: Option<String> = self.symbol_table.get(&target_hex).cloned();
-            let pc_for_event = self.current_address.unwrap_or(0);
-            let tid_for_event = self
-                .state
-                .thread_manager
-                .lock()
-                .map(|tm| tm.current_tid)
-                .unwrap_or(0);
-            self.dispatch_event(&Event::Call {
-                pc: pc_for_event,
-                target: target_address_concrete,
-                symbol: symbol_owned.as_deref(),
-                tid: tid_for_event,
-                arg0: self.read_reg64(0x38), // RDI
-            });
-        }
+        self.dispatch_call_event(self.current_address.unwrap_or(0), target_address_concrete);
 
         Ok(())
     }

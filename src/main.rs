@@ -1326,6 +1326,8 @@ fn execute_instructions_from(
         load_function_args_map()
     };
 
+    executor.configure_call_argument_locations(&function_args_map);
+
     // Check up-front that p-code exists for the start address so the user
     // gets an actionable error instead of a silent no-op.
     if !instructions_map.contains_key(&current_rip) {

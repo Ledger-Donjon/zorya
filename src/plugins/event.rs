@@ -78,11 +78,11 @@ pub enum Event<'ctx, 'e> {
         target: u64,
         symbol: Option<&'e str>,
         tid: u64,
-        /// First integer argument at the call site (RDI on x86-64). For
-        /// lock primitives such as `pthread_mutex_lock(pthread_mutex_t *m)`
-        /// this is the mutex pointer, which detectors use as the lock
-        /// identity. Meaningless for calls that take no pointer arg; plugins
-        /// only read it when `symbol` matches a primitive they track.
+        /// First machine-word argument, read from the callee's recovered
+        /// signature. For lock primitives such as
+        /// `pthread_mutex_lock(pthread_mutex_t *m)`, this is the mutex
+        /// pointer used as the lock identity. Plugins only read it when
+        /// `symbol` matches a primitive they track.
         arg0: u64,
     },
 
