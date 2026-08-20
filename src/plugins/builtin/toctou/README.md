@@ -86,7 +86,11 @@ The plugin pairs them, verifies feasibility with Z3, and reports.
 ### Mode B — overlay `overlay-check-reachable`
 
 The vulnerable check lives on a branch the concrete run never takes (e.g.
-gated on `input[0] == 0x02`, the `opVerifyPeer` opcode in the test harness). Zorya reaches it via **overlay concolic execution** of the untaken branch. In that setting the engine keeps theoriginal concrete input, so it typically cannot drive execution all the way to the paired use — but the check being reachable under attacker-influenced input is itself the signal.
+gated on `input[0] == 'V'`). Zorya reaches it via **overlay concolic
+execution** of the untaken branch. In that setting the engine keeps the
+original concrete input, so it typically cannot drive execution all the way to
+the paired use — but the check being reachable under attacker-influenced input
+is itself the signal.
 
 This mode requires `--negate-path-exploration` (env `NEGATE_PATH_FLAG=true`),
 which enables overlay exploration of untaken branches.

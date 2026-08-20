@@ -1118,7 +1118,10 @@ impl<'ctx> Plugin<'ctx> for ToctouPlugin<'ctx> {
             );
 
             if let Some(model) = &pend.model_str {
-                finding = finding.with_detail(format!("Triggering input (Z3-solved): {}", humanize_z3_model(model)));
+                finding = finding.with_detail(format!(
+                    "Triggering input (Z3-solved): {}",
+                    humanize_z3_model(model)
+                ));
             } else {
                 finding = finding.with_detail(
                     "Path condition was input-independent (no symbolic gate); the check is \
