@@ -60,15 +60,25 @@ struct ChannelState<'ctx> {
     hchan_ptr: u64,
     /// Which goroutine (tid) created this channel.
     creator_tid: u64,
+    /// Go goroutine id of the creator (if available).
+    creator_goid: Option<u64>,
     /// Whether `runtime.closechan` has been observed for this channel.
     closed: bool,
     /// The goroutine (tid) that closed the channel. `None` if still open.
     closer_tid: Option<u64>,
+    /// Go goroutine id that closed the channel. `None` if still open or unavailable.
+    closer_goid: Option<u64>,
     /// Path constraint `φ_close` under which the channel was closed.
     /// Empty means the close was unconditional.
     close_phi: Vec<Bool<'ctx>>,
     /// PC where the close was observed.
     close_pc: u64,
+    /// Plugin-internal monotonic sequence number at the close site. Used to
+    /// establish the temporal order of close vs send within the same
+    /// goroutine (a send is only a bug if it happens *after* the close).
+    /// This is a plugin-owned counter rather than the executor's instruction
+    /// counter, so ordering holds even when summaries skip function bodies.
+    close_seq: u64,
 }
 
 /// A send or receive attempt we've observed, kept for end-of-trace analysis.
@@ -76,12 +86,18 @@ struct ChannelState<'ctx> {
 struct SendAttempt<'ctx> {
     /// The `*hchan` this send targeted.
     hchan_ptr: u64,
-    /// Goroutine that attempted the send.
+    /// OS thread that attempted the send.
     tid: u64,
+    /// Go goroutine id at the send site (if available).
+    goid: Option<u64>,
     /// Path constraints at the send site.
     send_phi: Vec<Bool<'ctx>>,
     /// PC of the send.
     pc: u64,
+    /// Plugin-internal monotonic sequence number at the send site. Compared
+    /// against a channel's `close_seq` to determine whether the send happened
+    /// after the close (a same-goroutine ordering violation).
+    seq: u64,
 }
 
 /// The channel-invariant detector plugin.
@@ -98,6 +114,9 @@ pub struct ChanCheckPlugin<'ctx> {
     channels_closed: u64,
     sends_observed: u64,
     violations_found: u64,
+    /// Monotonic sequence counter, incremented on each close/send event, used
+    /// to order operations within a goroutine independently of the executor.
+    event_seq: u64,
 }
 
 impl<'ctx> ChanCheckPlugin<'ctx> {
@@ -110,7 +129,14 @@ impl<'ctx> ChanCheckPlugin<'ctx> {
             channels_closed: 0,
             sends_observed: 0,
             violations_found: 0,
+            event_seq: 0,
         }
+    }
+
+    /// Return the next monotonic sequence number for event ordering.
+    fn next_seq(&mut self) -> u64 {
+        self.event_seq += 1;
+        self.event_seq
     }
 
     fn vlog(&self, msg: impl AsRef<str>) {
@@ -212,17 +238,21 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                     let hchan = *arg0; // first arg to closechan is the *hchan
                     self.channels_closed += 1;
                     self.vlog(format!(
-                        "CLOSECHAN hchan=0x{:x} tid={} |φ|={}",
+                        "CLOSECHAN hchan=0x{:x} tid={} goid={:?} |φ|={}",
                         hchan,
                         tid,
+                        ctx.current_goid,
                         ctx.path_constraints().len()
                     ));
 
+                    let close_seq = self.next_seq();
                     if let Some(ch) = self.channels.get_mut(&hchan) {
                         ch.closed = true;
                         ch.closer_tid = Some(*tid);
+                        ch.closer_goid = ctx.current_goid;
                         ch.close_phi = ctx.path_constraints().to_vec();
                         ch.close_pc = ctx.current_pc;
+                        ch.close_seq = close_seq;
                     } else {
                         // Channel wasn't tracked via makechan (maybe created
                         // before our analysis started). Still record it.
@@ -231,10 +261,13 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                             ChannelState {
                                 hchan_ptr: hchan,
                                 creator_tid: *tid,
+                                creator_goid: ctx.current_goid,
                                 closed: true,
                                 closer_tid: Some(*tid),
+                                closer_goid: ctx.current_goid,
                                 close_phi: ctx.path_constraints().to_vec(),
                                 close_pc: ctx.current_pc,
+                                close_seq,
                             },
                         );
                     }
@@ -244,17 +277,21 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                     let hchan = *arg0; // first arg to chansend1 is the *hchan
                     self.sends_observed += 1;
                     self.vlog(format!(
-                        "CHANSEND hchan=0x{:x} tid={} |φ|={}",
+                        "CHANSEND hchan=0x{:x} tid={} goid={:?} |φ|={}",
                         hchan,
                         tid,
+                        ctx.current_goid,
                         ctx.path_constraints().len()
                     ));
 
+                    let send_seq = self.next_seq();
                     self.sends.push(SendAttempt {
                         hchan_ptr: hchan,
                         tid: *tid,
+                        goid: ctx.current_goid,
                         send_phi: ctx.path_constraints().to_vec(),
                         pc: ctx.current_pc,
+                        seq: send_seq,
                     });
                 }
                 // ─── Channel receive (for future recv-on-closed) ─────────
@@ -286,11 +323,22 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                 _ => continue,
             };
 
-            if ch.closer_tid == Some(send.tid) {
-                violations.push(Violation {
-                    send_idx: idx,
-                    same_goroutine: true,
-                });
+            // Use goid for classification when available; fall back to tid.
+            let same_goroutine = match (ch.closer_goid, send.goid) {
+                (Some(close_g), Some(send_g)) => close_g == send_g,
+                _ => ch.closer_tid == Some(send.tid),
+            };
+
+            if same_goroutine {
+                // Within a single goroutine, execution is sequential: a send
+                // is only a bug if it happens *after* the close. A send that
+                // precedes the close (send-then-close) is the safe idiom.
+                if send.seq > ch.close_seq {
+                    violations.push(Violation {
+                        send_idx: idx,
+                        same_goroutine: true,
+                    });
+                }
                 continue;
             }
 
@@ -342,14 +390,16 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                 title,
             )
             .with_detail(format!(
-                "Close: tid={}, pc=0x{:x}, |φ_close|={}",
+                "Close: tid={}, goid={}, pc=0x{:x}, |φ_close|={}",
                 ch.closer_tid.unwrap_or(0),
+                ch.closer_goid.map_or("n/a".to_string(), |g| g.to_string()),
                 ch.close_pc,
                 ch.close_phi.len()
             ))
             .with_detail(format!(
-                "Send: tid={}, pc=0x{:x}, |φ_send|={}",
+                "Send: tid={}, goid={}, pc=0x{:x}, |φ_send|={}",
                 send.tid,
+                send.goid.map_or("n/a".to_string(), |g| g.to_string()),
                 send.pc,
                 send.send_phi.len()
             ));
@@ -431,10 +481,13 @@ impl<'ctx> ChanCheckPlugin<'ctx> {
             ChannelState {
                 hchan_ptr,
                 creator_tid,
+                creator_goid: None,
                 closed: false,
                 closer_tid: None,
+                closer_goid: None,
                 close_phi: Vec::new(),
                 close_pc: 0,
+                close_seq: 0,
             },
         );
     }
@@ -747,6 +800,188 @@ mod tests {
         assert!(
             f.is_empty(),
             "no violation expected when φ_close ∧ φ_send is UNSAT, got {:?}",
+            f
+        );
+    }
+
+    /// Same OS tid but different goid → cross-goroutine classification.
+    #[test]
+    fn chancheck_goid_cross_goroutine_despite_same_tid() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(ChanCheckPlugin::new()));
+
+        let hchan: u64 = 0xc0005000;
+        let ectx = mk_ctx(&ctx, &findings);
+
+        for plugin in bus.plugins_mut() {
+            if plugin.name() == "chancheck" {
+                let p = unsafe {
+                    &mut *(&mut **plugin as *mut dyn Plugin<'_> as *mut ChanCheckPlugin<'_>)
+                };
+                p.register_channel(hchan, 1);
+            }
+        }
+
+        // Close: tid=1, goid=10
+        let ectx_close =
+            EventCtx::new(&ctx, 0x200, 1, 0, Instant::now(), &findings).with_goid(Some(10));
+        bus.dispatch(
+            &Event::Call {
+                pc: 0x200,
+                target: 0xbeef,
+                symbol: Some("runtime.closechan"),
+                tid: 1,
+                arg0: hchan,
+            },
+            &ectx_close,
+        );
+
+        // Send: same tid=1, but different goid=20
+        let ectx_send =
+            EventCtx::new(&ctx, 0x300, 1, 0, Instant::now(), &findings).with_goid(Some(20));
+        bus.dispatch(
+            &Event::Call {
+                pc: 0x300,
+                target: 0xcafe,
+                symbol: Some("runtime.chansend1"),
+                tid: 1,
+                arg0: hchan,
+            },
+            &ectx_send,
+        );
+
+        bus.run_finish(&ectx);
+
+        let f = findings.borrow();
+        assert!(!f.is_empty(), "expected cross-goroutine finding");
+        let title = &f[0].title;
+        assert!(
+            title.contains("cross-goroutine"),
+            "expected cross-goroutine classification, got: {}",
+            title
+        );
+    }
+
+    /// Same goid → same-goroutine classification, even on different tids.
+    #[test]
+    fn chancheck_goid_same_goroutine_despite_different_tid() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(ChanCheckPlugin::new()));
+
+        let hchan: u64 = 0xc0006000;
+        let ectx = mk_ctx(&ctx, &findings);
+
+        for plugin in bus.plugins_mut() {
+            if plugin.name() == "chancheck" {
+                let p = unsafe {
+                    &mut *(&mut **plugin as *mut dyn Plugin<'_> as *mut ChanCheckPlugin<'_>)
+                };
+                p.register_channel(hchan, 1);
+            }
+        }
+
+        // Close: tid=1, goid=42, ic=100
+        let ectx_close =
+            EventCtx::new(&ctx, 0x200, 1, 100, Instant::now(), &findings).with_goid(Some(42));
+        bus.dispatch(
+            &Event::Call {
+                pc: 0x200,
+                target: 0xbeef,
+                symbol: Some("runtime.closechan"),
+                tid: 1,
+                arg0: hchan,
+            },
+            &ectx_close,
+        );
+
+        // Send: different tid=2, but same goid=42, ic=200 (after the close)
+        let ectx_send =
+            EventCtx::new(&ctx, 0x300, 2, 200, Instant::now(), &findings).with_goid(Some(42));
+        bus.dispatch(
+            &Event::Call {
+                pc: 0x300,
+                target: 0xcafe,
+                symbol: Some("runtime.chansend1"),
+                tid: 2,
+                arg0: hchan,
+            },
+            &ectx_send,
+        );
+
+        bus.run_finish(&ectx);
+
+        let f = findings.borrow();
+        assert!(!f.is_empty(), "expected same-goroutine finding");
+        let title = &f[0].title;
+        assert!(
+            title.contains("same-goroutine"),
+            "expected same-goroutine classification, got: {}",
+            title
+        );
+    }
+
+    /// Same goroutine, send BEFORE close (the safe send-then-close idiom).
+    /// Must NOT be flagged as a violation.
+    #[test]
+    fn chancheck_no_violation_same_goroutine_send_before_close() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(ChanCheckPlugin::new()));
+
+        let hchan: u64 = 0xc0007000;
+        let ectx = mk_ctx(&ctx, &findings);
+
+        for plugin in bus.plugins_mut() {
+            if plugin.name() == "chancheck" {
+                let p = unsafe {
+                    &mut *(&mut **plugin as *mut dyn Plugin<'_> as *mut ChanCheckPlugin<'_>)
+                };
+                p.register_channel(hchan, 1);
+            }
+        }
+
+        // Send first: tid=1, goid=7, ic=100
+        let ectx_send =
+            EventCtx::new(&ctx, 0x300, 1, 100, Instant::now(), &findings).with_goid(Some(7));
+        bus.dispatch(
+            &Event::Call {
+                pc: 0x300,
+                target: 0xcafe,
+                symbol: Some("runtime.chansend1"),
+                tid: 1,
+                arg0: hchan,
+            },
+            &ectx_send,
+        );
+
+        // Then close: tid=1, goid=7, ic=200 (after the send — safe idiom)
+        let ectx_close =
+            EventCtx::new(&ctx, 0x200, 1, 200, Instant::now(), &findings).with_goid(Some(7));
+        bus.dispatch(
+            &Event::Call {
+                pc: 0x200,
+                target: 0xbeef,
+                symbol: Some("runtime.closechan"),
+                tid: 1,
+                arg0: hchan,
+            },
+            &ectx_close,
+        );
+
+        bus.run_finish(&ectx);
+
+        let f = findings.borrow();
+        assert!(
+            f.is_empty(),
+            "send-before-close in same goroutine is safe, got: {:?}",
             f
         );
     }
