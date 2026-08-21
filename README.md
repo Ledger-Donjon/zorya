@@ -168,7 +168,7 @@ Expected outputs and result files are documented in:
 Detectors are event-driven plugins. The core executor fires typed events onto an event bus; each plugin subscribes only to the events it needs, keeps private state, and reads engine state through a read-only context. Every handler returns a verdict (continue, stop this path, report a finding, or abort), so detectors coexist without touching the core.
 
 <p align="center">
-  <img src="doc/plugin-architecture.png" alt="Zorya plugin architecture" width="750"/>
+  <img src="doc/plugin-architecture.png" alt="Zorya plugin architecture" width="1100"/>
 </p>
 
 The **Volos** data-race detector, the **TOCTOU** check-use race detector, and the **ChanCheck** send-on-closed-channel detector are implemented (shaded); the scheduler, the `WaitGroup` invariant checker, and a weak-memory-model plugin are planned subscribers on the same bus. See [doc/Plugins.md](doc/Plugins.md) for the plugin API.
