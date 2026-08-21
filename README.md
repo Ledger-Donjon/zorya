@@ -137,11 +137,41 @@ You can validate your setup with the included test programs in `tests/programs`.
 Minimal quick start:
 
 ```bash
-zorya /absolute/path/to/zorya/tests/programs/crashme/crashme
+zorya /absolute/path/to/zorya/tests/programs/crashme-go/crashme
+```
+
+`crashme` dereferences a nil pointer when the first byte of its argument is `'K'`
+(`crash(arg byte)` in `tests/programs/crashme-go/main.go`). Zorya symbolizes the
+argument, solves the path constraint, and reports a satisfiable panic-triggering
+state in `results/FOUND_SAT_STATE.txt`:
+
+```
+[*] SATISFIABLE STATE FOUND
+Instruction Address: ...        ← cmp $0x4b,%al ; je   (arg == 'K')
+Panic Address:       ...        ← nil-pointer dereference (*p = 0)
+RESULTS
+The program can panic if its inputs are the following:
+  - os.Args[1][0] must be 'K' (unsigned: 75; signed: 75; ASCII: 'K')
 ```
 
 Expected outputs and result files are documented in:
 [doc/Quickstart.md](doc/Quickstart.md)
+
+## 4. Documentation
+
+<p align="center">
+  <img src="doc/zorya-overview-full.png" alt="Zorya workflow" width="500"/>
+</p>
+
+### Plugin architecture
+
+Detectors are event-driven plugins. The core executor fires typed events onto an event bus; each plugin subscribes only to the events it needs, keeps private state, and reads engine state through a read-only context. Every handler returns a verdict (continue, stop this path, report a finding, or abort), so detectors coexist without touching the core.
+
+<p align="center">
+  <img src="doc/plugin-architecture.png" alt="Zorya plugin architecture" width="750"/>
+</p>
+
+The **Volos** data-race detector, the **TOCTOU** check-use race detector, and the **ChanCheck** send-on-closed-channel detector are implemented (shaded); the scheduler, the `WaitGroup` invariant checker, and a weak-memory-model plugin are planned subscribers on the same bus. See [doc/Plugins.md](doc/Plugins.md) for the plugin API.
 
 ### Example: TOCTOU detection with input solving
 
@@ -163,12 +193,6 @@ Output in `results/plugin_findings.txt`:
 ```
 
 This tells you that providing a first argument whose first byte is `2` reaches the `getsockopt(SO_PEERCRED)` → `readlinkat(/proc/<pid>/exe)` race window. The finding includes an attack narrative, reproduction steps, and mitigations.
-
-## 4. Documentation
-
-<p align="center">
-  <img src="doc/zorya-overview-full.png" alt="Zorya workflow" width="500"/>
-</p>
 
 
 Technical details were moved under `doc/`:
@@ -243,7 +267,7 @@ Evaluation Go dataset:
 
 ## 7. Findings
 
-Bugs discovered with Zorya on real-world open-source projects. Last update: June, 23rd 2026.
+Bugs discovered with Zorya on real-world open-source projects. Last update: August, 21st 2026.
 
 | Repository | Bug / Vuln type | Report | Status |
 |---|---|---|---|
@@ -266,7 +290,7 @@ Bugs discovered with Zorya on real-world open-source projects. Last update: June
 | [cometbft/cometbft](https://github.com/cometbft/cometbft) | Integer overflow | [#5846](https://github.com/cometbft/cometbft/issues/5846) | Fixed |
 | [gnolang/gno](https://github.com/gnolang/gno) | Integer overflow | [#5639](https://github.com/gnolang/gno/issues/5639) | Fix ongoing |
 | [XinFinOrg/XDPoSChain](https://github.com/XinFinOrg/XDPoSChain) | Integer underflow | [#2362](https://github.com/XinFinOrg/XDPoSChain/issues/2362) | Fixed |
-| [kedacore/keda](https://github.com/kedacore/keda) | Float-to-int overflow | [#7796](https://github.com/kedacore/keda/issues/7796) | Fix ongoing |
+| [kedacore/keda](https://github.com/kedacore/keda) | Float-to-int overflow | [#7796](https://github.com/kedacore/keda/issues/7796) | Closed (not planned) |
 | [multiversx/mx-chain-go](https://github.com/multiversx/mx-chain-go) | Float-to-int64 overflow | Private disclosure | Reported |
 | [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Int64 wrap (MPT amount) | [GHSA-xv89-94jf-8vx2](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-xv89-94jf-8vx2) / CVE-2026-61693 | Fix ongoing |
 | [LeJamon/go-xrpl](https://github.com/LeJamon/go-xrpl) | Uint64 mul overflow (MPT amount) | [GHSA-j5cw-qr86-mmv7](https://github.com/LeJamon/go-xrpl/security/advisories/GHSA-j5cw-qr86-mmv7) / CVE-2026-61694 | Fixed |
