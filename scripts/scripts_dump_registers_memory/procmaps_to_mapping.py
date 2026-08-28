@@ -38,7 +38,9 @@ _MAPS_RE = re.compile(
 # Header line: MUST contain "Start Addr" and "End Addr" so that
 # parse_and_generate.py starts parsing after it and ensure_gdb_mappings_covered
 # skips it (it skips any line containing "Addr").
-_HEADER = "          Start Addr           End Addr       Size     Offset  Perms  objfile"
+_HEADER = (
+    "          Start Addr           End Addr       Size     Offset  Perms  objfile"
+)
 
 
 def convert_maps(text):
@@ -73,7 +75,9 @@ def main(argv):
         else "../../results/initialization_data/guest_self_maps.txt"
     )
     output_path = (
-        argv[2] if len(argv) > 2 else "../../results/initialization_data/memory_mapping.txt"
+        argv[2]
+        if len(argv) > 2
+        else "../../results/initialization_data/memory_mapping.txt"
     )
 
     with open(input_path) as f:
