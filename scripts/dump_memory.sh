@@ -100,78 +100,211 @@ run_gdb() {
     fi
 }
 
-# Single unified GDB session: mapping + registers + memory dumps + thread states.
-# All data comes from the SAME process so that dynamically-allocated Go runtime
-# regions (goroutine stacks, heap arenas) are captured correctly.
-echo "Executing mapping, registers, memory dumps, and thread state capture in a single GDB session..."
-run_gdb overwrite -batch \
-    -ex "set auto-load safe-path /" \
-    -ex "set pagination off" \
-    -ex "set style enabled off" \
-    -ex "set confirm off" \
-    -ex "file $BIN_PATH" \
-    -ex "set args ${ARGS}" \
-    -ex "show args" \
-    -ex "break *$START_POINT" \
-    -ex "run" \
-    -ex "set logging file $MEMORY_MAP_PATH" \
-    -ex "set logging enabled on" \
-    -ex "info proc mappings" \
-    -ex "set logging enabled off" \
-    -ex "shell python3 $PARSE_SCRIPT" \
-    -ex "set logging file $CPU_MAP_PATH" \
-    -ex "set logging enabled on" \
-    -ex "info all-registers" \
-    -ex "set logging enabled off" \
-    -ex "source execute_commands.py" \
-    -ex "exec $DUMP_COMMANDS_PATH" \
-    -ex "source $SCRIPTS_DUMP/dump_threads.py" \
-    -ex "dump-threads" \
-    -ex "quit"
+# ---------------------------------------------------------------------------
+# Capture backends. Both produce the same artifacts under
+# results/initialization_data: cpu_mapping.txt (info all-registers),
+# memory_mapping.txt (GDB info-proc-mappings format), dumps/*.bin and
+# threads/*.json.
+# ---------------------------------------------------------------------------
 
-GDB_EXIT=$?
+# Native ptrace-based capture (default on real x86-64 Linux hosts). A single
+# GDB -batch session drives mapping, registers, memory dumps and thread state
+# from the same live process.
+capture_native() {
+    # Single unified GDB session: mapping + registers + memory dumps + threads.
+    # All data comes from the SAME process so that dynamically-allocated Go
+    # runtime regions (goroutine stacks, heap arenas) are captured correctly.
+    echo "Executing mapping, registers, memory dumps, and thread state capture in a single GDB session..."
+    run_gdb overwrite -batch \
+        -ex "set auto-load safe-path /" \
+        -ex "set pagination off" \
+        -ex "set style enabled off" \
+        -ex "set confirm off" \
+        -ex "file $BIN_PATH" \
+        -ex "set args ${ARGS}" \
+        -ex "show args" \
+        -ex "break *$START_POINT" \
+        -ex "run" \
+        -ex "set logging file $MEMORY_MAP_PATH" \
+        -ex "set logging enabled on" \
+        -ex "info proc mappings" \
+        -ex "set logging enabled off" \
+        -ex "shell python3 $PARSE_SCRIPT" \
+        -ex "set logging file $CPU_MAP_PATH" \
+        -ex "set logging enabled on" \
+        -ex "info all-registers" \
+        -ex "set logging enabled off" \
+        -ex "source execute_commands.py" \
+        -ex "exec $DUMP_COMMANDS_PATH" \
+        -ex "source $SCRIPTS_DUMP/dump_threads.py" \
+        -ex "dump-threads" \
+        -ex "quit"
 
-if [ $GDB_EXIT -ne 0 ]; then
-    echo ""
-    echo "ERROR: GDB exited with code $GDB_EXIT. Check $GDB_LOG for details."
-    exit 1
-fi
-
-# Detect if the program exited without hitting the breakpoint
-if grep -q "exited normally\|exited with code\|No current process" "$GDB_LOG" 2>/dev/null; then
-    if ! grep -q "hit Breakpoint\|Breakpoint [0-9].*main\." "$GDB_LOG" 2>/dev/null; then
+    local gdb_exit=$?
+    if [ $gdb_exit -ne 0 ]; then
         echo ""
-        echo "==============================================================================="
-        echo "ERROR: The program exited BEFORE reaching the breakpoint at $START_POINT."
-        echo "==============================================================================="
-        echo ""
-        echo "  The binary ran to completion without stopping at your target address."
-        echo "  This typically happens when:"
-        echo ""
-        echo "  1. The address is NOT on the execution path for the given arguments."
-        echo "     The program may take a different branch (e.g., argument validation"
-        echo "     fails and the program exits with a usage message before reaching"
-        echo "     your target address)."
-        echo ""
-        echo "  2. The address falls in the MIDDLE of a multi-byte instruction."
-        echo "     GDB's breakpoint corrupts the instruction, causing the program to"
-        echo "     behave incorrectly. Verify your address with:"
-        echo "       objdump -d --start-address=$START_POINT <binary> | head -5"
-        echo ""
-        echo "  3. The program crashes or calls os.Exit() before reaching the address."
-        echo ""
-        # Show what the program printed (if anything) to help diagnose
-        PROG_OUTPUT=$(grep -v "^warning:\|^Breakpoint\|^$\|^\[New\|^\[LWP\|^This GDB\|^Enable debug\|^Debuginfod\|^To make\|^Loaded\|^Cleaned\|^Error:\|^The program\|^No current\|^Argument list\|^Use \`info\|set auto-load\|set pagination\|set style\|set confirm\|^$" "$GDB_LOG" 2>/dev/null | head -5)
-        if [[ -n "$PROG_OUTPUT" ]]; then
-            echo "  The program printed the following before exiting:"
-            echo "$PROG_OUTPUT" | while IFS= read -r line; do echo "    > $line"; done
-            echo ""
-        fi
-        echo "  Full GDB log: $GDB_LOG"
-        echo ""
+        echo "ERROR: GDB exited with code $gdb_exit. Check $GDB_LOG for details."
         exit 1
     fi
-fi
+
+    # Detect if the program exited without hitting the breakpoint
+    if grep -q "exited normally\|exited with code\|No current process" "$GDB_LOG" 2>/dev/null; then
+        if ! grep -q "hit Breakpoint\|Breakpoint [0-9].*main\." "$GDB_LOG" 2>/dev/null; then
+            echo ""
+            echo "==============================================================================="
+            echo "ERROR: The program exited BEFORE reaching the breakpoint at $START_POINT."
+            echo "==============================================================================="
+            echo ""
+            echo "  The binary ran to completion without stopping at your target address."
+            echo "  This typically happens when:"
+            echo ""
+            echo "  1. The address is NOT on the execution path for the given arguments."
+            echo "     The program may take a different branch (e.g., argument validation"
+            echo "     fails and the program exits with a usage message before reaching"
+            echo "     your target address)."
+            echo ""
+            echo "  2. The address falls in the MIDDLE of a multi-byte instruction."
+            echo "     GDB's breakpoint corrupts the instruction, causing the program to"
+            echo "     behave incorrectly. Verify your address with:"
+            echo "       objdump -d --start-address=$START_POINT <binary> | head -5"
+            echo ""
+            echo "  3. The program crashes or calls os.Exit() before reaching the address."
+            echo ""
+            # Show what the program printed (if anything) to help diagnose
+            PROG_OUTPUT=$(grep -v "^warning:\|^Breakpoint\|^$\|^\[New\|^\[LWP\|^This GDB\|^Enable debug\|^Debuginfod\|^To make\|^Loaded\|^Cleaned\|^Error:\|^The program\|^No current\|^Argument list\|^Use \`info\|set auto-load\|set pagination\|set style\|set confirm\|^$" "$GDB_LOG" 2>/dev/null | head -5)
+            if [[ -n "$PROG_OUTPUT" ]]; then
+                echo "  The program printed the following before exiting:"
+                echo "$PROG_OUTPUT" | while IFS= read -r line; do echo "    > $line"; done
+                echo ""
+            fi
+            echo "  Full GDB log: $GDB_LOG"
+            echo ""
+            exit 1
+        fi
+    fi
+}
+
+# qemu-user gdbstub capture (for emulated hosts, e.g. an AMD64 image on Apple
+# Silicon / ARM). qemu-user cannot serve ptrace register reads or
+# `info proc mappings`, but its built-in gdbstub serves registers, memory and
+# the guest's emulated /proc/self/maps (via vFile). We convert that maps file
+# into the GDB info-proc-mappings format so the rest of the pipeline is
+# unchanged (parse_and_generate.py, execute_commands.py, dump_threads.py).
+capture_qemu_user() {
+    local port="${ZORYA_GDBSTUB_PORT:-12345}"
+    local guest_maps="$RESULTS_DIR/initialization_data/guest_self_maps.txt"
+    local convert="$SCRIPTS_DUMP/procmaps_to_mapping.py"
+    local qemu_bin
+    qemu_bin="$(command -v qemu-x86_64-static || command -v qemu-x86_64)"
+    if [ -z "$qemu_bin" ]; then
+        echo "ERROR: qemu-user not found (looked for qemu-x86_64-static / qemu-x86_64)."
+        echo "       Install qemu-user-static to use the qemu-user capture path."
+        exit 1
+    fi
+
+    echo "Launching target under qemu-user gdbstub: $qemu_bin -g $port"
+    "$qemu_bin" -g "$port" "$BIN_PATH" ${ARGS} > "$GDB_LOG" 2>&1 &
+    local qemu_pid=$!
+
+    # Wait for the gdbstub to be LISTENING. Probe the LISTEN state WITHOUT
+    # opening a connection (via ss): qemu-user's stub waits for exactly one
+    # debugger connection, so a connect-probe would consume it and let the
+    # program run to completion before GDB ever attaches. Do not rely on the
+    # launcher pid either: some exec wrappers / sandboxes reparent qemu.
+    local waited=0
+    if command -v ss >/dev/null 2>&1; then
+        until ss -ltnH 2>/dev/null | grep -qE "[:.]${port}\b"; do
+            sleep 0.2
+            waited=$((waited + 1))
+            if [ $waited -ge 50 ]; then
+                echo "ERROR: qemu-user gdbstub did not start listening on port $port within ~10s. See $GDB_LOG."
+                kill "$qemu_pid" 2>/dev/null
+                exit 1
+            fi
+        done
+    else
+        # No ss available: fall back to a conservative fixed delay.
+        sleep 2
+    fi
+
+    echo "Connecting GDB to the gdbstub and capturing registers, maps, memory and threads..."
+    gdb -q -batch \
+        -ex "set auto-load safe-path /" \
+        -ex "set pagination off" \
+        -ex "set style enabled off" \
+        -ex "set confirm off" \
+        -ex "set sysroot /" \
+        -ex "file $BIN_PATH" \
+        -ex "target remote 127.0.0.1:$port" \
+        -ex "break *$START_POINT" \
+        -ex "continue" \
+        -ex "set logging file $CPU_MAP_PATH" \
+        -ex "set logging enabled on" \
+        -ex "info all-registers" \
+        -ex "set logging enabled off" \
+        -ex "remote get /proc/self/maps $guest_maps" \
+        -ex "shell python3 $convert $guest_maps $MEMORY_MAP_PATH" \
+        -ex "shell python3 $PARSE_SCRIPT" \
+        -ex "source execute_commands.py" \
+        -ex "exec $DUMP_COMMANDS_PATH" \
+        -ex "source $SCRIPTS_DUMP/dump_threads.py" \
+        -ex "dump-threads" \
+        -ex "quit" >> "$GDB_LOG" 2>&1
+    local gdb_exit=$?
+
+    kill "$qemu_pid" 2>/dev/null
+    wait "$qemu_pid" 2>/dev/null
+
+    if [ $gdb_exit -ne 0 ]; then
+        echo ""
+        echo "ERROR: GDB (qemu-user) exited with code $gdb_exit. Check $GDB_LOG for details."
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Capture-mode selection. Keep the native path as the default on real x86-64
+# Linux; use qemu-user on emulated hosts. NOTE: `uname -m` is NOT reliable here
+# because a linux/amd64 container on Apple Silicon still reports x86_64, so we
+# probe binfmt_misc and, as a safety net, retry via qemu-user if a native
+# capture yields a register-less dump.
+#   ZORYA_CAPTURE=auto (default) | native | qemu-user
+# ---------------------------------------------------------------------------
+ZORYA_CAPTURE="${ZORYA_CAPTURE:-auto}"
+
+cpu_dump_has_registers() {
+    grep -Eq '^[[:space:]]*(rax|rip|rsp|rbp)[[:space:]]+0x[0-9a-fA-F]+' "$CPU_MAP_PATH" 2>/dev/null
+}
+
+running_under_qemu_user() {
+    # A present binfmt_misc entry means x86-64 ELFs are executed via qemu-user.
+    [ -e /proc/sys/fs/binfmt_misc/qemu-x86_64 ]
+}
+
+case "$ZORYA_CAPTURE" in
+    native)
+        capture_native
+        ;;
+    qemu-user)
+        capture_qemu_user
+        ;;
+    auto)
+        if running_under_qemu_user; then
+            echo "Detected qemu-user emulation (binfmt_misc/qemu-x86_64); using gdbstub capture."
+            capture_qemu_user
+        else
+            capture_native
+            if ! cpu_dump_has_registers; then
+                echo "Native capture produced no usable registers; retrying via qemu-user gdbstub..."
+                capture_qemu_user
+            fi
+        fi
+        ;;
+    *)
+        echo "ERROR: unknown ZORYA_CAPTURE='$ZORYA_CAPTURE' (expected auto|native|qemu-user)."
+        exit 1
+        ;;
+esac
 
 if [ ! -s "$MEMORY_MAP_PATH" ]; then
     echo ""
@@ -185,6 +318,60 @@ if [ ! -s "$CPU_MAP_PATH" ]; then
     echo "ERROR: Failed to generate cpu_mapping.txt."
     echo "  The CPU register dump is empty — GDB likely did not stop at the breakpoint."
     echo "  Check $GDB_LOG for details."
+    exit 1
+fi
+
+# Some GDB / container combinations leak diagnostic lines into the logfiles
+# via the console stream. On Apple Silicon Docker AMD64 (QEMU-user), GDB's
+# ptrace probes can intermittently fail between commands and emit
+# "Couldn't get registers: Input/output error" straight into the currently
+# active logfile. Strip these lines defensively so downstream parsers get
+# clean input.
+for dump_file in "$MEMORY_MAP_PATH" "$CPU_MAP_PATH"; do
+    if [ -s "$dump_file" ]; then
+        sed -i \
+            -e "/^Couldn't get registers:/d" \
+            -e "/^warning:/d" \
+            "$dump_file"
+    fi
+done
+
+# The register dump must contain at least one canonical x86-64 register row
+# ("rax", "rip", …). If it doesn't, the entire ptrace-based capture was
+# degenerate: proceeding would run Zorya with rip = rsp = every flag = 0,
+# producing meaningless traces. Detect that here and abort with a clear
+# message pointing at the likely root cause.
+if ! grep -Eq '^[[:space:]]*(rax|rip|rsp|rbp)[[:space:]]+0x[0-9a-fA-F]+' "$CPU_MAP_PATH"; then
+    echo ""
+    echo "==============================================================================="
+    echo "ERROR: GDB produced no usable register data in $CPU_MAP_PATH."
+    echo "==============================================================================="
+    echo ""
+    echo "  Symptom: the file has bytes but no 'rax/rip/rsp/rbp <hex>' rows,"
+    echo "           which means \`info all-registers\` produced only diagnostics."
+    echo ""
+    echo "  Most common cause: GDB cannot ptrace the inferior in this environment."
+    echo "  Look for lines like 'Couldn't get registers: Input/output error' in:"
+    echo "    $GDB_LOG"
+    echo ""
+    echo "  This is a known limitation of running an AMD64 image on a non-x86"
+    echo "  host (e.g. Apple Silicon / ARM) via QEMU user-mode emulation:"
+    echo "  qemu-user emulates the CPU but does NOT implement PTRACE_GETREGS,"
+    echo "  so GDB can attach and hit the breakpoint yet never read registers."
+    echo ""
+    echo "  You need an environment where ptrace returns real x86-64 registers:"
+    echo "    1. Re-run on a native AMD64 host (real Intel/AMD Linux box or an"
+    echo "       x86-64 cloud VM)."
+    echo "    2. Use a FULL-SYSTEM x86-64 VM (qemu-system-x86_64, UTM, or Colima"
+    echo "       in x86-64 VM mode) — the guest has a real x86-64 kernel, so"
+    echo "       ptrace works end-to-end. See the commented QEMU section at the"
+    echo "       end of this script."
+    echo ""
+    echo "  NOTE: --cap-add=SYS_PTRACE / --security-opt seccomp=unconfined only"
+    echo "  help when a security policy blocks ptrace. They will NOT help here,"
+    echo "  because ptrace attach already works — it is qemu-user's register"
+    echo "  emulation that is missing."
+    echo ""
     exit 1
 fi
 

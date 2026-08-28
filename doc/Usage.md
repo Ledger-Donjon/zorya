@@ -88,12 +88,60 @@ Use one of these profiles depending on your goal:
   - Set `ZORYA_MEM_SAFETY_ORACLES=1`
   - Optionally keep `LOG_MODE=trace_only` to reduce I/O overhead.
 
-## Linux runner workflow (manual, for macOS/Rosetta users)
+## Apple Silicon / ARM hosts (x86-64 targets)
 
-Zorya's dump pipeline relies on Linux debugger behavior (`ptrace`/GDB register + memory capture).
-On Apple Silicon with Rosetta-translated targets, local debugger introspection can fail.
-The recommended workaround is to run Zorya on a Linux x86_64 runner (remote host or Linux VM),
-while driving it from your macOS machine.
+Zorya's initial-state capture (`scripts/dump_memory.sh`) drives GDB to read the
+target's registers, memory mappings and memory at a breakpoint. On a real
+x86-64 Linux host this uses `ptrace` directly (the "native" path).
+
+Inside a `linux/amd64` Docker image on Apple Silicon (or any ARM host), the
+x86-64 target actually runs under **qemu user-mode emulation** (`qemu-x86_64`
+via binfmt_misc). qemu-user emulates the CPU but does **not** implement
+`PTRACE_GETREGS` or `info proc mappings`, so GDB attaches and hits the
+breakpoint yet fails with `Couldn't get registers: Input/output error` and
+produces an empty register dump. (This is a qemu-user limitation, not a Rosetta
+or security-policy issue; `--cap-add=SYS_PTRACE` does not help.)
+
+### Capture modes (`ZORYA_CAPTURE`)
+
+`scripts/dump_memory.sh` supports two capture backends, selected with the
+`ZORYA_CAPTURE` environment variable:
+
+- `ZORYA_CAPTURE=native` — the original ptrace/GDB path. Use on real x86-64
+  Linux.
+- `ZORYA_CAPTURE=qemu-user` — launches the target under qemu-user's built-in
+  **gdbstub** (`qemu-x86_64 -g <port>`) and captures state over the GDB remote
+  protocol instead of `ptrace`. This works on ARM hosts because it never issues
+  `PTRACE_GETREGS`. Memory mappings (including the `objfile` column needed to
+  locate `libc.so.6` / `ld-linux`) are recovered from the guest's emulated
+  `/proc/self/maps`, fetched over the stub. Static, dynamically-linked, and
+  multithreaded Go binaries are all supported.
+- `ZORYA_CAPTURE=auto` (default) — uses `native` on real x86-64 Linux, and
+  automatically switches to `qemu-user` when it detects binfmt_misc emulation
+  (`/proc/sys/fs/binfmt_misc/qemu-x86_64`). As a safety net, if a native
+  capture yields a register-less dump it retries via `qemu-user`.
+
+Requirements for the `qemu-user` path: `qemu-user-static` (provides
+`qemu-x86_64-static`) and `iproute2` (`ss`) inside the container. Override the
+stub port with `ZORYA_GDBSTUB_PORT` (default `12345`).
+
+The rest of the Zorya pipeline (P-code generation, execution, plugins) is
+unchanged and runs the same on ARM hosts once the state has been captured.
+
+### Fallbacks
+
+If for any reason you cannot use the `qemu-user` capture path, you can still:
+
+1. Run Zorya on a native x86-64 Linux runner (see below), or
+2. Use a **full-system** x86-64 VM (`qemu-system-x86_64` / the
+   [`qemu-cloudimg`](../external/qemu-cloudimg/README.md) setup, UTM, or Colima
+   in x86-64 VM mode), where the guest has a real x86-64 kernel and `ptrace`
+   works end-to-end.
+
+## Linux runner workflow (manual, remote x86-64 host)
+
+The recommended fallback is to run Zorya on a Linux x86_64 runner (remote host
+or Linux VM), while driving it from your macOS machine.
 
 ### A) One-time setup on Linux runner
 

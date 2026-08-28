@@ -1001,6 +1001,15 @@ impl<'ctx> MemoryX86_64<'ctx> {
         prot_flags
     }
 
+    /// True if `s` is a hex address as emitted by GDB (`0x...` or bare hex).
+    fn is_hex_addr(s: &str) -> bool {
+        let digits = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
+        !digits.is_empty() && digits.chars().all(|c| c.is_ascii_hexdigit())
+    }
+
     /// Reads the gdb-style memory_mapping.txt and ensures each range is covered
     /// by a MemoryRegion in `self.regions`. If not, create a zero-initialized
     /// region with the appropriate permission flags.
@@ -1016,13 +1025,21 @@ impl<'ctx> MemoryX86_64<'ctx> {
         //  0x200000      0x20c000    0xc000  0x0      r--p   /path/to/binary
         for line in reader.lines() {
             let line = line?;
-            // Skip any blank or header lines
-            if line.trim().is_empty() || line.contains("Addr") || line.starts_with("process") {
+            let trimmed = line.trim();
+            // Skip blank lines, GDB headers, and diagnostics that can leak into
+            // the mapping dump (e.g. QEMU user-mode / Apple Silicon Docker):
+            // "Couldn't get registers: Input/output error"
+            if trimmed.is_empty()
+                || trimmed.contains("Addr")
+                || trimmed.starts_with("process")
+                || trimmed.starts_with("Couldn't get registers")
+                || trimmed.starts_with("warning:")
+            {
                 continue;
             }
 
             // Split by whitespace
-            let parts: Vec<_> = line.split_whitespace().collect();
+            let parts: Vec<_> = trimmed.split_whitespace().collect();
             if parts.len() < 5 {
                 // At least: Start, End, Size, Offset, Perms
                 continue;
@@ -1032,6 +1049,12 @@ impl<'ctx> MemoryX86_64<'ctx> {
             let start_str = parts[0];
             let end_str = parts[1];
             let perms_str = parts[4];
+
+            // GDB diagnostics often have >= 5 tokens; only mapping rows start
+            // with hex addresses. Skip anything else instead of ParseInt-failing.
+            if !Self::is_hex_addr(start_str) || !Self::is_hex_addr(end_str) {
+                continue;
+            }
 
             // Convert hex to u64
             let start_addr = u64::from_str_radix(start_str.trim_start_matches("0x"), 16)?;
@@ -1110,5 +1133,62 @@ impl<'ctx> Sigaction<'ctx> {
                 size: 64,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::io::Write;
+    use std::sync::RwLock;
+
+    use z3::{Config, Context};
+
+    use super::*;
+    use crate::state::VirtualFileSystem;
+
+    fn write_temp_mapping(contents: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "zorya_gdb_mappings_{}_{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut file = fs::File::create(&path).unwrap();
+        file.write_all(contents.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn skips_gdb_couldnt_get_registers_diagnostic() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let vfs = Rc::new(RwLock::new(VirtualFileSystem::new()));
+        let memory = MemoryX86_64::new(&ctx, vfs).unwrap();
+
+        let mapping = "\
+process 1
+Start Addr           End Addr       Size     Offset  Perms  objfile
+0x200000             0x20c000       0xc000   0x0     r--p   /bin/example
+Couldn't get registers: Input/output error
+0x20c000             0x21c000       0x10000  0xc000  r-xp   /bin/example
+";
+        let path = write_temp_mapping(mapping);
+        let result = memory.ensure_gdb_mappings_covered(&path);
+        let _ = fs::remove_file(&path);
+        assert!(
+            result.is_ok(),
+            "GDB diagnostic must not fail mapping parse: {:?}",
+            result.err()
+        );
+
+        let regions = memory.regions.read().unwrap();
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[0].start_address, 0x200000);
+        assert_eq!(regions[0].end_address, 0x20c000);
+        assert_eq!(regions[1].start_address, 0x20c000);
+        assert_eq!(regions[1].end_address, 0x21c000);
     }
 }
