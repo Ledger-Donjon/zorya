@@ -56,7 +56,7 @@ byteorder = "1.5.0"
 faerie = "0.16.0"
 target-lexicon = "0.13.5"
 shell-words = "1.1.0"
-num-bigint = "0.4.6"
+num-bigint = "0.5.1"
 num-traits = "0.2.19"
 chrono = "0.4.44"
 rmcp = { version = "1", features = ["server", "transport-io"] }
