@@ -59,6 +59,6 @@ shell-words = "1.1.0"
 num-bigint = "0.5.1"
 num-traits = "0.2.19"
 chrono = "0.4.44"
-rmcp = { version = "1", features = ["server", "transport-io"] }
+rmcp = { version = "3", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["full"] }
 schemars = "1"
