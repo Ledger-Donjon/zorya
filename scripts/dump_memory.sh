@@ -194,6 +194,14 @@ capture_qemu_user() {
     local port="${ZORYA_GDBSTUB_PORT:-12345}"
     local guest_maps="$RESULTS_DIR/initialization_data/guest_self_maps.txt"
     local convert="$SCRIPTS_DUMP/procmaps_to_mapping.py"
+    # Keep the target's own stdout/stderr and GDB's session log in SEPARATE
+    # files. That separation is what lets the self-diagnosis below tell apart
+    # "the target ran (produced output) but the gdbstub never halted it" from
+    # "the gdbstub halted fine, the breakpoint was just never hit".
+    local qemu_log="$RESULTS_DIR/initialization_data/qemu_target.txt"
+    local qgdb_log="$RESULTS_DIR/initialization_data/gdb_qemu_log.txt"
+    : > "$qemu_log"
+    : > "$qgdb_log"
     local qemu_bin
     qemu_bin="$(command -v qemu-x86_64-static || command -v qemu-x86_64)"
     if [ -z "$qemu_bin" ]; then
@@ -203,7 +211,7 @@ capture_qemu_user() {
     fi
 
     echo "Launching target under qemu-user gdbstub: $qemu_bin -g $port"
-    "$qemu_bin" -g "$port" "$BIN_PATH" ${ARGS} > "$GDB_LOG" 2>&1 &
+    "$qemu_bin" -g "$port" "$BIN_PATH" ${ARGS} > "$qemu_log" 2>&1 &
     local qemu_pid=$!
 
     # Wait for the gdbstub to be LISTENING. Probe the LISTEN state WITHOUT
@@ -217,7 +225,7 @@ capture_qemu_user() {
             sleep 0.2
             waited=$((waited + 1))
             if [ $waited -ge 50 ]; then
-                echo "ERROR: qemu-user gdbstub did not start listening on port $port within ~10s. See $GDB_LOG."
+                echo "ERROR: qemu-user gdbstub did not start listening on port $port within ~10s. See $qemu_log."
                 kill "$qemu_pid" 2>/dev/null
                 exit 1
             fi
@@ -228,6 +236,10 @@ capture_qemu_user() {
     fi
 
     echo "Connecting GDB to the gdbstub and capturing registers, maps, memory and threads..."
+    # An ENTRY-register probe (bracketed by ZORYA_ENTRY_* markers) runs BEFORE
+    # `continue`. On success it is harmless; on failure it is the key signal:
+    # if GDB can read rip/rsp here, the gdbstub genuinely works and any later
+    # failure is a breakpoint-address problem — not an emulation/ptrace one.
     gdb -q -batch \
         -ex "set auto-load safe-path /" \
         -ex "set pagination off" \
@@ -236,6 +248,9 @@ capture_qemu_user() {
         -ex "set sysroot /" \
         -ex "file $BIN_PATH" \
         -ex "target remote 127.0.0.1:$port" \
+        -ex "echo \nZORYA_ENTRY_BEGIN\n" \
+        -ex "info registers rip rsp" \
+        -ex "echo ZORYA_ENTRY_END\n" \
         -ex "break *$START_POINT" \
         -ex "continue" \
         -ex "set logging file $CPU_MAP_PATH" \
@@ -249,15 +264,87 @@ capture_qemu_user() {
         -ex "exec $DUMP_COMMANDS_PATH" \
         -ex "source $SCRIPTS_DUMP/dump_threads.py" \
         -ex "dump-threads" \
-        -ex "quit" >> "$GDB_LOG" 2>&1
+        -ex "quit" > "$qgdb_log" 2>&1
     local gdb_exit=$?
 
     kill "$qemu_pid" 2>/dev/null
     wait "$qemu_pid" 2>/dev/null
 
-    if [ $gdb_exit -ne 0 ]; then
+    # Fold the qemu-user session logs into the shared GDB_LOG so the rest of
+    # the script (and the user) still has a single place to look.
+    {
+        echo "=== qemu-user target output (qemu_target.txt) ==="
+        cat "$qemu_log" 2>/dev/null
+        echo "=== qemu-user GDB session (gdb_qemu_log.txt) ==="
+        cat "$qgdb_log" 2>/dev/null
+    } >> "$GDB_LOG" 2>/dev/null
+
+    # ---- Self-diagnosis ---------------------------------------------------
+    # entry_ok : did the gdbstub let us read rip at entry (before continue)?
+    local entry_ok=false
+    if awk '/ZORYA_ENTRY_BEGIN/{f=1;next} /ZORYA_ENTRY_END/{f=0} f' "$qgdb_log" 2>/dev/null \
+        | grep -Eq '^rip[[:space:]]+0x[0-9a-fA-F]+'; then
+        entry_ok=true
+    fi
+    # ran_to_exit : did the target run to completion instead of stopping?
+    local ran_to_exit=false
+    if grep -Eq "exited (normally|with code)|has no registers now|not being run|No current process" "$qgdb_log" 2>/dev/null; then
+        ran_to_exit=true
+    fi
+    # target_ran : did the target actually emit any output of its own?
+    local target_ran=false
+    if [ -s "$qemu_log" ]; then
+        target_ran=true
+    fi
+
+    if [ $gdb_exit -ne 0 ] || ! cpu_dump_has_registers; then
         echo ""
-        echo "ERROR: GDB (qemu-user) exited with code $gdb_exit. Check $GDB_LOG for details."
+        echo "==============================================================================="
+        echo "ERROR: qemu-user gdbstub capture produced no usable register data."
+        echo "==============================================================================="
+        echo ""
+        if [ "$entry_ok" = false ]; then
+            # GDB could not even read rip/rsp at entry -> the -g halt failed.
+            echo "  Diagnosis: qemu's gdbstub did NOT halt the target at entry."
+            echo "  GDB attached but could not read even rip/rsp before 'continue'"
+            if [ "$target_ran" = true ]; then
+                echo "  and the target still produced output (it ran on its own)."
+            else
+                echo "  (the target may have exited immediately)."
+            fi
+            echo ""
+            echo "  This is the signature of NESTED emulation. In a --platform linux/amd64"
+            echo "  container on Apple Silicon, your userland (GDB + the qemu-x86_64 we"
+            echo "  launch) is ALREADY emulated, so 'qemu-x86_64 -g' runs emulated-inside-"
+            echo "  emulated and its halt-at-entry / breakpoint insertion is unreliable."
+            echo ""
+            echo "  Fix: run the capture where qemu-x86_64 is NATIVE (a SINGLE emulation"
+            echo "  layer), e.g.:"
+            echo "    - an arm64 (native) Linux context that emulates x86-64 with one"
+            echo "      qemu-user layer, or"
+            echo "    - a full-system x86-64 VM (qemu-system-x86_64 / UTM / Colima x86-64),"
+            echo "      or a native/remote x86-64 Linux runner."
+        elif [ "$ran_to_exit" = true ]; then
+            # Stub works (we read rip at entry); the breakpoint was never hit.
+            echo "  Diagnosis: the gdbstub WORKS — GDB read rip/rsp at entry — but the"
+            echo "  target ran to exit WITHOUT hitting the breakpoint at $START_POINT."
+            echo ""
+            echo "  The emulation is fine; the breakpoint ADDRESS is the problem:"
+            echo "    1. PIE/ASLR: for a position-independent executable the file address"
+            echo "       is not the runtime address. Rebuild the target with -no-pie, or"
+            echo "       pass the runtime address (load base + offset)."
+            echo "    2. The address is off the execution path for these arguments, or"
+            echo "       falls mid-instruction. Verify it with:"
+            echo "         objdump -d --start-address=$START_POINT $BIN_PATH | head -5"
+        else
+            echo "  The target did not stop at the breakpoint and no registers were"
+            echo "  captured. Inspect the logs below to see how far execution got."
+        fi
+        echo ""
+        echo "  qemu target output: $qemu_log"
+        echo "  GDB session log:    $qgdb_log"
+        echo "  Combined log:       $GDB_LOG"
+        echo ""
         exit 1
     fi
 }
