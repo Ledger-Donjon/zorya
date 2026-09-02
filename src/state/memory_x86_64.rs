@@ -1017,8 +1017,13 @@ impl<'ctx> MemoryX86_64<'ctx> {
         &self,
         mapping_file: P,
     ) -> Result<(), MemoryError> {
-        let file = fs::File::open(mapping_file)?;
+        let mapping_path = mapping_file.as_ref().to_path_buf();
+        let file = fs::File::open(&mapping_path)?;
+        let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
         let reader = io::BufReader::new(file);
+
+        let mut valid_rows: usize = 0;
+        let mut saw_gdb_register_diagnostic = false;
 
         // We'll parse lines that look like:
         //  Start Addr    End Addr    Size    Offset   Perms  objfile
@@ -1029,23 +1034,24 @@ impl<'ctx> MemoryX86_64<'ctx> {
             // Skip blank lines, GDB headers, and diagnostics that can leak into
             // the mapping dump (e.g. QEMU user-mode / Apple Silicon Docker):
             // "Couldn't get registers: Input/output error"
+            if trimmed.starts_with("Couldn't get registers") {
+                saw_gdb_register_diagnostic = true;
+                continue;
+            }
             if trimmed.is_empty()
                 || trimmed.contains("Addr")
                 || trimmed.starts_with("process")
-                || trimmed.starts_with("Couldn't get registers")
                 || trimmed.starts_with("warning:")
             {
                 continue;
             }
 
-            // Split by whitespace
             let parts: Vec<_> = trimmed.split_whitespace().collect();
             if parts.len() < 5 {
                 // At least: Start, End, Size, Offset, Perms
                 continue;
             }
 
-            // Extract addresses & perms
             let start_str = parts[0];
             let end_str = parts[1];
             let perms_str = parts[4];
@@ -1056,7 +1062,6 @@ impl<'ctx> MemoryX86_64<'ctx> {
                 continue;
             }
 
-            // Convert hex to u64
             let start_addr = u64::from_str_radix(start_str.trim_start_matches("0x"), 16)?;
             let end_addr = u64::from_str_radix(end_str.trim_start_matches("0x"), 16)?;
             if end_addr <= start_addr {
@@ -1064,11 +1069,33 @@ impl<'ctx> MemoryX86_64<'ctx> {
             }
             let size = (end_addr - start_addr) as usize;
 
-            // Parse the perms (e.g., 'r--p', 'r-xp', 'rw-p', etc.)
             let prot_flags = Self::parse_protection(perms_str);
 
-            // Now ensure we have coverage for [start_addr, end_addr)
             self.ensure_region_exists(start_addr, size, prot_flags)?;
+            valid_rows += 1;
+        }
+
+        // If the file had content but yielded no mapping rows, the GDB dump is
+        // degenerate (e.g. only ptrace diagnostics on QEMU-user / Apple Silicon
+        // Docker AMD64). Surface this loudly rather than continuing with no
+        // additional coverage — which would lead to opaque out-of-bounds errors
+        // deep in the concolic run.
+        if file_len > 0 && valid_rows == 0 {
+            let mut msg = format!(
+                "GDB memory-mapping dump {} contains no parseable mapping rows",
+                mapping_path.display()
+            );
+            if saw_gdb_register_diagnostic {
+                msg.push_str(
+                    ". The dump only contains \"Couldn't get registers\" diagnostics, \
+                     which usually means GDB's ptrace failed inside the container \
+                     (common on AMD64 Docker images on Apple Silicon / QEMU-user). \
+                     Re-run dump_memory.sh on a native AMD64 host, or use \
+                     FORCE_PTY=true, or drop into a VM (see the QEMU section of \
+                     dump_memory.sh) so GDB can attach to the inferior correctly.",
+                );
+            }
+            return Err(MemoryError::Other(msg));
         }
 
         Ok(())
@@ -1190,5 +1217,33 @@ Couldn't get registers: Input/output error
         assert_eq!(regions[0].end_address, 0x20c000);
         assert_eq!(regions[1].start_address, 0x20c000);
         assert_eq!(regions[1].end_address, 0x21c000);
+    }
+
+    #[test]
+    fn errors_when_mapping_file_is_all_gdb_diagnostics() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let vfs = Rc::new(RwLock::new(VirtualFileSystem::new()));
+        let memory = MemoryX86_64::new(&ctx, vfs).unwrap();
+
+        // Reproduces the total ptrace-failure case on Apple Silicon Docker
+        // AMD64: `info proc mappings` produced no rows, only diagnostics.
+        let mapping = "\
+Couldn't get registers: Input/output error
+Couldn't get registers: Input/output error
+";
+        let path = write_temp_mapping(mapping);
+        let result = memory.ensure_gdb_mappings_covered(&path);
+        let _ = fs::remove_file(&path);
+        assert!(
+            result.is_err(),
+            "A dump containing only GDB diagnostics must surface as an error, \
+             not silently succeed with zero extra coverage"
+        );
+        let err = result.err().unwrap().to_string();
+        assert!(
+            err.contains("Couldn't get registers") || err.contains("ptrace"),
+            "Error message should hint at the QEMU-user / ptrace root cause, got: {err}"
+        );
     }
 }

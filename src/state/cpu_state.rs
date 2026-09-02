@@ -464,11 +464,11 @@ impl<'ctx> CpuState<'ctx> {
         let re_flags = Regex::new(r"^\s*eflags\s+0x[0-9a-f]+\s+\[(.*?)\]").unwrap();
         let re_zmm = Regex::new(r"^\s*zmm(\d+)\s+\{.*v8_int64\s*=\s*\{([^}]*)\}").unwrap();
 
-        // Display current state of flag registrations for debugging
-        //tprintln!("Flag Registrations:");
-        //for (offset, (name, size)) in self.register_map.iter() {
-        //    tprintln!("{}: offset = 0x{:x}, size = {}", name, offset, size);
-        //}
+        // Track parse results so we can fail loudly if the CPU dump was
+        // degenerate (e.g. only "Couldn't get registers" diagnostics on
+        // Apple Silicon Docker AMD64 / QEMU-user).
+        let mut registers_matched: usize = 0;
+        let saw_gdb_register_diagnostic = gdb_output.contains("Couldn't get registers");
 
         // Parse general registers
         for line in gdb_output.lines() {
@@ -505,6 +505,7 @@ impl<'ctx> CpuState<'ctx> {
                         .map_err(|e| {
                             anyhow!("Failed to set register value for {}: {}", register_name, e)
                         })?;
+                    registers_matched += 1;
                     tprintln!(
                         "Updated register {} at offset 0x{:x} with value 0x{:x}",
                         register_name,
@@ -513,6 +514,28 @@ impl<'ctx> CpuState<'ctx> {
                     );
                 }
             }
+        }
+
+        // If the CPU register dump did not contribute a single register, we
+        // would silently run with rip = rsp = 0 and every flag cleared, which
+        // produces meaningless concolic traces. Refuse to proceed and, if the
+        // input is the well-known "GDB couldn't ptrace the inferior" case,
+        // point the user at the likely cause.
+        if !gdb_output.trim().is_empty() && registers_matched == 0 {
+            let mut msg = String::from(
+                "GDB CPU-register dump (cpu_mapping.txt) contains no parseable \
+                 register lines. Continuing would leave every register at 0.",
+            );
+            if saw_gdb_register_diagnostic {
+                msg.push_str(
+                    " The dump only contains \"Couldn't get registers\" \
+                     diagnostics, which usually means GDB's ptrace failed inside \
+                     the container (common on AMD64 Docker images running on \
+                     Apple Silicon / QEMU-user). Re-run dump_memory.sh on a \
+                     native AMD64 host or inside a VM.",
+                );
+            }
+            return Err(anyhow!(msg));
         }
 
         // Special handling for flags within eflags output
@@ -1362,5 +1385,56 @@ impl fmt::Display for CpuState<'_> {
         writeln!(f, "Register map:")?;
         tprintln!("{:?}", &self.register_map);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use z3::{Config, Context};
+
+    #[test]
+    fn errors_when_cpu_dump_only_has_gdb_diagnostics() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let mut cpu = CpuState::new(&ctx);
+
+        // Reproduces the Apple Silicon Docker AMD64 / QEMU-user total ptrace
+        // failure: `info all-registers` produced only diagnostics.
+        let gdb_output = "\
+Couldn't get registers: Input/output error
+Couldn't get registers: Input/output error
+";
+        let result = cpu.parse_and_update_cpu_state_from_gdb_output(gdb_output);
+        assert!(
+            result.is_err(),
+            "A CPU dump with no register rows must error, not silently leave every \
+             register at 0"
+        );
+        let err = result.err().unwrap().to_string();
+        assert!(
+            err.contains("Couldn't get registers") || err.contains("no parseable"),
+            "Error should mention the root cause, got: {err}"
+        );
+    }
+
+    #[test]
+    fn accepts_valid_cpu_dump() {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let mut cpu = CpuState::new(&ctx);
+
+        // Minimal well-formed GDB `info all-registers` output – rax and rip
+        // are enough to prove the parser wired at least one register.
+        let gdb_output = "\
+rax            0x1234           4660
+rip            0x400123         0x400123 <main>
+";
+        let result = cpu.parse_and_update_cpu_state_from_gdb_output(gdb_output);
+        assert!(
+            result.is_ok(),
+            "A valid CPU dump must parse without error: {:?}",
+            result.err()
+        );
     }
 }
