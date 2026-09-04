@@ -210,6 +210,29 @@ capture_qemu_user() {
         exit 1
     fi
 
+    # Pick a GDB that can actually decode the x86-64 target. On a non-x86 host
+    # (e.g. a native arm64 container on Apple Silicon) the default `gdb` is
+    # arm64-only: it speaks arm64 registers, so the x86-64 register packet from
+    # the stub is rejected and rip/rsp are unreadable at entry. gdb-multiarch is
+    # required there, so prefer it whenever it is available.
+    local gdb_bin
+    gdb_bin="$(command -v gdb-multiarch || command -v gdb)"
+    if [ -z "$gdb_bin" ]; then
+        echo "ERROR: no gdb found (looked for gdb-multiarch / gdb)."
+        echo "       Install gdb (and gdb-multiarch on non-x86 hosts)."
+        exit 1
+    fi
+    local host_arch
+    host_arch="$(uname -m)"
+    if [ "$host_arch" != "x86_64" ] && [ "$host_arch" != "amd64" ] \
+       && ! command -v gdb-multiarch >/dev/null 2>&1; then
+        echo "ERROR: on a $host_arch host, GDB must be able to debug x86-64 targets"
+        echo "       over the qemu-user stub, but only a native $host_arch gdb was found."
+        echo "       Install gdb-multiarch and re-run:"
+        echo "           apt-get install -y gdb-multiarch"
+        exit 1
+    fi
+
     echo "Launching target under qemu-user gdbstub: $qemu_bin -g $port"
     "$qemu_bin" -g "$port" "$BIN_PATH" ${ARGS} > "$qemu_log" 2>&1 &
     local qemu_pid=$!
@@ -240,13 +263,14 @@ capture_qemu_user() {
     # `continue`. On success it is harmless; on failure it is the key signal:
     # if GDB can read rip/rsp here, the gdbstub genuinely works and any later
     # failure is a breakpoint-address problem — not an emulation/ptrace one.
-    gdb -q -batch \
+    "$gdb_bin" -q -batch \
         -ex "set auto-load safe-path /" \
         -ex "set pagination off" \
         -ex "set style enabled off" \
         -ex "set confirm off" \
         -ex "set sysroot /" \
         -ex "file $BIN_PATH" \
+        -ex "set architecture i386:x86-64" \
         -ex "target remote 127.0.0.1:$port" \
         -ex "echo \nZORYA_ENTRY_BEGIN\n" \
         -ex "info registers rip rsp" \
@@ -296,6 +320,17 @@ capture_qemu_user() {
     if [ -s "$qemu_log" ]; then
         target_ran=true
     fi
+    # arch_mismatch : did GDB reject the x86-64 target description? This is the
+    # signature of a non-multiarch (arm64-only) gdb talking to the x86-64 stub.
+    local arch_mismatch=false
+    if grep -Eq "packet reply is too long|Invalid register|Architecture rejected target-supplied description|architecture .* is not compatible|Truncated register" "$qgdb_log" 2>/dev/null; then
+        arch_mismatch=true
+    fi
+    # gdb_is_multiarch : are we already using a multiarch-capable gdb?
+    local gdb_is_multiarch=false
+    case "$(basename "$gdb_bin")" in gdb-multiarch) gdb_is_multiarch=true;; esac
+    local host_is_x86=false
+    case "$host_arch" in x86_64|amd64) host_is_x86=true;; esac
 
     if [ $gdb_exit -ne 0 ] || ! cpu_dump_has_registers; then
         echo ""
@@ -303,8 +338,23 @@ capture_qemu_user() {
         echo "ERROR: qemu-user gdbstub capture produced no usable register data."
         echo "==============================================================================="
         echo ""
-        if [ "$entry_ok" = false ]; then
-            # GDB could not even read rip/rsp at entry -> the -g halt failed.
+        if [ "$arch_mismatch" = true ] || { [ "$entry_ok" = false ] && [ "$host_is_x86" = false ] && [ "$gdb_is_multiarch" = false ]; }; then
+            # GDB could not decode the x86-64 target on a non-x86 host: the gdb
+            # in use only understands the host (arm64) architecture.
+            echo "  Diagnosis: GDB cannot decode the x86-64 target on this $host_arch host."
+            echo "  It attached to the stub but rejected the x86-64 register set, so"
+            echo "  rip/rsp were unreadable at entry. A plain $host_arch gdb only speaks"
+            echo "  $host_arch registers."
+            echo ""
+            echo "  Fix: install gdb-multiarch and re-run the SAME command (this script"
+            echo "  prefers gdb-multiarch automatically once it is present):"
+            echo "      apt-get install -y gdb-multiarch"
+            echo ""
+            echo "  This is the good case: a native arm64 container with gdb-multiarch +"
+            echo "  qemu-user is a single emulation layer and should complete the capture."
+        elif [ "$entry_ok" = false ] && [ "$host_is_x86" = true ]; then
+            # x86_64-reporting container that still can't halt at entry: the
+            # classic linux/amd64-on-Apple-Silicon nested-emulation case.
             echo "  Diagnosis: qemu's gdbstub did NOT halt the target at entry."
             echo "  GDB attached but could not read even rip/rsp before 'continue'"
             if [ "$target_ran" = true ]; then
@@ -313,15 +363,13 @@ capture_qemu_user() {
                 echo "  (the target may have exited immediately)."
             fi
             echo ""
-            echo "  This is the signature of NESTED emulation. In a --platform linux/amd64"
-            echo "  container on Apple Silicon, your userland (GDB + the qemu-x86_64 we"
-            echo "  launch) is ALREADY emulated, so 'qemu-x86_64 -g' runs emulated-inside-"
-            echo "  emulated and its halt-at-entry / breakpoint insertion is unreliable."
+            echo "  The container reports $host_arch under qemu-user. If this is a"
+            echo "  --platform linux/amd64 container on Apple Silicon, GDB and the"
+            echo "  qemu-x86_64 we launch are THEMSELVES emulated, so 'qemu-x86_64 -g'"
+            echo "  runs emulated-inside-emulated and its halt-at-entry is unreliable."
             echo ""
-            echo "  Fix: run the capture where qemu-x86_64 is NATIVE (a SINGLE emulation"
-            echo "  layer), e.g.:"
-            echo "    - an arm64 (native) Linux context that emulates x86-64 with one"
-            echo "      qemu-user layer, or"
+            echo "  Fix: use a SINGLE emulation layer, e.g.:"
+            echo "    - a NATIVE arm64 Linux container with gdb-multiarch + qemu-user, or"
             echo "    - a full-system x86-64 VM (qemu-system-x86_64 / UTM / Colima x86-64),"
             echo "      or a native/remote x86-64 Linux runner."
         elif [ "$ran_to_exit" = true ]; then
