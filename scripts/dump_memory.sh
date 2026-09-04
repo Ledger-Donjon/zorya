@@ -29,6 +29,17 @@ if [ -z "$BIN_PATH" ] || [ -z "$START_POINT" ]; then
     exit 1
 fi
 
+# Fail early and clearly if the target binary does not exist on THIS machine.
+# Without this, realpath returns empty and the capture launches with no binary,
+# which later surfaces as a confusing "gdbstub did not start listening" error.
+if [ ! -e "$BIN_PATH" ]; then
+    echo "ERROR: target binary not found: $BIN_PATH"
+    echo "       Pass a path that exists on this machine. Paths like"
+    echo "       /testbin/testbin-linux from the issue thread are the reporter's"
+    echo "       container paths, not yours."
+    exit 1
+fi
+
 # Ensure BIN_PATH is an absolute path
 BIN_PATH="$(realpath "$BIN_PATH")"
 BIN_NAME="$(basename "$BIN_PATH")"
