@@ -163,18 +163,18 @@ capture_native() {
         if ! grep -q "hit Breakpoint\|Breakpoint [0-9].*main\." "$GDB_LOG" 2>/dev/null; then
             echo ""
             echo "==============================================================================="
-            echo "ERROR: The program exited BEFORE reaching the breakpoint at $START_POINT."
+            echo "ERROR: The program exited before reaching the breakpoint at $START_POINT."
             echo "==============================================================================="
             echo ""
             echo "  The binary ran to completion without stopping at your target address."
             echo "  This typically happens when:"
             echo ""
-            echo "  1. The address is NOT on the execution path for the given arguments."
+            echo "  1. The address is not on the execution path for the given arguments."
             echo "     The program may take a different branch (e.g., argument validation"
             echo "     fails and the program exits with a usage message before reaching"
             echo "     your target address)."
             echo ""
-            echo "  2. The address falls in the MIDDLE of a multi-byte instruction."
+            echo "  2. The address falls in the middle of a multi-byte instruction."
             echo "     GDB's breakpoint corrupts the instruction, causing the program to"
             echo "     behave incorrectly. Verify your address with:"
             echo "       objdump -d --start-address=$START_POINT <binary> | head -5"
@@ -273,7 +273,7 @@ capture_qemu_user() {
     # An ENTRY-register probe (bracketed by ZORYA_ENTRY_* markers) runs BEFORE
     # `continue`. On success it is harmless; on failure it is the key signal:
     # if GDB can read rip/rsp here, the gdbstub genuinely works and any later
-    # failure is a breakpoint-address problem — not an emulation/ptrace one.
+    # failure is a breakpoint-address problem, not an emulation/ptrace one.
     "$gdb_bin" -q -batch \
         -ex "set auto-load safe-path /" \
         -ex "set pagination off" \
@@ -357,7 +357,7 @@ capture_qemu_user() {
             echo "  rip/rsp were unreadable at entry. A plain $host_arch gdb only speaks"
             echo "  $host_arch registers."
             echo ""
-            echo "  Fix: install gdb-multiarch and re-run the SAME command (this script"
+            echo "  Fix: install gdb-multiarch and re-run the same command (this script"
             echo "  prefers gdb-multiarch automatically once it is present):"
             echo "      apt-get install -y gdb-multiarch"
             echo ""
@@ -366,7 +366,7 @@ capture_qemu_user() {
         elif [ "$entry_ok" = false ] && [ "$host_is_x86" = true ]; then
             # x86_64-reporting container that still can't halt at entry: the
             # classic linux/amd64-on-Apple-Silicon nested-emulation case.
-            echo "  Diagnosis: qemu's gdbstub did NOT halt the target at entry."
+            echo "  Diagnosis: qemu's gdbstub did not halt the target at entry."
             echo "  GDB attached but could not read even rip/rsp before 'continue'"
             if [ "$target_ran" = true ]; then
                 echo "  and the target still produced output (it ran on its own)."
@@ -376,25 +376,46 @@ capture_qemu_user() {
             echo ""
             echo "  The container reports $host_arch under qemu-user. If this is a"
             echo "  --platform linux/amd64 container on Apple Silicon, GDB and the"
-            echo "  qemu-x86_64 we launch are THEMSELVES emulated, so 'qemu-x86_64 -g'"
+            echo "  qemu-x86_64 we launch are themselves emulated, so 'qemu-x86_64 -g'"
             echo "  runs emulated-inside-emulated and its halt-at-entry is unreliable."
             echo ""
-            echo "  Fix: use a SINGLE emulation layer, e.g.:"
-            echo "    - a NATIVE arm64 Linux container with gdb-multiarch + qemu-user, or"
+            echo "  Fix: use a single emulation layer, e.g.:"
+            echo "    - a native arm64 Linux container with gdb-multiarch + qemu-user, or"
             echo "    - a full-system x86-64 VM (qemu-system-x86_64 / UTM / Colima x86-64),"
             echo "      or a native/remote x86-64 Linux runner."
         elif [ "$ran_to_exit" = true ]; then
             # Stub works (we read rip at entry); the breakpoint was never hit.
-            echo "  Diagnosis: the gdbstub WORKS — GDB read rip/rsp at entry — but the"
-            echo "  target ran to exit WITHOUT hitting the breakpoint at $START_POINT."
+            # Most common reason: the requested address IS the entry point, where
+            # the stub already halts, so `continue` steps over it and never hits
+            # it again. Detect that explicitly by comparing to the probed rip.
+            local entry_rip same_addr=false
+            entry_rip=$(awk '/ZORYA_ENTRY_BEGIN/{f=1;next} /ZORYA_ENTRY_END/{f=0} f && $1=="rip"{print $2; exit}' "$qgdb_log" 2>/dev/null)
+            if [ -n "$entry_rip" ] && [ "$(( entry_rip ))" -eq "$(( START_POINT ))" ]; then
+                same_addr=true
+            fi
+            echo "  Diagnosis: the gdbstub works, GDB read rip/rsp at entry, but the"
+            echo "  target ran to exit without hitting the breakpoint at $START_POINT."
             echo ""
-            echo "  The emulation is fine; the breakpoint ADDRESS is the problem:"
-            echo "    1. PIE/ASLR: for a position-independent executable the file address"
-            echo "       is not the runtime address. Rebuild the target with -no-pie, or"
-            echo "       pass the runtime address (load base + offset)."
-            echo "    2. The address is off the execution path for these arguments, or"
-            echo "       falls mid-instruction. Verify it with:"
-            echo "         objdump -d --start-address=$START_POINT $BIN_PATH | head -5"
+            if [ "$same_addr" = true ]; then
+                echo "  Cause: your breakpoint $START_POINT is the program entry point"
+                echo "  ($entry_rip), where the stub already halts. 'continue' steps over"
+                echo "  the current instruction, so a breakpoint on the entry is never hit"
+                echo "  again. Breakpoint insertion itself is fine."
+                echo ""
+                echo "  Fix: pass a downstream address, not the ELF entry. For a Go binary,"
+                echo "  main.main is a good choice:"
+                echo "      nm $BIN_PATH | awk '/ T main\\.main\$/{print \"0x\"\$1}'"
+                echo "      # or:  objdump -d $BIN_PATH | grep '<main.main>:'"
+                echo "  then use that value as the start point."
+            else
+                echo "  The emulation is fine; the breakpoint address is the problem:"
+                echo "    1. PIE/ASLR: for a position-independent executable the file address"
+                echo "       is not the runtime address. Rebuild the target with -no-pie, or"
+                echo "       pass the runtime address (load base + offset)."
+                echo "    2. The address is off the execution path for these arguments, or"
+                echo "       falls mid-instruction. Verify it with:"
+                echo "         objdump -d --start-address=$START_POINT $BIN_PATH | head -5"
+            fi
         else
             echo "  The target did not stop at the breakpoint and no registers were"
             echo "  captured. Inspect the logs below to see how far execution got."
@@ -462,7 +483,7 @@ fi
 if [ ! -s "$CPU_MAP_PATH" ]; then
     echo ""
     echo "ERROR: Failed to generate cpu_mapping.txt."
-    echo "  The CPU register dump is empty — GDB likely did not stop at the breakpoint."
+    echo "  The CPU register dump is empty, GDB likely did not stop at the breakpoint."
     echo "  Check $GDB_LOG for details."
     exit 1
 fi
@@ -502,20 +523,20 @@ if ! grep -Eq '^[[:space:]]*(rax|rip|rsp|rbp)[[:space:]]+0x[0-9a-fA-F]+' "$CPU_M
     echo ""
     echo "  This is a known limitation of running an AMD64 image on a non-x86"
     echo "  host (e.g. Apple Silicon / ARM) via QEMU user-mode emulation:"
-    echo "  qemu-user emulates the CPU but does NOT implement PTRACE_GETREGS,"
+    echo "  qemu-user emulates the CPU but does not implement PTRACE_GETREGS,"
     echo "  so GDB can attach and hit the breakpoint yet never read registers."
     echo ""
     echo "  You need an environment where ptrace returns real x86-64 registers:"
     echo "    1. Re-run on a native AMD64 host (real Intel/AMD Linux box or an"
     echo "       x86-64 cloud VM)."
-    echo "    2. Use a FULL-SYSTEM x86-64 VM (qemu-system-x86_64, UTM, or Colima"
-    echo "       in x86-64 VM mode) — the guest has a real x86-64 kernel, so"
+    echo "    2. Use a full-system x86-64 VM (qemu-system-x86_64, UTM, or Colima"
+    echo "       in x86-64 VM mode), the guest has a real x86-64 kernel, so"
     echo "       ptrace works end-to-end. See the commented QEMU section at the"
     echo "       end of this script."
     echo ""
-    echo "  NOTE: --cap-add=SYS_PTRACE / --security-opt seccomp=unconfined only"
-    echo "  help when a security policy blocks ptrace. They will NOT help here,"
-    echo "  because ptrace attach already works — it is qemu-user's register"
+    echo "  Note: --cap-add=SYS_PTRACE / --security-opt seccomp=unconfined only"
+    echo "  help when a security policy blocks ptrace. They will not help here,"
+    echo "  because ptrace attach already works, it is qemu-user's register"
     echo "  emulation that is missing."
     echo ""
     exit 1
