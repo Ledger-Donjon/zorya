@@ -9,7 +9,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -424,37 +423,41 @@ impl FuzzerRunner {
         let mut child = cmd.spawn()?;
         let child_id = child.id();
 
-        // Spawn a timeout thread that will kill the process if it takes too long
+        // Wait for the process, enforcing the per-test budget with a poll loop.
+        //
+        // The previous implementation slept the *entire* `timeout_seconds` in a
+        // detached thread and then `join()`ed it unconditionally, so even when
+        // the child exited early the runner still blocked for the whole budget
+        // and mislabelled fast, clean runs as TIMEOUT. Polling `try_wait`
+        // returns as soon as the child exits and only SIGKILLs when the budget
+        // is genuinely exceeded — giving accurate `success` / `timeout` status
+        // and wall-clock duration.
         let timeout_duration = Duration::from_secs(test.timeout_seconds);
-        let timed_out = Arc::new(Mutex::new(false));
-        let timed_out_clone = Arc::clone(&timed_out);
-
-        let timeout_thread = thread::spawn(move || {
-            thread::sleep(timeout_duration);
-            // Try to kill the process by PID using SIGKILL
-            #[cfg(unix)]
-            {
-                use std::process::Command as SysCommand;
-                let _ = SysCommand::new("kill")
-                    .arg("-9")
-                    .arg(child_id.to_string())
-                    .status();
+        let mut timed_out = false;
+        let exit_status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => {
+                    if start_time.elapsed() >= timeout_duration {
+                        timed_out = true;
+                        #[cfg(unix)]
+                        {
+                            use std::process::Command as SysCommand;
+                            let _ = SysCommand::new("kill")
+                                .arg("-9")
+                                .arg(child_id.to_string())
+                                .status();
+                        }
+                        // Reap the killed child so it does not linger as a zombie.
+                        break child.wait();
+                    }
+                    thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => break Err(e),
             }
-            #[cfg(not(unix))]
-            {
-                // On Windows, this won't work well, but it's better than nothing
-                // In practice, Zorya is primarily used on Linux
-            }
-            *timed_out_clone.lock().unwrap() = true;
-        });
-
-        // Wait for the process to complete
-        let exit_status = child.wait();
-
-        timeout_thread.join().unwrap();
+        };
 
         let duration = start_time.elapsed();
-        let timed_out = *timed_out.lock().unwrap();
 
         // Copy result files to output directory
         self.copy_results_to_output(&output_dir)?;
