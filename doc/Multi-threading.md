@@ -102,10 +102,114 @@ This makes it trivial to identify:
 - **Background threads**: Other runtime threads
 
 
+## Goroutine-Aware Scheduling (Go)
+
+The thread dumping above restores the OS threads (Go `M`s) that exist **at the dump point**.
+Go, however, multiplexes many **goroutines** onto those few OS threads with a user-space
+scheduler (`gopark → schedule → findRunnable → gogo`). A goroutine created *after* the dump
+(e.g. by `go f()` or `sync.WaitGroup.Go`) only starts running once the runtime performs that
+stack switch, which is far too instruction-dense for per-instruction concolic execution to
+traverse in budget. Without help, freshly-created goroutine bodies never execute, and the
+concurrency plugins (volos / chancheck / toctou) only ever observe the main goroutine.
+
+Zorya closes this gap with a **goroutine-spawn hook** on `runtime.newproc`, the single
+fan-out primitive behind every `go` / `sync.WaitGroup.Go`. Instead of stepping the (stubbed)
+runtime scheduler, the engine reconstructs the new goroutine's initial context directly, the
+way `runtime.gogo` would after `gostartcallfn`, and registers it as a first-class schedulable
+thread in the `ThreadManager`.
+
+### How the hook works
+
+`runtime.newproc(fn *funcval)` is routed to `SummaryEffect::SpawnGoroutine` and intercepted by
+`ConcolicExecutor::spawn_goroutine_and_switch` (`src/concolic/executor.rs`), which:
+
+1. Reads the goroutine entry PC from the funcval (`fn` in RAX under Go's internal register ABI).
+2. Simulates `newproc`'s void return so the **parent** resumes right after the `go` / `wg.Go`
+   call site.
+3. Allocates a private goroutine stack seeded with the thread-exit sentinel, so the body's
+   final `ret` lands on the scheduler's yield-back path.
+4. Fabricates a minimal `runtime.g` (distinct synthetic `goid`; `stackguard0 = 0` so the
+   prologue never spuriously calls `morestack`) plus a private TLS block linking `[FS-8] → g`,
+   so the plugins can attribute each access to its goroutine via the usual TLS → `g` → `g.goid`
+   walk. It also links `g.m` to the host `M`'s real `runtime.m` (see the two-level model below),
+   so `getg().m` reads resolve to a live `m` instead of nil.
+5. Clones the parent register file and sets the goroutine-start registers (`RIP` = entry,
+   `RSP`/`RBP` = fresh stack, `RDX` = closure context, `R14` = g, `FS` = TLS base).
+6. Registers the goroutine as a schedulable thread (`ContextKind::Goroutine`, carrying its
+   synthetic `goid` and host-`M` tid), switches into it, and dispatches `Event::ThreadSpawn` so
+   vector-clock-aware detectors fork the parent's clock (the happens-before "fork" rule).
+
+`sync.(*WaitGroup).Wait` is modelled as a no-op *plus a join edge* under this scheme: the
+spawned workers already ran to completion at their creation point, so the parent has nothing
+left to block on (the real park path would otherwise dive into `runtime.semacquire1` / `gopark`
+and burn the whole budget), but the hook still emits a `HappensBefore` edge from each of the
+waiter's child goroutines so the parent's post-`Wait` accesses are correctly ordered after the
+workers (see the happens-before section below).
+
+### Two-level M↔G model
+
+`ThreadManager` schedules a single flat list of execution contexts, so Go's M:N model (many
+goroutines multiplexed over few OS threads via `P`s) is flattened to 1:1: each goroutine
+becomes its own schedulable context with its **own** private `g` and TLS. That flattening left
+one visible divergence: a fabricated goroutine's `g.m` was nil, so any real code reading
+`getg().m` (or a field off it) misbehaved.
+
+The hook closes that with a pragmatic **two-level M↔G link**. Each context records whether it
+is an OS thread (`ContextKind::OsThread`, i.e. an `m`) or a goroutine (`ContextKind::Goroutine`,
+hosted by an `m`). On spawn, the engine reads the host `M`'s real `runtime.m` from the parent's
+live `g` (`[FS-8] → g`, then `g.m` at the DWARF-derived offset, default 48) and writes it into
+the fabricated `g.m`. A goroutine spawned by another goroutine (nested `go`) inherits its
+parent's host `m`. This keeps `getg().m` coherent without emulating `P`s, `m.curg`, or a shared
+per-`m` TLS; those remain future work.
+
+### Happens-before edges (release / acquire)
+
+Beyond the fork and join edges above, the executor emits object-keyed release/acquire edges for
+Go synchronization primitives (`Event::SyncRelease` / `Event::SyncAcquire`, API v3). At each
+sync call site it reads the object pointer (the receiver / first argument in `RAX` under Go's
+internal ABI) and classifies it:
+
+- **Release:** channel send / close, `WaitGroup.Done` (including the inlined `Add(-1)` form),
+  mutex / rwmutex unlock.
+- **Acquire:** channel receive, `WaitGroup.Wait`, mutex / rwmutex lock.
+
+The volos detector keeps a per-object vector clock: a release folds the releaser's clock into
+it, and a matching acquire merges it back into the acquirer, so accesses ordered by the
+primitive stop being reported as races. Go mutexes are additionally object-keyed into the
+lockset via these events (the earlier call-target keying collapsed every `*Mutex` into one
+lock). C / pthread synchronization stays on the `Call` / `RDI` path and is unchanged.
+
+### Enabling it
+
+The hook is active whenever the **round-robin** policy is selected (`--thread-scheduling
+all-threads`), i.e. when concurrency analysis was explicitly requested, and is a no-op under
+`main-only`, so single-threaded analyses are byte-for-byte unaffected. Set
+`ZORYA_GOROUTINE_SCHED=0` to force it off even under round-robin (it then falls back to the
+historical `newproc` stub, a plain caller-return).
+
+```bash
+zorya <binary> --lang go --compiler gc \
+  --thread-scheduling all-threads \
+  --mode main "$ADDR" --plugin "volos toctou chancheck"
+```
+
+With the hook active, each `go` / `wg.Go` fan-out spawns a worker the detectors can watch:
+Volos observes real cross-goroutine interleavings (a distinct `go=<goid>` per worker) and
+reports genuine Go data races, while safe patterns (shared-lock, disjoint memory) are correctly
+suppressed. See the volos [README](../src/plugins/builtin/volos/README.md) for the
+`race-counter` control.
+
 ## Future Work
 
-- Support for thread scheduling/switching during execution
-- Goroutine-level state tracking (currently OS threads only)
+- ~~Support for thread scheduling/switching during execution~~: **done** via round-robin
+  OS-thread scheduling plus the goroutine-spawn hook above.
+- Goroutine-level state tracking: goroutines now schedule as first-class contexts with a
+  synthetic `goid`; deeper `runtime.g` state tracking (real scheduler status, per-`g` stacks)
+  remains partial.
+- ~~Channel-recv / `WaitGroup` happens-before edges~~: **done** via object-keyed release/acquire
+  (`SyncRelease` / `SyncAcquire`) plus the `WaitGroup.Wait` join edge. Remaining: per-item
+  precision for buffered channels (v1 uses one clock per channel, a sound-leaning
+  approximation), and a faithful shared-`M` TLS / `m.curg` / `P` model.
 - Stack memory regions per thread
 - Thread-specific breakpoints and watchpoints
 

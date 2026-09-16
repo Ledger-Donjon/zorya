@@ -29,9 +29,12 @@ Declared in `VolosPlugin::wants()` and mirrored in `manifest.yaml`:
 | --- | --- |
 | `MemRead`  | Build a `Read` record, tick the thread's vector clock, append to `VolosRegion`. |
 | `MemWrite` | Same as `MemRead` but with `AccessType::Write`. |
-| `Call` | If `symbol` matches a known lock primitive, push (acquire) or pop (release) the target address from the per-thread lockset. |
+| `Call` | For a **C / pthread** lock primitive, push (acquire) or pop (release) the mutex object (the pointer in `RDI`) from the per-thread lockset. Go `sync` locks are handled object-keyed via `SyncAcquire` / `SyncRelease` (below), so they are excluded here to avoid double counting. |
 | `ThreadSpawn` | Fork the parent's vector clock to seed the child's, tick both sides so subsequent accesses on either thread are concurrent, and assign the child a synthetic goroutine id. |
 | `ThreadExit` | Drop the thread's lockset. |
+| `HappensBefore` | Merge the source thread's vector clock into the destination's (a join / handoff edge). Emitted by the `sync.(*WaitGroup).Wait` hook: every child goroutine's history happens-before the waiter resumes. |
+| `SyncRelease` | Release half of release/acquire: tick the releaser's clock and fold it into a per-object clock (`object_clocks[obj]`). For a mutex, also pop `obj` from the holder's lockset. |
+| `SyncAcquire` | Acquire half: merge `object_clocks[obj]` into the acquirer's clock. For a mutex, also push `obj` onto the lockset, keyed by object so distinct Go mutexes are distinguishable. |
 
 Symbols hooked for `Call` events:
 
@@ -46,7 +49,15 @@ pthread_rwlock_rdlock     pthread_rwlock_wrlock      pthread_rwlock_unlock
 pthread_spin_lock         pthread_spin_unlock
 ```
 
-The list is data, not code: extending it to cover more lock APIs is a one-line append in `LOCK_ACQUIRE_SYMBOLS` / `LOCK_RELEASE_SYMBOLS`. For C binaries, lock identity is keyed by the mutex *pointer* (the value of `RDI` at the call site) so distinct mutex objects are always distinguishable.
+The list is data, not code: extending it to cover more lock APIs is a one-line append in `LOCK_ACQUIRE_SYMBOLS` / `LOCK_RELEASE_SYMBOLS`. For C binaries, lock identity is keyed by the mutex *pointer* (the value of `RDI` at the call site) so distinct mutex objects are always distinguishable. Go `sync.Mutex` / `sync.RWMutex` are keyed the same way, but by the receiver pointer (`RAX` under Go's internal ABI) carried on the `SyncAcquire` / `SyncRelease` events rather than the `Call` path; this replaced the earlier call-target keying, which collapsed every Go mutex into a single lock identity.
+
+## Happens-before sources
+
+Filter 3 below (the vector-clock partial order) is fed by three edge sources, all funneled through `VolosVC`:
+
+- **Thread fork:** `ThreadSpawn` seeds a child's clock from its parent, so a spawned goroutine happens-after the spawn point.
+- **Release / acquire on a sync object:** `SyncRelease` folds the releaser's clock into `object_clocks[obj]` (channel send / close, `WaitGroup.Done`, mutex unlock); the matching `SyncAcquire` (channel receive, `WaitGroup.Wait`, mutex lock) merges it back, ordering the acquirer after every prior releaser of that object.
+- **WaitGroup join:** `sync.(*WaitGroup).Wait` additionally emits a `HappensBefore` edge from each of the waiter's child goroutines. Because the cooperative scheduler runs spawned workers to completion before `Wait` returns (and a worker's deferred `Done` is frequently inlined to raw atomics that never reach a hookable symbol), this join edge is what reliably orders the waiter's post-`Wait` accesses after the workers, removing the main-vs-worker false positives while leaving genuine worker-vs-worker races intact.
 
 ## Race-detection algorithm
 
@@ -201,7 +212,12 @@ zorya tests/programs/race-counter-c-mixed/race-counter-c-mixed \
 
 ### `race-counter` — Go positive control
 
-Two goroutines write an unprotected `counter` global. Requires `runtime.newproc` hook support (work in progress); currently exercises the Go runtime boot path.
+Two goroutines write an unprotected `counter` global. This now runs end-to-end thanks to the
+`runtime.newproc` goroutine-spawn hook (see
+[Multi-threading.md](../../../../doc/Multi-threading.md#goroutine-aware-scheduling-go)): under
+`--thread-scheduling all-threads` the engine schedules each spawned goroutine as a first-class
+thread, so their bodies actually execute and volos observes the cross-goroutine writes (each
+worker carries a distinct `go=<goid>`).
 
 ```bash
 ADDR=$(go tool nm tests/programs/race-counter/race-counter | awk '/ T main\.main$/{print "0x"$1}')
@@ -210,6 +226,8 @@ zorya tests/programs/race-counter/race-counter \
   --thread-scheduling all-threads \
   --mode main "$ADDR" \
   --negate-path-exploration
+# Expected: Write vs Write data race on `counter`; safe (mutex-guarded / disjoint) accesses
+# are not flagged.
 ```
 
 Verify the race natively with the Go race detector:
@@ -234,7 +252,7 @@ cd tests/programs/race-counter && go run -race .
 | Executor dispatch — Pass A: `MemRead`, `MemWrite`, `Call`, `CallInd`, `ThreadSpawn`, `ThreadExit`, `run_finish` | Complete. |
 | Executor dispatch — Pass B: `Branch`, `Return`, `Syscall`, `SyscallRet`, `Panic`, `ThreadSwitch` | Deferred — not needed by volos, useful for future plugins. |
 | Per-region sharding (one `VolosRegion` per `MemoryRegion`) | Won't do — design artefact of the upstream fork; `HashMap<u64, CellHistory>` is correct without sharding. |
-| Go `runtime.newproc` goroutine-spawn hook (to skip runtime allocator during Go analysis) | Planned. |
+| Go `runtime.newproc` goroutine-spawn hook (schedule spawned goroutines as first-class threads so their bodies execute under `--thread-scheduling all-threads`) | Complete. See [Multi-threading.md](../../../../doc/Multi-threading.md#goroutine-aware-scheduling-go). |
 
 ## Attribution
 

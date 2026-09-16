@@ -117,6 +117,40 @@ For Go slice arguments (`[]T`) in `--mode function`, Zorya uses a hybrid strateg
 This allows Z3 to discover slice-length-dependent bugs (like integer overflows in parsers that only become
 possible after many iterations) without opening the door to absurd-length models.
 
+## Goroutine Scheduling (`runtime.newproc` Hook)
+
+Go multiplexes many goroutines onto a few OS threads with a user-space scheduler
+(`gopark → schedule → findRunnable → gogo`). Under per-instruction concolic execution that stack
+switch is impractically deep to traverse, so a goroutine created after the initial dump (via
+`go f()` or `sync.WaitGroup.Go`) would never actually run, leaving the concurrency detectors
+blind to everything but the main goroutine.
+
+Zorya intercepts `runtime.newproc(fn *funcval)` (the universal `go` / `wg.Go` fan-out) with
+`SummaryEffect::SpawnGoroutine`. Rather than stepping the runtime scheduler, the engine
+reconstructs the new goroutine's initial context the way `runtime.gogo` would after
+`gostartcallfn`: it reads the entry PC and closure context from the funcval, allocates a private
+stack plus a minimal `runtime.g` (distinct synthetic `goid`, `stackguard0 = 0`) and a private
+TLS block (`[FS-8] → g`), sets the goroutine-start registers (`RIP`, `RSP`/`RBP`, `RDX` = closure
+context, `R14` = g, `FS` = TLS base), and schedules it as a first-class thread. `runtime.g`
+offsets (above) are what let the detectors then read each goroutine's id back via the
+TLS → `g` → `g.goid` walk.
+
+Two related refinements make the flattened model faithful enough for the detectors:
+
+- **Two-level M↔G link.** Go's M:N scheduling is flattened to 1:1 (one context per goroutine,
+  each with private `g` / TLS). To keep `getg().m` coherent, the hook links the fabricated
+  `g.m` to the host `M`'s real `runtime.m` (read from the parent's live `g` via the `g.m` offset,
+  default 48). No `P`, `m.curg`, or shared-`M` TLS is modelled.
+- **Happens-before edges.** `sync.(*WaitGroup).Wait` is a no-op (the workers already ran at their
+  spawn point) but emits a `HappensBefore` join edge from the waiter's child goroutines, and the
+  executor emits object-keyed `SyncRelease` / `SyncAcquire` edges for channels, `WaitGroup`, and
+  mutexes so synchronization-ordered accesses are not misreported as races.
+
+The hook is gated on `--thread-scheduling all-threads` (no effect on single-threaded analyses)
+and can be disabled with `ZORYA_GOROUTINE_SCHED=0`. Full mechanics, the M↔G model, the
+happens-before edges, and the `race-counter` worked example:
+[Multi-threading.md](Multi-threading.md#goroutine-aware-scheduling-go).
+
 ## Known Current Limitations and Issues
 
 ### Go Runtime State Dependencies

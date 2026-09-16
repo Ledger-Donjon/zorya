@@ -46,8 +46,11 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   - `function`: Analyze from a provided function address
   - `advanced`: Analyze from arbitrary address with explicit symbolic control
 - `--thread-scheduling` (Go gc):
-  - `all-threads`: load and schedule all dumped OS threads
-  - `main-only`: execute only main thread
+  - `all-threads`: load and schedule all dumped OS threads (round-robin). For Go this also
+    enables the **goroutine-spawn hook**, so goroutines created by `go` / `sync.WaitGroup.Go`
+    are scheduled as first-class threads and their bodies execute under the concurrency plugins
+    (see [Multi-threading.md](Multi-threading.md#goroutine-aware-scheduling-go)).
+  - `main-only`: execute only main thread (goroutine hook disabled; single-threaded analysis)
 - `--negate-path-exploration`: enable symbolic negated branch exploration
 - `--no-negate-path-exploration`: disable negated branch exploration
 - `--plugin`: plugins to activate at runtime
@@ -75,6 +78,7 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
 - `ZORYA_DUMP_REGS_EACH_INST=1`: enables per-instruction full register dumps (RAX..R15/flags/YMM) in the executor logs. Disabled by default because it can severely slow long runs.
 - `ZORYA_INT_ARITH_ORACLES=1`: enables expensive integer arithmetic solver oracles (`INT_ADD`/`INT_SUB`/`INT_MULT` overflow/underflow SAT checks). Disabled by default to keep concolic instruction throughput high during race-focused runs.
 - `ZORYA_MEM_SAFETY_ORACLES=1`: enables symbolic NULL / dangling-pointer memory safety checks in `LOAD`/`STORE`. By default, these checks are auto-disabled for multithreaded C/C++ runs (`--thread-scheduling all-threads`) to avoid stalls in race-analysis workflows.
+- `ZORYA_GOROUTINE_SCHED=0`: force-disables the Go goroutine-spawn hook even under `--thread-scheduling all-threads` (falls back to the historical `runtime.newproc` stub, a plain caller-return). The hook is enabled by default whenever round-robin scheduling is active; see [Multi-threading.md](Multi-threading.md#goroutine-aware-scheduling-go).
 
 ### Analysis profiles
 

@@ -13,7 +13,9 @@ existing memory / executor APIs.
 
 This document is the contract between the engine and plugin authors. When
 the contract changes, `EVENT_API_VERSION` in `src/plugins/event.rs` is
-bumped and this document is updated in lockstep.
+bumped and this document is updated in lockstep. The current version is
+**3** (v3 added the object-keyed `SyncRelease` / `SyncAcquire` happens-before
+edges described below).
 
 ## Why a plugin layer
 
@@ -126,14 +128,26 @@ an input-gated branch; see `src/plugins/builtin/toctou/README.md`.
 | `Return`        | `executor::handle_return`                  | scope cleanup                   |
 | `Syscall`       | `handle_syscall` entry                     | sandbox / policy                |
 | `SyscallRet`    | `handle_syscall` exit                      | sandbox / policy                |
-| `ThreadSpawn`   | `sys_clone` handler                        | concurrency state init          |
+| `ThreadSpawn`   | `sys_clone` / goroutine spawn hook         | concurrency state init          |
 | `ThreadSwitch`  | `thread_manager::switch_to_thread`         | concurrency state update        |
 | `ThreadExit`    | thread teardown                            | resource bookkeeping            |
+| `HappensBefore` | `sync.(*WaitGroup).Wait` join edge         | vector-clock ordering (volos)   |
+| `SyncRelease`   | `executor::maybe_emit_sync_edge`           | object-clock release (volos)    |
+| `SyncAcquire`   | `executor::maybe_emit_sync_edge`           | object-clock acquire (volos)    |
 | `Panic`         | runtime-panic detector                     | finding aggregator              |
 | `InstrPre/Post` | `executor::execute_instruction`            | profilers, coverage             |
 
 `InstrPre` / `InstrPost` are gated by the subscriber bitmap so they are
 zero-cost when no profiler is loaded.
+
+`SyncRelease` / `SyncAcquire` model release/acquire happens-before on a
+synchronization object (channel, `WaitGroup`, or mutex). The object pointer,
+Go's internal-ABI receiver in RAX, is read in the executor at the call site
+and carried on the event (`obj`), together with the primitive class
+(`SyncKind`). A release folds the releaser's vector clock into a per-object
+clock; a matching acquire merges that clock back into the acquirer, so
+accesses ordered by the primitive are no longer reported as data races. See
+`doc/Multi-threading.md` for the full model and the WaitGroup join edge.
 
 ### `Verdict`
 
@@ -152,11 +166,18 @@ Multiple `ReportAndContinue` findings are all kept.
 
 ### `EventCtx`
 
-Read-only handle every plugin receives alongside an event. Holds `&State`,
-the Z3 `Context` and `Optimize` solver, the current PC / TID / instruction
-counter, the best-effort Go `current_goid`, and the analysis start time. It
-does **not** expose `&mut State` — plugins mutate their own state through
-`&mut self` on their own struct.
+Read-only handle every plugin receives alongside an event. It holds the Z3
+`Context`, the current PC / TID / instruction counter, the best-effort Go
+`current_goid`, the analysis start time, a read view of the findings
+accumulated so far, and the current path condition. It deliberately does
+**not** expose engine state: there is no `&State`, no `&Optimize` solver, and
+no register / memory accessors. Those are added one at a time, only as a
+migrated plugin demonstrates a real need, so the surface stays minimal and the
+bus stays unit-testable. Because of this, any engine value a plugin needs that
+is not on the context is read in the executor and carried on the event itself
+(for example the synchronization-object pointer on `SyncRelease` /
+`SyncAcquire`). Plugins mutate their own state through `&mut self` on their own
+struct.
 
 `EventCtx::path_constraints()` exposes the engine's **current path
 condition**: a borrowed view of the executor's `constraint_vector` (the

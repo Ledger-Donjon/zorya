@@ -12,7 +12,7 @@ The Zorya Fuzzer is an automated test campaign orchestrator for the Zorya concol
 
 - **JSON Configuration**: Define all test parameters in a single configuration file
 - **Multiple Test Runs**: Execute multiple starting addresses with different arguments automatically
-- **Timeout Management**: Set individual timeouts for each test (default: 5 minutes)
+- **Timeout Management**: Set individual timeouts for each test (default: 5 minutes). The runner polls the child and returns as soon as it exits, so a test that finishes early is reported as `SUCCESS` with its true wall-clock duration; `SIGKILL` (and the `TIMEOUT` status) fire only when the budget is genuinely exceeded.
 - **Organized Results**: Each test run stores its results in a separate directory
 - **Summary Reports**: Get comprehensive summaries of all test results
 - **SAT State Detection**: Automatically detects and reports when satisfiable states are found
@@ -90,7 +90,7 @@ Execute all test configurations:
 - **language**: Source language of the binary (`"go"`, `"c"`, `"c++"`)
 - **compiler**: Compiler used (`"gc"`, `"tinygo"`, `"gcc"`, `"clang"`)
 - **binary_path**: Path to the target binary (P-code will be automatically generated)
-- **thread_scheduling**: Thread scheduling policy (`"main_only"`, `"round_robin"`)
+- **thread_scheduling**: Thread scheduling policy (`"main_only"`, or `"round_robin"` / `"all-threads"`; the latter two are equivalent and, for Go, enable the goroutine-spawn hook so spawned goroutines execute under the concurrency plugins)
 - **log_mode**: Logging verbosity (`"verbose"`, `"trace_only"`)
 - **negate_path_flag**: Enable path negation analysis (boolean)
 
