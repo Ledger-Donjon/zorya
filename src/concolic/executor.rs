@@ -22,7 +22,7 @@ pub use super::ConcreteVar;
 pub use super::SymbolicVar;
 use crate::concolic::symbolic_initialization::{is_stack_location, parse_stack_offset};
 use crate::concolic::ConcolicVar;
-use crate::plugins::event::{AccessOrigin, Event, EventKind, MemAccessKind};
+use crate::plugins::event::{AccessOrigin, Event, EventKind, MemAccessKind, SyncKind};
 use crate::plugins::EventBus;
 use crate::state::cpu_state::CpuConcolicValue;
 use crate::state::evaluate_args_z3;
@@ -33,6 +33,7 @@ use crate::state::memory_x86_64::MemoryValue;
 use crate::state::simplify_z3::extract_underlying_condition_from_flag_ast;
 use crate::state::state_manager::FunctionFrame;
 use crate::state::state_manager::Logger;
+use crate::state::ContextKind;
 use crate::state::CpuState;
 use crate::state::State;
 use goblin::elf::Elf;
@@ -58,6 +59,47 @@ macro_rules! log {
 fn event_kind_needs_goid(kind: crate::plugins::event::EventKind) -> bool {
     use crate::plugins::event::EventKind::*;
     matches!(kind, Call | MemRead | MemWrite)
+}
+
+/// Release/acquire role of a Go synchronization call, for object-keyed
+/// happens-before modeling (see `maybe_emit_sync_edge`).
+#[derive(Clone, Copy)]
+enum SyncRole {
+    /// Channel send / close, `WaitGroup.Done`, mutex unlock.
+    Release,
+    /// Channel receive, `WaitGroup.Wait`, mutex lock.
+    Acquire,
+    /// `sync.(*WaitGroup).Add(delta)`: a release iff `delta < 0` (the shape
+    /// `Done` compiles to when it is inlined into its caller). A positive
+    /// delta only bumps the counter and carries no release/acquire edge.
+    WaitGroupAdd,
+}
+
+/// Map a PLT-stripped Go runtime / `sync` symbol to its release/acquire role
+/// and primitive class, or `None` when the symbol is not a synchronization
+/// edge. C / pthread synchronization is handled separately (via the `Call`
+/// event's RDI `arg0`), so only Go symbols appear here.
+fn sync_edge_role(sym: &str) -> Option<(SyncRole, SyncKind)> {
+    match sym {
+        "runtime.chansend1" | "runtime.chansend" | "runtime.closechan" => {
+            Some((SyncRole::Release, SyncKind::Channel))
+        }
+        "runtime.chanrecv1" | "runtime.chanrecv2" | "runtime.chanrecv" => {
+            Some((SyncRole::Acquire, SyncKind::Channel))
+        }
+        "sync.(*WaitGroup).Done" => Some((SyncRole::Release, SyncKind::WaitGroup)),
+        "sync.(*WaitGroup).Wait" => Some((SyncRole::Acquire, SyncKind::WaitGroup)),
+        // `Done` is usually inlined to `Add(-1)`; classify Add and let the
+        // caller inspect the delta register to decide.
+        "sync.(*WaitGroup).Add" => Some((SyncRole::WaitGroupAdd, SyncKind::WaitGroup)),
+        "sync.(*Mutex).Unlock" | "sync.(*RWMutex).Unlock" | "sync.(*RWMutex).RUnlock" => {
+            Some((SyncRole::Release, SyncKind::Mutex))
+        }
+        "sync.(*Mutex).Lock" | "sync.(*RWMutex).Lock" | "sync.(*RWMutex).RLock" => {
+            Some((SyncRole::Acquire, SyncKind::Mutex))
+        }
+        _ => None,
+    }
 }
 
 /// Synthetic return address pushed onto a spawned thread's stack by the
@@ -134,6 +176,14 @@ pub struct ConcolicExecutor<'ctx> {
     /// executor advances `current_address` or the scheduler switches threads
     /// the cache miss recomputes naturally.
     cached_goid: Option<(u64, u64, Option<u64>)>,
+
+    /// Monotonic source of synthetic `g.goid` values handed to goroutines
+    /// spawned by the goroutine-scheduling hook (`spawn_goroutine_and_switch`).
+    /// Starts high (1000) so the fabricated ids never collide with the small
+    /// real goids the Go runtime assigns to the main/system goroutines, which
+    /// keeps each goroutine distinct for the concurrency plugins' per-`g`
+    /// bookkeeping.
+    next_goroutine_goid: u64,
 
     /// Audit counters for the binary-vs-engine memory-access boundary.
     ///
@@ -212,6 +262,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             visited_blocks: BTreeSet::new(),
             event_bus,
             cached_goid: None,
+            next_goroutine_goid: 1000,
             mem_events_surfaced: 0,
             mem_events_suppressed: 0,
             binary_text_range: None,
@@ -386,20 +437,24 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         }
     }
 
-    /// Emit a call event only when its first argument can be read from the
-    /// callee's signature (or from the explicit System V PLT boundary).
+    /// Dispatch the call-site events a plugin may care about: the `Call` event
+    /// (emitted only when the first argument can be read from the callee's
+    /// signature or the System V PLT boundary) and, for Go synchronization
+    /// primitives, the object-keyed `SyncRelease` / `SyncAcquire`
+    /// happens-before edges.
     fn dispatch_call_event(&mut self, pc: u64, target: u64) {
-        if !self.event_bus.is_subscribed(EventKind::Call) {
-            return;
-        }
-        // Overlay register state is approximate; skip Call dispatch to avoid
-        // plugins receiving garbage arg0 values.
+        // Overlay register state is approximate; skip every call-site event
+        // (Call and sync edges) so plugins never see garbage register values.
         if self.is_overlay_mode() {
             return;
         }
-        let Some(arg0) = self.read_call_arg0(target) else {
+        let call_wanted = self.event_bus.is_subscribed(EventKind::Call);
+        let sync_wanted = self.event_bus.is_subscribed(EventKind::SyncRelease)
+            || self.event_bus.is_subscribed(EventKind::SyncAcquire);
+        if !call_wanted && !sync_wanted {
             return;
-        };
+        }
+
         let target_hex = format!("{target:x}");
         let symbol_owned = self.symbol_table.get(&target_hex).cloned();
         let tid = self
@@ -408,6 +463,20 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .lock()
             .map(|tm| tm.current_tid)
             .unwrap_or(0);
+
+        // Object-keyed release/acquire happens-before edges for Go sync
+        // primitives. Emitted before the `Call` arg0 gate below so they still
+        // fire for symbols whose signature-based `arg0` cannot be resolved.
+        if sync_wanted {
+            self.maybe_emit_sync_edge(pc, symbol_owned.as_deref(), tid);
+        }
+
+        if !call_wanted {
+            return;
+        }
+        let Some(arg0) = self.read_call_arg0(target) else {
+            return;
+        };
         self.dispatch_event(&Event::Call {
             pc,
             target,
@@ -415,6 +484,62 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             tid,
             arg0,
         });
+    }
+
+    /// If `symbol` names a Go synchronization primitive, emit the matching
+    /// object-keyed happens-before event. The synchronization object (channel,
+    /// `*WaitGroup`, `*Mutex`) is the first argument / receiver, which Go's
+    /// internal register ABI passes in RAX; this is read at the call site,
+    /// where RAX still holds it. See [`SyncRole`] / [`sync_edge_role`].
+    fn maybe_emit_sync_edge(&mut self, pc: u64, symbol: Option<&str>, tid: u64) {
+        let Some(sym) = symbol else { return };
+        let sym = sym.strip_prefix("plt_").unwrap_or(sym);
+        let Some((role, kind)) = sync_edge_role(sym) else {
+            return;
+        };
+        let obj = self.read_reg64(0x0); // RAX = channel / receiver pointer
+        if obj == 0 {
+            return;
+        }
+        match role {
+            SyncRole::Release => self.dispatch_event(&Event::SyncRelease { obj, tid, pc, kind }),
+            SyncRole::Acquire => self.dispatch_event(&Event::SyncAcquire { obj, tid, pc, kind }),
+            SyncRole::WaitGroupAdd => {
+                // Go's ABI passes the second integer argument (`delta`) in RBX.
+                // `Add(negative)` is the inlined form of `Done`: a release.
+                let delta = self.read_reg64(0x18) as i64;
+                if delta < 0 {
+                    self.dispatch_event(&Event::SyncRelease { obj, tid, pc, kind });
+                }
+            }
+        }
+
+        // WaitGroup.Wait is a join. The cooperative scheduler has already run
+        // the spawned workers to completion (Wait is modelled as a no-op that
+        // does not block), and a worker's deferred `Done` is frequently inlined
+        // to raw atomics that never reach a hookable symbol — so the per-object
+        // acquire above often has nothing to merge. Emit an explicit
+        // happens-before edge from each of the waiter's child goroutines,
+        // matching Go's rule that every `Done` happens-before `Wait` returns.
+        // This orders the waiter's post-Wait accesses strictly after the
+        // workers, instead of racing with them, while leaving the workers'
+        // mutual (worker-vs-worker) races untouched. Matching child goroutines
+        // by `parent_tid` (rather than the specific WaitGroup) is a pragmatic
+        // approximation: exact for the common single-group fan-out, and at
+        // worst over-orders across independent groups on the same parent.
+        if matches!((role, kind), (SyncRole::Acquire, SyncKind::WaitGroup)) {
+            let children: Vec<u64> = {
+                let tm = self.state.thread_manager.lock().unwrap();
+                tm.threads
+                    .values()
+                    .filter(|t| t.kind == ContextKind::Goroutine && t.parent_tid == tid)
+                    .map(|t| t.tid)
+                    .collect()
+            };
+            for child in children {
+                self.dispatch_event(&Event::HappensBefore { from: child, to: tid });
+            }
+        }
     }
 
     /// Concrete write of a 64-bit general register by offset.
@@ -528,7 +653,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         {
             let mut tm = self.state.thread_manager.lock().unwrap();
             parent_tid = tm.current_tid;
-            child_tid = tm.spawn_with_cpu(child_cpu, start_routine, child_rsp, fs_base);
+            // A pthread is a real OS thread (`m`): no synthetic goid, no host M.
+            child_tid = tm.spawn_with_cpu(
+                child_cpu,
+                start_routine,
+                child_rsp,
+                fs_base,
+                ContextKind::OsThread,
+                None,
+            );
         }
 
         // Write the child TID back through the `thread` out-pointer.
@@ -558,6 +691,338 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         });
 
         Ok(())
+    }
+
+    /// Whether Go goroutine-aware scheduling is active.
+    ///
+    /// Enabled whenever the round-robin (`--thread-scheduling all-threads`)
+    /// policy is in effect — i.e. the user explicitly asked for concurrency
+    /// analysis — unless overridden with `ZORYA_GOROUTINE_SCHED=0`. Under any
+    /// other policy `runtime.newproc` behaves as the historical no-op stub so
+    /// single-threaded analyses are completely unaffected.
+    pub fn goroutine_scheduling_enabled(&self) -> bool {
+        if std::env::var("ZORYA_GOROUTINE_SCHED")
+            .map(|v| v == "0" || v.eq_ignore_ascii_case("false"))
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        self.state
+            .thread_manager
+            .lock()
+            .map(|tm| tm.scheduling_policy == crate::state::SchedulingPolicy::RoundRobin)
+            .unwrap_or(false)
+    }
+
+    /// Simulate a `RET` out of a hooked/summarised call whose entry address is
+    /// `func_entry`: pop the return address off the current stack, advance
+    /// RSP, keep the RIP register (0x288) in sync, and pop the matching call
+    /// frame when the top frame belongs to this function (i.e. it was entered
+    /// via `CALL`, not a Go tail-call `JMP`). Returns the return address, or 0
+    /// if it could not be read.
+    fn simulate_call_return(&mut self, func_entry: u64) -> u64 {
+        let rsp = self.read_reg64(0x20);
+        let ret = self
+            .state
+            .memory
+            .read_u64(rsp, &mut self.state.logger.clone())
+            .map(|v| v.concrete.to_u64())
+            .unwrap_or(0);
+        self.write_reg64(0x20, rsp.wrapping_add(8));
+        self.write_reg64(0x288, ret);
+        let has_own_frame = self
+            .state
+            .call_stack
+            .last()
+            .map(|f| f.function_addr == func_entry)
+            .unwrap_or(false);
+        if has_own_frame {
+            self.pop_function_frame();
+        }
+        ret
+    }
+
+    /// Go goroutine spawn + schedule hook for `runtime.newproc(fn *funcval)`.
+    ///
+    /// Go multiplexes goroutines onto a few OS threads with a user-space
+    /// scheduler (`gopark` → `schedule` → `findRunnable` → `gogo`) whose stack
+    /// switch is far too instruction-dense for per-instruction concolic
+    /// execution to traverse within any realistic budget. Consequently, under
+    /// the default engine a freshly-created goroutine's body never runs and the
+    /// concurrency plugins (volos race detector, chancheck, toctou) only ever
+    /// observe the main goroutine — the exact wall documented for `tsgo`'s
+    /// `parallelWorkGroup` fan-out.
+    ///
+    /// This hook closes that gap. Rather than stepping the (already-stubbed)
+    /// goroutine machinery, it reconstructs the new goroutine's initial CPU
+    /// context directly from the funcval argument — the way `runtime.gogo`
+    /// would after `gostartcallfn` — registers it as a first-class schedulable
+    /// thread in the [`ThreadManager`], and switches into it so its body
+    /// executes immediately. When the body returns it lands on the
+    /// thread-exit sentinel and the scheduler yields back to the parent, so
+    /// each `go`/`wg.Go` fans out one worker that the detectors can watch.
+    ///
+    /// `newproc_entry` is the resolved address of `runtime.newproc` (the
+    /// current RIP), used to pop the correct call frame when returning to the
+    /// caller.
+    ///
+    /// Returns the RIP the main loop should resume at: the goroutine's entry
+    /// PC when a switch was performed, or the caller's return address when the
+    /// spawn was skipped (scheduling disabled, missing funcval, or an
+    /// allocation failure) — in which case `newproc` behaves as a plain no-op
+    /// return, exactly like the historical stub.
+    pub fn spawn_goroutine_and_switch(&mut self, newproc_entry: u64) -> u64 {
+        const PROT_RW: i32 = 0x1 | 0x2; // PROT_READ | PROT_WRITE
+        const MAP_PRIVATE_ANON: i32 = 0x2 | 0x20; // MAP_PRIVATE | MAP_ANONYMOUS
+        const GORO_STACK_SIZE: usize = 0x10000; // 64 KiB
+
+        // Go's internal register ABI passes `newproc`'s `fn *funcval` in RAX;
+        // the funcval's first word is the goroutine's entry PC.
+        let fnval = self.read_reg64(0x0); // RAX
+        let entry_pc = if fnval != 0 {
+            self.state
+                .memory
+                .read_u64(fnval, &mut self.state.logger.clone())
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        // `newproc` is void: simulate its return so the caller (the parent
+        // goroutine) resumes right after the `go` / `wg.Go` call site. Doing
+        // this first means the parent snapshot captured below already points
+        // past the call and resumes cleanly when the scheduler comes back.
+        let ret_addr = self.simulate_call_return(newproc_entry);
+
+        // Gate: only reconstruct+schedule the goroutine under the round-robin
+        // policy. Otherwise fall back to the historical no-op return.
+        if !self.goroutine_scheduling_enabled() {
+            return ret_addr;
+        }
+        if entry_pc == 0 {
+            log!(
+                self.state.logger.clone(),
+                "[GOROUTINE] newproc: unusable funcval (RAX=0x{:x}); returning to caller without spawn",
+                fnval
+            );
+            return ret_addr;
+        }
+
+        // Allocate a private stack for the goroutine with the thread-exit
+        // sentinel at the top, so the body's final `ret` lands on the
+        // exit/yield path (mirrors the pthread_create hook).
+        let stack_base = match self
+            .state
+            .memory
+            .mmap(0, GORO_STACK_SIZE, PROT_RW, MAP_PRIVATE_ANON, -1, 0)
+        {
+            Ok(b) => b,
+            Err(e) => {
+                log!(
+                    self.state.logger.clone(),
+                    "[GOROUTINE] stack mmap failed: {:?}; returning to caller without spawn",
+                    e
+                );
+                return ret_addr;
+            }
+        };
+        let child_rsp = (stack_base + GORO_STACK_SIZE as u64 - 256) & !0xfu64;
+        let sentinel_sym = BV::from_u64(self.context, THREAD_EXIT_SENTINEL, 64);
+        let sentinel_val = MemoryValue::new(THREAD_EXIT_SENTINEL, sentinel_sym, 64);
+        if let Err(e) = self.state.memory.write_u64(child_rsp, &sentinel_val) {
+            log!(
+                self.state.logger.clone(),
+                "[GOROUTINE] failed to seed goroutine stack: {:?}; returning without spawn",
+                e
+            );
+            return ret_addr;
+        }
+
+        // Fabricate a minimal runtime.g plus a private TLS block. Three reasons:
+        //   1. The concurrency plugins read the current goroutine id via the
+        //      TLS → g → g.goid walk (see `extract_gid_from_tls`); a private g
+        //      with a distinct goid makes each goroutine attributable.
+        //   2. The function prologue's stack-growth check compares SP against
+        //      g.stackguard0 (g+0x10). A zeroed g gives stackguard0 = 0 < SP,
+        //      so the body never spuriously calls `morestack`.
+        //   3. Real Go code reads `getg().m` (and fields off it). We link the
+        //      fabricated g.m to the host M's real `runtime.m` below, so those
+        //      reads resolve to a live m rather than nil. This is the pragmatic
+        //      two-level M↔G model: private per-goroutine g/TLS, shared host m
+        //      (no P layer, no m.curg, no shared-M TLS).
+        let goid_offset = crate::state::RuntimeGOffsets::get_goid_offset();
+        let g_size = ((goid_offset as usize + 16).max(256) + 15) & !15;
+        let fake_g = match self
+            .state
+            .memory
+            .mmap(0, g_size, PROT_RW, MAP_PRIVATE_ANON, -1, 0)
+        {
+            Ok(b) => b,
+            Err(e) => {
+                log!(
+                    self.state.logger.clone(),
+                    "[GOROUTINE] g mmap failed: {:?}; returning without spawn",
+                    e
+                );
+                return ret_addr;
+            }
+        };
+        self.next_goroutine_goid += 1;
+        let goid = self.next_goroutine_goid;
+        let goid_sym = BV::from_u64(self.context, goid, 64);
+        let _ = self
+            .state
+            .memory
+            .write_u64(fake_g + goid_offset, &MemoryValue::new(goid, goid_sym, 64));
+
+        // Two-level M↔G link: point the fabricated g.m at the host M's real
+        // `runtime.m` so `getg().m` (and per-m field reads) resolve to a live m
+        // instead of nil. The host M is the OS thread currently running the
+        // parent, so read the parent's live g through its TLS (FS_base - 8),
+        // then follow g.m. If any step is unreadable we leave g.m = 0, exactly
+        // as before this linkage existed.
+        let m_offset = crate::state::RuntimeGOffsets::get_m_offset();
+        let parent_fs = self.read_reg64(0x110);
+        let host_m = if parent_fs != 0 {
+            let parent_g = self
+                .state
+                .memory
+                .read_u64(parent_fs.wrapping_sub(8), &mut self.state.logger.clone())
+                .map(|v| v.concrete.to_u64())
+                .unwrap_or(0);
+            if parent_g != 0 {
+                self.state
+                    .memory
+                    .read_u64(
+                        parent_g.wrapping_add(m_offset),
+                        &mut self.state.logger.clone(),
+                    )
+                    .map(|v| v.concrete.to_u64())
+                    .unwrap_or(0)
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        if host_m != 0 {
+            let m_sym = BV::from_u64(self.context, host_m, 64);
+            let _ = self
+                .state
+                .memory
+                .write_u64(fake_g + m_offset, &MemoryValue::new(host_m, m_sym, 64));
+            log!(
+                self.state.logger.clone(),
+                "[GOROUTINE] linked fabricated g=0x{:x} .m=0x{:x} (host M via parent TLS 0x{:x})",
+                fake_g,
+                host_m,
+                parent_fs
+            );
+        } else {
+            log!(
+                self.state.logger.clone(),
+                "[GOROUTINE] could not resolve host M for g=0x{:x} (parent FS=0x{:x}); leaving g.m=0",
+                fake_g,
+                parent_fs
+            );
+        }
+
+        // Private TLS: the runtime reads the current g at [FS_base - 8].
+        // Allocate a small block and expose FS_base = block + 16 so the slot
+        // at FS_base - 8 is comfortably in-bounds.
+        let tls_block = match self.state.memory.mmap(0, 64, PROT_RW, MAP_PRIVATE_ANON, -1, 0) {
+            Ok(b) => b,
+            Err(e) => {
+                log!(
+                    self.state.logger.clone(),
+                    "[GOROUTINE] tls mmap failed: {:?}; returning without spawn",
+                    e
+                );
+                return ret_addr;
+            }
+        };
+        let fs_base = tls_block + 16;
+        let g_ptr_sym = BV::from_u64(self.context, fake_g, 64);
+        let _ = self
+            .state
+            .memory
+            .write_u64(fs_base - 8, &MemoryValue::new(fake_g, g_ptr_sym, 64));
+
+        // Build the goroutine's register file from the parent's current state,
+        // then override the goroutine-start registers the way `gogo` would:
+        //   RIP = entry PC, RSP/RBP = fresh stack top, RDX = closure context
+        //   (the funcval — Go's ABI context register), R14 = g, FS = private
+        //   TLS base, RAX cleared.
+        let mut g_cpu = self.state.cpu_state.lock().unwrap().clone();
+        let set = |cpu: &mut crate::state::cpu_state::CpuState<'ctx>, off: u64, val: u64| {
+            let sym = BV::from_u64(self.context, val, 64);
+            let cv = ConcolicVar::new_concrete_and_symbolic_int(val, sym, self.context);
+            let _ = cpu.set_register_value_by_offset(off, cv, 64);
+        };
+        set(&mut g_cpu, 0x20, child_rsp); // RSP
+        set(&mut g_cpu, 0x28, child_rsp); // RBP
+        set(&mut g_cpu, 0x288, entry_pc); // RIP
+        set(&mut g_cpu, 0x10, fnval); // RDX = closure context
+        set(&mut g_cpu, 0xb0, fake_g); // R14 = g
+        set(&mut g_cpu, 0x110, fs_base); // FS_OFFSET = TLS base
+        set(&mut g_cpu, 0x0, 0); // RAX
+
+        // Save the parent (already advanced past newproc), register the
+        // goroutine as a schedulable thread, and switch the live CPU state to
+        // it. Lock ordering matches the rest of the engine: thread_manager
+        // first, then cpu_state, and the lock scope is dropped before the
+        // event dispatch below (which re-locks thread_manager).
+        let (parent_tid, child_tid);
+        {
+            let mut tm = self.state.thread_manager.lock().unwrap();
+            parent_tid = tm.current_tid;
+            let parent_snap = self.state.cpu_state.lock().unwrap().clone();
+            if let Some(parent_thread) = tm.threads.get_mut(&parent_tid) {
+                parent_thread.cpu_state = parent_snap;
+            }
+            // A goroutine: tag it as such and hand the manager its synthetic
+            // goid so its accesses stay attributable and its host `m` is linked.
+            child_tid = tm.spawn_with_cpu(
+                g_cpu,
+                entry_pc,
+                child_rsp,
+                fs_base,
+                ContextKind::Goroutine,
+                Some(goid),
+            );
+            let _ = tm.switch_to_thread(child_tid);
+            if let Some(child_thread) = tm.threads.get(&child_tid) {
+                let new_cpu = child_thread.cpu_state.clone();
+                *self.state.cpu_state.lock().unwrap() = new_cpu;
+            }
+        }
+
+        // Fork the parent's vector clock into the child (Volos happens-before
+        // "fork" rule) and register the child for the concurrency plugins.
+        self.dispatch_event(&Event::ThreadSpawn {
+            parent_tid,
+            child_tid,
+            entry: entry_pc,
+            flags: 0,
+        });
+        // The goid cache is keyed by (pc, tid); force a recompute so the
+        // switched-in goroutine's id is read from its own TLS.
+        self.cached_goid = None;
+
+        log!(
+            self.state.logger.clone(),
+            "[GOROUTINE] newproc: spawned+scheduled goroutine TID {} entry=0x{:x} g=0x{:x} goid={} rsp=0x{:x} (parent TID {}, resumes at 0x{:x})",
+            child_tid,
+            entry_pc,
+            fake_g,
+            goid,
+            child_rsp,
+            parent_tid,
+            ret_addr
+        );
+
+        entry_pc
     }
 
     /// Handle an address that has no lifted pcode. See the section comment

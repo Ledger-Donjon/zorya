@@ -31,5 +31,7 @@ pub use overlay_state::{CpuStateOverlay, MemoryRegionOverlay, OverlayState};
 pub use runtime_info::{RuntimeGOffsets, RuntimeInfo};
 pub use state_manager::State;
 pub use thread_loader::load_threads_from_dumps;
-pub use thread_manager::{CheckpointType, OSThread, SchedulingPolicy, ThreadManager, ThreadStatus};
+pub use thread_manager::{
+    CheckpointType, ContextKind, OSThread, SchedulingPolicy, ThreadManager, ThreadStatus,
+};
 pub use virtual_file_system::VirtualFileSystem;

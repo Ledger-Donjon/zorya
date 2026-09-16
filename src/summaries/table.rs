@@ -65,6 +65,23 @@ pub enum SummaryEffect {
     /// equality functions (ifaceeq, efaceeq, etc.) where we need a
     /// deterministic concrete result without tracing the function body.
     ReturnZero,
+
+    /// Spawns a Go goroutine as a first-class schedulable context and
+    /// switches into it, so its body actually executes under the concurrency
+    /// plugins.
+    /// Models: `runtime.newproc(fn *funcval)` (fn in RAX per Go's internal
+    /// register ABI).
+    ///
+    /// Unlike every other variant, this effect needs engine-level state (the
+    /// thread manager, memory allocator, and event bus) that [`apply`] does
+    /// not have, so the executor intercepts it directly — see
+    /// `ConcolicExecutor::spawn_goroutine_and_switch`. The entry stays in the
+    /// table only so the normal "is this call summarised?" lookup routes
+    /// `runtime.newproc` to the goroutine hook instead of stepping its
+    /// (already-stubbed) body. Active only under the round-robin
+    /// (`--thread-scheduling all-threads`) policy; otherwise the hook falls
+    /// back to a plain caller-return, matching the historical stub.
+    SpawnGoroutine,
 }
 
 /// One summary entry: the function name and what the engine does instead.
@@ -324,6 +341,19 @@ pub static RUNTIME_SUMMARIES: Lazy<Vec<FunctionSummary>> = Lazy::new(|| {
             name: "sync.(*Mutex).Unlock",
             effect: SummaryEffect::Nop,
         },
+        // `WaitGroup.Wait` normally parks the caller until the counter hits
+        // zero. Under the goroutine scheduler the spawned workers run (and
+        // decrement the group) at their creation point, so by the time the
+        // parent reaches `Wait` there is nothing left to wait for — but the
+        // real park path dives into `runtime.semacquire`/`gopark`, which the
+        // concolic engine cannot traverse and which would burn the whole
+        // budget (and, on a SIGKILL timeout, skip the plugins' end-of-run
+        // race pass). Modelling `Wait` as a no-op lets the parent return and
+        // the run terminate cleanly so `on_finish` emits any findings.
+        FunctionSummary {
+            name: "sync.(*WaitGroup).Wait",
+            effect: SummaryEffect::Nop,
+        },
         FunctionSummary {
             name: "runtime.publicationBarrier",
             effect: SummaryEffect::Nop,
@@ -502,6 +532,18 @@ pub static RUNTIME_SUMMARIES: Lazy<Vec<FunctionSummary>> = Lazy::new(|| {
             effect: SummaryEffect::Nop,
         },
         // ─── Goroutine creation / scheduling ──────────────────────────────
+        // `runtime.newproc` is the universal `go`/`sync.WaitGroup.Go` fan-out.
+        // Instead of stepping its (stubbed) body — which never actually runs
+        // the goroutine because the Go runtime's user-space scheduler is far
+        // too instruction-dense for per-instruction concolic traversal — the
+        // executor reconstructs the goroutine's initial context from the
+        // funcval argument and registers it as a schedulable thread, so the
+        // concurrency plugins (volos/chancheck/toctou) observe real
+        // cross-goroutine interleavings. See `SummaryEffect::SpawnGoroutine`.
+        FunctionSummary {
+            name: "runtime.newproc",
+            effect: SummaryEffect::SpawnGoroutine,
+        },
         FunctionSummary {
             name: "runtime.newproc1",
             effect: SummaryEffect::Alloc,

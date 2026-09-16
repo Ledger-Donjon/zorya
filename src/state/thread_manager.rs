@@ -8,8 +8,20 @@ use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 use z3::Context;
 
-/// Represents an OS thread in the Go runtime
-/// This simulates a Go 'm' (machine/OS thread)
+/// A schedulable execution context managed by the engine's cooperative
+/// scheduler.
+///
+/// Historically this was always a real OS thread (a Go `m` / a C pthread
+/// restored from the GDB dump), hence the name. It now *also* represents a
+/// **goroutine** (a Go `g`) created at runtime by `runtime.newproc` and
+/// scheduled as a first-class context. Go's runtime multiplexes many `g` onto
+/// a few `m` (the M:N model); Zorya executes one context at a time and
+/// interleaves them, so it flattens that mapping — but the [`kind`] field keeps
+/// the two *kinds* distinct so a goroutine is never conflated with an OS
+/// thread, and [`goid`] carries the goroutine's id in the `Goroutine` case.
+///
+/// [`kind`]: OSThread::kind
+/// [`goid`]: OSThread::goid
 #[derive(Debug, Clone)]
 pub struct OSThread<'ctx> {
     /// Thread ID (TID) - matches Linux TID
@@ -44,6 +56,46 @@ pub struct OSThread<'ctx> {
 
     /// Child clear TID pointer (for CLONE_CHILD_CLEARTID)
     pub child_cleartid_ptr: Option<u64>,
+
+    /// Whether this context is a real OS thread (Go `m` / C pthread) or a
+    /// goroutine (Go `g`) fabricated and scheduled by the `runtime.newproc`
+    /// hook. See [`ContextKind`].
+    pub kind: ContextKind,
+
+    /// Synthetic goroutine id for `ContextKind::Goroutine` contexts — the id
+    /// baked into the fabricated `runtime.g`. `None` for OS threads, whose
+    /// *current* goroutine id is instead read dynamically from their live `g`
+    /// through TLS (`extract_gid_from_tls`).
+    pub goid: Option<u64>,
+
+    /// The two-level M↔G link. For a `Goroutine` context this is the tid of
+    /// the OS-thread (`m`) context that hosts it; the fabricated `g.m` is made
+    /// to point at that host `m`'s real `runtime.m` so `getg().m` reads are
+    /// coherent. `None` for `OsThread` contexts, which *are* an `m`. A
+    /// goroutine spawned by another goroutine (nested `go`) inherits the
+    /// parent's host `m`, since Zorya does not model Go's P layer.
+    pub host_m_tid: Option<u64>,
+}
+
+/// Distinguishes the two kinds of schedulable context the engine multiplexes.
+///
+/// Go uses an M:N model — many goroutines (`g`) run on a few OS threads (`m`),
+/// switched by the runtime's user-space scheduler. `runtime.newproc` creates a
+/// `g`, **not** an `m` (OS-thread creation is `runtime.newm`/`newosproc` →
+/// `clone`). Zorya therefore tags each context with its real kind so that a
+/// goroutine created by `newproc` is modelled as a goroutine, never as an OS
+/// thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextKind {
+    /// A real OS thread: a Go `m` or a C pthread, restored from the GDB dump or
+    /// created via the `clone` / `pthread_create` path.
+    OsThread,
+
+    /// A goroutine (`g`) created at runtime by `runtime.newproc` and scheduled
+    /// as a first-class context by the goroutine hook. This is **not** a kernel
+    /// thread: no `clone`, no `runtime.m` — just a fabricated `g` + stack + TLS
+    /// that the cooperative scheduler runs like any other context.
+    Goroutine,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +192,10 @@ impl<'ctx> OSThread<'ctx> {
             clone_flags: params.clone_flags,
             child_tid_ptr: params.child_tid_ptr,
             child_cleartid_ptr: params.child_cleartid_ptr,
+            // `clone` creates a real OS thread (pthread), not a goroutine.
+            kind: ContextKind::OsThread,
+            goid: None,
+            host_m_tid: None,
         })
     }
 }
@@ -231,6 +287,12 @@ impl<'ctx> ThreadManager<'ctx> {
             clone_flags: 0,
             child_tid_ptr: None,
             child_cleartid_ptr: None,
+            // The initial context is the OS thread the dump was taken on (the
+            // `m` currently running the main goroutine); its live goid is read
+            // from TLS, so no synthetic id is stored here.
+            kind: ContextKind::OsThread,
+            goid: None,
+            host_m_tid: None,
         };
 
         threads.insert(initial_tid, main_thread);
@@ -323,10 +385,25 @@ impl<'ctx> ThreadManager<'ctx> {
         entry_point: u64,
         stack_pointer: u64,
         fs_base: u64,
+        kind: ContextKind,
+        goid: Option<u64>,
     ) -> u64 {
         let new_tid = self.next_tid;
         self.next_tid += 1;
         let parent_tid = self.current_tid;
+
+        // Two-level M↔G link. An OS thread *is* an `m`, so it has no host. A
+        // goroutine is hosted by an `m`: the spawning context when that is an
+        // OS thread, or the spawning goroutine's own host `m` for a nested
+        // `go` (Zorya does not model Go's P layer, so nested goroutines share
+        // their ancestor `m`).
+        let host_m_tid = match kind {
+            ContextKind::OsThread => None,
+            ContextKind::Goroutine => match self.threads.get(&parent_tid) {
+                Some(parent) if parent.kind == ContextKind::Goroutine => parent.host_m_tid,
+                _ => Some(parent_tid),
+            },
+        };
 
         let thread = OSThread {
             tid: new_tid,
@@ -340,11 +417,19 @@ impl<'ctx> ThreadManager<'ctx> {
             clone_flags: 0,
             child_tid_ptr: None,
             child_cleartid_ptr: None,
+            kind,
+            goid,
+            host_m_tid,
         };
 
         tprintln!(
-            "[THREAD] Spawned TID={} (entry=0x{:x}, stack=0x{:x}) from parent TID={}",
+            "[THREAD] Spawned {} TID={}{} (entry=0x{:x}, stack=0x{:x}) from parent TID={}",
+            match kind {
+                ContextKind::Goroutine => "goroutine",
+                ContextKind::OsThread => "OS thread",
+            },
             new_tid,
+            goid.map(|g| format!(" goid={}", g)).unwrap_or_default(),
             entry_point,
             stack_pointer,
             parent_tid
@@ -493,6 +578,10 @@ impl<'ctx> ThreadManager<'ctx> {
             clone_flags: 0,
             child_tid_ptr: None,
             child_cleartid_ptr: None,
+            // Dump threads are the OS threads (`m`s) captured by GDB.
+            kind: ContextKind::OsThread,
+            goid: None,
+            host_m_tid: None,
         };
 
         self.threads.insert(tid, thread);

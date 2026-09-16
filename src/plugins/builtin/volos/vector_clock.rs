@@ -60,6 +60,18 @@ impl VolosVC {
         self.tick();
     }
 
+    /// Pointwise max with `other` **without** ticking the local component.
+    /// Used to accumulate a *release* clock into a per-object clock: the
+    /// object's clock should reflect the union of every releaser's history,
+    /// but the release itself is not a new local event *of the object*, so no
+    /// tick is applied. The matching acquire uses [`merge`] (max + tick).
+    pub fn join(&mut self, other: &VolosVC) {
+        for (node, &timestamp) in &other.clocks {
+            let local = self.clocks.entry(node.clone()).or_insert(0);
+            *local = (*local).max(timestamp);
+        }
+    }
+
     /// Partial-order compare two clocks.
     ///
     /// - `Some(Greater)` — `self` strictly happens after `other`.

@@ -32,6 +32,9 @@ subscribes:
   - Call
   - ThreadSpawn
   - ThreadExit
+  - HappensBefore
+  - SyncRelease
+  - SyncAcquire
 
 # Symbols the engine resolves at load time and notifies the plugin
 # about via Event::Call. Unresolved symbols become deferred bindings

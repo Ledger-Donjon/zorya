@@ -211,6 +211,14 @@ pub fn apply<'ctx>(
                 .set_register_value_by_offset(0x0, zero_cv, 64);
             ApplyOutcome::Ok
         }
+
+        // Goroutine spawning is handled by the executor (it needs thread
+        // manager / event bus access this function does not have), so the
+        // main loop intercepts `SpawnGoroutine` before ever calling `apply`.
+        // This arm exists only for exhaustiveness and for the overlay
+        // (negated-path) explorer, where a goroutine is intentionally NOT
+        // scheduled: there, treating it as a no-op caller-return is correct.
+        SummaryEffect::SpawnGoroutine => ApplyOutcome::Ok,
     }
 }
 

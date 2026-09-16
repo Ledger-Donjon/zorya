@@ -37,7 +37,7 @@ use z3::ast::{Ast, Bool};
 use z3::{SatResult, Solver};
 
 use crate::plugins::context::EventCtx;
-use crate::plugins::event::{Event, EventKind};
+use crate::plugins::event::{Event, EventKind, SyncKind};
 use crate::plugins::finding::{Finding, Severity};
 use crate::plugins::plugin::Plugin;
 use crate::plugins::verdict::Verdict;
@@ -122,6 +122,13 @@ pub struct VolosPlugin<'ctx> {
     /// Per-thread vector clock.
     clocks: HashMap<u64, VolosVC>,
 
+    /// Per-object release clock, keyed by synchronization-object pointer
+    /// (channel / `*WaitGroup` / `*Mutex`). A `SyncRelease` folds the
+    /// releaser's clock into this via `join`; a `SyncAcquire` merges it back
+    /// into the acquirer, implementing object-keyed release/acquire
+    /// happens-before for Go sync primitives.
+    object_clocks: HashMap<u64, VolosVC>,
+
     /// Synthetic goroutine ids, assigned monotonically in the order each
     /// tid is first observed. Not the real Go `g.goid`; see the comment
     /// on [`Volos::go_id`].
@@ -168,6 +175,7 @@ impl<'ctx> VolosPlugin<'ctx> {
         Self {
             locksets: HashMap::new(),
             clocks: HashMap::new(),
+            object_clocks: HashMap::new(),
             go_ids: HashMap::new(),
             next_go_id: 0,
             region: VolosRegion::new(0, u64::MAX),
@@ -411,6 +419,9 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
             EventKind::Call,
             EventKind::ThreadSpawn,
             EventKind::ThreadExit,
+            EventKind::HappensBefore,
+            EventKind::SyncRelease,
+            EventKind::SyncAcquire,
         ]
         .into_iter()
         .collect()
@@ -498,27 +509,23 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                 self.region.add_record(rec);
             }
             Event::Call {
-                target,
                 symbol: Some(sym),
                 tid,
                 arg0,
                 ..
             } => {
-                {
-                    // Normalise PLT-resolved C symbols (`plt_pthread_mutex_lock`)
-                    // to their bare primitive name before matching.
-                    let name = strip_plt(sym);
-                    // Lock identity: for pthread primitives the mutex object is
-                    // the first argument (RDI), so different mutexes are
-                    // distinguishable. The PLT stub `target` is identical for
-                    // every pthread call and would collapse them into one lock,
-                    // so prefer `arg0` when it is a usable pointer; otherwise
-                    // fall back to the call target (Go runtime.lock family).
-                    let lock_addr = if name.starts_with("pthread_") && *arg0 != 0 {
-                        *arg0
-                    } else {
-                        *target
-                    };
+                // Normalise PLT-resolved C symbols (`plt_pthread_mutex_lock`)
+                // to their bare primitive name before matching.
+                let name = strip_plt(sym);
+                // Only C / pthread mutexes are keyed here, by the mutex object
+                // pointer in `arg0` (RDI). Go's `sync.Mutex` / `sync.RWMutex`
+                // are handled object-keyed through the `SyncAcquire` /
+                // `SyncRelease` events instead: their receiver is in RAX (not
+                // RDI), and the shared PLT `target` would otherwise collapse
+                // every Go mutex into a single lock. Excluding them here avoids
+                // double counting the same acquire/release.
+                if name.starts_with("pthread_") && *arg0 != 0 {
+                    let lock_addr = *arg0;
                     if LOCK_ACQUIRE_SYMBOLS.contains(&name) {
                         self.lock_acquires += 1;
                         self.locksets.entry(*tid).or_default().push(lock_addr);
@@ -584,6 +591,78 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
             Event::ThreadExit { tid, .. } => {
                 self.locksets.remove(tid);
                 self.vlog(format!("EXIT tid={}", tid));
+            }
+            Event::HappensBefore { from, to } => {
+                // Join / handoff edge (e.g. `WaitGroup.Wait`): every event on
+                // `from` happens-before subsequent events on `to`. Merge the
+                // source clock into the destination (pointwise max + tick) so
+                // the waiter's post-join accesses are ordered strictly after
+                // the joined goroutine's accesses and are no longer flagged as
+                // races. `from`'s clock survives its ThreadExit (only locksets
+                // are dropped on exit), so it is still available here.
+                if let Some(from_clock) = self.clocks.get(from).cloned() {
+                    let to_clock = self
+                        .clocks
+                        .entry(*to)
+                        .or_insert_with(|| VolosVC::new(&to.to_string()));
+                    to_clock.merge(&from_clock);
+                    self.vlog(format!("JOIN to={} from={} (happens-before)", to, from));
+                }
+            }
+            Event::SyncRelease {
+                obj, tid, kind, ..
+            } => {
+                // Release half of release/acquire: fold the releaser's current
+                // clock into the per-object clock, so a later acquire on the
+                // same object inherits this history. The release is itself a
+                // local event, so tick the thread clock first.
+                let src = {
+                    let c = self
+                        .clocks
+                        .entry(*tid)
+                        .or_insert_with(|| VolosVC::new(&tid.to_string()));
+                    c.tick();
+                    c.clone()
+                };
+                self.object_clocks
+                    .entry(*obj)
+                    .or_insert_with(|| VolosVC::new(&format!("obj:{:x}", *obj)))
+                    .join(&src);
+                if *kind == SyncKind::Mutex {
+                    // Object-keyed unlock: drop this mutex from the lockset.
+                    self.lock_releases += 1;
+                    if let Some(locks) = self.locksets.get_mut(tid) {
+                        if let Some(pos) = locks.iter().rposition(|&l| l == *obj) {
+                            locks.remove(pos);
+                        }
+                    }
+                }
+                self.vlog(format!(
+                    "SYNC-RELEASE obj=0x{:x} tid={} kind={:?}",
+                    *obj, tid, kind
+                ));
+            }
+            Event::SyncAcquire {
+                obj, tid, kind, ..
+            } => {
+                // Acquire half: merge the object's stored release clock into
+                // the acquirer, ordering its subsequent accesses strictly
+                // after every release that fed the object (channel send ->
+                // recv, WaitGroup Done -> Wait, mutex unlock -> lock).
+                if let Some(objc) = self.object_clocks.get(obj).cloned() {
+                    self.clocks
+                        .entry(*tid)
+                        .or_insert_with(|| VolosVC::new(&tid.to_string()))
+                        .merge(&objc);
+                }
+                if *kind == SyncKind::Mutex {
+                    self.lock_acquires += 1;
+                    self.locksets.entry(*tid).or_default().push(*obj);
+                }
+                self.vlog(format!(
+                    "SYNC-ACQUIRE obj=0x{:x} tid={} kind={:?}",
+                    *obj, tid, kind
+                ));
             }
             _ => {}
         }
@@ -893,15 +972,17 @@ mod tests {
         let bytes = vec![0u8; 8];
         let sym: Vec<Option<Rc<BV<'_>>>> = vec![None; 8];
 
-        // Both threads acquire the same lock at 0x9000 before writing.
+        // Both threads acquire the same mutex object 0x9000 before writing.
+        // Go mutexes are object-keyed via SyncAcquire / SyncRelease (the
+        // receiver pointer), which both suppresses the race via the lockset and
+        // orders the two critical sections through the per-object clock.
         for tid in [1u64, 2u64] {
             bus.dispatch(
-                &Event::Call {
-                    pc: 0x80,
-                    target: 0x9000,
-                    symbol: Some("runtime.lock"),
+                &Event::SyncAcquire {
+                    obj: 0x9000,
                     tid,
-                    arg0: 0,
+                    pc: 0x80,
+                    kind: SyncKind::Mutex,
                 },
                 &ectx,
             );
@@ -917,12 +998,11 @@ mod tests {
                 &ectx,
             );
             bus.dispatch(
-                &Event::Call {
-                    pc: 0xa0,
-                    target: 0x9000,
-                    symbol: Some("runtime.unlock"),
+                &Event::SyncRelease {
+                    obj: 0x9000,
                     tid,
-                    arg0: 0,
+                    pc: 0xa0,
+                    kind: SyncKind::Mutex,
                 },
                 &ectx,
             );
@@ -1483,25 +1563,24 @@ mod tests {
         let bytes = vec![0u8; 8];
         let sym: Vec<Option<Rc<BV<'_>>>> = vec![None; 8];
 
-        // tid=1 holds lock A, tid=2 holds lock B. Both write 0x7000.
-        // Locksets are non-empty but disjoint — inconsistent locking.
+        // tid=1 holds mutex A, tid=2 holds mutex B, both write 0x7000.
+        // Locksets are non-empty but disjoint (inconsistent locking). Go
+        // mutexes are object-keyed via SyncAcquire (the receiver pointer).
         bus.dispatch(
-            &Event::Call {
-                pc: 0x80,
-                target: 0xAAA,
-                symbol: Some("runtime.lock"),
+            &Event::SyncAcquire {
+                obj: 0xAAA,
                 tid: 1,
-                arg0: 0,
+                pc: 0x80,
+                kind: SyncKind::Mutex,
             },
             &ectx,
         );
         bus.dispatch(
-            &Event::Call {
-                pc: 0x80,
-                target: 0xBBB,
-                symbol: Some("runtime.lock"),
+            &Event::SyncAcquire {
+                obj: 0xBBB,
                 tid: 2,
-                arg0: 0,
+                pc: 0x80,
+                kind: SyncKind::Mutex,
             },
             &ectx,
         );

@@ -61,32 +61,46 @@ pub struct RuntimeInfo {
 static RUNTIME_INFO: OnceLock<RuntimeGOffsets> = OnceLock::new();
 
 impl RuntimeGOffsets {
+    /// Load (once) the cached `runtime.g` field offsets, falling back to
+    /// conservative defaults when the DWARF cache is missing. Shared by every
+    /// per-field accessor so the "not found" warning is emitted at most once.
+    fn offsets() -> &'static RuntimeGOffsets {
+        RUNTIME_INFO.get_or_init(|| {
+            // Try loading from pre-extracted DWARF info
+            if let Ok(offsets) = Self::load_from_dwarf_cache() {
+                return offsets;
+            }
+
+            // Fallback: use default offset with warning
+            teprintln!("[RUNTIME-INFO] Warning: runtime_g_offsets.json not found");
+            teprintln!("[RUNTIME-INFO] Using default goid offset 152 (may be incorrect)");
+            teprintln!("[RUNTIME-INFO] Make sure binary was analyzed with debug symbols");
+
+            RuntimeGOffsets {
+                goid: 152, // Most common offset
+                stack: None,
+                stackguard0: None,
+                m: None,
+                atomicstatus: None,
+                all_fields: None,
+            }
+        })
+    }
+
     /// Get the goid offset, using cached value if available
     ///
     /// This loads from results/runtime_g_offsets.json (generated during function signature extraction)
     pub fn get_goid_offset() -> u64 {
-        RUNTIME_INFO
-            .get_or_init(|| {
-                // Try loading from pre-extracted DWARF info
-                if let Ok(offsets) = Self::load_from_dwarf_cache() {
-                    return offsets;
-                }
+        Self::offsets().goid
+    }
 
-                // Fallback: use default offset with warning
-                teprintln!("[RUNTIME-INFO] Warning: runtime_g_offsets.json not found");
-                teprintln!("[RUNTIME-INFO] Using default goid offset 152 (may be incorrect)");
-                teprintln!("[RUNTIME-INFO] Make sure binary was analyzed with debug symbols");
-
-                RuntimeGOffsets {
-                    goid: 152, // Most common offset
-                    stack: None,
-                    stackguard0: None,
-                    m: None,
-                    atomicstatus: None,
-                    all_fields: None,
-                }
-            })
-            .goid
+    /// Offset of `runtime.g.m` — the pointer to the OS thread (`m`) currently
+    /// running this goroutine. Used by the goroutine-spawn hook to link a
+    /// fabricated `g` to its host `m` so `getg().m` reads stay coherent.
+    /// Falls back to 48, the stable offset across recent Go releases, when the
+    /// DWARF cache does not carry it.
+    pub fn get_m_offset() -> u64 {
+        Self::offsets().m.unwrap_or(48)
     }
 
     /// Load runtime.g offsets from DWARF cache file

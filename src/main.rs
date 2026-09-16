@@ -1139,7 +1139,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     // does not get painted on top of leftover bar text.
     zorya::clear_coverage_bar();
 
-    Ok(())
+    // The run is over and `finalize_plugin_analysis` has already flushed every
+    // result to disk (results/plugin_findings.txt, SAT states, logs). Returning
+    // normally would now drop the Z3 context, the whole symbolic memory image,
+    // and the accumulated solver state — teardown that can take minutes on a
+    // long Go run (and, for runs that reach `main.main`'s return under the
+    // goroutine scheduler, would otherwise burn the fuzzer's entire per-test
+    // budget before the process finally exits). Nothing useful happens during
+    // that teardown, so flush user-visible output and exit directly.
+    use std::io::Write as _;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    std::process::exit(0)
 }
 
 /// Update the sticky coverage bar that stays pinned to the last terminal line.
@@ -1461,6 +1472,23 @@ fn execute_instructions_from(
                 .cloned();
             if let Some(ref sym_name) = maybe_sym {
                 if let Some(effect) = summary_table.lookup(sym_name) {
+                    // Go goroutine scheduling: `runtime.newproc` is intercepted
+                    // specially because it must touch engine-level state (the
+                    // thread manager and event bus) that the generic `apply`
+                    // path cannot. The hook registers the new goroutine as a
+                    // schedulable context and switches into it so its body runs
+                    // under the concurrency plugins; when scheduling is off it
+                    // falls back to a plain caller-return. It fully owns the
+                    // control-flow update, so we just take its next RIP.
+                    if matches!(effect, zorya::summaries::SummaryEffect::SpawnGoroutine) {
+                        log!(
+                            executor.state.logger.clone(),
+                            "[SUMMARY] runtime.newproc at 0x{:x} → goroutine spawn hook",
+                            current_rip
+                        );
+                        current_rip = executor.spawn_goroutine_and_switch(current_rip);
+                        continue;
+                    }
                     log!(
                         executor.state.logger.clone(),
                         "[SUMMARY] Applying summary for {} at 0x{:x}",

@@ -32,7 +32,10 @@ use crate::state::state_manager::FunctionFrame;
 /// Plugin API version. Plugins compiled against an older version of this
 /// trait will fail to link; bump on every breaking change to `Event` or
 /// `Plugin`.
-pub const EVENT_API_VERSION: u32 = 1;
+///
+/// v3: added `Event::SyncRelease` / `Event::SyncAcquire` (object-keyed
+/// release/acquire happens-before edges for Go sync primitives).
+pub const EVENT_API_VERSION: u32 = 3;
 
 /// A single event observed by the executor.
 ///
@@ -123,6 +126,44 @@ pub enum Event<'ctx, 'e> {
     /// A thread exited.
     ThreadExit { tid: u64, code: i32 },
 
+    /// A synchronization happens-before edge: every event on `from`
+    /// happens-before subsequent events on `to`.
+    ///
+    /// Fired by the executor when it models a join / handoff primitive.
+    /// Currently emitted by the `sync.(*WaitGroup).Wait` hook, which
+    /// establishes that each worker goroutine's `Done` happens-before the
+    /// waiter resumes (Go memory-model rule for `WaitGroup`). Concurrency
+    /// detectors merge `from`'s vector clock into `to`'s, so accesses ordered
+    /// by the primitive are no longer reported as data races.
+    HappensBefore { from: u64, to: u64 },
+
+    /// A *release* on a synchronization object `obj` performed by thread
+    /// `tid`. Models the "release" half of the release/acquire memory model:
+    /// a channel send / close, `sync.(*WaitGroup).Done`, or a mutex unlock.
+    /// Concurrency detectors snapshot `tid`'s current vector clock into a
+    /// per-object clock so a later [`Event::SyncAcquire`] on the same `obj`
+    /// establishes happens-before. `obj` is the object pointer read from the
+    /// Go register ABI at the call site; `kind` says which primitive class it
+    /// is (so a mutex also updates the holder's lockset).
+    SyncRelease {
+        obj: u64,
+        tid: u64,
+        pc: u64,
+        kind: SyncKind,
+    },
+
+    /// An *acquire* on a synchronization object `obj` performed by thread
+    /// `tid`. Models the "acquire" half: a channel receive,
+    /// `sync.(*WaitGroup).Wait`, or a mutex lock. Detectors merge the object's
+    /// stored release clock into `tid`'s clock, so accesses ordered by the
+    /// primitive are no longer flagged as data races.
+    SyncAcquire {
+        obj: u64,
+        tid: u64,
+        pc: u64,
+        kind: SyncKind,
+    },
+
     /// A panic / fatal call site was reached. `kind` is a stable string id
     /// such as `"runtime.nilPanic"`, `"runtime.slicePanic"`, etc.
     Panic { pc: u64, kind: &'static str },
@@ -150,9 +191,27 @@ pub enum EventKind {
     ThreadSpawn,
     ThreadSwitch,
     ThreadExit,
+    HappensBefore,
+    SyncRelease,
+    SyncAcquire,
     Panic,
     InstrPre,
     InstrPost,
+}
+
+/// The class of synchronization object a [`Event::SyncRelease`] /
+/// [`Event::SyncAcquire`] edge refers to. Detectors use it to decide whether
+/// the object also participates in mutual-exclusion reasoning (mutexes) or
+/// only in ordering (channels, wait groups).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncKind {
+    /// A Go channel (`*hchan`): send / close releases, receive acquires.
+    Channel,
+    /// A `sync.WaitGroup`: `Done` releases, `Wait` acquires.
+    WaitGroup,
+    /// A `sync.Mutex` / `sync.RWMutex`: unlock releases and drops the lock
+    /// from the holder's lockset; lock acquires and adds it.
+    Mutex,
 }
 
 /// Origin of a memory access, used to gate plugin `MemRead` / `MemWrite`
@@ -211,6 +270,9 @@ impl<'ctx, 'e> Event<'ctx, 'e> {
             Event::ThreadSpawn { .. } => EventKind::ThreadSpawn,
             Event::ThreadSwitch { .. } => EventKind::ThreadSwitch,
             Event::ThreadExit { .. } => EventKind::ThreadExit,
+            Event::HappensBefore { .. } => EventKind::HappensBefore,
+            Event::SyncRelease { .. } => EventKind::SyncRelease,
+            Event::SyncAcquire { .. } => EventKind::SyncAcquire,
             Event::Panic { .. } => EventKind::Panic,
             Event::InstrPre { .. } => EventKind::InstrPre,
             Event::InstrPost { .. } => EventKind::InstrPost,
