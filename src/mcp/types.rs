@@ -63,7 +63,9 @@ pub struct RunAnalysisParams {
         description = "Start address as hex string (e.g. 0x4bef60). Required for function mode"
     )]
     pub start_address: String,
-    #[schemars(description = "Arguments to pass to the binary at runtime (e.g. \"2 + 3\")")]
+    #[schemars(
+        description = "Runtime arguments for the target binary's argv, as one space-separated string (shell-quoting honored, e.g. \"2 + 3\" or \"--noEmit /path/file.ts\"). In `function` mode the binary still runs to the breakpoint with these argv, and Zorya then makes the target function's own arguments (registers per the Go ABI: strings, slices, scalars) symbolic. Use \"none\" or omit for no arguments."
+    )]
     pub args: Option<String>,
     #[schemars(
         description = "Enable negated path exploration to find alternate branches. Defaults to true"
@@ -80,7 +82,7 @@ pub struct CampaignTest {
     #[schemars(description = "Start address as hex string (e.g. 0x4bef60)")]
     pub start_address: String,
     #[schemars(
-        description = "Arguments to pass to the binary. Use \"none\" for no arguments. Defaults to none"
+        description = "Runtime arguments for the target binary's argv, as one space-separated string (shell-quoting honored; program flags beginning with \"--\" such as \"--noEmit /path/file.ts\" are supported). Use \"none\" for no arguments. Defaults to none."
     )]
     pub args: Option<String>,
     #[schemars(description = "Timeout in seconds for this test. Defaults to 300")]

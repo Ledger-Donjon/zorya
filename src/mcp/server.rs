@@ -373,8 +373,29 @@ impl ZoryaMcp {
             cmd.arg("--thread-scheduling").arg(sched);
         }
 
-        if let Some(ref args) = params.args {
-            cmd.arg("--arg").arg(args);
+        // Forward the target binary's runtime arguments. The MCP receives them
+        // as a single JSON string; tokenize it shell-style (honoring quotes) so
+        // that multi-word inputs and program flags that themselves begin with
+        // "--" (e.g. a compiler's "--noEmit <file>") are passed as distinct argv
+        // entries instead of being collapsed into one bogus token. We always
+        // emit `--arg` (defaulting to "none") so the wrapper never drops into
+        // interactive mode when no arguments are supplied.
+        let args_str = params
+            .args
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("none");
+        cmd.arg("--arg");
+        if args_str == "none" {
+            cmd.arg("none");
+        } else {
+            let tokens = shell_words::split(args_str).unwrap_or_else(|_| {
+                args_str.split_whitespace().map(str::to_string).collect()
+            });
+            for tok in tokens {
+                cmd.arg(tok);
+            }
         }
 
         if params.negate_path.unwrap_or(true) {

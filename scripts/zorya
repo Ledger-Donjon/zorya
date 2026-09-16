@@ -216,17 +216,28 @@ while [[ $# -gt 0 ]]; do
       ARGS_SET=true
       ARGS=""
       shift
+      # Consume all following tokens as the target binary's arguments, stopping
+      # only at a *recognized Zorya flag*. Breaking on any "--*" token (the old
+      # behavior) silently dropped program arguments that legitimately begin with
+      # "--" (e.g. a compiler's "--noEmit"), so they never reached the analyzed
+      # binary. Matching the known flag set instead lets such arguments through.
       while [[ $# -gt 0 ]]; do
-        if [[ "$1" == --* ]]; then
-          break
+        case "$1" in
+          --lang|--compiler|--thread-scheduling|--mode|--force-pty|\
+          --symbolic-registers|--no-symbolic-registers|\
+          --symbolic-memory|--no-symbolic-memory|\
+          --negate-path-exploration|--negate|\
+          --no-negate-path-exploration|--no-negate|\
+          --plugin|--arg|--help|-h)
+            break
+            ;;
+        esac
+        if [[ -z "$ARGS" ]]; then
+          ARGS="$1"
         else
-          if [[ -z "$ARGS" ]]; then
-            ARGS="$1"
-          else
-            ARGS="$ARGS $1"
-          fi
-          shift
+          ARGS="$ARGS $1"
         fi
+        shift
       done
       [[ -z "$ARGS" ]] && ARGS="none"
       ;;
