@@ -98,6 +98,10 @@ pub struct SummaryTable {
     enabled: bool,
 }
 
+/// Static `Alloc` effect returned by the version-robust `runtime.mallocgc*`
+/// prefix fallback in [`SummaryTable::lookup`].
+static ALLOC_EFFECT: SummaryEffect = SummaryEffect::Alloc;
+
 impl SummaryTable {
     pub fn new() -> Self {
         let disabled = std::env::var("ZORYA_DISABLE_SUMMARIES")
@@ -118,6 +122,25 @@ impl SummaryTable {
     pub fn lookup(&self, name: &str) -> Option<&SummaryEffect> {
         if !self.enabled {
             return None;
+        }
+        if let Some(effect) = self.entries.get(name) {
+            return Some(effect);
+        }
+        // Version-robust fallback for Go's size-classed allocator
+        // specializations. Recent Go releases (1.26+) split the small-object
+        // allocator into per-size-class functions such as
+        // `runtime.mallocgcSmallScanNoHeaderSC1`, `...SC4`,
+        // `runtime.mallocgcSmallNoscanSCn`, etc. These names drift across Go
+        // versions and cannot be exhaustively enumerated in the exact table.
+        // They all behave like `runtime.mallocgc` — allocate an object and
+        // return the pointer in RAX. Without this, the executor steps into the
+        // specialization and then through its entire GC-bitmap / mcache subtree
+        // (heapBitsInSpan, spanHeapBitsRange, getMCache, publicationBarrier, …),
+        // burning its instruction budget and never escaping the allocator
+        // (e.g. never reaching `runtime.newproc`). Matching the whole
+        // `runtime.mallocgc*` family lets the summary prune that subtree.
+        if name.starts_with("runtime.mallocgc") {
+            return Some(&ALLOC_EFFECT);
         }
         self.entries.get(name)
     }
@@ -680,6 +703,29 @@ mod tests {
         assert!(table.lookup("runtime.mallocgc").is_some());
         assert!(table.lookup("runtime.makechan").is_some());
         assert!(table.lookup("main.dispatch").is_none());
+    }
+
+    #[test]
+    fn mallocgc_size_class_specializations_are_summarized() {
+        // Go 1.26+ emits per-size-class allocator specializations that are not
+        // (and cannot be exhaustively) enumerated in the exact table. The
+        // `runtime.mallocgc*` prefix fallback must summarize them as Alloc so
+        // the executor escapes the allocator instead of stepping the whole
+        // GC-bitmap / mcache subtree.
+        let table = SummaryTable::new();
+        for name in [
+            "runtime.mallocgcSmallScanNoHeaderSC1",
+            "runtime.mallocgcSmallScanNoHeaderSC4",
+            "runtime.mallocgcSmallNoscanSC8",
+            "runtime.mallocgcTinySC1",
+        ] {
+            assert!(
+                matches!(table.lookup(name), Some(SummaryEffect::Alloc)),
+                "{name} should be summarized as Alloc via the runtime.mallocgc* fallback"
+            );
+        }
+        // Non-allocator runtime symbols must still fall through to "no summary".
+        assert!(table.lookup("runtime.schedule").is_none());
     }
 
     #[test]
