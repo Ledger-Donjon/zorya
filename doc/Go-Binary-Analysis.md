@@ -151,6 +151,50 @@ and can be disabled with `ZORYA_GOROUTINE_SCHED=0`. Full mechanics, the M↔G mo
 happens-before edges, and the `race-counter` worked example:
 [Multi-threading.md](Multi-threading.md#goroutine-aware-scheduling-go).
 
+## Static Unbounded-Recursion Scan (Stack-Exhaustion DoS)
+
+Zorya's symbolic engine and its memory-safety oracles are built for *input-gated* faults (OOB,
+nil-deref, panics) on a handful of bytes. They deliberately do not model Go's goroutine-stack
+growth: the engine even zeroes `g.stackguard0` so the function prologue never calls `morestack`.
+A `fatal error: stack overflow` caused by unbounded recursion over deeply nested input is
+therefore invisible to the dynamic detectors.
+
+The `--recursion-scan` mode finds the *structure* of that bug statically instead of executing to
+overflow, in the same spirit as a ReDoS detector that flags a super-linear regex without running
+the worst case. It is a pure Ghidra call-graph pass; no pcode generation, memory dumps, or
+concolic run is required.
+
+```bash
+# GHIDRA_INSTALL_DIR (and a headless JAVA_HOME/_JAVA_OPTIONS) must be set.
+zorya /path/to/binary --recursion-scan [--entry <symbol-substring> ...]
+```
+
+Pipeline (`scripts/precompute_unbounded_recursion.py` + `src/state/recursion_scan.rs`):
+
+1. **Call graph.** Build the function call graph from Ghidra (`Function.getCalledFunctions`,
+   following thunks).
+2. **Recursive components.** Extract recursive strongly-connected components (mutual recursion)
+   with an iterative Tarjan pass, plus self-recursive singletons. Iterative Tarjan avoids Python's
+   own recursion limit on large graphs.
+3. **Reachability.** Forward-reach from untrusted-input entry seeds (default `main.main` and any
+   `parsesourcefile`; override with `--entry`). A cycle reachable from the entry is one an attacker
+   can actually drive.
+4. **Ranking.** `HIGH` = reachable and on the untrusted-input front end (package-qualified
+   `parser.` / `scanner.` / `jsdoc` / `regexp`) and not merely language-runtime plumbing;
+   `MEDIUM` = reachable; `LOW` = unreachable from the chosen entries. Cycles that live entirely in
+   the Go runtime / standard library (GC, traceback, stack copying) are downgraded from `HIGH`, so
+   the front-end recursive-descent cycles surface first.
+
+Results are written to `results/recursion_cycles.txt` (one `CYCLE` line per component with size,
+reachability, risk, and members) and printed as a ranked report. On the `microsoft/TypeScript`
+(Go-native compiler) parser harness the pass leads with the parser's expression/type/JSDoc recursive-descent SCC
+(`parseParenthesizedExpression`, `parseType`, `parseUnionOrIntersectionType`,
+`parseBinaryExpressionOrHigher`, `parsePrimaryExpression`, ...), the statement SCC
+(`parseStatement → parseIfStatement / parseWhileStatement / ...`), and the regexp-parser SCCs,
+each flagged `HIGH`: exactly the recursion cycles whose depth is bounded only by input nesting,
+matching the observed `fatal error: stack overflow` on deeply nested source. The recommended fix
+is a bounded nesting-depth counter on the cycle's entry functions.
+
 ## Known Current Limitations and Issues
 
 ### Go Runtime State Dependencies

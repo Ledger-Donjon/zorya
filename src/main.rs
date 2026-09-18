@@ -153,6 +153,61 @@ fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Early-exit mode: static unbounded-recursion (stack-exhaustion DoS) scan.
+    // `zorya <binary> --recursion-scan [--entry <substr>]...` runs Zorya's
+    // call-graph recursion pass (Route 2) and exits, without spinning up the
+    // concolic engine. This detects the *structure* of a stack-overflow DoS
+    // (a recursion cycle reachable from untrusted input with no depth cap),
+    // which the symbolic engine cannot surface because it disables Go's stack
+    // check to keep binaries running.
+    {
+        let argv: Vec<String> = env::args().collect();
+        if argv.iter().any(|a| a == "--recursion-scan") {
+            let mut binary: Option<String> = None;
+            let mut entries: Vec<String> = Vec::new();
+            let mut it = argv.iter().skip(1).peekable();
+            while let Some(a) = it.next() {
+                match a.as_str() {
+                    "--recursion-scan" => {}
+                    "--entry" => {
+                        if let Some(v) = it.next() {
+                            entries.push(v.clone());
+                        }
+                    }
+                    other if other.starts_with("--") => {
+                        // Best-effort: skip a following value that is not a flag.
+                        if let Some(v) = it.peek() {
+                            if !v.starts_with("--") {
+                                it.next();
+                            }
+                        }
+                    }
+                    other => {
+                        if binary.is_none() && std::path::Path::new(other).is_file() {
+                            binary = Some(other.to_string());
+                        }
+                    }
+                }
+            }
+            let binary = match binary {
+                Some(b) => b,
+                None => {
+                    eprintln!(
+                        "[--recursion-scan] no existing binary path found in arguments"
+                    );
+                    std::process::exit(2);
+                }
+            };
+            match zorya::state::recursion_scan::scan_and_report(&binary, &entries) {
+                Ok(_high) => std::process::exit(0),
+                Err(e) => {
+                    eprintln!("[--recursion-scan] failed: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+
     // Install SIGINT handler so Ctrl+C triggers graceful shutdown
     // (finalize_plugin_analysis runs before exit).
     unsafe {

@@ -73,6 +73,21 @@ resolve_zorya_dir() {
 resolve_zorya_dir
 unset _ZORYA_EMBED
 
+# ── Static-only fast path ───────────────────────────────────────────────────
+# The unbounded-recursion (stack-exhaustion DoS) scan is a pure Ghidra call-graph
+# pass: it needs no pcode generation, no memory/CPU dumps, and no concolic run.
+# Short-circuit straight to the engine's --recursion-scan early-exit mode.
+for _a in "$@"; do
+  if [[ "$_a" == "--recursion-scan" ]]; then
+    ZBIN="$ZORYA_DIR/target/release/zorya"
+    if [[ -x "$ZBIN" ]]; then
+      exec "$ZBIN" "$@"
+    fi
+    cd "$ZORYA_DIR" || exit 1
+    exec cargo run --release -- "$@"
+  fi
+done
+
 PCODE_GENERATOR_DIR="$ZORYA_DIR/external/pcode-generator"
 INIT_DATA_DIR="$ZORYA_DIR/results/initialization_data"
 [[ ! -d "$PCODE_GENERATOR_DIR" ]] && { echo "Missing pcode-generator – run make all"; exit 1; }

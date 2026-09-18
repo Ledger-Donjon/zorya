@@ -72,6 +72,26 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
 > values at arbitrary registers or memory locations (e.g. analyzing a function
 > in isolation).
 
+### Static analysis modes
+
+Some passes are pure static analyses that need neither pcode generation, memory
+dumps, nor a concolic run. They short-circuit straight to the pass and exit.
+
+- `--recursion-scan`: static unbounded-recursion (stack-exhaustion DoS) scan. Builds the
+  function call graph (Ghidra), extracts recursive strongly-connected components and
+  self-recursive functions, and ranks those reachable from an untrusted-input entry as
+  candidate stack-overflow DoS sites. Requires `GHIDRA_INSTALL_DIR` (and a headless
+  `JAVA_HOME` / `_JAVA_OPTIONS`) as for the other Ghidra passes.
+  - `--entry <symbol-substring>`: entry seed (repeatable) overriding the default seeds
+    (`main.main` and any `parsesourcefile`). Reachability is computed forward from the union.
+  - Output: `results/recursion_cycles.txt` plus a ranked report on stdout.
+
+  ```bash
+  zorya ./parseharness --recursion-scan --entry parseSourceFile
+  ```
+
+  See [Go-Binary-Analysis.md](Go-Binary-Analysis.md#static-unbounded-recursion-scan-stack-exhaustion-dos).
+
 ### Environment
 
 - `LOG_MODE=trace_only`: disables `results/execution_log.txt` creation, while preserving `results/execution_trace.txt`

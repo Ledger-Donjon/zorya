@@ -12,6 +12,7 @@ pub mod memory_x86_64;
 pub mod overlay_path_analysis;
 pub mod overlay_state;
 pub mod panic_reach;
+pub mod recursion_scan;
 pub mod runtime_info;
 pub mod simplify_z3;
 pub mod state_manager;
