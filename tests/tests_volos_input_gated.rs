@@ -24,7 +24,7 @@ use z3::{Config, Context};
 
 use zorya::plugins::builtin::volos::VolosPlugin;
 use zorya::plugins::context::EventCtx;
-use zorya::plugins::event::Event;
+use zorya::plugins::event::{Event, SyncKind};
 use zorya::plugins::finding::Finding;
 use zorya::plugins::EventBus;
 
@@ -40,10 +40,14 @@ struct Write<'ctx> {
 }
 
 /// Optional lock acquire/release around a write (for the protected control).
+///
+/// Go mutexes are modelled through the object-keyed `SyncAcquire` / `SyncRelease`
+/// events (the executor reads the receiver from the Go register ABI), matching
+/// how `sync.(*Mutex).Lock` / `Unlock` are surfaced at runtime. `target` is the
+/// mutex object pointer.
 struct Lock {
     tid: u64,
     pc: u64,
-    sym: &'static str,
     target: u64,
     acquire: bool,
 }
@@ -66,12 +70,11 @@ fn run_scenario(ctx: &Context, locks: &[Lock], writes: &[Write<'_>]) -> Vec<Find
     for l in locks.iter().filter(|l| l.acquire) {
         let ectx = EventCtx::new(ctx, l.pc, l.tid, 0, Instant::now(), &findings);
         bus.dispatch(
-            &Event::Call {
-                pc: l.pc,
-                target: l.target,
-                symbol: Some(l.sym),
+            &Event::SyncAcquire {
+                obj: l.target,
                 tid: l.tid,
-                arg0: 0,
+                pc: l.pc,
+                kind: SyncKind::Mutex,
             },
             &ectx,
         );
@@ -96,12 +99,11 @@ fn run_scenario(ctx: &Context, locks: &[Lock], writes: &[Write<'_>]) -> Vec<Find
     for l in locks.iter().filter(|l| !l.acquire) {
         let ectx = EventCtx::new(ctx, l.pc, l.tid, 0, Instant::now(), &findings);
         bus.dispatch(
-            &Event::Call {
-                pc: l.pc,
-                target: l.target,
-                symbol: Some(l.sym),
+            &Event::SyncRelease {
+                obj: l.target,
                 tid: l.tid,
-                arg0: 0,
+                pc: l.pc,
+                kind: SyncKind::Mutex,
             },
             &ectx,
         );
@@ -251,28 +253,24 @@ fn scenario_mutex_protected_no_race() {
         Lock {
             tid: 1,
             pc: 0x10,
-            sym: "runtime.lock",
             target: MTX,
             acquire: true,
         },
         Lock {
             tid: 2,
             pc: 0x20,
-            sym: "runtime.lock",
             target: MTX,
             acquire: true,
         },
         Lock {
             tid: 1,
             pc: 0x30,
-            sym: "runtime.unlock",
             target: MTX,
             acquire: false,
         },
         Lock {
             tid: 2,
             pc: 0x40,
-            sym: "runtime.unlock",
             target: MTX,
             acquire: false,
         },

@@ -176,7 +176,9 @@ def _open_or_create(GhidraProject, JFile, container, project_name, bin_path):
             project = GhidraProject.openProject(str(container), project_name, True)
             if project.getRootFolder().getFile(bin_path.name):
                 program = project.openProgram("/", bin_path.name, False)
-        except Exception as exc:  # NotOwnerException, NotFoundException, IOException, ...
+        except (
+            Exception
+        ) as exc:  # NotOwnerException, NotFoundException, IOException, ...
             print(f"[GHIDRA] openProject failed ({exc}); creating a fresh project")
             project = None
             program = None
@@ -202,7 +204,9 @@ def _open_or_create(GhidraProject, JFile, container, project_name, bin_path):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: precompute_unbounded_recursion.py <binary_path> [entry_substring ...]")
+        print(
+            "Usage: precompute_unbounded_recursion.py <binary_path> [entry_substring ...]"
+        )
         sys.exit(1)
 
     binary_path = sys.argv[1]
@@ -326,12 +330,17 @@ def main():
                 if any(es in low for es in entry_subs):
                     entries.add(i)
             else:
-                if nm == "main.main" or low.endswith(".main") or "parsesourcefile" in low:
+                if (
+                    nm == "main.main"
+                    or low.endswith(".main")
+                    or "parsesourcefile" in low
+                ):
                     entries.add(i)
         reachable = _bfs_reach(n, adj, entries) if entries else set()
-        entry_disp = ", ".join(
-            sorted({f"{names[i]}(0x{addrs[i]:x})" for i in entries})
-        ) or "(none matched)"
+        entry_disp = (
+            ", ".join(sorted({f"{names[i]}(0x{addrs[i]:x})" for i in entries}))
+            or "(none matched)"
+        )
         print(f"[RECUR] Entry seeds: {entry_disp}")
         print(f"[RECUR] Functions reachable from entries: {len(reachable)}")
 
@@ -345,11 +354,7 @@ def main():
             return False
 
         def is_mostly_runtime(comp):
-            rt = sum(
-                1
-                for m in comp
-                if names[m].lower().startswith(RUNTIME_PREFIXES)
-            )
+            rt = sum(1 for m in comp if names[m].lower().startswith(RUNTIME_PREFIXES))
             return rt * 2 >= len(comp)
 
         def representative(comp):
