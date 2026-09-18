@@ -32,7 +32,6 @@ fn get_callother_operation_name(operation_index: u32) -> String {
         0x10 => "SWI".to_string(),
         0x11 => "LOCK".to_string(),
         0x12 => "UNLOCK".to_string(),
-        0x9a => "PSHUFW (Packed Shuffle Word)".to_string(),
         0x2c => "CPUID".to_string(),
         0x2d => "CPUID Basic Info".to_string(),
         0x2e => "CPUID Version Info".to_string(),
@@ -51,8 +50,17 @@ fn get_callother_operation_name(operation_index: u32) -> String {
         0x3b => "CPUID Brand Part2 Info".to_string(),
         0x3c => "CPUID Brand Part3 Info".to_string(),
         0x4a => "RDTSC".to_string(),
-        0x97 => "PSHUFB".to_string(),
-        0x98 => "PSHUFHW".to_string(),
+        // NOTE: These are the pcode-generator's CALLOTHER indices, which are
+        // what actually flows through `*_low_pcode.txt` and reaches this match.
+        // They are offset from the `index` field in specfiles/x86-64.sla /
+        // callother-database.txt (e.g. the .sla lists pshuflw at index 153/0x99,
+        // but the generator emits const 0x9b for it). The values below were
+        // verified empirically by cross-referencing instruction addresses in the
+        // generated pcode against `go tool objdump` of the target binary.
+        0x99 => "PSHUFB".to_string(),
+        0x9a => "PSHUFHW".to_string(),
+        0x9b => "PSHUFLW".to_string(),
+        0x9c => "PSHUFW (Packed Shuffle Word)".to_string(),
         0xdc => "AESENC".to_string(),
         0xde => "AESIMC (AES Inverse Mix Columns)".to_string(),
         0x13a => "VMOVDQU (AVX)".to_string(),
@@ -99,7 +107,6 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         0x10 => handle_swi(executor, instruction),
         0x11 => handle_lock(executor),
         0x12 => handle_unlock(executor),
-        0x9a => handle_pshufw(executor, instruction),
         0x2c => handle_cpuid(executor, instruction),
         0x2d => handle_cpuid_basic_info(executor, instruction),
         0x2e => handle_cpuid_version_info(executor, instruction),
@@ -118,8 +125,15 @@ pub fn handle_callother(executor: &mut ConcolicExecutor, instruction: Inst) -> R
         0x3b => handle_cpuid_brand_part2_info(executor, instruction),
         0x3c => handle_cpuid_brand_part3_info(executor, instruction),
         0x4a => handle_rdtsc(executor),
-        0x97 => handle_pshufb(executor, instruction),
-        0x98 => handle_pshufhw(executor, instruction),
+        // Packed-shuffle userops. See the note in `get_callother_operation_name`:
+        // these are the pcode-generator's indices (offset from the .sla `index`
+        // field), verified against `go tool objdump` of the analyzed binary.
+        // 0x9b (PSHUFLW) is the instruction Go 1.24+ Swiss-table `matchH2` uses
+        // to broadcast the 7-bit control hash before PCMPEQB.
+        0x99 => handle_pshufb(executor, instruction),
+        0x9a => handle_pshufhw(executor, instruction),
+        0x9b => handle_pshuflw(executor, instruction),
+        0x9c => handle_pshufw(executor, instruction),
         0xdc => handle_aesenc(executor, instruction),
         0xde => handle_aesimc(executor, instruction),
         0x13a => handle_vmovdqu_avx(executor, instruction),
@@ -1047,18 +1061,279 @@ fn handle_swi(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), 
     }
 }
 
-/// Handle PSHUFB - Packed Shuffle Bytes (SSSE3)
-///
-/// Not implemented for AMD64 Opteron G1 (lacks SSSE3 support).
-pub fn handle_pshufb(_executor: &mut ConcolicExecutor, _instruction: Inst) -> Result<(), String> {
-    panic!("PSHUFB is not supported on AMD64 Opteron G1.");
+// ---------------------------------------------------------------------------
+// 128-bit SIMD helpers (shared by the packed-shuffle CALLOTHER handlers)
+// ---------------------------------------------------------------------------
+//
+// XMM operands are represented in Zorya as a `LargeInt` of two 64-bit chunks,
+// chunk[0] = low 64 bits, chunk[1] = high 64 bits (see `SymbolicVar::to_bv`,
+// which concatenates them little-endian into one 128-bit bitvector). These
+// helpers give the shuffle handlers a single concrete `u128` view plus a
+// canonical 128-bit symbolic `BV`, and write the result back as a 2-chunk
+// `LargeInt` so `handle_output` stores it into the destination XMM register.
+
+/// Read a 128-bit SIMD operand as `(concrete u128, 128-bit symbolic BV)`.
+fn read_xmm_operand<'ctx>(
+    executor: &mut ConcolicExecutor<'ctx>,
+    varnode: &Varnode,
+) -> Result<(u128, BV<'ctx>), String> {
+    let cv = executor
+        .varnode_to_concolic(varnode)
+        .map_err(|e| e.to_string())?;
+
+    let concrete: u128 = match cv.get_full_concrete_value() {
+        ConcreteVar::LargeInt(chunks) => {
+            let lo = chunks.first().copied().unwrap_or(0) as u128;
+            let hi = chunks.get(1).copied().unwrap_or(0) as u128;
+            lo | (hi << 64)
+        }
+        ConcreteVar::Int(v) => v as u128,
+        other => other.to_u64() as u128,
+    };
+
+    // Normalise the symbolic side to exactly 128 bits.
+    let mut sym = cv.get_symbolic_value_bv(executor.context);
+    let sz = sym.get_size();
+    if sz < 128 {
+        sym = sym.zero_ext(128 - sz);
+    } else if sz > 128 {
+        sym = sym.extract(127, 0);
+    }
+
+    Ok((concrete, sym))
 }
 
-/// Handle PSHUFHW - Shuffle Packed High Words (SSE2)
+/// Concatenate little-endian pieces (index 0 = least significant) into one BV.
+fn concat_le<'ctx>(parts: &[BV<'ctx>]) -> BV<'ctx> {
+    let mut iter = parts.iter().rev();
+    let first = iter
+        .next()
+        .expect("concat_le requires at least one piece")
+        .clone();
+    iter.fold(first, |acc, p| acc.concat(p))
+}
+
+/// Write a 128-bit `(concrete, symbolic)` result to the instruction's output
+/// XMM register as a 2-chunk `LargeInt` (chunk[0] = low 64, chunk[1] = high 64).
+fn write_xmm_result<'ctx>(
+    executor: &mut ConcolicExecutor<'ctx>,
+    instruction: &Inst,
+    concrete: u128,
+    symbolic: BV<'ctx>,
+) -> Result<(), String> {
+    let lo = concrete as u64;
+    let hi = (concrete >> 64) as u64;
+    let sym_lo = symbolic.extract(63, 0);
+    let sym_hi = symbolic.extract(127, 64);
+    let result = ConcolicVar::new_concrete_and_symbolic_large_int(
+        vec![lo, hi],
+        vec![sym_lo, sym_hi],
+        executor.context,
+    );
+    executor.handle_output(instruction.output.as_ref(), result)
+}
+
+/// Fetch an 8-bit immediate operand at the given input index.
+fn get_imm8(instruction: &Inst, idx: usize) -> Result<u8, String> {
+    match instruction.inputs.get(idx) {
+        Some(Varnode {
+            var: Var::Const(val),
+            ..
+        }) => u8::from_str_radix(val.trim_start_matches("0x"), 16)
+            .map_err(|_| format!("Failed to parse imm8 '{}'", val)),
+        _ => Err(format!("expected an imm8 constant at input index {}", idx)),
+    }
+}
+
+/// Extract 16-bit word `k` (k = 0..7) from a 128-bit concrete value.
+#[inline]
+fn word16(v: u128, k: usize) -> u16 {
+    ((v >> (16 * k)) & 0xFFFF) as u16
+}
+
+// The shuffle "lane maps" below are the single source of truth for each
+// instruction's permutation. The concrete and symbolic execution paths both
+// consume the same map, so they can never drift apart, and the maps are pure
+// functions of the (concrete) immediate / control vector, which makes them
+// trivially unit-testable without a full executor.
+
+/// PSHUFLW lane map: `dest word k <- src word map[k]`.
+/// Low quadword (words 0..3) is shuffled by `imm` (2 bits per destination
+/// word); high quadword (words 4..7) is copied through unchanged.
+fn pshuflw_word_map(imm: u8) -> [usize; 8] {
+    let mut m = [0usize; 8];
+    for (j, slot) in m.iter_mut().take(4).enumerate() {
+        *slot = ((imm >> (2 * j)) & 0x3) as usize;
+    }
+    for (k, slot) in m.iter_mut().enumerate().skip(4) {
+        *slot = k;
+    }
+    m
+}
+
+/// PSHUFHW lane map: low quadword copied through; high quadword (words 4..7)
+/// shuffled by `imm`: `dest word 4+j <- src word 4 + ((imm >> 2j) & 3)`.
+fn pshufhw_word_map(imm: u8) -> [usize; 8] {
+    let mut m = [0usize; 8];
+    for (k, slot) in m.iter_mut().take(4).enumerate() {
+        *slot = k;
+    }
+    for j in 0..4 {
+        m[4 + j] = 4 + (((imm >> (2 * j)) & 0x3) as usize);
+    }
+    m
+}
+
+/// Apply an 8-lane (16-bit word) permutation to a concrete 128-bit value.
+fn shuffle_words_concrete(src: u128, map: &[usize; 8]) -> u128 {
+    let mut out = 0u128;
+    for (k, &sel) in map.iter().enumerate() {
+        out |= (word16(src, sel) as u128) << (16 * k);
+    }
+    out
+}
+
+/// PSHUFB lane map: `dest byte i <- Some(src index)` or `None` (=> zero lane
+/// when the control byte's most-significant bit is set).
+fn pshufb_byte_map(ctrl: u128) -> [Option<usize>; 16] {
+    let mut m = [None; 16];
+    for (i, slot) in m.iter_mut().enumerate() {
+        let cb = ((ctrl >> (8 * i)) & 0xFF) as u8;
+        if cb & 0x80 == 0 {
+            *slot = Some((cb & 0x0F) as usize);
+        }
+    }
+    m
+}
+
+/// Apply a PSHUFB byte map to a concrete 128-bit data vector.
+fn pshufb_concrete(data: u128, map: &[Option<usize>; 16]) -> u128 {
+    let mut out = 0u128;
+    for (i, sel) in map.iter().enumerate() {
+        if let Some(s) = sel {
+            let b = (data >> (8 * s)) & 0xFF;
+            out |= b << (8 * i);
+        }
+    }
+    out
+}
+
+/// Handle PSHUFB - Packed Shuffle Bytes (SSSE3, generator CALLOTHER 0x99)
 ///
-/// Not implemented for AMD64 Opteron G1.
-pub fn handle_pshufhw(_executor: &mut ConcolicExecutor, _instruction: Inst) -> Result<(), String> {
-    panic!("PSHUFHW is not supported on AMD64 Opteron G1.");
+/// pcode form: `XmmReg1 = pshufb(XmmReg1, XmmReg2_m128)`, i.e.
+/// inputs = [op_index, data(XmmReg1), control(XmmReg2_m128)].
+///
+/// For each destination byte `i` (0..15): if the control byte's MSB is set the
+/// result byte is zero, otherwise it is `data[control[i] & 0x0F]`. The control
+/// vector is concrete in every case we target (Go's map/string SIMD paths), so
+/// we drive the (concrete) byte selection and pick the corresponding symbolic
+/// data byte, preserving symbolic fidelity on the data operand.
+pub fn handle_pshufb(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+    let data_vn = instruction
+        .inputs
+        .get(1)
+        .ok_or("PSHUFB missing data operand")?
+        .clone();
+    let ctrl_vn = instruction
+        .inputs
+        .get(2)
+        .ok_or("PSHUFB missing control operand")?
+        .clone();
+
+    let (data_c, data_s) = read_xmm_operand(executor, &data_vn)?;
+    let (ctrl_c, _ctrl_s) = read_xmm_operand(executor, &ctrl_vn)?;
+
+    log!(
+        executor.trace_logger,
+        "PSHUFB: data=0x{:032x}, control=0x{:032x}",
+        data_c,
+        ctrl_c
+    );
+
+    let zero8 = BV::from_u64(executor.context, 0, 8);
+    let data_byte_s = |i: usize| data_s.extract((8 * i + 7) as u32, (8 * i) as u32);
+
+    let map = pshufb_byte_map(ctrl_c);
+    let out_c = pshufb_concrete(data_c, &map);
+    let out_s: Vec<BV> = map
+        .iter()
+        .map(|sel| match sel {
+            Some(s) => data_byte_s(*s),
+            None => zero8.clone(),
+        })
+        .collect();
+
+    let out_symbolic = concat_le(&out_s);
+    write_xmm_result(executor, &instruction, out_c, out_symbolic)
+}
+
+/// Handle PSHUFHW - Shuffle Packed High Words (SSE2, generator CALLOTHER 0x9a)
+///
+/// pcode form: `XmmReg1 = pshufhw(XmmReg1, XmmReg2_m128, imm8)`, i.e.
+/// inputs = [op_index, XmmReg1(unused), src(XmmReg2_m128), imm8].
+///
+/// The low quadword (words 0..3) is copied from the source unchanged; the high
+/// quadword (words 4..7) is shuffled: dest word `4+j` = src word `4 + ((imm >>
+/// 2j) & 3)`. The immediate is concrete, so each lane is a static extract and
+/// the symbolic result is exact.
+pub fn handle_pshufhw(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+    let imm = get_imm8(&instruction, 3)?;
+    let src_vn = instruction
+        .inputs
+        .get(2)
+        .ok_or("PSHUFHW missing source operand")?
+        .clone();
+    let (src_c, src_s) = read_xmm_operand(executor, &src_vn)?;
+
+    log!(
+        executor.trace_logger,
+        "PSHUFHW: src=0x{:032x}, imm8=0x{:02x}",
+        src_c,
+        imm
+    );
+
+    let word_s = |k: usize| src_s.extract((16 * k + 15) as u32, (16 * k) as u32);
+
+    let map = pshufhw_word_map(imm);
+    let out_c = shuffle_words_concrete(src_c, &map);
+    let out_words_s: Vec<BV> = map.iter().map(|&sel| word_s(sel)).collect();
+    let out_symbolic = concat_le(&out_words_s);
+    write_xmm_result(executor, &instruction, out_c, out_symbolic)
+}
+
+/// Handle PSHUFLW - Shuffle Packed Low Words (SSE2, generator CALLOTHER 0x9b)
+///
+/// pcode form: `XmmReg1 = pshuflw(XmmReg1, XmmReg2_m128, imm8)`, i.e.
+/// inputs = [op_index, XmmReg1(unused), src(XmmReg2_m128), imm8].
+///
+/// The high quadword (words 4..7) is copied from the source unchanged; the low
+/// quadword (words 0..3) is shuffled: dest word `j` = src word `(imm >> 2j) &
+/// 3`. This is the instruction Go's Swiss-table `ctrlGroup.matchH2` uses to
+/// broadcast the 7-bit hash across the control group before `PCMPEQB`, so
+/// implementing it is what lets Zorya step through map probes.
+pub fn handle_pshuflw(executor: &mut ConcolicExecutor, instruction: Inst) -> Result<(), String> {
+    let imm = get_imm8(&instruction, 3)?;
+    let src_vn = instruction
+        .inputs
+        .get(2)
+        .ok_or("PSHUFLW missing source operand")?
+        .clone();
+    let (src_c, src_s) = read_xmm_operand(executor, &src_vn)?;
+
+    log!(
+        executor.trace_logger,
+        "PSHUFLW: src=0x{:032x}, imm8=0x{:02x}",
+        src_c,
+        imm
+    );
+
+    let word_s = |k: usize| src_s.extract((16 * k + 15) as u32, (16 * k) as u32);
+
+    let map = pshuflw_word_map(imm);
+    let out_c = shuffle_words_concrete(src_c, &map);
+    let out_words_s: Vec<BV> = map.iter().map(|&sel| word_s(sel)).collect();
+    let out_symbolic = concat_le(&out_words_s);
+    write_xmm_result(executor, &instruction, out_c, out_symbolic)
 }
 
 /// Handle VMOVDQU - Move Unaligned Packed Integer Values (AVX)
@@ -1423,7 +1698,7 @@ pub fn handle_vbroadcastsd_avx(
     Ok(())
 }
 
-/// Handle PSHUFW (Packed Shuffle Word) - CALLOTHER index 0x9a (154)
+/// Handle PSHUFW (Packed Shuffle Word) - generator CALLOTHER 0x9c
 ///
 /// PSHUFW shuffles the words in the source MMX register according to an 8-bit immediate order operand.
 /// Each 2-bit field in the order operand selects which of the 4 source words to copy to the destination.
@@ -1502,4 +1777,127 @@ pub fn handle_pshufw(executor: &mut ConcolicExecutor, instruction: Inst) -> Resu
     executor.handle_output(instruction.output.as_ref(), result)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod simd_shuffle_tests {
+    use super::{
+        pshufb_byte_map, pshufb_concrete, pshufhw_word_map, pshuflw_word_map,
+        shuffle_words_concrete, word16,
+    };
+
+    // Words packed little-endian: w0 in bits[15:0], w7 in bits[127:112].
+    fn pack_words(words: [u16; 8]) -> u128 {
+        words
+            .iter()
+            .enumerate()
+            .fold(0u128, |acc, (k, &w)| acc | ((w as u128) << (16 * k)))
+    }
+
+    // Bytes packed little-endian: b0 in bits[7:0], b15 in bits[127:120].
+    fn pack_bytes(bytes: [u8; 16]) -> u128 {
+        bytes
+            .iter()
+            .enumerate()
+            .fold(0u128, |acc, (i, &b)| acc | ((b as u128) << (8 * i)))
+    }
+
+    fn byte_at(v: u128, i: usize) -> u8 {
+        ((v >> (8 * i)) & 0xFF) as u8
+    }
+
+    const IDENTITY_IMM: u8 = 0b11_10_01_00; // 0xE4: selects lanes 3,2,1,0
+
+    #[test]
+    fn word16_extracts_little_endian_lanes() {
+        let v = pack_words([0, 1, 2, 3, 4, 5, 6, 7]);
+        for k in 0..8 {
+            assert_eq!(word16(v, k), k as u16);
+        }
+    }
+
+    #[test]
+    fn pshuflw_identity_imm_is_a_noop() {
+        assert_eq!(pshuflw_word_map(IDENTITY_IMM), [0, 1, 2, 3, 4, 5, 6, 7]);
+        let v = pack_words([9, 8, 7, 6, 5, 4, 3, 2]);
+        assert_eq!(
+            shuffle_words_concrete(v, &pshuflw_word_map(IDENTITY_IMM)),
+            v
+        );
+    }
+
+    #[test]
+    fn pshuflw_broadcasts_word0_with_zero_imm() {
+        // imm=0 selects source word 0 for all four low lanes; high quadword
+        // is copied through. This is exactly Go's matchH2 broadcast step.
+        let map = pshuflw_word_map(0);
+        assert_eq!(map, [0, 0, 0, 0, 4, 5, 6, 7]);
+        let src = pack_words([0xAABB, 1, 2, 3, 4, 5, 6, 7]);
+        let out = shuffle_words_concrete(src, &map);
+        assert_eq!(
+            out,
+            pack_words([0xAABB, 0xAABB, 0xAABB, 0xAABB, 4, 5, 6, 7])
+        );
+    }
+
+    #[test]
+    fn pshuflw_reverses_low_words() {
+        // imm selecting (3,2,1,0) for lanes (0,1,2,3) reverses the low quadword.
+        let map = pshuflw_word_map(0b00_01_10_11);
+        assert_eq!(map, [3, 2, 1, 0, 4, 5, 6, 7]);
+        let src = pack_words([0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(
+            shuffle_words_concrete(src, &map),
+            pack_words([3, 2, 1, 0, 4, 5, 6, 7])
+        );
+    }
+
+    #[test]
+    fn pshufhw_shuffles_only_high_quadword() {
+        assert_eq!(pshufhw_word_map(IDENTITY_IMM), [0, 1, 2, 3, 4, 5, 6, 7]);
+        // imm=0 => high lanes all take source word 4.
+        let map = pshufhw_word_map(0);
+        assert_eq!(map, [0, 1, 2, 3, 4, 4, 4, 4]);
+        let src = pack_words([0, 1, 2, 3, 0xC0DE, 5, 6, 7]);
+        assert_eq!(
+            shuffle_words_concrete(src, &map),
+            pack_words([0, 1, 2, 3, 0xC0DE, 0xC0DE, 0xC0DE, 0xC0DE])
+        );
+    }
+
+    #[test]
+    fn pshufb_selects_and_zeroes_lanes() {
+        // Data bytes: byte i == i. Control: lane 0 picks byte 5, lane 1 picks
+        // byte 0, lane 2 has MSB set (=> zero), remaining lanes pick byte 15.
+        let data = pack_bytes(std::array::from_fn(|i| i as u8));
+        let mut ctrl_bytes = [0x0Fu8; 16];
+        ctrl_bytes[0] = 0x05;
+        ctrl_bytes[1] = 0x00;
+        ctrl_bytes[2] = 0x80; // MSB set => zero lane
+        let ctrl = pack_bytes(ctrl_bytes);
+
+        let map = pshufb_byte_map(ctrl);
+        assert_eq!(map[0], Some(5));
+        assert_eq!(map[1], Some(0));
+        assert_eq!(map[2], None);
+        assert_eq!(map[15], Some(15));
+
+        let out = pshufb_concrete(data, &map);
+        assert_eq!(byte_at(out, 0), 5);
+        assert_eq!(byte_at(out, 1), 0);
+        assert_eq!(byte_at(out, 2), 0); // zeroed lane
+        assert_eq!(byte_at(out, 15), 15);
+    }
+
+    #[test]
+    fn pshufb_index_wraps_to_low_nibble() {
+        // Control bytes 0x10..0x1F (no MSB) must index bytes 0..15 (low nibble).
+        let data = pack_bytes(std::array::from_fn(|i| i as u8));
+        let ctrl = pack_bytes(std::array::from_fn(|i| 0x10 | i as u8));
+        let map = pshufb_byte_map(ctrl);
+        for (i, sel) in map.iter().enumerate() {
+            assert_eq!(*sel, Some(i));
+        }
+        assert_eq!(pshufb_concrete(data, &map), data);
+    }
 }
