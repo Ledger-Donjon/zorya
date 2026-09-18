@@ -390,9 +390,8 @@ impl ZoryaMcp {
         if args_str == "none" {
             cmd.arg("none");
         } else {
-            let tokens = shell_words::split(args_str).unwrap_or_else(|_| {
-                args_str.split_whitespace().map(str::to_string).collect()
-            });
+            let tokens = shell_words::split(args_str)
+                .unwrap_or_else(|_| args_str.split_whitespace().map(str::to_string).collect());
             for tok in tokens {
                 cmd.arg(tok);
             }

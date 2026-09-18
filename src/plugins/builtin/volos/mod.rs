@@ -609,9 +609,7 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                     self.vlog(format!("JOIN to={} from={} (happens-before)", to, from));
                 }
             }
-            Event::SyncRelease {
-                obj, tid, kind, ..
-            } => {
+            Event::SyncRelease { obj, tid, kind, .. } => {
                 // Release half of release/acquire: fold the releaser's current
                 // clock into the per-object clock, so a later acquire on the
                 // same object inherits this history. The release is itself a
@@ -642,9 +640,7 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                     *obj, tid, kind
                 ));
             }
-            Event::SyncAcquire {
-                obj, tid, kind, ..
-            } => {
+            Event::SyncAcquire { obj, tid, kind, .. } => {
                 // Acquire half: merge the object's stored release clock into
                 // the acquirer, ordering its subsequent accesses strictly
                 // after every release that fed the object (channel send ->

@@ -192,9 +192,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let binary = match binary {
                 Some(b) => b,
                 None => {
-                    eprintln!(
-                        "[--recursion-scan] no existing binary path found in arguments"
-                    );
+                    eprintln!("[--recursion-scan] no existing binary path found in arguments");
                     std::process::exit(2);
                 }
             };

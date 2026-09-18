@@ -40,7 +40,6 @@ from pathlib import Path
 
 try:
     import pyhidra
-    from pyhidra import open_program
 except ImportError:
     print("ERROR: Pyhidra is not available in this Python environment.")
     print("  Install pyhidra and set GHIDRA_INSTALL_DIR to your Ghidra installation.")
@@ -222,10 +221,10 @@ def main():
         print("[GHIDRA] Project not found or stale - will analyze from scratch")
 
     pyhidra.start()
-    from ghidra.util.task import ConsoleTaskMonitor
+    from ghidra.app.script import GhidraScriptUtil
     from ghidra.base.project import GhidraProject
     from ghidra.program.flatapi import FlatProgramAPI
-    from ghidra.app.script import GhidraScriptUtil
+    from ghidra.util.task import ConsoleTaskMonitor
     from java.io import File as JFile
 
     t0 = time.time()
@@ -355,7 +354,7 @@ def main():
 
         def representative(comp):
             fe = [m for m in comp if any(h in names[m].lower() for h in FRONTEND_HINTS)]
-            pool = fe if fe else comp
+            pool = fe or comp
             return min(pool, key=lambda m: (len(names[m]), names[m]))
 
         ranked = []

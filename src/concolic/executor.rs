@@ -537,7 +537,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                     .collect()
             };
             for child in children {
-                self.dispatch_event(&Event::HappensBefore { from: child, to: tid });
+                self.dispatch_event(&Event::HappensBefore {
+                    from: child,
+                    to: tid,
+                });
             }
         }
     }
@@ -812,21 +815,22 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Allocate a private stack for the goroutine with the thread-exit
         // sentinel at the top, so the body's final `ret` lands on the
         // exit/yield path (mirrors the pthread_create hook).
-        let stack_base = match self
-            .state
-            .memory
-            .mmap(0, GORO_STACK_SIZE, PROT_RW, MAP_PRIVATE_ANON, -1, 0)
-        {
-            Ok(b) => b,
-            Err(e) => {
-                log!(
-                    self.state.logger.clone(),
-                    "[GOROUTINE] stack mmap failed: {:?}; returning to caller without spawn",
-                    e
-                );
-                return ret_addr;
-            }
-        };
+        let stack_base =
+            match self
+                .state
+                .memory
+                .mmap(0, GORO_STACK_SIZE, PROT_RW, MAP_PRIVATE_ANON, -1, 0)
+            {
+                Ok(b) => b,
+                Err(e) => {
+                    log!(
+                        self.state.logger.clone(),
+                        "[GOROUTINE] stack mmap failed: {:?}; returning to caller without spawn",
+                        e
+                    );
+                    return ret_addr;
+                }
+            };
         let child_rsp = (stack_base + GORO_STACK_SIZE as u64 - 256) & !0xfu64;
         let sentinel_sym = BV::from_u64(self.context, THREAD_EXIT_SENTINEL, 64);
         let sentinel_val = MemoryValue::new(THREAD_EXIT_SENTINEL, sentinel_sym, 64);
@@ -931,7 +935,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // Private TLS: the runtime reads the current g at [FS_base - 8].
         // Allocate a small block and expose FS_base = block + 16 so the slot
         // at FS_base - 8 is comfortably in-bounds.
-        let tls_block = match self.state.memory.mmap(0, 64, PROT_RW, MAP_PRIVATE_ANON, -1, 0) {
+        let tls_block = match self
+            .state
+            .memory
+            .mmap(0, 64, PROT_RW, MAP_PRIVATE_ANON, -1, 0)
+        {
             Ok(b) => b,
             Err(e) => {
                 log!(

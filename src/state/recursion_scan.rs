@@ -152,7 +152,11 @@ pub fn report_unbounded_recursion(cycles: &[RecursionCycle]) -> usize {
             "DoS-recursion",
             c.id,
             c.size,
-            if c.selfrec { "(self-recursive)" } else { "(mutual recursion)" }
+            if c.selfrec {
+                "(self-recursive)"
+            } else {
+                "(mutual recursion)"
+            }
         );
         crate::tprintln!("    entry:   {}", c.entry);
         let preview: Vec<String> = c.members.iter().take(12).cloned().collect();
@@ -160,7 +164,10 @@ pub fn report_unbounded_recursion(cycles: &[RecursionCycle]) -> usize {
             crate::tprintln!("      - {}", m);
         }
         if c.members.len() > preview.len() {
-            crate::tprintln!("      ... {} more member(s)", c.members.len() - preview.len());
+            crate::tprintln!(
+                "      ... {} more member(s)",
+                c.members.len() - preview.len()
+            );
         }
         crate::tprintln!(
             "    Why: this recursion cycle is reachable from untrusted input and has no"
@@ -178,9 +185,7 @@ pub fn report_unbounded_recursion(cycles: &[RecursionCycle]) -> usize {
         crate::tprintln!(
             "Recommendation: add a bounded nesting-depth counter to the cycle's entry"
         );
-        crate::tprintln!(
-            "functions and emit a diagnostic instead of recursing past the limit."
-        );
+        crate::tprintln!("functions and emit a diagnostic instead of recursing past the limit.");
     }
     crate::tprintln!("=====================================================================");
 
@@ -188,10 +193,7 @@ pub fn report_unbounded_recursion(cycles: &[RecursionCycle]) -> usize {
 }
 
 /// Convenience: run the pass, print the report, and return the HIGH-risk count.
-pub fn scan_and_report(
-    binary_path: &str,
-    entries: &[String],
-) -> Result<usize, Box<dyn Error>> {
+pub fn scan_and_report(binary_path: &str, entries: &[String]) -> Result<usize, Box<dyn Error>> {
     let cycles = precompute_unbounded_recursion(binary_path, entries)?;
     Ok(report_unbounded_recursion(&cycles))
 }
