@@ -199,10 +199,48 @@ reports genuine Go data races, while safe patterns (shared-lock, disjoint memory
 suppressed. See the volos [README](../src/plugins/builtin/volos/README.md) for the
 `race-counter` control.
 
+## TinyGo vs gc: implementation status
+
+<p align="center">
+  <img src="zorya-tinygo-vs-go.png" alt="Zorya analysis of TinyGo vs gc binaries" width="1000"/>
+</p>
+
+A TinyGo binary runs every goroutine on a single OS thread, so Zorya follows the main
+goroutine (G1) and explores the other side of its conditional branches (`CBranch`) along that
+single path. A `gc` binary multiplexes many goroutines over several OS threads (`M`s) and
+processors (`P`s), so the target model is for Zorya to start on G1 and let the scheduler switch
+to another goroutine (G3), where branch exploration continues.
+
+| Diagram element | Status |
+|---|---|
+| TinyGo: single goroutine, branch exploration | Done |
+| gc: several Gs and Ms, G1 to G3 switch | Done, but the new goroutine always runs to completion at `go f()` |
+| gc: branch exploration inside G3 | Works if the condition depends on tracked inputs; no end-to-end test yet (the volos goroutine test uses synthetic events) |
+| Scheduler switching partway through G1 | Not implemented |
+| Exploring alternative execution orders | Not implemented |
+| Processor (P) layer, goroutines parked in run queues, syscall handoff | Not implemented |
+
+Notes on the gaps:
+
+- **Switch points.** Contexts switch only at `runtime.newproc` (into the new goroutine), when a
+  goroutine or thread finishes (thread-exit sentinel, `sys_exit`), and at `pthread_join`. The
+  per-instruction checkpoint in `main.rs` passes `CheckpointType::FunctionCall`, which
+  `ThreadManager::should_consider_switch` never accepts, and `time_slice_instructions` is not
+  consulted, so G1 is never preempted midway. Blocking operations (channel receive,
+  `Mutex.Lock`, `gopark`) do not park the goroutine, and `WaitGroup.Wait` is a no-op.
+- **One schedule.** The execution order is always G1 up to `go f()`, then G3 to completion, then
+  G1 resumes. Scheduling choices are not forked the way branch conditions are.
+- **Flattened M:N model.** There is no `P` layer, no `m.curg`, and no per-`M` shared TLS.
+  Goroutines already parked in run queues at dump time (G2, G4 in the diagram) are not
+  reconstructed, and a thread blocked in a syscall (G5) handing its work to another `M` is not
+  modelled.
+
 ## Future Work
 
 - ~~Support for thread scheduling/switching during execution~~: **done** via round-robin
-  OS-thread scheduling plus the goroutine-spawn hook above.
+  OS-thread scheduling plus the goroutine-spawn hook above. Preemptive switching and
+  exploration of alternative interleavings remain open (see
+  [TinyGo vs gc: implementation status](#tinygo-vs-gc-implementation-status)).
 - Goroutine-level state tracking: goroutines now schedule as first-class contexts with a
   synthetic `goid`; deeper `runtime.g` state tracking (real scheduler status, per-`g` stacks)
   remains partial.
