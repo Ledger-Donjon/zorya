@@ -18,6 +18,8 @@
 /results/function_signature_arg_types.json
 /results/function_signature_arg_registers.json
 /results/plugin_findings.txt
+/results/recursion_cycles.txt
+/.recur_tmp
 /tests/programs/broken-calculator/broken-calculator-tinygo_ghidra
 /tests/programs/broken-calculator/broken-calculator-tinygo
 /tests/programs/crashme/crashme_ghidra
@@ -52,3 +54,6 @@ results/execution_trace_runtime-mcommoninit.txt
 /tests/programs/race-counter-c-mutex/race-counter-c-mutex
 /tests/programs/race-counter-c-mixed/race-counter-c-mixed
 /tests/programs/race-counter/race-counter
+/tests/programs/vect-model/vect-model
+/tests/programs/vect-model/vect-model-race
+/.gomodcache

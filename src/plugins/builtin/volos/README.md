@@ -236,6 +236,25 @@ Verify the race natively with the Go race detector:
 cd tests/programs/race-counter && go run -race .
 ```
 
+### `vect-model` — Go shared-buffer race + input-gated overflow (VECT 2.0 model)
+
+A model of the VECT 2.0 ransomware bugs: two encryptor goroutines share one global 32-byte
+buffer, and on the single-pass path (`size ≤ 128`) each writes `ioBuf[size-1]` with no bound
+against the buffer. The size is three symbolic digits in `os.Args[1]`. volos **must** report
+exactly two Write vs Write races: `ioBuf[0]`, classified **input-independent** (written
+unconditionally), and `ioBuf[size-1]`, classified **input-dependent** (only on the `size ≤ 128`
+path). The same run reports the overflow in `FOUND_SAT_STATE.txt`, at the `ioBuf[size-1]` bounds
+check, with a size outside 1..32. See the
+fixture [README](../../../../tests/programs/vect-model/README.md) for the full expected output.
+
+```bash
+cd tests/programs/vect-model && CGO_ENABLED=0 go build -gcflags=all='-N -l' -o vect-model .
+ZORYA_FORCE_PANIC_XREF=1 ZORYA_AST_PANIC_STRICT=1 zorya "$PWD/vect-model" --lang go \
+  --compiler gc --mode main --thread-scheduling all-threads --arg "016" \
+  --negate-path-exploration --plugin "volos"
+# Expected: 2 findings on `ioBuf` (offsets 0 and 15), plus one SAT state at the bounds check
+```
+
 ## Integration status
 
 | Concern | Status |
