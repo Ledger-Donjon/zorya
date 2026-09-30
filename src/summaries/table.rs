@@ -40,10 +40,23 @@ pub enum SummaryEffect {
     /// Models: `runtime.makechan(t *chantype, size int) *hchan`
     ///
     /// The returned pointer is a fresh concrete address backed by a zeroed
-    /// `hchan` struct (96 bytes on amd64). The `closed` field at offset +X
-    /// is explicitly zero, which is the initial state the channel-invariant
-    /// plugin will track.
+    /// `hchan` struct (112 bytes on amd64 in Go 1.25+, zeroed as 128). The
+    /// `closed` and `bubble` fields are zero, which is the initial state the
+    /// channel-invariant plugin tracks and keeps the synctest checks off.
     MakeChan,
+
+    /// Non-blocking channel receive: returns `(selected, received) =
+    /// (true, true)` in (AL, BL) and leaves the channel and the element slot
+    /// untouched.
+    /// Models: `runtime.chanrecv1(c, elem)`, `runtime.chanrecv2(c, elem) bool`,
+    /// `runtime.chanrecv(c, ep, block) (bool, bool)`.
+    ///
+    /// Under the goroutine scheduler every sender already ran to completion
+    /// at its `go` statement, so a receive has nothing left to wait for (the
+    /// same model as the `WaitGroup.Wait` no-op). `chansend` is a no-op, so
+    /// the real `chanrecv` body would find an empty queue and park the
+    /// receiver in `gopark` forever. The received value is not modelled.
+    ChanRecv,
 
     /// A pure helper that returns a rounded-up value. The summary computes
     /// the concrete result and writes it to RAX.
@@ -216,6 +229,25 @@ pub static RUNTIME_SUMMARIES: Lazy<Vec<FunctionSummary>> = Lazy::new(|| {
         FunctionSummary {
             name: "runtime.chansend",
             effect: SummaryEffect::Nop,
+        },
+        FunctionSummary {
+            name: "runtime.chanrecv1",
+            effect: SummaryEffect::ChanRecv,
+        },
+        FunctionSummary {
+            name: "runtime.chanrecv2",
+            effect: SummaryEffect::ChanRecv,
+        },
+        FunctionSummary {
+            name: "runtime.chanrecv",
+            effect: SummaryEffect::ChanRecv,
+        },
+        // Go 1.25+ `testing/synctest` bubbles. Zorya never runs code inside a
+        // bubble; answering "no" keeps `WaitGroup.Add` (and friends) off the
+        // `synctest.Associate` / `fatal` paths whatever `g.bubble` holds.
+        FunctionSummary {
+            name: "internal/synctest.IsInBubble",
+            effect: SummaryEffect::ReturnZero,
         },
         // ─── GC / write barrier (no-ops for concolic) ─────────────────────
         FunctionSummary {
@@ -726,6 +758,21 @@ mod tests {
         }
         // Non-allocator runtime symbols must still fall through to "no summary".
         assert!(table.lookup("runtime.schedule").is_none());
+    }
+
+    #[test]
+    fn channel_receive_and_synctest_are_summarized() {
+        let table = SummaryTable::new();
+        for name in ["runtime.chanrecv1", "runtime.chanrecv2", "runtime.chanrecv"] {
+            assert!(
+                matches!(table.lookup(name), Some(SummaryEffect::ChanRecv)),
+                "{name} should be a non-blocking receive"
+            );
+        }
+        assert!(matches!(
+            table.lookup("internal/synctest.IsInBubble"),
+            Some(SummaryEffect::ReturnZero)
+        ));
     }
 
     #[test]

@@ -162,7 +162,11 @@ pub fn apply<'ctx>(
         }
 
         SummaryEffect::MakeChan => {
-            let hchan_size: u64 = 96;
+            // `hchan` is 112 bytes on amd64 in Go 1.25+ (`bubble` at +96,
+            // `lock` at +104). Zeroing less leaves `bubble` aliasing the next
+            // summary allocation, so `chanrecv`/`chansend` see a non-nil bubble
+            // and call `fatal("... synctest channel from outside bubble")`.
+            let hchan_size: u64 = 128;
             let ptr = *heap_ptr;
             *heap_ptr += (hchan_size + 15) & !15;
             let zeros = vec![0u8; hchan_size as usize];
@@ -197,6 +201,16 @@ pub fn apply<'ctx>(
                 .lock()
                 .unwrap()
                 .set_register_value_by_offset(0x0, result_cv, 64);
+            ApplyOutcome::Ok
+        }
+
+        SummaryEffect::ChanRecv => {
+            let one = || {
+                ConcolicVar::new_concrete_and_symbolic_int(1, BV::from_u64(z3_ctx, 1, 64), z3_ctx)
+            };
+            let mut cpu_lock = cpu.lock().unwrap();
+            let _ = cpu_lock.set_register_value_by_offset(0x0, one(), 64); // AL = selected / received
+            let _ = cpu_lock.set_register_value_by_offset(0x18, one(), 64); // BL = received
             ApplyOutcome::Ok
         }
 
