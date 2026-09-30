@@ -25,7 +25,13 @@ VDSO_DIR="$INIT_DATA_DIR/vdso"
 BIN_PATH="$1"
 START_POINT="$2"
 shift 2
-ARGS="$@"
+# One parameter per argv entry, single-quoted for the shell gdb starts the
+# inferior with (see dump_memory.sh).
+ARGS=""
+for _a in "$@"; do
+    ARGS+=" '${_a//"'"/"'\\''"}'"
+done
+ARGS="${ARGS# }"
 
 if [ -z "$BIN_PATH" ] || [ -z "$START_POINT" ]; then
     echo "Usage: $0 <binary_path> <start_point> [args...]"
@@ -98,17 +104,20 @@ GDB_LOG="$INIT_DATA_DIR/vdso_extraction.log"
 ##############################################################################
 if [[ "${FORCE_PTY:-false}" == "true" ]]; then
     GDB_CMD="gdb -batch"
-    GDB_CMD+=" -ex 'set auto-load safe-path /'"
-    GDB_CMD+=" -ex 'set pagination off'"
-    GDB_CMD+=" -ex 'set style enabled off'"
-    GDB_CMD+=" -ex 'set confirm off'"
-    GDB_CMD+=" -ex 'file $BIN_PATH'"
-    GDB_CMD+=" -ex 'set args $ARGS'"
-    GDB_CMD+=" -ex 'break *$START_POINT'"
-    GDB_CMD+=" -ex 'run'"
-    GDB_CMD+=" -ex 'source $TEMP_GDB_SCRIPT'"
-    GDB_CMD+=" -ex 'extract_vdso $VDSO_OUTPUT'"
-    GDB_CMD+=" -ex 'quit'"
+    for _ex in \
+        "set auto-load safe-path /" \
+        "set pagination off" \
+        "set style enabled off" \
+        "set confirm off" \
+        "file $BIN_PATH" \
+        "set args $ARGS" \
+        "break *$START_POINT" \
+        "run" \
+        "source $TEMP_GDB_SCRIPT" \
+        "extract_vdso $VDSO_OUTPUT" \
+        "quit"; do
+        GDB_CMD+=" -ex $(printf '%q' "$_ex")"
+    done
 
     script -qefc "$GDB_CMD" /dev/null &> "$GDB_LOG"
 else

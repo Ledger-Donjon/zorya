@@ -179,6 +179,7 @@ COMPILER=""
 MODE=""
 ADDR=""
 ARGS="none"
+ARGS_ARR=(none)
 ARGS_SET=false
 NEGATE_PATH_FLAG=""
 THREAD_SCHEDULING=""
@@ -230,6 +231,7 @@ while [[ $# -gt 0 ]]; do
     --arg)
       ARGS_SET=true
       ARGS=""
+      ARGS_ARR=()
       shift
       # Consume all following tokens as the target binary's arguments, stopping
       # only at a *recognized Zorya flag*. Breaking on any "--*" token (the old
@@ -247,14 +249,20 @@ while [[ $# -gt 0 ]]; do
             break
             ;;
         esac
-        if [[ -z "$ARGS" ]]; then
-          ARGS="$1"
-        else
-          ARGS="$ARGS $1"
+        # ARGS_ARR keeps the argv boundaries (an empty or whitespace-only
+        # argument is a real input); ARGS is only the joined form for display.
+        ARGS_ARR+=("$1")
+        if [[ -z "$1" || "$1" =~ ^[[:space:]]+$ ]]; then
+          echo "NOTE: --arg entry $(( ${#ARGS_ARR[@]} )) is empty/whitespace-only ('$1'); it is passed verbatim."
         fi
         shift
       done
-      [[ -z "$ARGS" ]] && ARGS="none"
+      if [[ ${#ARGS_ARR[@]} -eq 0 ]]; then
+        ARGS="none"
+        ARGS_ARR=(none)
+      else
+        ARGS="${ARGS_ARR[*]}"
+      fi
       ;;
     --help|-h)
       echo -e "${CYAN}${BOLD}Zorya - Next Generation Concolic Analysis${RESET}"
@@ -515,6 +523,7 @@ fi
 if [[ "$ARGS_SET" == "false" ]]; then
   echo ""; echo "Does the binary expect any arguments? (none / e.g., x y z)"
   read -rp "[none]: " ARGS; ARGS="${ARGS:-none}"
+  read -ra ARGS_ARR <<< "$ARGS"
 fi
 [[ "$INTERACTIVE_MODE" == "true" ]] && divider
 
@@ -607,7 +616,7 @@ export ZORYA_CMD="$CMD"
   # Step 2: Generate dumps
   echo ""; echo "Generating memory and CPU register dumps…"
   chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
-  if ! "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "$ARGS"; then
+  if ! "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "${ARGS_ARR[@]}"; then
     echo ""
     echo -e "\033[31m${BOLD}Zorya cannot continue without valid memory and CPU dumps. Aborting.${RESET}"
     exit 1
@@ -616,7 +625,7 @@ export ZORYA_CMD="$CMD"
   # Step 2.5: Extract and analyze VDSO
   echo ""; echo "Extracting VDSO from process memory…"
   chmod +x "$ZORYA_DIR/scripts/extract_vdso.sh"
-  "$ZORYA_DIR/scripts/extract_vdso.sh" "$BIN_PATH" "$ADDR" "$ARGS"
+  "$ZORYA_DIR/scripts/extract_vdso.sh" "$BIN_PATH" "$ADDR" "${ARGS_ARR[@]}"
 
   if [[ -f "$INIT_DATA_DIR/vdso/vdso.so" && -s "$INIT_DATA_DIR/vdso/vdso.so" && -f "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" ]]; then
     VDSO_BASE=$(cat "$INIT_DATA_DIR/vdso/vdso_base_addr.txt" | tr -d '[:space:]')
@@ -644,6 +653,8 @@ setup_rc=${PIPESTATUS[0]}
 [[ "$setup_rc" -ne 0 ]] && exit "$setup_rc"
 
 # Step 4: Run Zorya (appends trace directly to $TRACE_FILE).
+# exec (cargo run also execs the binary) so SIGTERM/SIGINT from `timeout` or the
+# terminal reach the engine itself, which then flushes its findings.
 cd "$ZORYA_DIR" || exit 1
 CARGO_TARGET_DIR="$ZORYA_DIR/target" \
-  RUSTFLAGS="--cap-lints=allow" cargo run --release -- --write-args "$ARGS"
+  RUSTFLAGS="--cap-lints=allow" exec cargo run --release -- --write-args "$ARGS"

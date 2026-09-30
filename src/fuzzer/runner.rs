@@ -121,6 +121,14 @@ impl FuzzerRunner {
         let status = cmd.status()?;
         if !status.success() {
             eprintln!("Warning: Panic cross-reference analysis failed (non-critical)");
+        } else if let Ok(out) = Command::new("sha256sum")
+            .arg(&self.config.global.binary_path)
+            .output()
+        {
+            // zorya reuses results/xref_addresses.txt only when this stamp matches the binary.
+            if let Some(hash) = String::from_utf8_lossy(&out.stdout).split_whitespace().next() {
+                let _ = std::fs::write("results/xref_addresses.sha256", hash);
+            }
         }
 
         println!();
@@ -156,11 +164,15 @@ impl FuzzerRunner {
         // Get entry point (we'll use readelf like the zorya script does)
         let entry_point = self.get_entry_point()?;
 
+        // dump_memory.sh takes one parameter per argv entry; the config holds a
+        // shell-style string.
+        let argv = shell_words::split(args)
+            .unwrap_or_else(|_| args.split_whitespace().map(str::to_string).collect());
         let mut cmd = Command::new(&dump_script);
         cmd.arg(&self.config.global.binary_path)
             .arg(start_address)
             .arg(&entry_point)
-            .arg(args)
+            .args(&argv)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());

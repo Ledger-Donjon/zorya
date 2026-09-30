@@ -22,7 +22,19 @@ mkdir -p "$(dirname "$MEMORY_MAP_PATH")"
 BIN_PATH="$1"
 START_POINT="$2" 
 ENTRY_POINT="$3"
-ARGS=$(printf "%s " "${@:4}" | tr -d '\n')
+# Each remaining parameter is one argv entry of the target, kept verbatim:
+# empty and whitespace-only arguments are valid inputs (e.g. a seed of "   ").
+TARGET_ARGS=("${@:4}")
+# gdb runs the inferior through /bin/sh, so `set args` needs every argument
+# single-quoted for a POSIX shell.
+ARGS=""
+for _a in "${TARGET_ARGS[@]}"; do
+    if [[ "$_a" == *$'\n'* ]]; then
+        echo "WARNING: argument contains a newline, which gdb's 'set args' cannot carry; it will be truncated."
+    fi
+    ARGS+=" '${_a//"'"/"'\\''"}'"
+done
+ARGS="${ARGS# }"
 
 if [ -z "$BIN_PATH" ] || [ -z "$START_POINT" ]; then
     echo "Usage: ./scripts/dump_memory.sh /path/to/bin <start_point> <arguments>"
@@ -245,7 +257,7 @@ capture_qemu_user() {
     fi
 
     echo "Launching target under qemu-user gdbstub: $qemu_bin -g $port"
-    "$qemu_bin" -g "$port" "$BIN_PATH" ${ARGS} > "$qemu_log" 2>&1 &
+    "$qemu_bin" -g "$port" "$BIN_PATH" "${TARGET_ARGS[@]}" > "$qemu_log" 2>&1 &
     local qemu_pid=$!
 
     # Wait for the gdbstub to be LISTENING. Probe the LISTEN state WITHOUT
