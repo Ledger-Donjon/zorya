@@ -121,6 +121,30 @@ Use one of these profiles depending on your goal:
   - Set `ZORYA_MEM_SAFETY_ORACLES=1`
   - Optionally keep `LOG_MODE=trace_only` to reduce I/O overhead.
 
+## C and C++ binaries
+
+`--lang c` and `--lang c++` run the same analysis: Zorya explores the input-dependent branches with the overlay path analysis and reports NULL dereferences and divisions by zero, and the concurrency plugins follow the pthread threads. The AST panic walk only runs for Go. There is no C++-specific support, so C++ works only as far as it behaves like C, and in practice that is rarely the case for real C++ code.
+
+### Building the target
+
+Build the target without PIE, the way the bundled C test programs are built (`tests/programs/race-counter-c*`): `gcc -O0 -g -no-pie -fcf-protection=none -Wl,-z,now main.c -o prog`, adding `-pthread` for threaded programs (use `g++` with the same flags for C++). Zorya does not relocate position-independent executables and does not set up the FS base register, so a PIE build, which is the `gcc`/`g++` default on most distributions, stops on the first stack-canary read (`mov %fs:0x28, %rax`) with `Failed to read memory at address 0x28: ReadOutOfBounds`.
+
+### Library calls are not executed
+
+Zorya does not execute shared-library code. A call through the PLT to a library function is skipped and returns 0 (`[EXTERNAL] skipping unresolved call ... returning 0` in `results/execution_log.txt`, see `handle_external_boundary` in `src/concolic/executor.rs`). Only `pthread_create` and `pthread_join` are modelled; lock and unlock calls such as `pthread_mutex_lock` are reported to the Volos plugin as lock events and then skipped the same way. This works when the input reaches the branches of the program's own code directly, as in `if (argv[1][0] == 'K')`, which is the case for the bundled C test programs. It does not work when the input or a pointer goes through a library call such as `strlen`, `memcpy` or `malloc`, since the call returns 0 instead of its real result. Linking statically (`-static`) does not solve this: glibc reaches `strlen`, `memcpy` and similar functions through IFUNC PLT stubs, and those are skipped the same way.
+
+### C++ limitations
+
+In C++ almost every operation goes through libstdc++, so the limitation above hits nearly all programs:
+
+- `operator new` returns 0 in a dynamically linked build, and the first write to the new object is reported as a false NULL dereference.
+- `std::string s(argv[1])` copies nothing, because the `strlen` it relies on returns 0. The symbolic argument bytes are lost, and a later `if (s[0] == 'K')` is a concrete branch that is never explored.
+- `std::cout` stops the run with `Unhandled syscall number: 5`, because `fstat` is not implemented.
+- Exceptions and stack unwinding (`__cxa_throw`, `_Unwind_Resume`) are not modelled, and C++ names are not demangled in the reports.
+- There is no C++ program in `tests/programs`.
+
+C++ support would need calls resolved through the GOT of the memory dump (including IFUNC stubs) instead of being skipped, function summaries for `strlen`, `memcpy`, `malloc`, `operator new` and `operator delete`, the `fstat` syscall, and a C++ test program.
+
 ## Apple Silicon / ARM hosts (x86-64 targets)
 
 Zorya's initial-state capture (`scripts/dump_memory.sh`) drives GDB to read the

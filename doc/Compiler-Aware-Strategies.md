@@ -16,7 +16,7 @@ Zorya automatically adapts its vulnerability detection strategy based on the bin
 |-------------|-----------------|------------------|-----------|
 | **TinyGo** | `--lang go --compiler tinygo` | **AST only** | TinyGo inserts explicit `runtime.nilpanic()` calls |
 | **Go GC** | `--lang go --compiler gc` | **AST + Overlay Path Analysis** | Standard Go runtime uses CPU traps for implicit errors (nil derefs, bounds checks) AND has explicit panic calls—requires both detection methods |
-| **C/C++** | `--lang c` or `--lang c++` | **Overlay Path Analysis only** | No panic infrastructure, only segfaults |
+| **C/C++** | `--lang c` or `--lang c++` | **Overlay Path Analysis only** | No panic infrastructure, only segfaults. Library calls are skipped, see [Usage.md](Usage.md#c-and-c-binaries) |
 
 
 ## Implementation Details
