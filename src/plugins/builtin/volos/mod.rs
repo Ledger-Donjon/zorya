@@ -33,7 +33,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use z3::ast::{Ast, Bool};
+use z3::ast::{Ast, Bool, Dynamic, BV};
 use z3::{SatResult, Solver};
 
 use crate::plugins::context::EventCtx;
@@ -106,6 +106,43 @@ fn model_string(solver: &Solver<'_>) -> String {
                 .join("; ")
         })
         .unwrap_or_default()
+}
+
+/// Input-domain constraints for the argv bytes (`argN_byte_M`) that occur in
+/// `parts`, following `ARG_ASCII_PROFILE` (`digits` or `printable`) like the
+/// engine's own SAT reports, so trigger/escape inputs are replayable.
+fn arg_byte_domain<'ctx>(ctx: &'ctx z3::Context, parts: &[&Bool<'ctx>]) -> Vec<Bool<'ctx>> {
+    const MAX_NODES: usize = 100_000;
+    let profile = std::env::var("ARG_ASCII_PROFILE")
+        .unwrap_or_default()
+        .to_lowercase();
+    let (lo, hi) = match profile.as_str() {
+        "digits" => (b'0' as u64, b'9' as u64),
+        "printable" => (32, 126),
+        _ => return Vec::new(),
+    };
+    let mut visited: HashSet<Dynamic<'ctx>> = HashSet::new();
+    let mut stack: Vec<Dynamic<'ctx>> = parts.iter().map(|b| Dynamic::from_ast(*b)).collect();
+    let mut out = Vec::new();
+    while let Some(node) = stack.pop() {
+        if visited.len() >= MAX_NODES || !visited.insert(node.clone()) {
+            continue;
+        }
+        if node.is_const() {
+            let name = node.decl().name();
+            if name.starts_with("arg") && name.contains("_byte_") {
+                if let Some(bv) = node.as_bv() {
+                    let w = bv.get_size();
+                    out.push(
+                        bv.bvuge(&BV::from_u64(ctx, lo, w)) & bv.bvule(&BV::from_u64(ctx, hi, w)),
+                    );
+                }
+            }
+        } else if node.is_app() {
+            stack.extend(node.children());
+        }
+    }
+    out
 }
 
 /// Granularity of the per-region map. Volos in the upstream fork tracks
@@ -231,8 +268,14 @@ impl<'ctx> VolosPlugin<'ctx> {
             .collect::<Vec<_>>()
             .join(" ∧ ");
 
+        // Both queries range over the same input domain.
+        let domain = arg_byte_domain(ctx, &parts);
+
         // Query 1: φ = φ₁ ∧ φ₂. Is there an input that reaches both accesses?
         let solver = Solver::new(ctx);
+        for d in &domain {
+            solver.assert(d);
+        }
         for p in &parts {
             solver.assert(p);
         }
@@ -249,6 +292,9 @@ impl<'ctx> VolosPlugin<'ctx> {
         // even though branch constraints were captured).
         let phi_conj = Bool::and(ctx, &parts);
         let neg_solver = Solver::new(ctx);
+        for d in &domain {
+            neg_solver.assert(d);
+        }
         neg_solver.assert(&phi_conj.not());
         match neg_solver.check() {
             // ¬φ unsatisfiable ⇒ φ valid ⇒ reachable for *every* input.
