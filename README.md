@@ -16,13 +16,13 @@ SPDX-License-Identifier: Apache-2.0
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust" alt="Made with Rust"/></a>
 </p>
 
-Zorya is a concolic execution framework for binary-level vulnerability analysis, with a strong focus on Go binaries.
-It initializes execution from real runtime state (CPU + memory dumps), translates code to Ghidra low-level P-Code, and executes paths with concrete and symbolic values using Z3 SMT solver.
+Zorya is a concolic executor that finds bugs in compiled x86-64 binaries and gives you the input that triggers them. It targets Go programs in particular (gc and TinyGo), and also handles C and partially C++, without needing the source code.
 
-The engine is written in Rust and includes a state manager, AMD64 CPU model, memory model, and virtual file system.
-It supports language/compiler-aware exploration strategies, including targeted advanced mode and fuzzer-driven campaigns.
+Zorya starts from the real state of the running program, captured with GDB (CPU registers, memory, threads), and executes Ghidra's P-Code with concrete and symbolic values. At each branch that depends on the input, it explores the other side and asks the Z3 solver for an input that reaches it. It reports Go panics (such as out-of-bounds indexing), NULL dereferences and divisions by zero, and its plugins detect data races, TOCTOU races and sends on closed channels across threads and goroutines.
 
-> The owl sees what darkness keeps —
+The engine is written in Rust. It runs from a command-line launcher, from fuzzer-driven campaigns, or through an MCP server for AI agents.
+
+> The owl sees what darkness keeps;
 > Zorya comes, and nothing sleeps.
 
 🚧 Zorya is under active development. Breaking changes may happen. 🚧
