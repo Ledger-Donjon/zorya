@@ -242,6 +242,8 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     executor.current_address = saved_current_address;
     executor.null_check_cache = saved_null_check_cache;
     executor.constraint_vector = saved_constraint_vector;
+    let restored_len = executor.constraint_vector.len();
+    executor.constraint_owner_tids.truncate(restored_len);
     log!(
         executor.state.logger,
         "[OVERLAY] Restored {} unique variables after overlay exploration",
@@ -480,20 +482,28 @@ fn execute_with_overlay<'ctx>(
                                     sym_name,
                                     target
                                 );
-                                let _ = crate::summaries::apply(
+                                apply_summary_in_overlay(
+                                    executor,
                                     &effect,
-                                    executor.context,
-                                    &executor.state.cpu_state,
-                                    &executor.state.memory,
                                     &mut overlay_summary_heap_ptr,
                                 );
-                                crate::summaries::clear_error_registers(
-                                    &effect,
-                                    executor.context,
-                                    &executor.state.cpu_state,
-                                );
-                                // Simulate the function return: continue at the
-                                // fallthrough block (the post-call return point).
+                                // Undo the return-address push, as for the
+                                // skipped scheduler helpers above, then continue
+                                // at the fallthrough block (the post-call point).
+                                if let Some(rsp) = executor.get_register_overlay_aware(0x20, 64) {
+                                    if let Ok(rsp_val) = rsp.get_concrete_value() {
+                                        let new_rsp = rsp_val.wrapping_add(8);
+                                        let _ = executor.set_register_overlay_aware(
+                                            0x20,
+                                            crate::concolic::ConcolicVar::new_concrete_and_symbolic_int(
+                                                new_rsp,
+                                                z3::ast::BV::from_u64(executor.context, new_rsp, 64),
+                                                executor.context,
+                                            ),
+                                            64,
+                                        );
+                                    }
+                                }
                                 current_addr = next_addr;
                                 explicit_control_flow = true;
                                 break;
@@ -667,6 +677,68 @@ fn execute_with_overlay<'ctx>(
     OverlayPathAnalysisResult::DepthLimitReached
 }
 
+/// Registers a summary reads (RAX, RBX, RCX) or writes (RAX, RBX, RCX, RDI).
+const SUMMARY_REGISTERS: [u64; 4] = [0x0, 0x8, 0x18, 0x38];
+
+/// Apply a function summary on the overlay path.
+///
+/// `summaries::apply` writes to the base CPU state. On the overlay path the
+/// base state is the *concrete* path's, so writing to it would leak the
+/// explored branch's return values into the real run. Run the summary on the
+/// base state against the overlay-visible arguments, move its results into the
+/// overlay, then restore the base registers.
+fn apply_summary_in_overlay<'ctx>(
+    executor: &mut ConcolicExecutor<'ctx>,
+    effect: &crate::summaries::SummaryEffect,
+    heap_ptr: &mut u64,
+) {
+    let ctx = executor.context;
+    let to_var = |v: crate::state::cpu_state::CpuConcolicValue<'ctx>| {
+        crate::concolic::ConcolicVar::new_concrete_and_symbolic_int(
+            v.concrete.to_u64(),
+            v.symbolic.to_bv(ctx),
+            ctx,
+        )
+    };
+
+    let inputs: Vec<_> = SUMMARY_REGISTERS
+        .iter()
+        .map(|&off| (off, executor.get_register_overlay_aware(off, 64)))
+        .collect();
+    let saved_base = executor.state.cpu_state.lock().unwrap().clone();
+    {
+        let mut cpu = executor.state.cpu_state.lock().unwrap();
+        for (off, value) in inputs {
+            if let Some(v) = value {
+                let _ = cpu.set_register_value_by_offset(off, to_var(v), 64);
+            }
+        }
+    }
+
+    let _ = crate::summaries::apply(
+        effect,
+        ctx,
+        &executor.state.cpu_state,
+        &executor.state.memory,
+        heap_ptr,
+    );
+    crate::summaries::clear_error_registers(effect, ctx, &executor.state.cpu_state);
+
+    let outputs: Vec<_> = {
+        let cpu = executor.state.cpu_state.lock().unwrap();
+        SUMMARY_REGISTERS
+            .iter()
+            .map(|&off| (off, cpu.get_register_by_offset(off, 64)))
+            .collect()
+    };
+    *executor.state.cpu_state.lock().unwrap() = saved_base;
+    for (off, value) in outputs {
+        if let Some(v) = value {
+            let _ = executor.set_register_overlay_aware(off, to_var(v), 64);
+        }
+    }
+}
+
 /// Check instruction for vulnerability patterns BEFORE execution
 /// This allows us to detect issues like null pointer dereferences before they cause errors
 fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
@@ -675,6 +747,26 @@ fn check_instruction_for_vulnerabilities_before_execution<'ctx>(
     current_addr: u64,
     inst_idx: usize,
 ) -> Option<OverlayPathAnalysisResult> {
+    if matches!(inst.opcode, Opcode::Load | Opcode::Store)
+        && executor.is_go_runtime_crash_path(current_addr)
+    {
+        let nil_access = inst
+            .inputs
+            .get(1)
+            .and_then(|vn| executor.varnode_to_concolic(vn).ok())
+            .is_some_and(|p| p.get_concrete_value() == 0);
+        if nil_access {
+            log!(
+                executor.state.logger,
+                "[OVERLAY] Reached the Go runtime's deliberate crash at 0x{:x}; not a NULL-dereference bug, stopping the overlay",
+                current_addr
+            );
+            return Some(OverlayPathAnalysisResult::Error(format!(
+                "overlay reached the Go runtime crash path at 0x{current_addr:x}"
+            )));
+        }
+    }
+
     // Check for LOAD with potentially null pointer
     if inst.opcode == Opcode::Load {
         if let Some(pointer_varnode) = inst.inputs.get(1) {

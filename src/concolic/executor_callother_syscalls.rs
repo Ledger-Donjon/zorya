@@ -1216,6 +1216,12 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
             // Release CPU lock before calling thread_manager
             drop(cpu_state_guard);
 
+            let clone_parent_tid = executor
+                .state
+                .thread_manager
+                .lock()
+                .map(|tm| tm.current_tid)
+                .unwrap_or(0);
             // Create the new thread using ThreadManager
             let new_tid = executor
                 .state
@@ -1231,6 +1237,7 @@ pub fn handle_syscall(executor: &mut ConcolicExecutor) -> Result<(), String> {
                     None, // child_cleartid_ptr is set via CLONE_CHILD_CLEARTID flag handling
                 )
                 .map_err(|e| format!("Failed to clone thread: {}", e))?;
+            executor.note_thread_spawn(clone_parent_tid, new_tid);
 
             // Handle CLONE_PARENT_SETTID: write new TID to parent's memory
             if let Some(parent_ptr) = parent_tid_ptr {

@@ -826,4 +826,65 @@ mod tests {
             "Subpiece should extract non-zero value"
         );
     }
+
+    #[test]
+    fn test_thread_path_condition_excludes_sibling_branches() {
+        use z3::ast::Bool;
+        let mut executor = setup_executor();
+        let ctx = executor.context;
+        let c = |name: &str| Bool::new_const(ctx, name);
+        let (main, g1, g2) = (1u64, 2u64, 3u64);
+
+        // main decides `m` before spawning both workers.
+        executor.constraint_vector.push(c("m"));
+        executor.sync_constraint_owners(main);
+        executor.note_thread_spawn(main, g1);
+        executor.note_thread_spawn(main, g2);
+
+        // g1 runs first and branches; then g2 branches.
+        executor.constraint_vector.push(c("a"));
+        executor.sync_constraint_owners(g1);
+        executor.constraint_vector.push(c("b"));
+        executor.sync_constraint_owners(g2);
+        // main branches again after the spawns.
+        executor.constraint_vector.push(c("m2"));
+        executor.sync_constraint_owners(main);
+
+        let names = |tid| -> Vec<String> {
+            executor
+                .thread_path_condition(tid)
+                .iter()
+                .map(|b| b.to_string())
+                .collect()
+        };
+        assert_eq!(names(g1), ["m", "a"]);
+        assert_eq!(names(g2), ["m", "b"]);
+        assert_eq!(names(main), ["m", "m2"]);
+
+        // An overlay restore drops entries; their owners must go too.
+        executor.constraint_vector.truncate(2);
+        executor.sync_constraint_owners(main);
+        assert_eq!(executor.constraint_owner_tids, [main, g1]);
+    }
+
+    #[test]
+    fn test_thread_path_condition_drops_branches_rejoined_before_spawn() {
+        use z3::ast::Bool;
+        let mut executor = setup_executor();
+        let ctx = executor.context;
+        let (main, early, late) = (1u64, 2u64, 3u64);
+
+        // `if n > 0 { ... }` in main, rejoined at instruction 10.
+        executor.constraint_vector.push(Bool::new_const(ctx, "n_pos"));
+        executor.sync_constraint_owners(main);
+        executor.instruction_counter = 5;
+        executor.note_thread_spawn(main, early); // spawned inside the `if`
+        executor.constraint_resolved_at[0] = Some(10);
+        executor.instruction_counter = 20;
+        executor.note_thread_spawn(main, late); // spawned after the join
+
+        assert_eq!(executor.thread_path_condition(early).len(), 1);
+        assert!(executor.thread_path_condition(late).is_empty());
+        assert!(executor.thread_path_condition(main).is_empty());
+    }
 }

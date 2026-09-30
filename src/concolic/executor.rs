@@ -152,6 +152,21 @@ pub struct ConcolicExecutor<'ctx> {
     pub trace_logger: Logger,
     pub function_symbolic_arguments: BTreeMap<String, SymbolicVar<'ctx>>, // this is used to store the symbolic arguments of the binary (os.args) or the function (RSI, RDX, RCX, R8, R9 etc.)
     pub constraint_vector: Vec<Bool<'ctx>>, // Vector to collect constraints on tracked symbolic variables
+    /// TID that pushed each `constraint_vector` entry (kept in step by
+    /// `sync_constraint_owners`). `constraint_vector` is global across
+    /// threads, but a thread's path condition is only its own branches plus
+    /// what its parent had decided when it was spawned.
+    pub constraint_owner_tids: Vec<u64>,
+    /// For each `constraint_vector` entry, the `instruction_counter` at which
+    /// its thread reached the point where both sides of the branch rejoin.
+    /// From then on the branch no longer decides whether later code runs, so
+    /// it drops out of that thread's path condition.
+    pub constraint_resolved_at: Vec<Option<u64>>,
+    /// Unresolved branch joins: (constraint index, tid, join address, RSP).
+    pub pending_joins: Vec<(usize, u64, u64, u64)>,
+    /// Child TID -> (parent TID, parent's `constraint_vector` length at spawn,
+    /// `instruction_counter` at spawn).
+    pub thread_phi_origin: HashMap<u64, (u64, usize, u64)>,
     pub overlay_state: Option<crate::state::OverlayState<'ctx>>, // Overlay state for exploring untaken paths without modifying base state
     pub null_check_cache: std::collections::HashMap<String, (bool, usize)>, // Per-variable cache: maps symbolic variable name → (was_sat, constraint_len). If was_sat=true the variable is permanently skipped (vulnerability already reported). If was_sat=false it is re-checked only when constraint_len changes. For Go struct pointers this is pre-seeded with (false, 0) at initialization so the solver is never invoked.
     pub start_time: Instant, // Execution start time for elapsed time tracking
@@ -256,6 +271,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             trace_logger,
             function_symbolic_arguments: BTreeMap::new(),
             constraint_vector: Vec::new(),
+            constraint_owner_tids: Vec::new(),
+            constraint_resolved_at: Vec::new(),
+            pending_joins: Vec::new(),
+            thread_phi_origin: HashMap::new(),
             overlay_state: None,
             null_check_cache: std::collections::HashMap::new(),
             start_time: Instant::now(),
@@ -666,6 +685,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 None,
             );
         }
+        self.note_thread_spawn(parent_tid, child_tid);
 
         // Write the child TID back through the `thread` out-pointer.
         if thread_out != 0 {
@@ -855,8 +875,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         //      reads resolve to a live m rather than nil. This is the pragmatic
         //      two-level M↔G model: private per-goroutine g/TLS, shared host m
         //      (no P layer, no m.curg, no shared-M TLS).
+        // The allocation must cover the whole `runtime.g`, not just the fields
+        // written below: every field the runtime reads must be zero (nil). Go
+        // 1.25+ `internal/synctest.IsInBubble` reads `g.bubble` at +0x188, past
+        // a 256-byte block, and a non-nil value there sends `WaitGroup.Add` and
+        // channel ops into the synctest paths. `runtime.g` is ~0x1b0 bytes on
+        // amd64 across Go 1.22–1.26.
+        const G_ALLOC_MIN: usize = 0x400;
         let goid_offset = crate::state::RuntimeGOffsets::get_goid_offset();
-        let g_size = ((goid_offset as usize + 16).max(256) + 15) & !15;
+        let g_size = ((goid_offset as usize + 16).max(G_ALLOC_MIN) + 15) & !15;
         let fake_g = match self
             .state
             .memory
@@ -1005,6 +1032,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 *self.state.cpu_state.lock().unwrap() = new_cpu;
             }
         }
+        self.note_thread_spawn(parent_tid, child_tid);
 
         // Fork the parent's vector clock into the child (Volos happens-before
         // "fork" rule) and register the child for the concurrency plugins.
@@ -1220,15 +1248,113 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let icnt = self.instruction_counter;
         let st = self.start_time;
         let ctx = self.context;
-        // Borrow the current path condition (disjoint field from
-        // `event_bus`) so detectors can stamp each access with the
-        // predicate `φ` under which this concrete path was taken.
-        let path_constraints = &self.constraint_vector;
+        // Stamp each access with the predicate `φ` under which *this thread*
+        // reached it, so detectors don't see another goroutine's branches.
+        self.sync_constraint_owners(tid);
+        let thread_phi;
+        let path_constraints: &[Bool<'ctx>] = if self.thread_phi_origin.is_empty() {
+            &self.constraint_vector
+        } else {
+            thread_phi = self.thread_path_condition(tid);
+            &thread_phi
+        };
         // Re-entrancy guard inside `dispatch_with` makes this safe even
         // when `get_current_goroutine_id` itself reads engine memory.
         let _ = self
             .event_bus
             .dispatch_with(ctx, pc, tid, goid, icnt, st, path_constraints, ev);
+    }
+
+    /// Attribute `constraint_vector` entries pushed since the last sync to
+    /// `tid`, and drop owners of entries an overlay restore removed.
+    pub fn sync_constraint_owners(&mut self, tid: u64) {
+        let n = self.constraint_vector.len();
+        if self.constraint_owner_tids.len() > n {
+            self.constraint_owner_tids.truncate(n);
+            self.pending_joins.retain(|&(idx, ..)| idx < n);
+        } else {
+            self.constraint_owner_tids.resize(n, tid);
+        }
+        self.constraint_resolved_at.resize(n, None);
+    }
+
+    /// Record that `parent_tid` spawned `child_tid`: the child inherits the
+    /// parent's path condition as it stands now. Call before switching threads.
+    pub fn note_thread_spawn(&mut self, parent_tid: u64, child_tid: u64) {
+        self.sync_constraint_owners(parent_tid);
+        self.thread_phi_origin.insert(
+            child_tid,
+            (parent_tid, self.constraint_vector.len(), self.instruction_counter as u64),
+        );
+    }
+
+    /// Constraint `idx` stops gating once thread `tid` reaches `join` with
+    /// stack pointer `rsp` (same frame as the branch).
+    pub fn note_branch_join(&mut self, idx: usize, tid: u64, join: u64, rsp: u64) {
+        self.pending_joins.push((idx, tid, join, rsp));
+    }
+
+    /// Resolve every pending branch join the current thread reaches at `rip`.
+    pub fn resolve_branch_joins_at(&mut self, rip: u64) {
+        if !self.pending_joins.iter().any(|&(_, _, join, _)| join == rip) {
+            return;
+        }
+        let tid = self
+            .state
+            .thread_manager
+            .lock()
+            .map(|tm| tm.current_tid)
+            .unwrap_or(0);
+        let rsp = self
+            .state
+            .cpu_state
+            .lock()
+            .ok()
+            .and_then(|cpu| cpu.get_register_by_offset(0x20, 64))
+            .map(|v| v.concrete.to_u64())
+            .unwrap_or(0);
+        self.sync_constraint_owners(tid);
+        let now = self.instruction_counter as u64;
+        let resolved_at = &mut self.constraint_resolved_at;
+        self.pending_joins.retain(|&(idx, t, join, r)| {
+            let hit = join == rip && t == tid && r == rsp;
+            if hit {
+                if let Some(slot) = resolved_at.get_mut(idx) {
+                    *slot = Some(now);
+                }
+            }
+            !hit
+        });
+    }
+
+    /// Path condition of `tid`: its own unresolved constraints plus,
+    /// recursively, those its ancestors had pushed and not yet resolved when
+    /// they spawned it. Threads with no spawn record (the main thread, threads
+    /// loaded from the dump) own theirs only.
+    pub fn thread_path_condition(&self, tid: u64) -> Vec<Bool<'ctx>> {
+        let n = self.constraint_vector.len().min(self.constraint_owner_tids.len());
+        // (thread, constraints it contributes are below this index, and count
+        // only if unresolved before this instruction count)
+        let mut chain: Vec<(u64, usize, u64)> = vec![(tid, n, u64::MAX)];
+        let mut cur = tid;
+        while let Some(&(parent, spawn_len, spawn_seq)) = self.thread_phi_origin.get(&cur) {
+            if chain.len() > 64 || chain.iter().any(|&(t, ..)| t == parent) {
+                break;
+            }
+            let &(_, prev_len, prev_seq) = chain.last().unwrap();
+            chain.push((parent, spawn_len.min(prev_len), spawn_seq.min(prev_seq)));
+            cur = parent;
+        }
+        (0..n)
+            .filter(|&i| {
+                let owner = self.constraint_owner_tids[i];
+                let resolved = self.constraint_resolved_at.get(i).copied().flatten();
+                chain.iter().any(|&(t, limit, seq)| {
+                    t == owner && i < limit && resolved.map_or(true, |s| s >= seq)
+                })
+            })
+            .map(|i| self.constraint_vector[i].clone())
+            .collect()
     }
 
     /// Notify plugins that an overlay concolic execution is about to be torn
@@ -1742,6 +1868,27 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             }
         }
         best.map(|(_, n)| n.clone())
+    }
+
+    /// Whether `addr` lies in the Go runtime's deliberate crash path. Once
+    /// `throw` / `fatal` has decided to kill the process, `fatalthrow` writes
+    /// through a nil pointer on purpose (`*(*int)(nil) = 0`); that store is not
+    /// a NULL-dereference bug.
+    pub fn is_go_runtime_crash_path(&self, addr: u64) -> bool {
+        const CRASH_FNS: &[&str] = &[
+            "runtime.throw",
+            "runtime.fatal",
+            "runtime.fatalthrow",
+            "runtime.fatalpanic",
+            "runtime.crash",
+            "runtime.dieFromSignal",
+            "runtime.abort",
+        ];
+        self.enclosing_symbol_name(addr).is_some_and(|name| {
+            CRASH_FNS
+                .iter()
+                .any(|f| name == *f || name.starts_with(&format!("{f}.")))
+        })
     }
 
     // Helper function to resolve function names via GOT
@@ -3448,7 +3595,15 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 path_description
             );
 
+            let tid = self
+                .state
+                .thread_manager
+                .lock()
+                .map(|tm| tm.current_tid)
+                .unwrap_or(0);
+            self.sync_constraint_owners(tid);
             self.constraint_vector.push(condition_symbolic);
+            self.constraint_owner_tids.push(tid);
         } else {
             log!(
                 self.state.logger.clone(),

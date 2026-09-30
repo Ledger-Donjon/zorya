@@ -14,9 +14,46 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static SIGINT_RECEIVED: AtomicBool = AtomicBool::new(false);
+static SHUTDOWN_ACK: AtomicBool = AtomicBool::new(false);
+static LAST_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
-extern "C" fn sigint_handler(_: libc::c_int) {
-    SIGINT_RECEIVED.store(true, Ordering::SeqCst);
+/// The main loop only checks SIGINT_RECEIVED between blocks, so a signal that
+/// lands in a long solve or overlay would otherwise never stop the process.
+/// Past ZORYA_SHUTDOWN_GRACE_SECS (default 60) without the loop acknowledging
+/// it, exit as the default signal action would, without findings.
+fn spawn_shutdown_watchdog() {
+    let grace = env::var("ZORYA_SHUTDOWN_GRACE_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(60);
+    std::thread::spawn(move || {
+        let tick = std::time::Duration::from_millis(200);
+        while !SIGINT_RECEIVED.load(Ordering::SeqCst) {
+            std::thread::sleep(tick);
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(grace);
+        while std::time::Instant::now() < deadline {
+            if SHUTDOWN_ACK.load(Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(tick);
+        }
+        eprintln!(
+            "\n[SIGNAL] Engine did not reach a safe point within {}s; exiting without findings.",
+            grace
+        );
+        unsafe { libc::_exit(128 + LAST_SIGNAL.load(Ordering::SeqCst)) };
+    });
+}
+
+extern "C" fn sigint_handler(sig: libc::c_int) {
+    LAST_SIGNAL.store(sig, Ordering::SeqCst);
+    // A second Ctrl+C means the graceful path is stuck (e.g. a long Z3 solve):
+    // leave immediately. Not for SIGTERM: `timeout` sends it to the child and
+    // then to the whole process group, so it routinely arrives twice at once.
+    if SIGINT_RECEIVED.swap(true, Ordering::SeqCst) && sig == libc::SIGINT {
+        unsafe { libc::_exit(128 + sig) };
+    }
 }
 
 use parser::parser::{Inst, Opcode, Var};
@@ -206,14 +243,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Install SIGINT handler so Ctrl+C triggers graceful shutdown
-    // (finalize_plugin_analysis runs before exit).
+    // Ctrl+C, `timeout` (SIGTERM) and a closed terminal (SIGHUP) all trigger
+    // graceful shutdown, so finalize_plugin_analysis still writes the findings.
     unsafe {
-        libc::signal(
-            libc::SIGINT,
-            sigint_handler as *const () as libc::sighandler_t,
-        );
+        for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            libc::signal(sig, sigint_handler as *const () as libc::sighandler_t);
+        }
     }
+    spawn_shutdown_watchdog();
 
     // Initialize wall-clock timer to measure time until first SAT state
     init_sat_timer_start();
@@ -1475,12 +1512,33 @@ fn execute_instructions_from(
 
     let mut math_big_warned = false;
 
+    // Branch sites already explored on the negated side, keyed by
+    // (branch pc, negated target, Z3 hash of the branch condition). A spinning
+    // runtime loop (`runtime.lock2`, `morestack`, a CAS retry) revisits the
+    // same CBRANCH with the same condition; re-running the overlay and AST
+    // walk there cannot find anything new and used to burn the whole budget.
+    let mut explored_branch_sites: std::collections::HashSet<(u64, u64, u64)> =
+        std::collections::HashSet::new();
+
+    // Optional wall-clock budget; hitting it ends the run like a signal does.
+    let deadline = std::env::var("ZORYA_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .filter(|&s| s > 0)
+        .map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
+
     loop {
-        // Graceful shutdown on Ctrl+C: break out of the loop so
-        // finalize_plugin_analysis can run and emit findings.
+        // Graceful shutdown on a signal or the deadline: break out of the loop
+        // so finalize_plugin_analysis can run and emit findings.
         if SIGINT_RECEIVED.load(Ordering::Relaxed) {
+            SHUTDOWN_ACK.store(true, Ordering::SeqCst);
             zorya::clear_coverage_bar();
-            teprintln!("\n[SIGINT] Graceful shutdown.");
+            teprintln!("\n[SIGNAL] Graceful shutdown.");
+            break;
+        }
+        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            zorya::clear_coverage_bar();
+            teprintln!("\n[TIMEOUT] ZORYA_TIMEOUT_SECS reached, graceful shutdown.");
             break;
         }
 
@@ -1493,6 +1551,8 @@ fn execute_instructions_from(
             teprintln!("\n[ANALYSIS] main.main returned, analysis complete.");
             break;
         }
+
+        executor.resolve_branch_joins_at(current_rip);
 
         // External-function boundary check. `current_rip` is "external" when:
         //   * it has no lifted pcode (the thread-exit sentinel, or a libc
@@ -1968,13 +2028,9 @@ fn execute_instructions_from(
                         if is_c_family && in_shared_lib_space {
                             false
                         } else {
-                            let cond_var = cond.to_concolic_var().unwrap();
-                            let expr_string = format!("{:?}", cond_var.symbolic);
                             let keys: Vec<&String> =
                                 executor.function_symbolic_arguments.keys().collect();
-                            let found = keys
-                                .iter()
-                                .any(|arg_name| expr_string.contains(arg_name.as_str()));
+                            let found = mentions_tracked_key(&cond_bv, &keys);
                             if !found {
                                 log!(
                                     executor.state.logger,
@@ -2034,9 +2090,39 @@ fn execute_instructions_from(
                         *addr
                     };
 
+                    let simplified_flag = conditional_flag
+                        .symbolic
+                        .to_bv(executor.context)
+                        .simplify();
+                    let site_key = {
+                        use std::hash::{Hash, Hasher};
+                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                        simplified_flag.hash(&mut h);
+                        (current_rip, address_of_negated_path_exploration, h.finish())
+                    };
+
                     // Check if internal p-code target
                     if is_internal_target {
                         log!(executor.state.logger, ">>> Internal p-code branch target detected; skipping overlay exploration.");
+                    } else if let Some(v) = simplified_flag.as_u64() {
+                        // The input bytes only appear in dead sub-terms (e.g. a
+                        // stack-guard compare folding to a constant): no input
+                        // takes the other side, so exploring it would run an
+                        // infeasible path (morestack on g0) and feed its
+                        // accesses to the plugins under a `false` gate.
+                        log!(
+                            executor.state.logger,
+                            ">>> Branch at 0x{:x}: condition simplifies to the constant {}; the negated side is infeasible, skipping overlay and AST exploration.",
+                            current_rip,
+                            v
+                        );
+                    } else if !explored_branch_sites.insert(site_key) {
+                        log!(
+                            executor.state.logger,
+                            ">>> Branch at 0x{:x} → 0x{:x} already explored with the same condition; skipping overlay and AST exploration.",
+                            current_rip,
+                            address_of_negated_path_exploration
+                        );
                     } else {
                         // Not an internal target - proceed with overlay exploration
                         log!(
@@ -2230,6 +2316,7 @@ fn execute_instructions_from(
 
             // MAIN PART OF THE CODE
             // Execute the instruction and handle errors
+            let constraints_before = executor.constraint_vector.len();
             match executor.execute_instruction(
                 inst.clone(),
                 current_rip,
@@ -2237,6 +2324,19 @@ fn execute_instructions_from(
                 instructions_map,
             ) {
                 Ok(_) => {
+                    if inst.opcode == Opcode::CBranch
+                        && executor.constraint_vector.len() == constraints_before + 1
+                    {
+                        if let Var::Memory(target) = inst.inputs[0].var {
+                            note_branch_join_point(
+                                executor,
+                                instructions_map,
+                                constraints_before,
+                                target,
+                                *next_addr_in_map,
+                            );
+                        }
+                    }
                     // Check if the process has terminated
                     if executor.state.is_terminated {
                         log!(
@@ -3026,19 +3126,31 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
     // xref_addresses.txt, which would in turn invalidate the panic-reachability
     // BFS cache. Skipping it here keeps both caches warm so the per-test time
     // budget is spent on concolic execution instead of static setup.
-    // Force a recompute by setting ZORYA_FORCE_PANIC_XREF=1.
+    // The table is only reused for the binary it was computed from: its
+    // sha256 is stored next to it, and a missing or different hash forces a
+    // recompute. Force a recompute anyway by setting ZORYA_FORCE_PANIC_XREF=1.
     let force_xref = std::env::var("ZORYA_FORCE_PANIC_XREF")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     let xref_path = Path::new("results/xref_addresses.txt");
+    let xref_hash_path = Path::new("results/xref_addresses.sha256");
+    let binary_hash = sha256_of_file(binary_path);
     let xref_cached = xref_path.exists()
         && fs::metadata(xref_path)
             .map(|m| m.len() > 0)
             .unwrap_or(false);
-    if !force_xref && xref_cached {
-        tprintln!("[GHIDRA] Reusing existing results/xref_addresses.txt (skipping Pyhidra panic-xref recompute).");
+    let hash_matches = binary_hash.is_some()
+        && fs::read_to_string(xref_hash_path)
+            .map(|h| Some(h.trim().to_string()) == binary_hash)
+            .unwrap_or(false);
+    if !force_xref && xref_cached && hash_matches {
+        tprintln!("[GHIDRA] Reusing existing results/xref_addresses.txt (same binary sha256; skipping Pyhidra panic-xref recompute).");
         return Ok(());
     }
+    if xref_cached && !hash_matches && !force_xref {
+        tprintln!("[GHIDRA] results/xref_addresses.txt was computed for a different binary; recomputing.");
+    }
+    let _ = fs::remove_file(xref_hash_path);
 
     tprintln!("[GHIDRA] Launching Ghidra + Pyhidra to collect panic cross-references (this may take a bit)...");
 
@@ -3063,8 +3175,134 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
     if !Path::new("results/xref_addresses.txt").exists() {
         panic!("[ERROR]: xref_addresses.txt not found after running the Python script\n");
     }
+    if let Some(hash) = binary_hash {
+        let _ = fs::write(xref_hash_path, hash);
+    }
 
     Ok(())
+}
+
+/// True if any symbol in `expr` has a name containing one of `keys`.
+/// Walks the term as a DAG: printing it (the previous check) expands shared
+/// sub-terms and never finishes on deep `math/big` arithmetic.
+fn mentions_tracked_key(expr: &BV, keys: &[&String]) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    let mut stack = vec![z3::ast::Dynamic::from_ast(expr)];
+    while let Some(node) = stack.pop() {
+        if !node.is_app() || !visited.insert(node.clone()) {
+            continue;
+        }
+        let name = node.decl().name();
+        if keys.iter().any(|k| name.contains(k.as_str())) {
+            return true;
+        }
+        stack.extend(node.children());
+    }
+    false
+}
+
+/// Straight-line successors of `start`: follows fall-throughs, direct jumps
+/// and returning calls, and stops at the first conditional or indirect
+/// control transfer, a return, or a call that never returns.
+fn straight_line_walk(
+    executor: &ConcolicExecutor,
+    instructions_map: &BTreeMap<u64, Vec<Inst>>,
+    start: u64,
+) -> Vec<u64> {
+    const MAX_INSTRUCTIONS: usize = 64;
+    const NORETURN_PREFIXES: &[&str] = &[
+        "runtime.panic",
+        "runtime.goPanic",
+        "runtime.gopanic",
+        "runtime.throw",
+        "runtime.fatal",
+    ];
+    let mut out = Vec::new();
+    let mut addr = start;
+    while out.len() < MAX_INSTRUCTIONS {
+        let Some(insts) = instructions_map.get(&addr) else {
+            break;
+        };
+        out.push(addr);
+        let mut next = instructions_map
+            .range((addr + 1)..)
+            .next()
+            .map(|(a, _)| *a);
+        for inst in insts {
+            match (&inst.opcode, inst.inputs.first().map(|v| &v.var)) {
+                (Opcode::CBranch, Some(Var::Memory(_)))
+                | (Opcode::BranchInd, _)
+                | (Opcode::CallInd, _)
+                | (Opcode::Return, _) => return out,
+                (Opcode::Branch, Some(Var::Memory(t))) => next = Some(*t),
+                (Opcode::Call, Some(Var::Memory(t))) => {
+                    let noreturn = executor.enclosing_symbol_name(*t).is_some_and(|name| {
+                        NORETURN_PREFIXES.iter().any(|p| name.starts_with(p))
+                    });
+                    if noreturn {
+                        return out;
+                    }
+                }
+                _ => {}
+            }
+        }
+        match next {
+            Some(n) if !out.contains(&n) => addr = n,
+            _ => break,
+        }
+    }
+    out
+}
+
+/// If both successors of the tracked CBRANCH that pushed constraint `idx`
+/// rejoin in straight-line code, register that join point: once this thread
+/// reaches it in the same frame, the branch no longer gates what follows.
+fn note_branch_join_point(
+    executor: &mut ConcolicExecutor,
+    instructions_map: &BTreeMap<u64, Vec<Inst>>,
+    idx: usize,
+    target: u64,
+    fallthrough: u64,
+) {
+    let taken = straight_line_walk(executor, instructions_map, target);
+    let not_taken = straight_line_walk(executor, instructions_map, fallthrough);
+    let Some(join) = not_taken.into_iter().find(|a| taken.contains(a)) else {
+        return;
+    };
+    let tid = executor
+        .state
+        .thread_manager
+        .lock()
+        .map(|tm| tm.current_tid)
+        .unwrap_or(0);
+    let rsp = executor
+        .state
+        .cpu_state
+        .lock()
+        .ok()
+        .and_then(|cpu| cpu.get_register_by_offset(0x20, 64))
+        .map(|v| v.concrete.to_u64())
+        .unwrap_or(0);
+    log!(
+        executor.state.logger,
+        "[PATH] Branch constraint #{} rejoins at 0x{:x}; it stops gating once tid {} gets there",
+        idx,
+        join,
+        tid
+    );
+    executor.note_branch_join(idx, tid, join, rsp);
+}
+
+/// Hex sha256 of a file, via coreutils `sha256sum`. `None` if it can't be computed.
+fn sha256_of_file(path: &str) -> Option<String> {
+    let out = Command::new("sha256sum").arg(path).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .map(str::to_string)
 }
 
 // Function to preprocess the p-code file and return a map of addresses to instructions
