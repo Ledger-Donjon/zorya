@@ -56,6 +56,17 @@ def main():
             except Exception:
                 continue
 
+        # ZORYA_AST_PANIC_STRICT=1 only follows the flow the negated branch
+        # commits to: fall-throughs and unconditional jumps. A panic behind
+        # another conditional branch, or inside a callee, is guarded by
+        # conditions the caller never solves, so the default walk can report
+        # false positives (e.g. `if n > 0 { sizeKB = n }` "reaching" an
+        # unrelated bounds check), but it also finds panics the strict walk misses.
+        through_branches = os.environ.get("ZORYA_AST_PANIC_STRICT", "") not in (
+            "1",
+            "true",
+        )
+
         start_addr = address_factory.getAddress(start_address_hex)
         visited = set()
         found = False
@@ -77,9 +88,15 @@ def main():
                     return
 
             # Recurse on successor blocks
+            refs = []
             dest_iter = block.getDestinations(monitor)
             while dest_iter.hasNext():
-                ref = dest_iter.next()
+                refs.append(dest_iter.next())
+            if not through_branches:
+                if any(ref.getFlowType().isConditional() for ref in refs):
+                    return
+                refs = [ref for ref in refs if not ref.getFlowType().isCall()]
+            for ref in refs:
                 dest_block = model.getCodeBlockAt(ref.getDestinationAddress(), monitor)
                 if dest_block is not None:
                     dfs(dest_block, depth + 1)
