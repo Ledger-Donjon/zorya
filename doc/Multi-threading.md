@@ -128,23 +128,14 @@ thread in the `ThreadManager`.
    call site.
 3. Allocates a private goroutine stack seeded with the thread-exit sentinel, so the body's
    final `ret` lands on the scheduler's yield-back path.
-4. Fabricates a minimal `runtime.g` (distinct synthetic `goid`; `stackguard0 = 0` so the
-   prologue never spuriously calls `morestack`) plus a private TLS block linking `[FS-8] → g`,
-   so the plugins can attribute each access to its goroutine via the usual TLS → `g` → `g.goid`
-   walk. It also links `g.m` to the host `M`'s real `runtime.m` (see the two-level model below),
-   so `getg().m` reads resolve to a live `m` instead of nil.
+4. Fabricates a minimal `runtime.g` (distinct synthetic `goid`; `stackguard0 = 0` so the prologue never spuriously calls `morestack`; at least `0x400` zeroed bytes so fields the runtime reads, such as the Go 1.25+ `g.bubble` at `+0x188`, are nil) plus a private TLS block linking `[FS-8] → g`, so the plugins can attribute each access to its goroutine via the usual TLS → `g` → `g.goid` walk. It also links `g.m` to the host `M`'s real `runtime.m` (see the two-level model below), so `getg().m` reads resolve to a live `m` instead of nil.
 5. Clones the parent register file and sets the goroutine-start registers (`RIP` = entry,
    `RSP`/`RBP` = fresh stack, `RDX` = closure context, `R14` = g, `FS` = TLS base).
 6. Registers the goroutine as a schedulable thread (`ContextKind::Goroutine`, carrying its
    synthetic `goid` and host-`M` tid), switches into it, and dispatches `Event::ThreadSpawn` so
    vector-clock-aware detectors fork the parent's clock (the happens-before "fork" rule).
 
-`sync.(*WaitGroup).Wait` is modelled as a no-op *plus a join edge* under this scheme: the
-spawned workers already ran to completion at their creation point, so the parent has nothing
-left to block on (the real park path would otherwise dive into `runtime.semacquire1` / `gopark`
-and burn the whole budget), but the hook still emits a `HappensBefore` edge from each of the
-waiter's child goroutines so the parent's post-`Wait` accesses are correctly ordered after the
-workers (see the happens-before section below).
+`sync.(*WaitGroup).Wait` is modelled as a no-op *plus a join edge* under this scheme: the spawned workers already ran to completion at their creation point, so the parent has nothing left to block on (the real park path would otherwise dive into `runtime.semacquire1` / `gopark` and burn the whole budget), but the hook still emits a `HappensBefore` edge from each of the waiter's child goroutines so the parent's post-`Wait` accesses are correctly ordered after the workers (see the happens-before section below). Channel receives follow the same model: the `chanrecv` / `chanrecv1` / `chanrecv2` summaries return at once as a successful receive, since the senders already ran and `chansend` is a no-op. The acquire edge is still emitted at the call site. Details: [Go-Binary-Analysis.md](Go-Binary-Analysis.md#go-125-runtime-synctest-bubbles-and-channel-receives).
 
 ### Two-level M↔G model
 
@@ -179,6 +170,12 @@ primitive stop being reported as races. Go mutexes are additionally object-keyed
 lockset via these events (the earlier call-target keying collapsed every `*Mutex` into one
 lock). C / pthread synchronization stays on the `Call` / `RDI` path and is unchanged.
 
+### Per-thread path conditions
+
+The executor keeps one `constraint_vector` for the whole run, while the threads and goroutines it schedules each decide their own branches. The path condition φ that plugins receive for an event is therefore computed per thread. It holds the branches that thread took itself, plus the ones its parent had taken when it spawned the thread, and so on up the spawn chain. A sibling's branches never gate another thread's accesses. Without this, the second worker of a fan-out inherits the first worker's branches, and a write that happens for every input is classified as input-dependent.
+
+A branch also stops gating once both of its sides have rejoined. When a tracked CBRANCH's two successors meet again in straight-line code, Zorya records the join point. When the thread reaches it in the same stack frame, the branch is marked resolved, and threads spawned after that point do not inherit it. `pthread_create` / `clone` and the goroutine-spawn hook all record the parent. Runs that never spawn a thread still pass the full `constraint_vector`.
+
 ### Enabling it
 
 The hook is active whenever the **round-robin** policy is selected (`--thread-scheduling
@@ -205,11 +202,7 @@ suppressed. See the volos [README](../src/plugins/builtin/volos/README.md) for t
   <img src="zorya-tinygo-vs-go.png" alt="Zorya analysis of TinyGo vs gc binaries" width="1000"/>
 </p>
 
-A TinyGo binary runs every goroutine on a single OS thread, so Zorya follows the main
-goroutine (G1) and explores the other side of its conditional branches (`CBranch`) along that
-single path. A `gc` binary multiplexes many goroutines over several OS threads (`M`s) and
-processors (`P`s), so the target model is for Zorya to start on G1 and let the scheduler switch
-to another goroutine (G3), where branch exploration continues.
+A TinyGo binary runs every goroutine on a single OS thread, so Zorya follows the main goroutine (G1) and explores the other side of its conditional branches (`CBranch`) along that single path. A `gc` binary multiplexes many goroutines over several OS threads (`M`s) and processors (`P`s), so the target model is for Zorya to start on G1 and let the scheduler switch to another goroutine (G3), where branch exploration continues.
 
 | Diagram element | Status |
 |---|---|
@@ -222,25 +215,13 @@ to another goroutine (G3), where branch exploration continues.
 
 Notes on the gaps:
 
-- **Switch points.** Contexts switch only at `runtime.newproc` (into the new goroutine), when a
-  goroutine or thread finishes (thread-exit sentinel, `sys_exit`), and at `pthread_join`. The
-  per-instruction checkpoint in `main.rs` passes `CheckpointType::FunctionCall`, which
-  `ThreadManager::should_consider_switch` never accepts, and `time_slice_instructions` is not
-  consulted, so G1 is never preempted midway. Blocking operations (channel receive,
-  `Mutex.Lock`, `gopark`) do not park the goroutine, and `WaitGroup.Wait` is a no-op.
-- **One schedule.** The execution order is always G1 up to `go f()`, then G3 to completion, then
-  G1 resumes. Scheduling choices are not forked the way branch conditions are.
-- **Flattened M:N model.** There is no `P` layer, no `m.curg`, and no per-`M` shared TLS.
-  Goroutines already parked in run queues at dump time (G2, G4 in the diagram) are not
-  reconstructed, and a thread blocked in a syscall (G5) handing its work to another `M` is not
-  modelled.
+- **Switch points.** Contexts switch only at `runtime.newproc` (into the new goroutine), when a goroutine or thread finishes (thread-exit sentinel, `sys_exit`), and at `pthread_join`. The per-instruction checkpoint in `main.rs` passes `CheckpointType::FunctionCall`, which `ThreadManager::should_consider_switch` never accepts, and `time_slice_instructions` is not consulted, so G1 is never preempted midway. Blocking operations (channel receive, `Mutex.Lock`, `gopark`) do not park the goroutine, and `WaitGroup.Wait` is a no-op.
+- **One schedule.** The execution order is always G1 up to `go f()`, then G3 to completion, then G1 resumes. Scheduling choices are not forked the way branch conditions are.
+- **Flattened M:N model.** There is no `P` layer, no `m.curg`, and no per-`M` shared TLS. Goroutines already parked in run queues at dump time (G2, G4 in the diagram) are not reconstructed, and a thread blocked in a syscall (G5) handing its work to another `M` is not modelled.
 
 ## Future Work
 
-- ~~Support for thread scheduling/switching during execution~~: **done** via round-robin
-  OS-thread scheduling plus the goroutine-spawn hook above. Preemptive switching and
-  exploration of alternative interleavings remain open (see
-  [TinyGo vs gc: implementation status](#tinygo-vs-gc-implementation-status)).
+- ~~Support for thread scheduling/switching during execution~~: **done** via round-robin OS-thread scheduling plus the goroutine-spawn hook above. Preemptive switching and exploration of alternative interleavings remain open (see [TinyGo vs gc: implementation status](#tinygo-vs-gc-implementation-status)).
 - Goroutine-level state tracking: goroutines now schedule as first-class contexts with a
   synthetic `goid`; deeper `runtime.g` state tracking (real scheduler status, per-`g` stacks)
   remains partial.

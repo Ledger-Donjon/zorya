@@ -83,7 +83,7 @@ Detailed interactive and flag behavior: [doc/Usage.md](doc/Usage.md)
 zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   --mode <start|main|function|advanced> <addr> \
   --thread-scheduling <all-threads|main-only> \
-  [--arg "<arg1> <arg2>"] \
+  [--arg <arg1> [<arg2> ...]] \
   [--negate-path-exploration|--no-negate-path-exploration] \
   [--plugin "<plugin1 plugin2>"|all|none] \
   [--force-pty] \
@@ -148,10 +148,10 @@ state in `results/FOUND_SAT_STATE.txt`:
 ```
 [*] SATISFIABLE STATE FOUND
 Instruction Address: ...        ← cmp $0x4b,%al ; je   (arg == 'K')
-Panic Address:       ...        ← nil-pointer dereference (*p = 0)
+Panic Address:       ...        ← je target: the p = nil; *p = 0 block
 RESULTS
 The program can panic if its inputs are the following:
-  - os.Args[1][0] must be 'K' (unsigned: 75; signed: 75; ASCII: 'K')
+  - The input 'arg1_byte_0' must be 75 (unsigned: 75; signed: 75; ASCII: 'K')
 ```
 
 Expected outputs and result files are documented in:

@@ -27,7 +27,7 @@ Interactive prompts cover:
 zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   --mode <start|main|function|advanced> <addr> \
   [--thread-scheduling <all-threads|main-only>] \
-  [--arg "<arg1> <arg2>"] \
+  [--arg <arg1> [<arg2> ...]] \
   [--negate-path-exploration|--no-negate-path-exploration] \
   [--plugin "<plugin1> <plugin2>"|all|none] \
   [--force-pty] \
@@ -59,7 +59,7 @@ zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   - `"volos toctou"`: space-separated list of specific plugins
   - Available plugins: `volos` (data-race), `toctou` (TOCTOU), `chancheck` (send-on-closed-channel)
 - `--force-pty`: run GDB sessions inside a PTY to preserve TTY-gated behavior
-- `--arg`: pass runtime arguments to the analyzed binary
+- `--arg`: pass runtime arguments to the analyzed binary. Every token after `--arg` is one argument, up to the next Zorya flag, so arguments that start with `-` or `--` go through. Shell quoting decides the boundaries: `--arg 1 + 2` passes three arguments, while `--arg "a b"` passes the single argument `a b`. An empty argument (`--arg ""`) is passed as an empty string. `--arg none`, or leaving `--arg` out, runs the binary with no arguments. At the interactive prompt, arguments are split on whitespace.
 - `--symbolic-registers` (advanced): space-separated registers (or `all`)
 - `--symbolic-memory` (advanced): ranges `0xADDR:SIZE`
 - `--no-symbolic-registers` (advanced): explicit no-register symbolic selection
@@ -99,6 +99,15 @@ dumps, nor a concolic run. They short-circuit straight to the pass and exit.
 - `ZORYA_INT_ARITH_ORACLES=1`: enables expensive integer arithmetic solver oracles (`INT_ADD`/`INT_SUB`/`INT_MULT` overflow/underflow SAT checks). Disabled by default to keep concolic instruction throughput high during race-focused runs.
 - `ZORYA_MEM_SAFETY_ORACLES=1`: enables symbolic NULL / dangling-pointer memory safety checks in `LOAD`/`STORE`. By default, these checks are auto-disabled for multithreaded C/C++ runs (`--thread-scheduling all-threads`) to avoid stalls in race-analysis workflows.
 - `ZORYA_GOROUTINE_SCHED=0`: force-disables the Go goroutine-spawn hook even under `--thread-scheduling all-threads` (falls back to the historical `runtime.newproc` stub, a plain caller-return). The hook is enabled by default whenever round-robin scheduling is active; see [Multi-threading.md](Multi-threading.md#goroutine-aware-scheduling-go).
+- `ARG_ASCII_PROFILE=digits|printable`: restricts every symbolic argument byte to `0`..`9` or to printable ASCII when Zorya solves for an input. It applies to the SAT reports in `FOUND_SAT_STATE.txt` and to the Volos triggering and escape inputs, so the reported inputs can be typed back on a command line.
+- `ZORYA_TIMEOUT_SECS=<n>`: wall-clock budget for the concolic run. When it is reached, Zorya stops like on Ctrl+C and still writes the plugin findings.
+- `ZORYA_SHUTDOWN_GRACE_SECS=<n>` (default 60): how long Zorya waits, after a signal, for the engine to reach a point where it can stop cleanly. If the engine is stuck in a long solve, the process exits without findings once this delay has passed.
+- `ZORYA_FORCE_PANIC_XREF=1`: recomputes the panic cross-references (`results/xref_addresses.txt`) even if a cached table exists. The table is stored with the sha256 of the binary it was computed for (`results/xref_addresses.sha256`) and is only reused for that same binary, so this is rarely needed.
+- `ZORYA_AST_PANIC_STRICT=1`: makes the AST panic walk report a negated branch only when it leads to a panic without any further branch decision. By default the walk follows every edge up to its depth limit, which can report a harmless branch because a later, independent branch reaches a panic. See [Overlay-Path-Analysis.md](Overlay-Path-Analysis.md#which-branches-are-explored).
+
+### Stopping a run
+
+Ctrl+C (SIGINT), `timeout` (SIGTERM) and a closed terminal (SIGHUP) all stop the run gracefully. Zorya leaves the execution loop, runs the plugins' final analysis and writes `results/plugin_findings.txt`, so findings collected until then are kept. A second Ctrl+C exits immediately without findings. If the engine cannot reach a clean stopping point within `ZORYA_SHUTDOWN_GRACE_SECS`, it exits on its own, so `timeout` always ends the process.
 
 ### Analysis profiles
 

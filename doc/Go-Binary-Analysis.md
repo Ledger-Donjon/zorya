@@ -151,6 +151,16 @@ and can be disabled with `ZORYA_GOROUTINE_SCHED=0`. Full mechanics, the M↔G mo
 happens-before edges, and the `race-counter` worked example:
 [Multi-threading.md](Multi-threading.md#goroutine-aware-scheduling-go).
 
+### Go 1.25+ runtime: synctest bubbles and channel receives
+
+Go 1.25 added `testing/synctest` bubbles: `g.bubble` at `+0x188` and `hchan.bubble` at `+96`. When a bubble pointer is not nil, `WaitGroup.Add`, `chansend` and `chanrecv` take the `synctest` paths and end in `fatal("... synctest channel from outside bubble")`. Zorya never runs code inside a bubble, so it keeps these fields nil and cuts the checks short:
+
+- The fabricated `runtime.g` is at least `0x400` bytes and zeroed, so `g.bubble` is nil.
+- The `runtime.makechan` summary zeroes the whole `hchan` (112 bytes in Go 1.25+, zeroed as 128), so `hchan.bubble` is nil.
+- `internal/synctest.IsInBubble` is summarized to return false.
+
+Channel receives (`runtime.chanrecv`, `chanrecv1`, `chanrecv2`) are summarized as receives that succeed at once (`AL = BL = 1`), with the same reasoning as `WaitGroup.Wait`: the senders already ran at their `go` statement, and `chansend` is a no-op, so the real `chanrecv` would find an empty queue and park the receiver forever. The received value is not modelled, and a `for range ch` loop keeps receiving, so it only ends through another exit condition.
+
 ## Static Unbounded-Recursion Scan (Stack-Exhaustion DoS)
 
 Zorya's symbolic engine and its memory-safety oracles are built for *input-gated* faults (OOB,
@@ -365,8 +375,10 @@ This allocates a real pseudo-terminal (`/dev/pts/N`) for the child process. When
 
 ```bash
 zorya /path/to/binary --lang go --compiler gc --mode function 0x<addr> \
-  --arg "exec -it pod -- cmd" --negate-path-exploration --force-pty
+  --arg exec -it pod -- cmd --negate-path-exploration --force-pty
 ```
+
+Each token after `--arg` is one argument, up to the next Zorya flag, so `-it` and `--` reach `kubectl` unchanged. Quoting them together (`--arg "exec -it pod -- cmd"`) would pass a single argument.
 
 ### How It Works Internally
 

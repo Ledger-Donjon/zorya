@@ -102,7 +102,7 @@ Execute all test configurations:
   - `"start"`: Start from program start
   - `"main"`: Start from main function
 - **start_address**: Starting address in hex format (e.g., `"0x401000"`)
-- **args**: Binary arguments as a string (use `"none"` for no arguments)
+- **args**: Binary arguments as a string (use `"none"` for no arguments). The string is split like a shell command line, so `"a 'b c'"` passes two arguments, `a` and `b c`
 - **timeout_seconds**: Execution timeout in seconds (default: 300)
 - **env_vars**: Additional environment variables (optional)
 

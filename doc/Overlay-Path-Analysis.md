@@ -33,6 +33,16 @@ For every conditional branch involving symbolic variables, Zorya:
    [`src/plugins/builtin/toctou/README.md`](../src/plugins/builtin/toctou/README.md).
 7. **Discards overlay** and continues normal execution
 
+## Which branches are explored
+
+A negated branch is only explored when running it could find something new:
+
+- **Tracked input.** The branch condition must involve a tracked symbolic input. Zorya checks this by walking the condition's Z3 term as a DAG, which stays fast on the deep terms that `math/big` or hashing code produce.
+- **Not constant.** If the condition simplifies to a constant, the input bytes only appear in dead sub-terms (for example a stack-guard compare). No input takes the other side, so the overlay and the AST walk are skipped.
+- **Once per site.** Each branch site is explored once per run, keyed by the branch address, the negated target and the hash of the simplified condition. Spinning runtime loops (`runtime.lock2`, `morestack`, a CAS retry) revisit the same CBRANCH with the same condition, and re-exploring it cannot find anything new.
+
+For Go binaries, the overlay is followed by a static **AST panic walk** (`scripts/explore_ast_panic.py`) from the negated target, which looks for a panic call within a depth limit. By default the walk follows every control-flow edge, including later conditional branches and calls. So a harmless branch can be reported because a later, independent branch reaches a panic. With `ZORYA_AST_PANIC_STRICT=1`, the walk only follows the flow the negated branch commits to (fall-throughs and unconditional jumps) and stops at the next conditional branch. A branch is then only reported when it leads to a panic with no further decision.
+
 ## Overlay Mechanism
 
 The overlay uses copy-on-write semantics for efficiency:
@@ -40,6 +50,8 @@ The overlay uses copy-on-write semantics for efficiency:
 - **CPU registers**: Modified registers are stored in overlay, unmodified ones read from base state
 - **Memory**: Modified regions are cloned on first write, unmodified regions read from base
 - **Stack frames**: Overlay frames are tracked and cleaned up after overlay ends
+- **Function summaries**: A summarized call (for example `runtime.makechan` or `chanrecv`) on the overlay path runs against the overlay's argument registers. Its results are moved into the overlay and the base registers are restored, so the explored branch's return values never leak into the concrete run.
+- **Path condition**: The constraints the overlay pushed are removed when it ends, together with their per-thread owners (see [Multi-threading.md](Multi-threading.md#per-thread-path-conditions)).
 - **No state pollution**: Base execution state remains unchanged
 
 ## Configuration
