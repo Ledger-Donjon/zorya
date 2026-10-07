@@ -126,7 +126,10 @@ impl FuzzerRunner {
             .output()
         {
             // zorya reuses results/xref_addresses.txt only when this stamp matches the binary.
-            if let Some(hash) = String::from_utf8_lossy(&out.stdout).split_whitespace().next() {
+            if let Some(hash) = String::from_utf8_lossy(&out.stdout)
+                .split_whitespace()
+                .next()
+            {
                 let _ = std::fs::write("results/xref_addresses.sha256", hash);
             }
         }

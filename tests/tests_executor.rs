@@ -875,7 +875,9 @@ mod tests {
         let (main, early, late) = (1u64, 2u64, 3u64);
 
         // `if n > 0 { ... }` in main, rejoined at instruction 10.
-        executor.constraint_vector.push(Bool::new_const(ctx, "n_pos"));
+        executor
+            .constraint_vector
+            .push(Bool::new_const(ctx, "n_pos"));
         executor.sync_constraint_owners(main);
         executor.instruction_counter = 5;
         executor.note_thread_spawn(main, early); // spawned inside the `if`

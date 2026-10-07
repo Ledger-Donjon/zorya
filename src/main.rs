@@ -2090,10 +2090,8 @@ fn execute_instructions_from(
                         *addr
                     };
 
-                    let simplified_flag = conditional_flag
-                        .symbolic
-                        .to_bv(executor.context)
-                        .simplify();
+                    let simplified_flag =
+                        conditional_flag.symbolic.to_bv(executor.context).simplify();
                     let site_key = {
                         use std::hash::{Hash, Hasher};
                         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -3148,7 +3146,9 @@ fn get_cross_references(binary_path: &str) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     if xref_cached && !hash_matches && !force_xref {
-        tprintln!("[GHIDRA] results/xref_addresses.txt was computed for a different binary; recomputing.");
+        tprintln!(
+            "[GHIDRA] results/xref_addresses.txt was computed for a different binary; recomputing."
+        );
     }
     let _ = fs::remove_file(xref_hash_path);
 
@@ -3224,10 +3224,7 @@ fn straight_line_walk(
             break;
         };
         out.push(addr);
-        let mut next = instructions_map
-            .range((addr + 1)..)
-            .next()
-            .map(|(a, _)| *a);
+        let mut next = instructions_map.range((addr + 1)..).next().map(|(a, _)| *a);
         for inst in insts {
             match (&inst.opcode, inst.inputs.first().map(|v| &v.var)) {
                 (Opcode::CBranch, Some(Var::Memory(_)))
@@ -3236,9 +3233,9 @@ fn straight_line_walk(
                 | (Opcode::Return, _) => return out,
                 (Opcode::Branch, Some(Var::Memory(t))) => next = Some(*t),
                 (Opcode::Call, Some(Var::Memory(t))) => {
-                    let noreturn = executor.enclosing_symbol_name(*t).is_some_and(|name| {
-                        NORETURN_PREFIXES.iter().any(|p| name.starts_with(p))
-                    });
+                    let noreturn = executor
+                        .enclosing_symbol_name(*t)
+                        .is_some_and(|name| NORETURN_PREFIXES.iter().any(|p| name.starts_with(p)));
                     if noreturn {
                         return out;
                     }
