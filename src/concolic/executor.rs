@@ -463,8 +463,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     /// happens-before edges.
     fn dispatch_call_event(&mut self, pc: u64, target: u64) {
         // Overlay register state is approximate; skip every call-site event
-        // (Call and sync edges) so plugins never see garbage register values.
+        // (Call and sync edges) so plugins never see garbage register values,
+        // except the callees a plugin explicitly asked for in overlays.
         if self.is_overlay_mode() {
+            self.dispatch_overlay_call_event(pc, target);
             return;
         }
         let call_wanted = self.event_bus.is_subscribed(EventKind::Call);
@@ -503,6 +505,51 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             tid,
             arg0,
         });
+    }
+
+    /// Deliver a call reached inside an overlay execution to the plugins that
+    /// listed its callee in `overlay_call_hooks`. Also called by the overlay
+    /// loop for callees it replaces with a summary, since those never reach
+    /// the `Call` opcode handler.
+    pub fn dispatch_overlay_call_event(&mut self, pc: u64, target: u64) {
+        if !self.event_bus.is_subscribed(EventKind::Call) {
+            return;
+        }
+        let Some(symbol) = self.symbol_table.get(&format!("{target:x}")).cloned() else {
+            return;
+        };
+        if !self.event_bus.wants_overlay_call(&symbol) {
+            return;
+        }
+        let Some(arg0) = self.read_call_arg0(target) else {
+            return;
+        };
+        let tid = self
+            .state
+            .thread_manager
+            .lock()
+            .map(|tm| tm.current_tid)
+            .unwrap_or(0);
+        let goid = self.get_current_goroutine_id().ok();
+        let icnt = self.instruction_counter;
+        let st = self.start_time;
+        let ctx = self.context;
+        self.event_bus.dispatch_overlay_call_with(
+            ctx,
+            pc,
+            tid,
+            goid,
+            icnt,
+            st,
+            &symbol,
+            &Event::Call {
+                pc,
+                target,
+                symbol: Some(&symbol),
+                tid,
+                arg0,
+            },
+        );
     }
 
     /// If `symbol` names a Go synchronization primitive, emit the matching
@@ -1284,7 +1331,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         self.sync_constraint_owners(parent_tid);
         self.thread_phi_origin.insert(
             child_tid,
-            (parent_tid, self.constraint_vector.len(), self.instruction_counter as u64),
+            (
+                parent_tid,
+                self.constraint_vector.len(),
+                self.instruction_counter as u64,
+            ),
         );
     }
 
@@ -1296,7 +1347,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
 
     /// Resolve every pending branch join the current thread reaches at `rip`.
     pub fn resolve_branch_joins_at(&mut self, rip: u64) {
-        if !self.pending_joins.iter().any(|&(_, _, join, _)| join == rip) {
+        if !self
+            .pending_joins
+            .iter()
+            .any(|&(_, _, join, _)| join == rip)
+        {
             return;
         }
         let tid = self
@@ -1332,7 +1387,10 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     /// they spawned it. Threads with no spawn record (the main thread, threads
     /// loaded from the dump) own theirs only.
     pub fn thread_path_condition(&self, tid: u64) -> Vec<Bool<'ctx>> {
-        let n = self.constraint_vector.len().min(self.constraint_owner_tids.len());
+        let n = self
+            .constraint_vector
+            .len()
+            .min(self.constraint_owner_tids.len());
         // (thread, constraints it contributes are below this index, and count
         // only if unresolved before this instruction count)
         let mut chain: Vec<(u64, usize, u64)> = vec![(tid, n, u64::MAX)];
@@ -1350,7 +1408,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 let owner = self.constraint_owner_tids[i];
                 let resolved = self.constraint_resolved_at.get(i).copied().flatten();
                 chain.iter().any(|&(t, limit, seq)| {
-                    t == owner && i < limit && resolved.map_or(true, |s| s >= seq)
+                    t == owner && i < limit && resolved.is_none_or(|s| s >= seq)
                 })
             })
             .map(|i| self.constraint_vector[i].clone())

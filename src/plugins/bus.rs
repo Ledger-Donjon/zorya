@@ -188,6 +188,42 @@ impl<'ctx> EventBus<'ctx> {
         worst
     }
 
+    /// True iff some plugin listed `symbol` in its `overlay_call_hooks`.
+    pub fn wants_overlay_call(&self, symbol: &str) -> bool {
+        self.plugins
+            .iter()
+            .any(|p| p.overlay_call_hooks().contains(&symbol))
+    }
+
+    /// Deliver a `Call` reached inside an overlay execution, only to the
+    /// plugins that listed `symbol` in their `overlay_call_hooks`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_overlay_call_with(
+        &mut self,
+        z3: &'ctx Context,
+        pc: u64,
+        tid: u64,
+        goid: Option<u64>,
+        instruction_counter: usize,
+        start_time: Instant,
+        symbol: &str,
+        ev: &Event<'ctx, '_>,
+    ) {
+        if self.depth.get() > 0 {
+            return;
+        }
+        let ectx = EventCtx::new(z3, pc, tid, instruction_counter, start_time, &self.findings)
+            .with_goid(goid)
+            .with_overlay(true);
+        self.depth.set(self.depth.get() + 1);
+        for p in self.plugins.iter_mut() {
+            if p.overlay_call_hooks().contains(&symbol) {
+                let _ = p.on_event(ev, &ectx);
+            }
+        }
+        self.depth.set(self.depth.get() - 1);
+    }
+
     /// Counterpart of [`Self::dispatch_with`] for the end of an overlay
     /// concolic execution. Builds an `EventCtx` carrying the overlay's path
     /// condition φ and runs every plugin's `on_overlay_end`. Any findings a

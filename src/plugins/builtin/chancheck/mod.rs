@@ -98,6 +98,33 @@ struct SendAttempt<'ctx> {
     /// against a channel's `close_seq` to determine whether the send happened
     /// after the close (a same-goroutine ordering violation).
     seq: u64,
+    /// The send was reached inside an overlay; `send_phi` is then the
+    /// overlay-entry path condition.
+    in_overlay: bool,
+}
+
+/// A `runtime.closechan` reached only inside an overlay execution, i.e. on
+/// a branch the real run did not take.
+#[derive(Debug)]
+struct OverlayClose<'ctx> {
+    hchan_ptr: u64,
+    tid: u64,
+    goid: Option<u64>,
+    pc: u64,
+    seq: u64,
+    /// Overlay-entry path condition (main path ∧ gate of the untaken branch).
+    /// Empty until `on_overlay_end` fills it.
+    phi: Vec<Bool<'ctx>>,
+}
+
+/// One close, real or overlay, as seen by the end-of-run check.
+struct CloseView<'a, 'ctx> {
+    tid: Option<u64>,
+    goid: Option<u64>,
+    pc: u64,
+    seq: u64,
+    phi: &'a [Bool<'ctx>],
+    in_overlay: bool,
 }
 
 /// The channel-invariant detector plugin.
@@ -107,6 +134,13 @@ pub struct ChanCheckPlugin<'ctx> {
     channels: HashMap<u64, ChannelState<'ctx>>,
     /// Observed send attempts (for cross-referencing at `on_finish`).
     sends: Vec<SendAttempt<'ctx>>,
+    /// Closes reached during the overlay currently running.
+    pending_overlay_closes: Vec<OverlayClose<'ctx>>,
+    /// Closes reached during finished overlays, with their path condition.
+    overlay_closes: Vec<OverlayClose<'ctx>>,
+    /// Sends reached during the overlay currently running; moved to `sends`
+    /// with their path condition when the overlay ends.
+    pending_overlay_sends: Vec<SendAttempt<'ctx>>,
     /// Verbose logging.
     verbose: bool,
     /// Counters for diagnostics.
@@ -124,6 +158,9 @@ impl<'ctx> ChanCheckPlugin<'ctx> {
         Self {
             channels: HashMap::new(),
             sends: Vec::new(),
+            pending_overlay_closes: Vec::new(),
+            overlay_closes: Vec::new(),
+            pending_overlay_sends: Vec::new(),
             verbose: !std::env::var("CHANCHECK_VERBOSE").is_ok_and(|v| v == "0"),
             channels_created: 0,
             channels_closed: 0,
@@ -177,6 +214,8 @@ const CHAN_MAKE_SYMBOLS: &[&str] = &["runtime.makechan", "runtime.makechan64"];
 const CHAN_CLOSE_SYMBOLS: &[&str] = &["runtime.closechan"];
 const CHAN_SEND_SYMBOLS: &[&str] = &["runtime.chansend1", "runtime.chansend"];
 const CHAN_RECV_SYMBOLS: &[&str] = &["runtime.chanrecv1", "runtime.chanrecv2", "runtime.chanrecv"];
+const CHAN_OVERLAY_SYMBOLS: &[&str] =
+    &["runtime.closechan", "runtime.chansend1", "runtime.chansend"];
 
 impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
     fn name(&self) -> &'static str {
@@ -210,6 +249,10 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
         ]
     }
 
+    fn overlay_call_hooks(&self) -> &'static [&'static str] {
+        CHAN_OVERLAY_SYMBOLS
+    }
+
     fn on_event(&mut self, ev: &Event<'ctx, '_>, ctx: &EventCtx<'ctx, '_>) -> Verdict {
         match ev {
             Event::Call {
@@ -219,6 +262,41 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                 ..
             } => {
                 let name = *sym;
+
+                // ─── Close on an untaken branch (overlay) ────────────────
+                if ctx.in_overlay {
+                    if CHAN_CLOSE_SYMBOLS.contains(&name) {
+                        self.vlog(format!(
+                            "CLOSECHAN (untaken branch) hchan=0x{:x} tid={} goid={:?}",
+                            arg0, tid, ctx.current_goid
+                        ));
+                        let seq = self.next_seq();
+                        self.pending_overlay_closes.push(OverlayClose {
+                            hchan_ptr: *arg0,
+                            tid: *tid,
+                            goid: ctx.current_goid,
+                            pc: ctx.current_pc,
+                            seq,
+                            phi: Vec::new(),
+                        });
+                    } else if CHAN_SEND_SYMBOLS.contains(&name) {
+                        self.vlog(format!(
+                            "CHANSEND (untaken branch) hchan=0x{:x} tid={} goid={:?}",
+                            arg0, tid, ctx.current_goid
+                        ));
+                        let seq = self.next_seq();
+                        self.pending_overlay_sends.push(SendAttempt {
+                            hchan_ptr: *arg0,
+                            tid: *tid,
+                            goid: ctx.current_goid,
+                            send_phi: Vec::new(),
+                            pc: ctx.current_pc,
+                            seq,
+                            in_overlay: true,
+                        });
+                    }
+                    return Verdict::Continue;
+                }
 
                 // ─── Channel creation ────────────────────────────────────
                 if CHAN_MAKE_SYMBOLS.contains(&name) {
@@ -292,6 +370,7 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                         send_phi: ctx.path_constraints().to_vec(),
                         pc: ctx.current_pc,
                         seq: send_seq,
+                        in_overlay: false,
                     });
                 }
                 // ─── Channel receive (for future recv-on-closed) ─────────
@@ -309,67 +388,99 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
         Verdict::Continue
     }
 
+    fn on_overlay_end(&mut self, ctx: &EventCtx<'ctx, '_>) {
+        for mut close in self.pending_overlay_closes.drain(..) {
+            close.phi = ctx.path_constraints().to_vec();
+            self.overlay_closes.push(close);
+        }
+        for mut send in self.pending_overlay_sends.drain(..) {
+            send.send_phi = ctx.path_constraints().to_vec();
+            self.sends.push(send);
+        }
+    }
+
     fn on_finish(&mut self, ctx: &EventCtx<'ctx, '_>) {
         // Collect violations first (to avoid borrow conflicts), then emit.
-        struct Violation {
+        struct Violation<'a, 'ctx> {
             send_idx: usize,
             same_goroutine: bool,
+            close: CloseView<'a, 'ctx>,
         }
-        let mut violations: Vec<Violation> = Vec::new();
+        let mut violations: Vec<Violation<'_, 'ctx>> = Vec::new();
+
+        let feasible = |a: &[Bool<'ctx>], b: &[Bool<'ctx>]| {
+            if a.is_empty() && b.is_empty() {
+                return true;
+            }
+            let solver = Solver::new(ctx.ctx);
+            for p in a.iter().chain(b.iter()) {
+                solver.assert(p);
+            }
+            matches!(solver.check(), SatResult::Sat)
+        };
 
         for (idx, send) in self.sends.iter().enumerate() {
-            let ch = match self.channels.get(&send.hchan_ptr) {
-                Some(ch) if ch.closed => ch,
-                _ => continue,
-            };
+            let real = self
+                .channels
+                .get(&send.hchan_ptr)
+                .filter(|ch| ch.closed)
+                .map(|ch| CloseView {
+                    tid: ch.closer_tid,
+                    goid: ch.closer_goid,
+                    pc: ch.close_pc,
+                    seq: ch.close_seq,
+                    phi: &ch.close_phi,
+                    in_overlay: false,
+                });
+            let overlay = self
+                .overlay_closes
+                .iter()
+                .filter(|c| c.hchan_ptr == send.hchan_ptr)
+                .map(|c| CloseView {
+                    tid: Some(c.tid),
+                    goid: c.goid,
+                    pc: c.pc,
+                    seq: c.seq,
+                    phi: &c.phi,
+                    in_overlay: true,
+                });
 
-            // Use goid for classification when available; fall back to tid.
-            let same_goroutine = match (ch.closer_goid, send.goid) {
-                (Some(close_g), Some(send_g)) => close_g == send_g,
-                _ => ch.closer_tid == Some(send.tid),
-            };
+            for close in real.into_iter().chain(overlay) {
+                // Use goid for classification when available; fall back to tid.
+                let same_goroutine = match (close.goid, send.goid) {
+                    (Some(close_g), Some(send_g)) => close_g == send_g,
+                    _ => close.tid == Some(send.tid),
+                };
 
-            if same_goroutine {
                 // Within a single goroutine, execution is sequential: a send
                 // is only a bug if it happens *after* the close. A send that
                 // precedes the close (send-then-close) is the safe idiom.
-                if send.seq > ch.close_seq {
+                // On the real path the order alone decides; when the close or
+                // the send is on an untaken branch, its condition must also be
+                // compatible with the other's.
+                let violated = if same_goroutine {
+                    send.seq > close.seq
+                        && ((!close.in_overlay && !send.in_overlay)
+                            || feasible(close.phi, &send.send_phi))
+                } else {
+                    feasible(close.phi, &send.send_phi)
+                };
+                if violated {
                     violations.push(Violation {
                         send_idx: idx,
-                        same_goroutine: true,
+                        same_goroutine,
+                        close,
                     });
+                    break;
                 }
-                continue;
-            }
-
-            // Cross-goroutine feasibility check
-            let mut parts: Vec<&Bool<'ctx>> = Vec::new();
-            parts.extend(ch.close_phi.iter());
-            parts.extend(send.send_phi.iter());
-
-            let satisfiable = if parts.is_empty() {
-                true
-            } else {
-                let solver = Solver::new(ctx.ctx);
-                for p in &parts {
-                    solver.assert(p);
-                }
-                matches!(solver.check(), SatResult::Sat)
-            };
-
-            if satisfiable {
-                violations.push(Violation {
-                    send_idx: idx,
-                    same_goroutine: false,
-                });
             }
         }
 
-        // Now emit findings (requires &mut self)
+        self.violations_found += violations.len() as u64;
+
         for v in &violations {
             let send = &self.sends[v.send_idx];
-            let ch = self.channels.get(&send.hchan_ptr).unwrap();
-            self.violations_found += 1;
+            let close = &v.close;
 
             let scope = if v.same_goroutine {
                 "same-goroutine"
@@ -378,8 +489,17 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
             };
 
             let title = format!(
-                "Send on closed channel at 0x{:x} [{}]: hchan=0x{:x}, close at 0x{:x}",
-                send.pc, scope, send.hchan_ptr, ch.close_pc
+                "Send on closed channel at 0x{:x} [{}]: hchan=0x{:x}, close at 0x{:x}{}",
+                send.pc,
+                scope,
+                send.hchan_ptr,
+                close.pc,
+                match (close.in_overlay, send.in_overlay) {
+                    (false, false) => "",
+                    (true, false) => " (close on a branch not taken by this run)",
+                    (false, true) => " (send on a branch not taken by this run)",
+                    (true, true) => " (close and send on a branch not taken by this run)",
+                }
             );
 
             let mut finding = Finding::new(
@@ -391,10 +511,10 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
             )
             .with_detail(format!(
                 "Close: tid={}, goid={}, pc=0x{:x}, |φ_close|={}",
-                ch.closer_tid.unwrap_or(0),
-                ch.closer_goid.map_or("n/a".to_string(), |g| g.to_string()),
-                ch.close_pc,
-                ch.close_phi.len()
+                close.tid.unwrap_or(0),
+                close.goid.map_or("n/a".to_string(), |g| g.to_string()),
+                close.pc,
+                close.phi.len()
             ))
             .with_detail(format!(
                 "Send: tid={}, goid={}, pc=0x{:x}, |φ_send|={}",
@@ -405,9 +525,9 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
             ));
 
             // Solve for a concrete triggering input
-            if !ch.close_phi.is_empty() || !send.send_phi.is_empty() {
+            if !close.phi.is_empty() || !send.send_phi.is_empty() {
                 let solver = Solver::new(ctx.ctx);
-                for p in &ch.close_phi {
+                for p in close.phi {
                     solver.assert(p);
                 }
                 for p in &send.send_phi {
@@ -432,8 +552,8 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                     }
                 }
 
-                let phi_str: String = ch
-                    .close_phi
+                let phi_str: String = close
+                    .phi
                     .iter()
                     .chain(send.send_phi.iter())
                     .map(|b| format!("{}", b.simplify()))
@@ -448,21 +568,35 @@ impl<'ctx> Plugin<'ctx> for ChanCheckPlugin<'ctx> {
                 );
             }
 
-            finding = finding.with_detail(format!(
-                "Interleaving: close (tid={}) scheduled before send (tid={}) by round-robin",
-                ch.closer_tid.unwrap_or(0),
-                send.tid
-            ));
+            let close_tid = close.tid.unwrap_or(0);
+            let on_real_path = !close.in_overlay && !send.in_overlay;
+            let interleaving = if on_real_path && close.seq < send.seq {
+                format!(
+                    "Interleaving: close (tid={}) scheduled before send (tid={}) by round-robin",
+                    close_tid, send.tid
+                )
+            } else if v.same_goroutine {
+                format!(
+                    "Interleaving: none needed, the send follows the close in the same goroutine (tid={})",
+                    send.tid
+                )
+            } else {
+                format!(
+                    "Interleaving: close (tid={}) ordered before send (tid={}); this run did not schedule it, but nothing orders the two goroutines",
+                    close_tid, send.tid
+                )
+            };
+            finding = finding.with_detail(interleaving);
 
             ctx.findings.borrow_mut().push(finding);
         }
 
         if self.violations_found > 0 {
-            teprintln!("[CHANCHECK] *** BUG / VULNERABILITY DETECTED: {} send-on-closed-channel violation(s) ({} channels created, {} closed, {} sends observed) ***",
-                self.violations_found, self.channels_created, self.channels_closed, self.sends_observed);
+            teprintln!("[CHANCHECK] *** BUG / VULNERABILITY DETECTED: {} send-on-closed-channel violation(s) ({} channels created, {} closed, {} closed on untaken branches, {} sends observed) ***",
+                self.violations_found, self.channels_created, self.channels_closed, self.overlay_closes.len(), self.sends_observed);
         } else {
-            teprintln!("[CHANCHECK] No send-on-closed-channel bugs found ({} channels created, {} closed, {} sends observed)",
-                self.channels_created, self.channels_closed, self.sends_observed);
+            teprintln!("[CHANCHECK] No send-on-closed-channel bugs found ({} channels created, {} closed, {} closed on untaken branches, {} sends observed)",
+                self.channels_created, self.channels_closed, self.overlay_closes.len(), self.sends_observed);
         }
     }
 }
@@ -984,5 +1118,139 @@ mod tests {
             "send-before-close in same goroutine is safe, got: {:?}",
             f
         );
+    }
+
+    fn chan_call<'a>(symbol: &'a str, pc: u64, tid: u64, hchan: u64) -> Event<'static, 'a> {
+        Event::Call {
+            pc,
+            target: 0xbeef,
+            symbol: Some(symbol),
+            tid,
+            arg0: hchan,
+        }
+    }
+
+    /// Run one overlay that reaches `calls`, then end it under `phi`.
+    fn run_overlay<'ctx>(
+        bus: &mut EventBus<'ctx>,
+        ctx: &'ctx Context,
+        findings: &RefCell<Vec<Finding>>,
+        calls: &[(&str, u64, u64, u64, u64)],
+        phi: &[Bool<'ctx>],
+    ) {
+        for &(symbol, pc, tid, goid, hchan) in calls {
+            let ectx = EventCtx::new(ctx, pc, tid, 0, Instant::now(), findings)
+                .with_goid(Some(goid))
+                .with_overlay(true);
+            bus.dispatch(&chan_call(symbol, pc, tid, hchan), &ectx);
+        }
+        bus.run_overlay_end_with(ctx, 0, 0, None, 0, Instant::now(), phi);
+    }
+
+    /// The close is only reached on an untaken branch (data[0] == 0xCA) of
+    /// another goroutine; the real-path send must be reported with that input.
+    #[test]
+    fn chancheck_detects_close_on_untaken_branch() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(ChanCheckPlugin::new()));
+        let hchan: u64 = 0xc0005000;
+
+        let ectx_send =
+            EventCtx::new(&ctx, 0x300, 2, 0, Instant::now(), &findings).with_goid(Some(1001));
+        bus.dispatch(&chan_call("runtime.chansend1", 0x300, 2, hchan), &ectx_send);
+
+        let input = BV::new_const(&ctx, "arg1_byte_0", 8);
+        let gate = vec![input._eq(&BV::from_u64(&ctx, 0xCA, 8))];
+        run_overlay(
+            &mut bus,
+            &ctx,
+            &findings,
+            &[("runtime.closechan", 0x200, 3, 1002, hchan)],
+            &gate,
+        );
+
+        bus.run_finish(&mk_ctx(&ctx, &findings));
+        let f = findings.borrow();
+        assert_eq!(f.len(), 1, "expected one finding, got: {:?}", f);
+        let blob = f[0].details.join("\n");
+        assert!(
+            blob.contains("arg1_byte_0") && blob.contains("#xca"),
+            "{}",
+            blob
+        );
+        assert!(f[0].title.contains("not taken"), "{}", f[0].title);
+    }
+
+    /// The untaken-branch close needs data[0] == 0xCA but the send is only
+    /// reached when data[0] != 0xCA: no input does both, so no finding.
+    #[test]
+    fn chancheck_ignores_incompatible_untaken_close() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(ChanCheckPlugin::new()));
+        let hchan: u64 = 0xc0006000;
+
+        let input = BV::new_const(&ctx, "arg1_byte_0", 8);
+        let is_ca = input._eq(&BV::from_u64(&ctx, 0xCA, 8));
+        let send_phi = vec![is_ca.not()];
+        let ectx_send = EventCtx::new(&ctx, 0x300, 2, 0, Instant::now(), &findings)
+            .with_goid(Some(1001))
+            .with_path_constraints(&send_phi);
+        bus.dispatch(&chan_call("runtime.chansend1", 0x300, 2, hchan), &ectx_send);
+
+        run_overlay(
+            &mut bus,
+            &ctx,
+            &findings,
+            &[("runtime.closechan", 0x200, 3, 1002, hchan)],
+            &[is_ca],
+        );
+
+        bus.run_finish(&mk_ctx(&ctx, &findings));
+        let f = findings.borrow();
+        assert!(f.is_empty(), "incompatible conditions, got: {:?}", f);
+    }
+
+    /// Close then send, both on the same untaken branch of one goroutine.
+    #[test]
+    fn chancheck_detects_close_then_send_on_untaken_branch() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(ChanCheckPlugin::new()));
+        let hchan: u64 = 0xc0007000;
+
+        let input = BV::new_const(&ctx, "arg1_byte_0", 8);
+        let gate = vec![input._eq(&BV::from_u64(&ctx, 0x58, 8))];
+        run_overlay(
+            &mut bus,
+            &ctx,
+            &findings,
+            &[
+                ("runtime.closechan", 0x200, 1, 1, hchan),
+                ("runtime.chansend1", 0x300, 1, 1, hchan),
+            ],
+            &gate,
+        );
+
+        bus.run_finish(&mk_ctx(&ctx, &findings));
+        let f = findings.borrow();
+        assert_eq!(f.len(), 1, "expected one finding, got: {:?}", f);
+        assert!(f[0].title.contains("same-goroutine"), "{}", f[0].title);
+        assert!(f[0].details.join("\n").contains("#x58"));
+    }
+
+    /// Overlay call events go only to plugins that asked for them.
+    #[test]
+    fn overlay_calls_reach_only_hooked_plugins() {
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(ChanCheckPlugin::new()));
+        assert!(bus.wants_overlay_call("runtime.closechan"));
+        assert!(bus.wants_overlay_call("runtime.chansend1"));
+        assert!(!bus.wants_overlay_call("runtime.chanrecv1"));
+        assert!(!bus.wants_overlay_call("sync.(*Mutex).Lock"));
     }
 }

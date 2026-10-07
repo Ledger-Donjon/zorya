@@ -79,6 +79,14 @@ pub struct EventCtx<'ctx, 's> {
     /// Plugins must **not** stash the `'s` slice; clone the `Bool<'ctx>`
     /// nodes they need (cheap, reference-counted, valid for `'ctx`).
     pub(crate) path_constraints: &'s [Bool<'ctx>],
+
+    /// True when the event fired inside an overlay (untaken-path) execution.
+    /// Only the calls a plugin lists in
+    /// [`crate::plugins::Plugin::overlay_call_hooks`] are delivered there;
+    /// the input still holds its concrete value from the real path, so the
+    /// event's `path_constraints` are not a valid condition for it, and the
+    /// clean one arrives in `on_overlay_end`.
+    pub in_overlay: bool,
 }
 
 impl<'ctx, 's> EventCtx<'ctx, 's> {
@@ -101,7 +109,14 @@ impl<'ctx, 's> EventCtx<'ctx, 's> {
             start_time,
             findings,
             path_constraints: &[],
+            in_overlay: false,
         }
+    }
+
+    /// Builder: mark this context as belonging to an overlay execution.
+    pub fn with_overlay(mut self, in_overlay: bool) -> Self {
+        self.in_overlay = in_overlay;
+        self
     }
 
     /// Builder: attach the current goroutine id to this context.

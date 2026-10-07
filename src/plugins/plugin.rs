@@ -63,6 +63,15 @@ pub trait Plugin<'ctx>: 'ctx {
         &[]
     }
 
+    /// Callees this plugin also wants as `Event::Call` while an overlay
+    /// (untaken-path) execution is active. Overlay register state is only
+    /// approximate, so call events are withheld there from every plugin that
+    /// does not list the callee here. The event arrives with
+    /// `ctx.in_overlay` set and must not be treated as a real-path event.
+    fn overlay_call_hooks(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// One-time initialization, called once after the engine has loaded the
     /// binary and the symbol table but before execution starts. The default
     /// is a no-op.

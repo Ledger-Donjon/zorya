@@ -482,6 +482,7 @@ fn execute_with_overlay<'ctx>(
                                     sym_name,
                                     target
                                 );
+                                executor.dispatch_overlay_call_event(current_addr, target);
                                 apply_summary_in_overlay(
                                     executor,
                                     &effect,
