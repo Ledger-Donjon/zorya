@@ -44,6 +44,7 @@ This can happen in two scenarios:
 | `Call(runtime.closechan)` | Marks the channel as closed, records the closer TID and Z3 path constraints. |
 | `Call(runtime.chansend1)` | Records send attempts with their path constraints. |
 | `Call(runtime.chanrecv1)` | Tracks receives for completeness (recv on closed is not a bug in Go). |
+| `Call(runtime.closechan)`, `Call(runtime.chansend1)` inside an overlay (`overlay_call_hooks`) | Kept aside until the overlay ends, then recorded with the overlay-entry path condition handed to `on_overlay_end`. |
 
 ## Detection algorithm
 
@@ -54,6 +55,8 @@ This can happen in two scenarios:
 
 3. On `chansend1`, record the send attempt with its path constraints and `goid`.
 
+   With `--negate-path-exploration`, a close or a send that the run itself does not execute, because it sits on a branch the input did not take, is still recorded when the overlay exploration of that branch reaches it. Its path condition is the overlay-entry condition (the path up to the branch plus the condition selecting the untaken side), so it describes the inputs that reach it. This is what lets the plugin start from a harmless input.
+
 4. At analysis end (`on_finish`), for each send on a closed channel:
    - Compare `goid` (falls back to OS `tid` if goid unavailable).
    - If same-goroutine: only a bug if the send happened **after** the close.
@@ -61,6 +64,7 @@ This can happen in two scenarios:
      (incremented on every close/send event), so it holds even when function
      summaries skip the body of `runtime.closechan`/`runtime.chansend`. A send
      that *precedes* the close (the safe send-then-close idiom) is not flagged.
+     When the close or the send was reached on an untaken branch, `close_phi AND send_phi` must also be satisfiable.
    - If cross-goroutine: compute Z3 feasibility of `close_phi AND send_phi`.
      Only emit a finding if the conjunction is satisfiable.
 
@@ -114,27 +118,24 @@ zorya tests/programs/chancheck-test1-no-inputs/chancheck-test1-no-inputs \
 ### Test 2: input-gated send-on-closed
 
 The vulnerable path only triggers when `input[0] == 'X'` (0x58). Zorya must
-solve this constraint symbolically to discover the bug:
+solve this constraint symbolically to discover the bug, starting from an input that does not trigger it:
 
 ```bash
 zorya tests/programs/chancheck-test2-with-input/chancheck-test2-with-input \
   --lang go \
   --compiler gc \
   --mode main \
+  --arg a \
   --negate-path-exploration \
   --plugin chancheck
 ```
 
-The plugin produces output like:
+With `a`, `dispatch` returns early; the close and the send are both reached by the overlay exploration of the untaken branch. Output in `results/plugin_findings.txt`:
 
 ```
-[CHANCHECK] MAKECHAN call observed tid=1 chantype_ptr=0x4a1200
-[CHANCHECK] CLOSECHAN hchan=0x7f0000 tid=1 |phi|=0
-[CHANCHECK] CHANSEND hchan=0x7f0000 tid=1 |phi|=0
-[CHANCHECK] *** BUG / VULNERABILITY DETECTED: 1 send-on-closed-channel violation(s) ***
+[chancheck::send-on-closed-channel] Send on closed channel at 0x49c271 [same-goroutine]: hchan=0x700000000000, close at 0x49c2d3 (close and send on a branch not taken by this run) (pc=0x49c271, severity=Critical)
+    Triggering input (satisfies φ_close ∧ φ_send): arg1_byte_0!245 -> #x58
 ```
-
-Full details are written to `results/plugin_findings.txt`.
 
 ### Test 3: same-goroutine deterministic close→send
 
@@ -202,6 +203,34 @@ Output in `results/plugin_findings.txt`:
 Running the same harness with a safe opcode (e.g. `--arg $'\x01'`, opPing) sends
 before closing and correctly produces **no findings**, demonstrating the
 temporal-ordering check.
+
+### Test 5: a malicious input that races a channel close
+
+`dispatch(data)` starts a producer goroutine that sends every input byte on the unbuffered channel `ch`, and a control goroutine that closes `ch` when `data[0] == 0xCA`. The panic needs both the sentinel byte and an interleaving where the close comes before a send: natively, `\xcaAB` panics in only about 1% of runs. Zorya starts from an input that does not trigger the bug:
+
+```bash
+zorya tests/programs/chancheck-test5-input-close-race/chancheck-test5-input-close-race \
+  --lang go \
+  --compiler gc \
+  --mode main \
+  --thread-scheduling all-threads \
+  --arg $'\x01\x02' \
+  --negate-path-exploration \
+  --plugin chancheck
+```
+
+The run never closes the channel: the producer sends both bytes and the control goroutine skips the close. The overlay exploration of the control goroutine's branch reaches `runtime.closechan` under `data[0] == 0xCA`, and the end-of-run check finds that condition compatible with the producer's sends, which nothing orders after the close. Output in `results/plugin_findings.txt` (one finding per producer send, about 25 s):
+
+```
+[chancheck::send-on-closed-channel] Send on closed channel at 0x49c632 [cross-goroutine]: hchan=0x700000000010, close at 0x49c577 (close on a branch not taken by this run) (pc=0x49c632, severity=Critical)
+    Close: tid=3, goid=1002, pc=0x49c577, |φ_close|=1
+    Send: tid=2, goid=1001, pc=0x49c632, |φ_send|=0
+    Triggering input (satisfies φ_close ∧ φ_send): arg1_byte_0!257 -> #xca
+    Path condition φ = φ_close ∧ φ_send: (= (ite (= (ite (= arg1_byte_0!257 #xca) #x01 #x00) #x00) #x01 #x00) #x00)
+    Interleaving: close (tid=3) ordered before send (tid=2); this run did not schedule it, but nothing orders the two goroutines
+```
+
+The cross-goroutine check does not model happens-before: if the program synchronised the close after the sends (for example by waiting for the producer before closing), the plugin would still report it.
 
 ## Environment variables
 

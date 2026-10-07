@@ -95,6 +95,7 @@ pub trait Plugin<'ctx>: 'ctx {
     fn version(&self) -> &'static str { "0.0.0" }
     fn wants(&self) -> HashSet<EventKind> { /* default: all but InstrPre/Post */ }
     fn symbol_hooks(&self) -> &'static [&'static str] { &[] }
+    fn overlay_call_hooks(&self) -> &'static [&'static str] { &[] }
     fn on_init(&mut self, ctx: &EventCtx<'ctx, '_>) {}
     fn on_event(&mut self, ev: &Event<'ctx, '_>, ctx: &EventCtx<'ctx, '_>) -> Verdict {
         Verdict::Continue
@@ -116,6 +117,8 @@ reachable). A plugin uses this to Z3-solve the inputs that drive events it
 recorded *during* the overlay and remember them for reporting at `on_finish`.
 The TOCTOU detector uses it to flag a credential check that is only reachable on
 an input-gated branch; see `src/plugins/builtin/toctou/README.md`.
+
+Register values inside an overlay are only approximate, so `Call` events are not delivered there, except for the callees a plugin lists in `overlay_call_hooks`. Those reach only that plugin, with `ctx.in_overlay` set, including callees the overlay replaces with a function summary. The input still holds its concrete value from the real path during the overlay, so the event's own path constraints are not a valid condition for it: the plugin keeps the event aside and takes the clean `φ` from the next `on_overlay_end`. ChanCheck uses this for `runtime.closechan` and `runtime.chansend1`, so a close or a send reached only on an input-gated branch is checked like one on the real path.
 
 ### `Event` enum
 
@@ -226,6 +229,7 @@ core files, the standard refactor is:
    | Reaction to thread creation                                                  | `on_event(ThreadSpawn { .. })`                       |
    | Reaction to scheduling                                                       | `on_event(ThreadSwitch { .. })`                      |
    | Reasoning about an untaken (overlay-explored) branch before teardown         | `on_overlay_end(ctx)`                                |
+   | Hooking a function symbol on an untaken (overlay-explored) branch            | `overlay_call_hooks()` + `on_event(Call { .. })` with `ctx.in_overlay` |
    | End-of-trace summary / cross-check pass                                      | `on_finish(...)`                                     |
    | Inline `println!` / `[TAG]` log lines in core                                | per-plugin sub-logger owned by the plugin            |
    | Extra parameters threaded through memory APIs (`extra: ExtraCtx`, `internal: bool`) | not needed — re-entrancy guard handles recursion |
