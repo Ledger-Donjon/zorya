@@ -11,12 +11,14 @@ use std::{error::Error, process::Command};
 use crate::concolic::{ConcolicExecutor, ConcolicVar, SymbolicVar};
 /// Write SAT state details to file and log to terminal
 use crate::state::gating_stats::{get_allowed_by_xref_fallback, get_gated_by_reach};
+use crate::state::json_report;
 use crate::state::simplify_z3::add_constraints_from_vector;
 use crate::target_info::GLOBAL_TARGET_INFO;
 use crate::tprintln;
 
 use chrono::{DateTime, Utc};
 use parser::parser::{Inst, Opcode};
+use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::OpenOptions;
 use std::path::Path;
@@ -34,6 +36,21 @@ macro_rules! log {
 // Global timer to measure elapsed time until first SAT state is found
 static START_INSTANT: OnceLock<Instant> = OnceLock::new();
 static INVOCATION_CMDLINE: OnceLock<String> = OnceLock::new();
+
+/// The command line recorded by [`init_invocation_command_line`], if any.
+pub fn invocation_command_line() -> Option<&'static str> {
+    INVOCATION_CMDLINE.get().map(|s| s.as_str())
+}
+
+/// Text and JSON forms of the Z3 model evaluation attached to a SAT state.
+pub struct SatEvaluation {
+    /// Human-readable block written to `FOUND_SAT_STATE.txt` and the logs.
+    pub text: String,
+    /// Inputs that appear in the path condition, with their solved values.
+    pub constrained_inputs: Vec<serde_json::Value>,
+    /// Every tracked symbolic variable with its value in the model.
+    pub variables: Vec<serde_json::Value>,
+}
 
 /// Initialize the global SAT timer start. Safe to call multiple times; only first wins.
 pub fn init_sat_timer_start() {
@@ -192,6 +209,19 @@ pub fn log_vuln_to_file_and_terminal(
     writeln!(file, "{}", "=".repeat(80))?;
 
     file.flush()?;
+
+    json_report::record_sat_entry(json!({
+        "kind": "bug",
+        "timestamp": timestamp.to_rfc3339(),
+        "mode": mode,
+        "elapsed_seconds": elapsed.as_secs_f64(),
+        "crash_address": json_report::hex(address),
+        "bug": vuln_type,
+        "opcode": opcode_str,
+        "description": description,
+        "pointer": pointer_name,
+        "on_overlay_path": true,
+    }))?;
 
     Ok(())
 }
@@ -419,7 +449,7 @@ fn add_ascii_constraints_for_args<'ctx>(
 }
 
 pub fn log_sat_state_to_file_and_terminal(
-    evaluation_content: &str,
+    evaluation: &SatEvaluation,
     mode: &str,
     panic_addr: Option<u64>,
     elapsed_since_start: Option<Duration>,
@@ -485,10 +515,27 @@ pub fn log_sat_state_to_file_and_terminal(
     )?;
     writeln!(file, "  allowed_by_xref_fallback = {} (branches allowed because target matched a known panic xref)", allowed)?;
     writeln!(file, "{}", "-".repeat(60))?;
-    writeln!(file, "{}", evaluation_content)?;
+    writeln!(file, "{}", evaluation.text)?;
     writeln!(file, "{}", "=".repeat(80))?;
 
     file.flush()?;
+
+    json_report::record_sat_entry(json!({
+        "kind": "satisfiable_state",
+        "timestamp": timestamp.to_rfc3339(),
+        "mode": mode,
+        "elapsed_seconds": elapsed_since_start.map(|d| d.as_secs_f64()),
+        "instruction_address": instruction_addr.map(json_report::hex),
+        "panic_address": panic_addr.map(json_report::hex),
+        "opcode": opcode_str,
+        "detection_method": detection_method,
+        "panic_gating": {
+            "gated_by_reach": gated,
+            "allowed_by_xref_fallback": allowed,
+        },
+        "constrained_inputs": evaluation.constrained_inputs,
+        "variables": evaluation.variables,
+    }))?;
 
     Ok(())
 }
@@ -499,7 +546,7 @@ fn capture_constrained_values_section(
     model: &z3::Model,
     symbolic_arguments: &BTreeMap<String, SymbolicVar>,
     extra_expressions: &[String],
-) -> String {
+) -> (String, Vec<serde_json::Value>) {
     // Recompute constrained labels similarly to capture_constrained_inputs_section
     let mut constraint_strings: Vec<String> = Vec::new();
     for c in &executor.constraint_vector {
@@ -586,211 +633,157 @@ fn capture_constrained_values_section(
         }
     }
 
-    // Render sentences for labels we can evaluate
+    /// How a solved integer is worded in the text report.
+    #[derive(Clone, Copy)]
+    enum IntStyle {
+        /// `must be 75 (unsigned: ...)`
+        Decimal,
+        /// `must be 0x4b (unsigned: ...)`, or `must be NULL (nil)` for 0
+        /// (struct fields, which are usually pointers)
+        HexOrNil,
+        /// `The pointer ... must be 0x...` (slice data pointers)
+        Pointer,
+    }
+
+    enum Resolved {
+        Int(Option<u64>, IntStyle),
+        Bool(Option<bool>),
+        Float(Option<String>),
+        Complex,
+    }
+
+    fn resolve_scalar(model: &z3::Model, sym: &SymbolicVar, style: IntStyle) -> Resolved {
+        match sym {
+            SymbolicVar::Int(bv) => {
+                Resolved::Int(model.eval(bv, true).and_then(|v| v.as_u64()), style)
+            }
+            SymbolicVar::Bool(b) => Resolved::Bool(model.eval(b, true).and_then(|v| v.as_bool())),
+            SymbolicVar::Float(f) => Resolved::Float(model.eval(f, true).map(|v| v.to_string())),
+            _ => Resolved::Complex,
+        }
+    }
+
+    // Resolve each label against the arguments: `arg.len/cap/ptr` of a slice,
+    // a dotted struct field, `arg[i]` (tracked directly or as an element of a
+    // slice / large integer), or a base argument.
+    let resolve = |label: &str| -> Option<Resolved> {
+        if let Some(dot) = label.rfind('.') {
+            let (arg, field) = label.split_at(dot);
+            let field = &field[1..];
+            if let Some(SymbolicVar::Slice(slice)) = symbolic_arguments.get(arg) {
+                let (bv, style) = match field {
+                    "len" => (&slice.length, IntStyle::Decimal),
+                    "cap" => (&slice.capacity, IntStyle::Decimal),
+                    "ptr" => (&slice.pointer, IntStyle::Pointer),
+                    _ => return None,
+                };
+                return Some(Resolved::Int(
+                    model.eval(bv, true).and_then(|v| v.as_u64()),
+                    style,
+                ));
+            }
+            return symbolic_arguments
+                .get(label)
+                .map(|sym| resolve_scalar(model, sym, IntStyle::HexOrNil));
+        }
+        if let Some(bracket) = label.find('[') {
+            if let Some(sym) = symbolic_arguments.get(label) {
+                return Some(resolve_scalar(model, sym, IntStyle::Decimal));
+            }
+            let arg = &label[..bracket];
+            let idx = label[bracket + 1..label.len() - 1]
+                .parse::<usize>()
+                .unwrap_or(usize::MAX);
+            return match symbolic_arguments.get(arg)? {
+                SymbolicVar::Slice(slice) => slice
+                    .elements
+                    .get(idx)
+                    .map(|elem| resolve_scalar(model, elem, IntStyle::Decimal)),
+                SymbolicVar::LargeInt(vec_bv) => vec_bv.get(idx).map(|bv| {
+                    Resolved::Int(
+                        model.eval(bv, true).and_then(|v| v.as_u64()),
+                        IntStyle::Decimal,
+                    )
+                }),
+                _ => None,
+            };
+        }
+        match symbolic_arguments.get(label)? {
+            sym @ (SymbolicVar::Int(_) | SymbolicVar::Bool(_) | SymbolicVar::Float(_)) => {
+                Some(resolve_scalar(model, sym, IntStyle::Decimal))
+            }
+            _ => None,
+        }
+    };
+
     let mut out = String::new();
+    let mut entries = Vec::new();
     if label_set.is_empty() {
-        return out;
+        return (out, entries);
     }
     out.push_str("RESULTS\n");
     out.push_str("The program can panic if its inputs are the following:\n");
 
     for label in label_set {
-        // Try to evaluate by pattern-matching against the arguments
-        let rendered = if let Some(dot) = label.rfind('.') {
-            // Possibly slice comp: arg.len/cap/ptr OR struct field like b.header
-            let (arg, field) = label.split_at(dot);
-            let field = &field[1..];
-            if let Some(SymbolicVar::Slice(slice)) = symbolic_arguments.get(arg) {
-                match field {
-                    "len" => match model.eval(&slice.length, true).and_then(|v| v.as_u64()) {
-                        Some(v) => {
-                            let signed = v as i64;
-                            let ascii = ascii_desc(v);
-                            format!(
-                                "  - The input '{}' must be {} (unsigned: {}; signed: {}; ASCII: {})\n",
-                                label, v, v, signed, ascii
-                            )
-                        }
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    "cap" => match model.eval(&slice.capacity, true).and_then(|v| v.as_u64()) {
-                        Some(v) => {
-                            let signed = v as i64;
-                            let ascii = ascii_desc(v);
-                            format!(
-                                "  - The input '{}' must be {} (unsigned: {}; signed: {}; ASCII: {})\n",
-                                label, v, v, signed, ascii
-                            )
-                        }
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    "ptr" => match model.eval(&slice.pointer, true).and_then(|v| v.as_u64()) {
-                        Some(v) => format!("  - The pointer '{}' must be 0x{:x}\n", label, v),
-                        None => format!("  - The pointer '{}' has unknown value\n", label),
-                    },
-                    _ => String::new(),
-                }
-            } else if let Some(sym) = symbolic_arguments.get(&label) {
-                // Fallback: Try looking up the full dotted name (for struct fields like b.header)
-                match sym {
-                    SymbolicVar::Int(bv) => match model.eval(bv, true).and_then(|v| v.as_u64()) {
-                        Some(v) => {
-                            let signed = v as i64;
-                            let ascii = ascii_desc(v);
-                            // Special formatting for pointers (likely nil if 0)
-                            if v == 0 {
-                                format!("  - The pointer '{}' must be NULL (nil)\n", label)
-                            } else {
-                                format!(
-                                    "  - The input '{}' must be 0x{:x} (unsigned: {}; signed: {}; ASCII: {})\n",
-                                    label, v, v, signed, ascii
-                                )
-                            }
-                        }
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    SymbolicVar::Bool(b) => match model.eval(b, true).and_then(|v| v.as_bool()) {
-                        Some(v) => format!("  - The input '{}' must be {}\n", label, v),
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    SymbolicVar::Float(f) => match model.eval(f, true).map(|v| v.to_string()) {
-                        Some(s) => format!("  - The input '{}' must be {}\n", label, s),
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    _ => format!("  - The input '{}' = <complex>\n", label),
-                }
-            } else {
-                String::new()
-            }
-        } else if let Some(bracket) = label.find('[') {
-            // Element access: arg[i]
-            let arg = &label[..bracket];
-            let idx_str = &label[bracket + 1..label.len() - 1];
-            let idx = idx_str.parse::<usize>().unwrap_or(usize::MAX);
-
-            // First, try direct lookup for cases where "indices[0]" itself is a tracked variable
-            if let Some(sym) = symbolic_arguments.get(&label) {
-                match sym {
-                    SymbolicVar::Int(bv) => match model.eval(bv, true).and_then(|v| v.as_u64()) {
-                        Some(v) => {
-                            let signed = v as i64;
-                            let ascii = ascii_desc(v);
-                            format!(
-                                    "  - The input '{}' must be {} (unsigned: {}; signed: {}; ASCII: {})\n",
-                                    label, v, v, signed, ascii
-                                )
-                        }
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    SymbolicVar::Bool(b) => match model.eval(b, true).and_then(|v| v.as_bool()) {
-                        Some(v) => format!("  - The input '{}' must be {}\n", label, v),
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    SymbolicVar::Float(f) => match model.eval(f, true).map(|v| v.to_string()) {
-                        Some(s) => format!("  - The input '{}' must be {}\n", label, s),
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    _ => format!("  {} = <complex>\n", label),
-                }
-            } else if let Some(sym) = symbolic_arguments.get(arg) {
-                // Otherwise, lookup parent slice and access element
-                match sym {
-                    SymbolicVar::Slice(slice) => {
-                        if idx < slice.elements.len() {
-                            match &slice.elements[idx] {
-                                SymbolicVar::Int(bv) => {
-                                    match model.eval(bv, true).and_then(|v| v.as_u64()) {
-                                        Some(v) => {
-                                            let signed = v as i64;
-                                            let ascii = ascii_desc(v);
-                                            format!(
-                                            "  - The input '{}' must be {} (unsigned: {}; signed: {}; ASCII: {})\n",
-                                            label, v, v, signed, ascii
-                                        )
-                                        }
-                                        None => {
-                                            format!("  - The input '{}' has unknown value\n", label)
-                                        }
-                                    }
-                                }
-                                SymbolicVar::Bool(b) => match model
-                                    .eval(b, true)
-                                    .and_then(|v| v.as_bool())
-                                {
-                                    Some(v) => format!("  - The input '{}' must be {}\n", label, v),
-                                    None => format!("  -The input '{}' has unknown value\n", label),
-                                },
-                                SymbolicVar::Float(f) => match model
-                                    .eval(f, true)
-                                    .map(|v| v.to_string())
-                                {
-                                    Some(s) => format!("  -The input '{}' must be {}\n", label, s),
-                                    None => {
-                                        format!("  - The input '{}' has unknown value\n", label)
-                                    }
-                                },
-                                _ => format!("  {} = <complex>\n", label),
-                            }
-                        } else {
-                            String::new()
-                        }
-                    }
-                    SymbolicVar::LargeInt(vec_bv) => {
-                        if idx < vec_bv.len() {
-                            match model.eval(&vec_bv[idx], true).and_then(|v| v.as_u64()) {
-                                Some(v) => {
-                                    let signed = v as i64;
-                                    let ascii = ascii_desc(v);
-                                    format!(
-                                        "  - The input '{}' must be {} (unsigned: {}; signed: {}; ASCII: {})\n",
-                                        label, v, v, signed, ascii
-                                    )
-                                }
-                                None => format!("  - The input '{}' has unknown value\n", label),
-                            }
-                        } else {
-                            String::new()
-                        }
-                    }
-                    _ => String::new(),
-                }
-            } else {
-                String::new()
-            }
-        } else {
-            // Base arg (Int/Bool/Float)
-            if let Some(sym) = symbolic_arguments.get(&label) {
-                match sym {
-                    SymbolicVar::Int(bv) => match model.eval(bv, true).and_then(|v| v.as_u64()) {
-                        Some(v) => {
-                            let signed = v as i64;
-                            let ascii = ascii_desc(v);
-                            format!(
-                                "  - The input '{}' must be {} (unsigned: {}; signed: {}; ASCII: {})\n",
-                                label, v, v, signed, ascii
-                            )
-                        }
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    SymbolicVar::Bool(b) => match model.eval(b, true).and_then(|v| v.as_bool()) {
-                        Some(v) => format!("  - The input '{}' must be {}\n", label, v),
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    SymbolicVar::Float(f) => match model.eval(f, true).map(|v| v.to_string()) {
-                        Some(s) => format!("  - The input '{}' must be {}\n", label, s),
-                        None => format!("  - The input '{}' has unknown value\n", label),
-                    },
-                    _ => String::new(),
-                }
-            } else {
-                String::new()
-            }
+        let Some(resolved) = resolve(&label) else {
+            continue;
         };
-        out.push_str(&rendered);
+        let (line, entry) =
+            match resolved {
+                Resolved::Int(Some(v), style) => {
+                    let line =
+                        match style {
+                            IntStyle::Decimal => format!(
+                        "  - The input '{}' must be {} (unsigned: {}; signed: {}; ASCII: {})\n",
+                        label, v, v, v as i64, ascii_desc(v)
+                    ),
+                            IntStyle::HexOrNil if v == 0 => {
+                                format!("  - The pointer '{}' must be NULL (nil)\n", label)
+                            }
+                            IntStyle::HexOrNil => format!(
+                        "  - The input '{}' must be 0x{:x} (unsigned: {}; signed: {}; ASCII: {})\n",
+                        label, v, v, v as i64, ascii_desc(v)
+                    ),
+                            IntStyle::Pointer => {
+                                format!("  - The pointer '{}' must be 0x{:x}\n", label, v)
+                            }
+                        };
+                    let kind = match style {
+                        IntStyle::Decimal => "int",
+                        IntStyle::HexOrNil | IntStyle::Pointer => "pointer",
+                    };
+                    let mut entry = json_report::int_value(v);
+                    entry["name"] = json!(label);
+                    entry["type"] = json!(kind);
+                    (line, entry)
+                }
+                Resolved::Bool(Some(b)) => (
+                    format!("  - The input '{}' must be {}\n", label, b),
+                    json!({ "name": label, "type": "bool", "value": b }),
+                ),
+                Resolved::Float(Some(s)) => (
+                    format!("  - The input '{}' must be {}\n", label, s),
+                    json!({ "name": label, "type": "float", "value": s }),
+                ),
+                Resolved::Int(None, IntStyle::Pointer) => (
+                    format!("  - The pointer '{}' has unknown value\n", label),
+                    json!({ "name": label, "type": "unknown", "value": null }),
+                ),
+                Resolved::Int(None, _) | Resolved::Bool(None) | Resolved::Float(None) => (
+                    format!("  - The input '{}' has unknown value\n", label),
+                    json!({ "name": label, "type": "unknown", "value": null }),
+                ),
+                Resolved::Complex => (
+                    format!("  - The input '{}' = <complex>\n", label),
+                    json!({ "name": label, "type": "complex", "value": null }),
+                ),
+            };
+        out.push_str(&line);
+        entries.push(entry);
     }
 
     out.push('\n');
-    out
+    (out, entries)
 }
 
 /// Capture the evaluation content as a string (similar to what goes to the logger)
@@ -970,13 +963,88 @@ fn capture_symbolic_arguments_evaluation(
     output
 }
 
-/// Build a unified evaluation content string used for both file output and terminal logs
+/// JSON counterpart of [`capture_symbolic_arguments_evaluation`]: every tracked
+/// symbolic variable with its value in `model`.
+fn symbolic_arguments_json(
+    model: &z3::Model,
+    function_symbolic_arguments: &BTreeMap<String, SymbolicVar>,
+) -> Vec<serde_json::Value> {
+    let eval_u64 = |bv: &z3::ast::BV| model.eval(bv, true).and_then(|v| v.as_u64());
+    function_symbolic_arguments
+        .iter()
+        .map(|(name, sym)| match sym {
+            SymbolicVar::Slice(slice) => json!({
+                "name": name,
+                "type": "slice",
+                "pointer": eval_u64(&slice.pointer).map(json_report::hex),
+                "length": eval_u64(&slice.length),
+                "capacity": eval_u64(&slice.capacity),
+            }),
+            SymbolicVar::Int(bv) if bv.get_size() <= 64 => {
+                let kind = if name.ends_with("__ptr") {
+                    "string_pointer"
+                } else if name.ends_with("__len") {
+                    "string_length"
+                } else {
+                    "int"
+                };
+                let mut v = match eval_u64(bv) {
+                    Some(x) => json_report::int_value(x),
+                    None => json!({ "value": null }),
+                };
+                v["name"] = json!(name);
+                v["type"] = json!(kind);
+                v["symbol"] = json!(bv.to_string());
+                v["bits"] = json!(bv.get_size());
+                v
+            }
+            SymbolicVar::Int(bv) => json!({
+                "name": name,
+                "type": "int",
+                "symbol": bv.to_string(),
+                "bits": bv.get_size(),
+                "value": model.eval(bv, true).map(|v| v.to_string()),
+            }),
+            SymbolicVar::LargeInt(bvs)
+                if bvs.len() == 2 && bvs[0].get_size() == 64 && bvs[1].get_size() == 64 =>
+            {
+                json!({
+                    "name": name,
+                    "type": "go_string",
+                    "pointer": eval_u64(&bvs[0]).map(json_report::hex),
+                    "length": eval_u64(&bvs[1]),
+                })
+            }
+            SymbolicVar::LargeInt(bvs) => json!({
+                "name": name,
+                "type": "large_int",
+                "components": bvs
+                    .iter()
+                    .map(|bv| model.eval(bv, true).map(|v| v.to_string()))
+                    .collect::<Vec<_>>(),
+            }),
+            SymbolicVar::Bool(b) => json!({
+                "name": name,
+                "type": "bool",
+                "value": model.eval(b, true).and_then(|v| v.as_bool()),
+            }),
+            SymbolicVar::Float(f) => json!({
+                "name": name,
+                "type": "float",
+                "value": model.eval(f, true).map(|v| v.to_string()),
+            }),
+        })
+        .collect()
+}
+
+/// Build the evaluation attached to a SAT state, as text (for the file report
+/// and terminal logs) and as JSON.
 pub fn build_unified_evaluation_content<'ctx>(
     model: &z3::Model,
     executor: &ConcolicExecutor,
     conditional_flag: Option<&ConcolicVar>,
     null_check_pointer: Option<&z3::ast::BV<'ctx>>,
-) -> String {
+) -> SatEvaluation {
     let mut content = String::new();
 
     // Include current conditional flag expression to aid constrained input detection
@@ -995,12 +1063,13 @@ pub fn build_unified_evaluation_content<'ctx>(
     }
 
     // Constrained values first
-    content.push_str(&capture_constrained_values_section(
+    let (constrained_text, constrained_inputs) = capture_constrained_values_section(
         executor,
         model,
         &executor.function_symbolic_arguments,
         &extra_exprs,
-    ));
+    );
+    content.push_str(&constrained_text);
     content.push_str("(If the result is not in the expected format, try to set the ARG_ASCII_PROFILE environment variable to 'printable' or 'digits', by running 'ARG_ASCII_PROFILE=printable zorya ...' for instance)\n");
     content.push_str("------------------------------------------------------------\n");
     // Then full tracked/untracked variable evaluation
@@ -1009,7 +1078,11 @@ pub fn build_unified_evaluation_content<'ctx>(
         &executor.function_symbolic_arguments,
     ));
 
-    content
+    SatEvaluation {
+        text: content,
+        constrained_inputs,
+        variables: symbolic_arguments_json(model, &executor.function_symbolic_arguments),
+    }
 }
 
 pub fn evaluate_args_z3<'ctx>(
@@ -1172,7 +1245,7 @@ pub fn evaluate_args_z3<'ctx>(
                         );
 
                         // Log to terminal using the same structure
-                        for line in evaluation_content.lines() {
+                        for line in evaluation_content.text.lines() {
                             log!(executor.state.logger, "{}", line);
                         }
 
@@ -1345,7 +1418,7 @@ pub fn evaluate_args_z3<'ctx>(
                     );
 
                     // Log to terminal using the same structure
-                    for line in evaluation_content.lines() {
+                    for line in evaluation_content.text.lines() {
                         log!(executor.state.logger, "{}", line);
                     }
 
@@ -1519,7 +1592,7 @@ pub fn evaluate_args_z3<'ctx>(
                 );
 
                 // Log to terminal using the same structure
-                for line in evaluation_content.lines() {
+                for line in evaluation_content.text.lines() {
                     log!(executor.state.logger, "{}", line);
                 }
 
