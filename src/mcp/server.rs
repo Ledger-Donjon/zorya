@@ -639,12 +639,22 @@ impl ZoryaMcp {
         }
 
         match std::fs::read_to_string(&path) {
-            Ok(content) => json!({
-                "found": true,
-                "path": path.to_string_lossy(),
-                "content": content
-            })
-            .to_string(),
+            Ok(content) => {
+                let mut result = json!({
+                    "found": true,
+                    "path": path.to_string_lossy(),
+                    "content": content
+                });
+                let json_path = path.with_extension("json");
+                if let Some(report) = std::fs::read_to_string(&json_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                {
+                    result["json_path"] = json!(json_path.to_string_lossy());
+                    result["report"] = report;
+                }
+                result.to_string()
+            }
             Err(e) => json!({"error": format!("Failed to read SAT states: {}", e)}).to_string(),
         }
     }
