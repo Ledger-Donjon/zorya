@@ -234,7 +234,7 @@ For a **single `run_analysis`** run, omit `test_id` to read from the default `re
 get_sat_states()
 ```
 
-Returns the raw content of `FOUND_SAT_STATE.txt` — concrete input values that triggered a vulnerability (OOB index, integer overflow, nil dereference, panic, etc.).
+Returns the raw content of `FOUND_SAT_STATE.txt` — concrete input values that triggered a vulnerability (OOB index, integer overflow, nil dereference, panic, etc.). When `FOUND_SAT_STATE.json` sits next to it, the parsed report is also returned in `report`, and its path in `json_path`; see [JSON reports](../../doc/Quickstart.md#json-reports) for the schema.
 
 To see a summary across all tests in a campaign:
 
