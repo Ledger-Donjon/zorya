@@ -164,28 +164,17 @@ fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
     //    `results/plugin_findings.txt` after every run without having to
     //    handle a missing file as a special case.
     let findings = executor.event_bus.take_findings();
-    let _ = std::fs::create_dir_all("results");
-    if let Ok(mut f) = std::fs::File::create("results/plugin_findings.txt") {
-        let _ = writeln!(f, "# zorya plugin findings");
-        let _ = writeln!(f, "# {} finding(s)", findings.len());
-        if findings.is_empty() {
-            let _ = writeln!(f, "# No issues found.");
-        }
-        for finding in &findings {
-            let _ = writeln!(
-                f,
-                "\n[{}::{}] {} (pc=0x{:x}, severity={:?})",
-                finding.plugin, finding.rule, finding.title, finding.pc, finding.severity
-            );
-            for d in &finding.details {
-                let _ = writeln!(f, "    {}", d);
-            }
-        }
-        log!(
+    match zorya::state::json_report::write_findings_reports(&findings) {
+        Ok(()) => log!(
             executor.state.logger,
-            "[PLUGINS] Wrote {} finding(s) to results/plugin_findings.txt",
+            "[PLUGINS] Wrote {} finding(s) to results/plugin_findings.txt and results/plugin_findings.json",
             findings.len()
-        );
+        ),
+        Err(e) => log!(
+            executor.state.logger,
+            "[PLUGINS] Failed to write the plugin findings reports: {}",
+            e
+        ),
     }
 }
 
@@ -409,6 +398,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     // Clean up previous SAT state file before starting new execution
+    zorya::state::json_report::reset_sat_states();
     let sat_state_file = "results/FOUND_SAT_STATE.txt";
     if Path::new(sat_state_file).exists() {
         match fs::remove_file(sat_state_file) {
