@@ -584,7 +584,7 @@ fn try_check_trunc_overflow<'ctx>(
     let evaluation_content =
         crate::state::evaluate_z3::build_unified_evaluation_content(&model, executor, None, None);
 
-    for line in evaluation_content.lines() {
+    for line in evaluation_content.text.lines() {
         log!(executor.state.logger.clone(), "{}", line);
     }
 
