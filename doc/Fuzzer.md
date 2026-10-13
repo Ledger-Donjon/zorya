@@ -117,6 +117,9 @@ fuzzer_results/
 │   ├── execution_log.txt           # Detailed execution log
 │   ├── execution_trace.txt         # Function call trace
 │   ├── FOUND_SAT_STATE.txt         # SAT states (if found)
+│   ├── FOUND_SAT_STATE.json        # SAT states in JSON (if found)
+│   ├── plugin_findings.txt         # Plugin findings (if plugins enabled)
+│   ├── plugin_findings.json        # Plugin findings in JSON
 │   ├── stdout.txt                  # Standard output
 │   └── stderr.txt                  # Standard error
 ├── test_main/
