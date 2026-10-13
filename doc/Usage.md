@@ -242,7 +242,8 @@ scp -r user@linux-host:~/zorya/results ./zorya-results
 ```
 
 Main artifacts:
-- `results/plugin_findings.txt`
+- `results/plugin_findings.txt` and `results/plugin_findings.json`
+- `results/FOUND_SAT_STATE.txt` and `results/FOUND_SAT_STATE.json`
 - `results/vulnerability_log.txt`
 - `results/execution_trace.txt`
 - `results/execution_log.txt` (unless `LOG_MODE=trace_only`)
