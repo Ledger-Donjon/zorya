@@ -394,7 +394,7 @@ pub fn handle_int_add(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                             None, // no null-check pointer
                         );
 
-                    for line in evaluation_content.lines() {
+                    for line in evaluation_content.text.lines() {
                         log!(executor.state.logger.clone(), "{}", line);
                     }
 
@@ -639,7 +639,7 @@ pub fn handle_int_sub(executor: &mut ConcolicExecutor, instruction: Inst) -> Res
                             &model, executor, None, None,
                         );
 
-                    for line in evaluation_content.lines() {
+                    for line in evaluation_content.text.lines() {
                         log!(executor.state.logger.clone(), "{}", line);
                     }
 
@@ -2715,7 +2715,7 @@ pub fn handle_int_mult(executor: &mut ConcolicExecutor, instruction: Inst) -> Re
                         );
 
                     // Log to execution_log
-                    for line in evaluation_content.lines() {
+                    for line in evaluation_content.text.lines() {
                         log!(executor.state.logger.clone(), "{}", line);
                     }
 
