@@ -532,6 +532,9 @@ impl FuzzerRunner {
             "results/execution_log.txt",
             "results/execution_trace.txt",
             "results/FOUND_SAT_STATE.txt",
+            "results/FOUND_SAT_STATE.json",
+            "results/plugin_findings.txt",
+            "results/plugin_findings.json",
             "results/xref_addresses.txt",
             "results/panic_reach.txt",
         ];
