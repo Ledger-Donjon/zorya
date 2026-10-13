@@ -290,6 +290,8 @@ pub struct ToctouPlugin<'ctx> {
     /// PCs of checks already covered by a *confirmed* check→use finding, so
     /// the overlay-only reporter doesn't emit a duplicate potential finding.
     reported_check_pcs: Vec<u64>,
+    /// Every finding written so far by `write_finding_to_disk`.
+    written_findings: Vec<Finding>,
 }
 
 impl<'ctx> ToctouPlugin<'ctx> {
@@ -303,6 +305,7 @@ impl<'ctx> ToctouPlugin<'ctx> {
             overlay_scanned_upto: 0,
             pending_overlay_checks: Vec::new(),
             reported_check_pcs: Vec::new(),
+            written_findings: Vec::new(),
         }
     }
 
@@ -314,29 +317,12 @@ impl<'ctx> ToctouPlugin<'ctx> {
         }
     }
 
-    /// Write a finding to disk immediately so it persists even if the
-    /// process is killed before on_finish/finalize runs.
-    fn write_finding_to_disk(&self, finding: &Finding) {
-        use std::io::Write;
-        let _ = std::fs::create_dir_all("results");
-        let path = "results/plugin_findings.txt";
-        let mut f = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)
-            .ok();
-        if let Some(ref mut file) = f {
-            let _ = writeln!(file, "# zorya plugin findings");
-            let _ = writeln!(file, "# {} finding(s)\n", self.violations_found);
-            let _ = writeln!(
-                file,
-                "[{}::{}] {} (pc=0x{:x}, severity={:?})",
-                finding.plugin, finding.rule, finding.title, finding.pc, finding.severity
-            );
-            for d in &finding.details {
-                let _ = writeln!(file, "    {}", d);
-            }
+    /// Write the findings reported so far to disk immediately so they persist
+    /// even if the process is killed before on_finish/finalize runs.
+    fn write_finding_to_disk(&mut self, finding: &Finding) {
+        self.written_findings.push(finding.clone());
+        if !cfg!(test) {
+            let _ = crate::state::json_report::write_findings_reports(&self.written_findings);
         }
         // Also print to terminal for immediate user visibility (uses teprintln
         // so the coverage bar is properly handled)
