@@ -8,6 +8,7 @@ pub mod explore_ast;
 pub mod function_signatures;
 mod futex_manager;
 pub mod gating_stats;
+pub mod json_report;
 pub mod memory_x86_64;
 pub mod overlay_path_analysis;
 pub mod overlay_state;
