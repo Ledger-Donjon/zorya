@@ -586,6 +586,30 @@ pub static RUNTIME_SUMMARIES: Lazy<Vec<FunctionSummary>> = Lazy::new(|| {
             name: "runtime.notetsleep",
             effect: SummaryEffect::Nop,
         },
+        // `GOMAXPROCS(n)` stops the world to resize the P set, which needs the
+        // P / M structures Zorya does not model (it faults inside
+        // `stopTheWorldWithSema`). Zorya schedules goroutines itself, so the
+        // setting has no effect; the previous value is reported as 0.
+        FunctionSummary {
+            name: "runtime.GOMAXPROCS",
+            effect: SummaryEffect::ReturnZero,
+        },
+        FunctionSummary {
+            name: "runtime.stopTheWorld",
+            effect: SummaryEffect::Nop,
+        },
+        FunctionSummary {
+            name: "runtime.stopTheWorldGC",
+            effect: SummaryEffect::Nop,
+        },
+        FunctionSummary {
+            name: "runtime.startTheWorld",
+            effect: SummaryEffect::Nop,
+        },
+        FunctionSummary {
+            name: "runtime.startTheWorldGC",
+            effect: SummaryEffect::Nop,
+        },
         // ─── Goroutine creation / scheduling ──────────────────────────────
         // `runtime.newproc` is the universal `go`/`sync.WaitGroup.Go` fan-out.
         // Instead of stepping its (stubbed) body — which never actually runs
@@ -649,9 +673,17 @@ pub static RUNTIME_SUMMARIES: Lazy<Vec<FunctionSummary>> = Lazy::new(|| {
             name: "runtime.growslice",
             effect: SummaryEffect::AllocSlice,
         },
+        // Under goroutine scheduling the deferred closures are recorded at
+        // `deferprocStack` / `deferproc` and called from `deferreturn` (see
+        // `concolic::go_sched`). `deferproc` returns 0 ("no panic") to
+        // callers built before Go 1.22 that test its result.
         FunctionSummary {
             name: "runtime.deferprocStack",
             effect: SummaryEffect::Nop,
+        },
+        FunctionSummary {
+            name: "runtime.deferproc",
+            effect: SummaryEffect::ReturnZero,
         },
         FunctionSummary {
             name: "runtime.deferreturn",
