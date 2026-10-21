@@ -162,6 +162,11 @@ pub struct ConcolicExecutor<'ctx> {
     /// From then on the branch no longer decides whether later code runs, so
     /// it drops out of that thread's path condition.
     pub constraint_resolved_at: Vec<Option<u64>>,
+    /// For each `constraint_vector` entry, whether its branch is in Go
+    /// runtime or `sync` internals. Under the goroutine scheduler those
+    /// decide scheduling (a `WaitGroup` counter reaching zero), not whether
+    /// application code runs, so they stay out of per-thread path conditions.
+    pub constraint_runtime: Vec<bool>,
     /// Unresolved branch joins: (constraint index, tid, join address, RSP).
     pub pending_joins: Vec<(usize, u64, u64, u64)>,
     /// Child TID -> (parent TID, parent's `constraint_vector` length at spawn,
@@ -221,6 +226,8 @@ pub struct ConcolicExecutor<'ctx> {
     /// First-argument locations recovered from function signatures, keyed by
     /// callee address. This avoids applying one ABI convention to every call.
     call_arg0_locations: HashMap<u64, CallArg0Location>,
+    /// Go goroutine scheduling model (blocking, defers, budgets).
+    pub go_sched: crate::concolic::go_sched::GoSchedState,
 }
 
 impl<'ctx> ConcolicExecutor<'ctx> {
@@ -273,6 +280,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             constraint_vector: Vec::new(),
             constraint_owner_tids: Vec::new(),
             constraint_resolved_at: Vec::new(),
+            constraint_runtime: Vec::new(),
             pending_joins: Vec::new(),
             thread_phi_origin: HashMap::new(),
             overlay_state: None,
@@ -286,6 +294,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             mem_events_suppressed: 0,
             binary_text_range: None,
             call_arg0_locations: HashMap::new(),
+            go_sched: crate::concolic::go_sched::GoSchedState::from_env(),
         }
     }
 
@@ -330,6 +339,12 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 self.mem_events_suppressed += 1;
                 return;
             }
+        }
+        // The map implementation's own loads and stores are reported as one
+        // `MapAccess` per map operation instead.
+        if self.go_is_map_internal_access() {
+            self.mem_events_suppressed += 1;
+            return;
         }
         self.mem_events_surfaced += 1;
 
@@ -386,7 +401,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     // ──────────────────────────────────────────────────────────────────────
 
     /// Concrete read of a 64-bit general register by offset.
-    fn read_reg64(&self, offset: u64) -> u64 {
+    pub(crate) fn read_reg64(&self, offset: u64) -> u64 {
         self.state
             .cpu_state
             .lock()
@@ -472,7 +487,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         let call_wanted = self.event_bus.is_subscribed(EventKind::Call);
         let sync_wanted = self.event_bus.is_subscribed(EventKind::SyncRelease)
             || self.event_bus.is_subscribed(EventKind::SyncAcquire);
-        if !call_wanted && !sync_wanted {
+        let map_wanted = self.event_bus.is_subscribed(EventKind::MapAccess);
+        if !call_wanted && !sync_wanted && !map_wanted {
             return;
         }
 
@@ -490,6 +506,11 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         // fire for symbols whose signature-based `arg0` cannot be resolved.
         if sync_wanted {
             self.maybe_emit_sync_edge(pc, symbol_owned.as_deref(), tid);
+        }
+        if map_wanted {
+            if let Some(sym) = symbol_owned.as_deref() {
+                self.go_maybe_emit_map_access(pc, sym, tid);
+            }
         }
 
         if !call_wanted {
@@ -512,17 +533,26 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     /// loop for callees it replaces with a summary, since those never reach
     /// the `Call` opcode handler.
     pub fn dispatch_overlay_call_event(&mut self, pc: u64, target: u64) {
-        if !self.event_bus.is_subscribed(EventKind::Call) {
-            return;
-        }
         let Some(symbol) = self.symbol_table.get(&format!("{target:x}")).cloned() else {
             return;
         };
-        if !self.event_bus.wants_overlay_call(&symbol) {
+        if symbol == "runtime.newproc" && self.go_records_spawn_candidates() {
+            self.go_sched.overlay_spawn_pc.get_or_insert(pc);
+        }
+        if !self.event_bus.is_subscribed(EventKind::Call)
+            || !self.event_bus.wants_overlay_call(&symbol)
+        {
             return;
         }
-        let Some(arg0) = self.read_call_arg0(target) else {
-            return;
+        // Go runtime entry points often have no recovered signature; their
+        // first argument is in RAX under the register ABI.
+        let arg0 = match self.read_call_arg0(target) {
+            Some(v) => v,
+            None if symbol.starts_with("runtime.") => self
+                .get_register_overlay_aware(0x0, 64)
+                .and_then(|v| v.get_concrete_value().ok())
+                .unwrap_or(0),
+            None => return,
         };
         let tid = self
             .state
@@ -557,7 +587,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     /// `*WaitGroup`, `*Mutex`) is the first argument / receiver, which Go's
     /// internal register ABI passes in RAX; this is read at the call site,
     /// where RAX still holds it. See [`SyncRole`] / [`sync_edge_role`].
-    fn maybe_emit_sync_edge(&mut self, pc: u64, symbol: Option<&str>, tid: u64) {
+    pub(crate) fn maybe_emit_sync_edge(&mut self, pc: u64, symbol: Option<&str>, tid: u64) {
         let Some(sym) = symbol else { return };
         let sym = sym.strip_prefix("plt_").unwrap_or(sym);
         let Some((role, kind)) = sync_edge_role(sym) else {
@@ -612,7 +642,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     }
 
     /// Concrete write of a 64-bit general register by offset.
-    fn write_reg64(&mut self, offset: u64, value: u64) {
+    pub(crate) fn write_reg64(&mut self, offset: u64, value: u64) {
         let sym = BV::from_u64(self.context, value, 64);
         let cv = ConcolicVar::new_concrete_and_symbolic_int(value, sym, self.context);
         let _ = self
@@ -878,6 +908,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             );
             return ret_addr;
         }
+        if !self.go_sched_allow_spawn(ret_addr) {
+            log!(
+                self.state.logger.clone(),
+                "[GOROUTINE] newproc: goroutine limit for the go statement returning to 0x{:x} reached; not spawning",
+                ret_addr
+            );
+            return ret_addr;
+        }
 
         // Allocate a private stack for the goroutine with the thread-exit
         // sentinel at the top, so the body's final `ret` lands on the
@@ -1105,7 +1143,29 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             ret_addr
         );
 
-        entry_pc
+        let host_os_tid = self
+            .state
+            .thread_manager
+            .lock()
+            .ok()
+            .and_then(|tm| tm.threads.get(&child_tid).and_then(|t| t.host_m_tid));
+        self.go_sched_note_spawn(crate::concolic::go_sched::GoroutineMeta {
+            tid: child_tid,
+            goid: Some(goid),
+            parent_tid,
+            host_os_tid,
+            entry: entry_pc,
+            // The call instruction ends at `ret_addr`.
+            spawn_pc: ret_addr.wrapping_sub(1),
+            end: None,
+            instructions: 0,
+        });
+        self.go_sched_after_spawn(child_tid, entry_pc)
+    }
+
+    /// Forget the cached goroutine id after a context switch.
+    pub(crate) fn clear_goid_cache(&mut self) {
+        self.cached_goid = None;
     }
 
     /// Handle an address that has no lifted pcode. See the section comment
@@ -1113,6 +1173,18 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     pub fn handle_external_boundary(&mut self, addr: u64) -> ExternalOutcome {
         // 1. Thread-exit sentinel: the current thread's start routine returned.
         if addr == THREAD_EXIT_SENTINEL {
+            if let Some(action) = self.go_sched_on_goroutine_return() {
+                return match action {
+                    crate::concolic::go_sched::SchedAction::Jump(rip) => {
+                        ExternalOutcome::Resume(rip)
+                    }
+                    _ => {
+                        self.state.is_terminated = true;
+                        self.state.exit_status = Some(0);
+                        ExternalOutcome::Terminate
+                    }
+                };
+            }
             let exiting_tid = {
                 let tm = self.state.thread_manager.lock().unwrap();
                 tm.current_tid
@@ -1266,6 +1338,24 @@ impl<'ctx> ConcolicExecutor<'ctx> {
     /// This is the *only* path through which events reach plugins; the
     /// memory layer never fires events.
     pub fn dispatch_event(&mut self, ev: &Event<'ctx, '_>) {
+        let stack = match ev {
+            Event::MemRead { pc, .. } | Event::MemWrite { pc, .. }
+                if self.go_sched.enabled && self.event_bus.is_subscribed(ev.kind()) =>
+            {
+                if self.classify_pc(*pc).app {
+                    self.go_stack_walk(*pc)
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => Vec::new(),
+        };
+        self.dispatch_event_with_stack(ev, &stack);
+    }
+
+    /// [`Self::dispatch_event`] with the return-address chain of the access
+    /// (innermost first) exposed as `EventCtx::call_stack`.
+    pub fn dispatch_event_with_stack(&mut self, ev: &Event<'ctx, '_>, call_stack: &[u64]) {
         let kind = ev.kind();
         if !self.event_bus.is_subscribed(kind) {
             return;
@@ -1279,7 +1369,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .map(|tm| tm.current_tid)
             .unwrap_or(0);
 
-        let goid = if event_kind_needs_goid(kind) {
+        let goid = if event_kind_needs_goid(kind) || kind == EventKind::MapAccess {
             match self.cached_goid {
                 Some((cpc, ctid, g)) if cpc == pc && ctid == tid => g,
                 _ => {
@@ -1307,9 +1397,17 @@ impl<'ctx> ConcolicExecutor<'ctx> {
         };
         // Re-entrancy guard inside `dispatch_with` makes this safe even
         // when `get_current_goroutine_id` itself reads engine memory.
-        let _ = self
-            .event_bus
-            .dispatch_with(ctx, pc, tid, goid, icnt, st, path_constraints, ev);
+        let _ = self.event_bus.dispatch_with(
+            ctx,
+            pc,
+            tid,
+            goid,
+            icnt,
+            st,
+            path_constraints,
+            call_stack,
+            ev,
+        );
     }
 
     /// Attribute `constraint_vector` entries pushed since the last sync to
@@ -1323,6 +1421,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             self.constraint_owner_tids.resize(n, tid);
         }
         self.constraint_resolved_at.resize(n, None);
+        self.constraint_runtime.resize(n, false);
     }
 
     /// Record that `parent_tid` spawned `child_tid`: the child inherits the
@@ -1404,6 +1503,7 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             cur = parent;
         }
         (0..n)
+            .filter(|&i| !self.constraint_runtime.get(i).copied().unwrap_or(false))
             .filter(|&i| {
                 let owner = self.constraint_owner_tids[i];
                 let resolved = self.constraint_resolved_at.get(i).copied().flatten();
@@ -1761,6 +1861,8 @@ impl<'ctx> ConcolicExecutor<'ctx> {
             .filter(|ph| ph.p_type == goblin::elf::program_header::PT_LOAD && ph.is_executable())
             .map(|ph| (ph.p_vaddr, ph.p_vaddr + ph.p_memsz))
             .reduce(|(lo, hi), (s, e)| (lo.min(s), hi.max(e)));
+
+        crate::state::func_index::install(crate::state::func_index::FuncIndex::from_elf(elf_data));
 
         // Populate static function symbols from the symbol table
         for sym in &elf.syms {
@@ -3660,8 +3762,14 @@ impl<'ctx> ConcolicExecutor<'ctx> {
                 .map(|tm| tm.current_tid)
                 .unwrap_or(0);
             self.sync_constraint_owners(tid);
+            let runtime_branch = self.go_sched.enabled
+                && self
+                    .classify_pc(self.current_address.unwrap_or(0))
+                    .runtime_internal;
             self.constraint_vector.push(condition_symbolic);
             self.constraint_owner_tids.push(tid);
+            self.constraint_resolved_at.push(None);
+            self.constraint_runtime.push(runtime_branch);
         } else {
             log!(
                 self.state.logger.clone(),
