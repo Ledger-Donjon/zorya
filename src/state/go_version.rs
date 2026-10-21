@@ -2,17 +2,11 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-//! Go toolchain identification and standard-library advisories.
+//! Go toolchain identification.
 //!
 //! A Go binary records the toolchain that built it in its `.go.buildinfo`
 //! section. Zorya reads it so a report states which standard library was
-//! analysed, and checks it against a table of concurrency advisories whose
-//! bug lives in the standard library itself (e.g. CVE-2020-15586 in
-//! `net/http`): when the binary was built with a toolchain that already
-//! contains the fix, no amount of exploration can reproduce the race and the
-//! run says so instead of reporting "no race".
-
-use serde_json::{json, Value};
+//! analysed.
 
 /// What the build-info blob says about a Go binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,196 +144,9 @@ fn vaddr_slice<'a>(
     data.get(off..off + len)
 }
 
-/// `go1.26.5` → `(1, 26, 5)`, `go1.22` → `(1, 22, 0)`, `go1.23rc1` →
-/// `(1, 23, 0)`. Experiment suffixes (`go1.24 X:boringcrypto`) are ignored.
-pub fn parse_go_version(v: &str) -> Option<(u32, u32, u32)> {
-    let v = v.strip_prefix("go")?;
-    let v = v.split([' ', '-', '+']).next()?;
-    let mut nums = v.split('.').map(|part| {
-        let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
-        digits.parse::<u32>().ok()
-    });
-    let major = nums.next()??;
-    let minor = nums.next().flatten().unwrap_or(0);
-    let patch = nums.next().flatten().unwrap_or(0);
-    Some((major, minor, patch))
-}
-
-/// A concurrency bug located in the Go standard library.
-#[derive(Debug)]
-pub struct StdlibAdvisory {
-    pub id: &'static str,
-    pub package: &'static str,
-    pub summary: &'static str,
-    /// First fixed release of each patched branch.
-    pub fixed: &'static [(u32, u32, u32)],
-    /// Functions whose presence shows the binary links the vulnerable code.
-    pub symbols: &'static [&'static str],
-}
-
-/// Standard-library concurrency advisories Zorya knows about.
-pub const STDLIB_ADVISORIES: &[StdlibAdvisory] = &[StdlibAdvisory {
-    id: "CVE-2020-15586",
-    package: "net/http",
-    summary: "data race between a Handler reading an Expect: 100-continue request body \
-              and the server's implicit 100 Continue response write",
-    fixed: &[(1, 13, 13), (1, 14, 5)],
-    symbols: &[
-        "net/http.(*expectContinueReader).Read",
-        "net/http.(*conn).serve",
-    ],
-}];
-
-/// Whether toolchain `v` already contains a fix released on the branches
-/// listed in `fixed`: the same branch at or past the fixing patch, or any
-/// newer branch.
-pub fn toolchain_contains_fix(v: (u32, u32, u32), fixed: &[(u32, u32, u32)]) -> bool {
-    if let Some(&(_, _, patch)) = fixed.iter().find(|f| f.0 == v.0 && f.1 == v.1) {
-        return v.2 >= patch;
-    }
-    fixed
-        .iter()
-        .map(|f| (f.0, f.1))
-        .max()
-        .is_some_and(|newest| (v.0, v.1) > newest)
-}
-
-/// Outcome of checking one advisory against an analysed binary.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AdvisoryStatus {
-    pub id: &'static str,
-    pub package: &'static str,
-    /// `fixed_in_toolchain`, `vulnerable_toolchain` or `vendored_copy`.
-    pub status: &'static str,
-    pub message: String,
-}
-
-impl AdvisoryStatus {
-    pub fn to_json(&self) -> Value {
-        json!({
-            "id": self.id,
-            "package": self.package,
-            "status": self.status,
-            "message": self.message,
-        })
-    }
-}
-
-/// Check every advisory whose vulnerable package the binary links.
-///
-/// `has_function` tells whether a function symbol is present; `has_copy`
-/// whether a vendored / modelled copy of a package is linked (a non-stdlib
-/// package path ending in that package). Packages listed in the
-/// comma-separated `ZORYA_VENDORED_STDLIB` are treated as provided by such a
-/// copy as well.
-pub fn check_advisories(
-    version: &str,
-    has_function: impl Fn(&str) -> bool,
-    has_copy: impl Fn(&str) -> bool,
-) -> Vec<AdvisoryStatus> {
-    let vendored_env = std::env::var("ZORYA_VENDORED_STDLIB").unwrap_or_default();
-    let declared: Vec<&str> = vendored_env
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-    let Some(v) = parse_go_version(version) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for adv in STDLIB_ADVISORIES {
-        let vendored = declared.contains(&adv.package) || has_copy(adv.package);
-        let linked = adv.symbols.iter().any(|s| has_function(s));
-        if !linked && !vendored {
-            continue;
-        }
-        let fixed_list = adv
-            .fixed
-            .iter()
-            .map(|(a, b, c)| format!("go{a}.{b}.{c}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let (status, message) = if vendored {
-            (
-                "vendored_copy",
-                format!(
-                    "{} ({}): the binary links a vendored / modelled copy of {}; the \
-                     toolchain version ({version}) does not decide whether the bug is present",
-                    adv.id, adv.summary, adv.package
-                ),
-            )
-        } else if toolchain_contains_fix(v, adv.fixed) {
-            (
-                "fixed_in_toolchain",
-                format!(
-                    "{} ({}): built with {version}, which already contains the fix (fixed in \
-                     {fixed_list}); the race cannot occur in this binary. Rebuild with a \
-                     vulnerable toolchain or link a vendored copy of the vulnerable {} \
-                     (see ZORYA_VENDORED_STDLIB)",
-                    adv.id, adv.summary, adv.package
-                ),
-            )
-        } else {
-            (
-                "vulnerable_toolchain",
-                format!(
-                    "{} ({}): built with {version}, older than the fix (fixed in {fixed_list}); \
-                     the vulnerable {} code is linked",
-                    adv.id, adv.summary, adv.package
-                ),
-            )
-        };
-        out.push(AdvisoryStatus {
-            id: adv.id,
-            package: adv.package,
-            status,
-            message,
-        });
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_toolchain_versions() {
-        assert_eq!(parse_go_version("go1.26.5"), Some((1, 26, 5)));
-        assert_eq!(parse_go_version("go1.22"), Some((1, 22, 0)));
-        assert_eq!(parse_go_version("go1.23rc1"), Some((1, 23, 0)));
-        assert_eq!(
-            parse_go_version("go1.24.1 X:boringcrypto"),
-            Some((1, 24, 1))
-        );
-        assert_eq!(parse_go_version("devel"), None);
-    }
-
-    #[test]
-    fn fix_detection_per_branch() {
-        let fixed = &[(1, 13, 13), (1, 14, 5)];
-        assert!(!toolchain_contains_fix((1, 14, 4), fixed));
-        assert!(toolchain_contains_fix((1, 14, 5), fixed));
-        assert!(!toolchain_contains_fix((1, 13, 12), fixed));
-        assert!(toolchain_contains_fix((1, 13, 13), fixed));
-        assert!(!toolchain_contains_fix((1, 12, 17), fixed));
-        assert!(toolchain_contains_fix((1, 26, 5), fixed));
-    }
-
-    #[test]
-    fn advisory_statuses() {
-        let links_http = |s: &str| s == "net/http.(*conn).serve";
-        let none = |_: &str| false;
-        let fixed = check_advisories("go1.26.5", links_http, none);
-        assert_eq!(fixed.len(), 1);
-        assert_eq!(fixed[0].status, "fixed_in_toolchain");
-        assert!(fixed[0].message.contains("go1.14.5"));
-        let vuln = check_advisories("go1.14.4", links_http, none);
-        assert_eq!(vuln[0].status, "vulnerable_toolchain");
-        let vendored = check_advisories("go1.26.5", none, |p| p == "net/http");
-        assert_eq!(vendored[0].status, "vendored_copy");
-        assert!(check_advisories("go1.26.5", none, none).is_empty());
-    }
 
     #[test]
     fn inline_buildinfo_strings() {
