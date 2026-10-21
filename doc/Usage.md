@@ -96,7 +96,7 @@ Every run with `--analysis` writes `results/analysis_summary.json`:
 
 - `analyses`: the selected analyses, after expanding `concurrency` and `full`.
 - `seed`: the arguments of this run. `seeds_tried`: those of the earlier rounds.
-- `results`: one object per analysis, with `found`, `done` (no further round can add to it) and a count: `findings` for the plugin analyses, `sat_states` for `panic`, `memory-safety` and `arithmetic`. `data-race` also has the `status` of `results/race_summary.json` and `races`, the number of distinct races, and is done when its status is `stdlib_fixed`.
+- `results`: one object per analysis, with `found`, `done` (no further round can add to it) and a count: `findings` for the plugin analyses, `sat_states` for `panic`, `memory-safety` and `arithmetic`. `data-race` also has the `status` of `results/race_summary.json` and `races`, the number of distinct races.
 - `found` (some analysis found something), `complete` (every analysis is done), `candidate_seeds` (how many inputs were solved from negated branches), `next_seed` and `run` (the `termination` object of `run_status.json`).
 
 `--race-only` is a deprecated alias of `--analysis data-race`. `ZORYA_RACE_RESEED` is still read as the default of `--max-input-rounds`. The `race_only` field of `results/race_summary.json` and `results/run_status.json` is replaced by `analyses`.
@@ -204,7 +204,6 @@ dumps, nor a concolic run. They short-circuit straight to the pass and exit.
 - `ZORYA_RACE_RESEED=<n>`: default of `--max-input-rounds`, kept for scripts written for `--race-only`.
 - `ZORYA_VOLOS_MAP_INTERNALS=1`: also report raw accesses inside the Go map implementation, besides the map-level accesses of the application.
 - `ZORYA_VOLOS_RUNTIME_RACES=1`: keep race pairs whose two sides both execute Go runtime internals. They are dropped by default.
-- `ZORYA_VENDORED_STDLIB=<pkg>[,<pkg>...]`: standard-library packages (for example `net/http`) that the binary links as a vendored or modelled copy, so known advisories on them are not decided by the toolchain version.
 - `ZORYA_AST_PANIC_STRICT=1`: makes the AST panic walk report a negated branch only when it leads to a panic without any further branch decision. By default the walk follows every edge up to its depth limit, which can report a harmless branch because a later, independent branch reaches a panic. See [Overlay-Path-Analysis.md](Overlay-Path-Analysis.md#which-branches-are-explored).
 
 ### Stopping a run
@@ -247,13 +246,13 @@ The gate is shown one constraint per argument byte when the bytes are constraine
 
 `results/race_summary.json` holds the same answer in a parsable form:
 
-- `status`: `race_found`; `gate_not_reached` (the seed did not create the goroutines, and `next_seed` does); `gate_reached_schedule_not_explored` (goroutines ran, but some were still blocked, or the budget or the timeout ended the run); `race_reached_not_reported` (application accesses conflicted, but were discarded as ordered or protected while the run relied on forced wake-ups or goroutines that failed in unmodelled code); `stdlib_fixed` (the racy code is in a standard-library package and the toolchain contains the fix); `no_concurrency`; `no_race`.
+- `status`: `race_found`; `gate_not_reached` (the seed did not create the goroutines, and `next_seed` does); `gate_reached_schedule_not_explored` (goroutines ran, but some were still blocked, or the budget or the timeout ended the run); `race_reached_not_reported` (application accesses conflicted, but were discarded as ordered or protected while the run relied on forced wake-ups or goroutines that failed in unmodelled code); `no_concurrency`; `no_race`.
 - `race_found`, `seed`, `gate`, `gate_smt`, `trigger`, `escape`, `schedule` (for example `"g1 -> g1001 -> g1"`), `next_seed`, `candidate_seeds`, `seeds_tried`. Each candidate seed has its gate, the branch it negates and `reached_by`: `overlay` when the overlay executed up to `runtime.newproc`, `static_cfg` when the `go` statement was only found in the control-flow graph. Executed candidates are preferred for `next_seed`.
 - `accesses`: the two accesses of the main race, each with `kind`, `operation` (`main.rewriteCSS(): asset := assets[id]`), `function`, `goroutine`, `os_thread`, `pc`, `source`, `map_variable`, `key`, `locks_held` and `stack`. `races` lists up to 32 distinct races in the same form.
 - `scheduler`: policy, seed, budgets, switches, forced wake-ups and the contexts still blocked at the end. `goroutines`: every goroutine with its entry function, its `go` statement and how it ended.
-- `toolchain`: the Go version from the binary's build information and the standard-library advisories checked against it. `detector`: Volos counters. `run`: the `termination` object of `run_status.json`.
+- `toolchain`: the Go version from the binary's build information. `detector`: Volos counters. `run`: the `termination` object of `run_status.json`.
 
-Zorya reads the Go version from the binary's build information and prints it. Some races are in the standard library (`net/http` for CVE-2020-15586): when the binary's toolchain already contains the fix, Zorya says so and the status is `stdlib_fixed`. To analyse such a race, build with a vulnerable toolchain, or vendor or model the vulnerable package so it is compiled as application code. A copy of the package under a module path is recognised as such; a copy under another name can be declared with `ZORYA_VENDORED_STDLIB=net/http` (comma-separated). Either way the toolchain version no longer decides the status.
+Zorya reads the Go version from the binary's build information and prints it. A race in the standard library itself, such as CVE-2020-15586 in `net/http`, is only in binaries built with a toolchain older than its fix, so build such a harness with a vulnerable toolchain, or vendor the vulnerable package so it is compiled as application code.
 
 ## C and C++ binaries
 
