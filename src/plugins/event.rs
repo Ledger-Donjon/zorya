@@ -35,7 +35,10 @@ use crate::state::state_manager::FunctionFrame;
 ///
 /// v3: added `Event::SyncRelease` / `Event::SyncAcquire` (object-keyed
 /// release/acquire happens-before edges for Go sync primitives).
-pub const EVENT_API_VERSION: u32 = 3;
+///
+/// v4: added `Event::MapAccess` (source-level Go map operations) and
+/// `EventCtx::call_stack`.
+pub const EVENT_API_VERSION: u32 = 4;
 
 /// A single event observed by the executor.
 ///
@@ -164,6 +167,27 @@ pub enum Event<'ctx, 'e> {
         kind: SyncKind,
     },
 
+    /// A Go map operation reached from application code: a call to
+    /// `runtime.mapaccess*`, `runtime.mapassign*`, `runtime.mapdelete*`,
+    /// `runtime.mapclear` or a map-iterator entry. `map` is the map header
+    /// pointer (the `m *Map` argument), `pc` the call site, and `callee` the
+    /// runtime entry point. The runtime's own loads and stores inside the
+    /// map implementation are not surfaced as `MemRead` / `MemWrite`, so
+    /// this event is the map's access record: two goroutines touching the
+    /// same `map` with at least one [`MapOp::is_write`] race on the map.
+    MapAccess {
+        map: u64,
+        op: MapOp,
+        pc: u64,
+        tid: u64,
+        callee: &'e str,
+        /// Rendering of a concrete key (`"asset-1"`, `7`) when the runtime
+        /// entry takes it by value; `None` for pointer-passed keys.
+        key: Option<&'e str>,
+        /// Name of the package-level variable holding `map`, when one does.
+        variable: Option<&'e str>,
+    },
+
     /// A panic / fatal call site was reached. `kind` is a stable string id
     /// such as `"runtime.nilPanic"`, `"runtime.slicePanic"`, etc.
     Panic { pc: u64, kind: &'static str },
@@ -197,6 +221,60 @@ pub enum EventKind {
     Panic,
     InstrPre,
     InstrPost,
+    MapAccess,
+}
+
+/// Source-level Go map operation carried by [`Event::MapAccess`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapOp {
+    /// `v := m[k]`, `v, ok := m[k]`.
+    Read,
+    /// `m[k] = v`.
+    Assign,
+    /// `delete(m, k)`.
+    Delete,
+    /// `clear(m)`.
+    Clear,
+    /// `for k, v := range m`.
+    Iterate,
+}
+
+impl MapOp {
+    /// Classify a Go runtime map entry point by name. ABI wrapper suffixes
+    /// (`.abi0`) are ignored.
+    pub fn from_runtime_symbol(sym: &str) -> Option<Self> {
+        let sym = sym.strip_suffix(".abi0").unwrap_or(sym);
+        let op = sym.strip_prefix("runtime.")?;
+        if op.starts_with("mapaccess") {
+            Some(MapOp::Read)
+        } else if op.starts_with("mapassign") {
+            Some(MapOp::Assign)
+        } else if op.starts_with("mapdelete") {
+            Some(MapOp::Delete)
+        } else if op == "mapclear" {
+            Some(MapOp::Clear)
+        } else if op == "mapiterinit" || op == "mapIterStart" {
+            Some(MapOp::Iterate)
+        } else {
+            None
+        }
+    }
+
+    /// Whether the operation mutates the map.
+    pub fn is_write(self) -> bool {
+        matches!(self, MapOp::Assign | MapOp::Delete | MapOp::Clear)
+    }
+
+    /// Short label used in reports.
+    pub fn label(self) -> &'static str {
+        match self {
+            MapOp::Read => "map read",
+            MapOp::Assign => "map write",
+            MapOp::Delete => "map delete",
+            MapOp::Clear => "map clear",
+            MapOp::Iterate => "map range",
+        }
+    }
 }
 
 /// The class of synchronization object a [`Event::SyncRelease`] /
@@ -276,6 +354,7 @@ impl<'ctx, 'e> Event<'ctx, 'e> {
             Event::Panic { .. } => EventKind::Panic,
             Event::InstrPre { .. } => EventKind::InstrPre,
             Event::InstrPost { .. } => EventKind::InstrPost,
+            Event::MapAccess { .. } => EventKind::MapAccess,
         }
     }
 }
