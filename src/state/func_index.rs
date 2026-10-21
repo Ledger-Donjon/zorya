@@ -98,16 +98,6 @@ impl FuncIndex {
         self.funcs.len()
     }
 
-    /// Whether some function's Go package path ends with `/suffix`, e.g. a
-    /// vendored or modelled copy of a standard-library package.
-    pub fn has_package_copy(&self, suffix: &str) -> bool {
-        let tail = format!("/{suffix}");
-        self.funcs.iter().any(|(_, _, name)| {
-            let pkg = go_package(name);
-            pkg.ends_with(&tail) && is_third_party_package(pkg)
-        })
-    }
-
     /// Whether a function named exactly `name` exists.
     pub fn has_function(&self, name: &str) -> bool {
         self.funcs.iter().any(|(_, _, n)| n == name)
@@ -363,26 +353,5 @@ mod tests {
         assert_eq!(idx.function_at(0xfff), None);
         assert!(idx.has_function("main.c"));
         assert_eq!(idx.pointer_globals()[0].1, "main.assets");
-    }
-
-    #[test]
-    fn vendored_package_copy() {
-        let idx = FuncIndex::from_parts(
-            vec![
-                (0x1000, 0x1100, "net/http.(*conn).serve".into()),
-                (
-                    0x2000,
-                    0x2100,
-                    "example.test/vuln/net/http.(*conn).serve".into(),
-                ),
-            ],
-            vec![],
-        );
-        assert!(idx.has_package_copy("net/http"));
-        let stdlib_only = FuncIndex::from_parts(
-            vec![(0x1000, 0x1100, "net/http.(*conn).serve".into())],
-            vec![],
-        );
-        assert!(!stdlib_only.has_package_copy("net/http"));
     }
 }
