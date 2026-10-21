@@ -205,6 +205,7 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     }
 
     // Execute instructions using the existing executor infrastructure
+    executor.go_sched.overlay_spawn_pc = None;
     let result = execute_with_overlay(executor, untaken_address, instructions_map, max_depth);
 
     // Before tearing down the overlay, give plugins a chance to reason about
@@ -212,7 +213,26 @@ pub fn analyze_untaken_path_with_overlay<'ctx>(
     // φ (main path ∧ gate) so a detector like TOCTOU can Z3-solve the concrete
     // inputs that drive a check it recorded here and remember them for
     // reporting once we are back on the real path.
+    let candidates_before = crate::state::race_report::with_store(|s| s.candidates.len());
     executor.dispatch_overlay_end(&overlay_entry_phi);
+    let branch_pc = saved_current_address.unwrap_or(0);
+    if let Some(spawn_pc) = executor.go_sched.overlay_spawn_pc.take() {
+        executor.go_overlay_spawn_candidate(branch_pc, spawn_pc, &overlay_entry_phi);
+    }
+    let added = crate::state::race_report::with_store(|s| {
+        for c in &mut s.candidates[candidates_before..] {
+            c.branch_pc = branch_pc;
+        }
+        s.candidates.len() > candidates_before
+    });
+    if !added {
+        executor.go_static_spawn_candidate(
+            branch_pc,
+            untaken_address,
+            &overlay_entry_phi,
+            instructions_map,
+        );
+    }
 
     // Collect metrics before clearing overlay state
     if executor.overlay_state.is_some() {
