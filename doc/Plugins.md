@@ -11,11 +11,7 @@ by the concolic executor — memory accesses, branches, calls, syscalls,
 thread events, panics — without modifying core data structures or the
 existing memory / executor APIs.
 
-This document is the contract between the engine and plugin authors. When
-the contract changes, `EVENT_API_VERSION` in `src/plugins/event.rs` is
-bumped and this document is updated in lockstep. The current version is
-**3** (v3 added the object-keyed `SyncRelease` / `SyncAcquire` happens-before
-edges described below).
+This document is the contract between the engine and plugin authors. When the contract changes, `EVENT_API_VERSION` in `src/plugins/event.rs` is bumped and this document is updated in lockstep. The current version is **4**: v3 added the object-keyed `SyncRelease` / `SyncAcquire` happens-before edges, and v4 added the source-level `MapAccess` event and `EventCtx::call_stack`, both described below.
 
 ## Why a plugin layer
 
@@ -137,6 +133,7 @@ Register values inside an overlay are only approximate, so `Call` events are not
 | `HappensBefore` | `sync.(*WaitGroup).Wait` join edge         | vector-clock ordering (volos)   |
 | `SyncRelease`   | `executor::maybe_emit_sync_edge`           | object-clock release (volos)    |
 | `SyncAcquire`   | `executor::maybe_emit_sync_edge`           | object-clock acquire (volos)    |
+| `MapAccess`     | `executor::handle_call` (Go map entry)     | map-level race records (volos)  |
 | `Panic`         | runtime-panic detector                     | finding aggregator              |
 | `InstrPre/Post` | `executor::execute_instruction`            | profilers, coverage             |
 
@@ -151,6 +148,8 @@ and carried on the event (`obj`), together with the primitive class
 clock; a matching acquire merges that clock back into the acquirer, so
 accesses ordered by the primitive are no longer reported as data races. See
 `doc/Multi-threading.md` for the full model and the WaitGroup join edge.
+
+`MapAccess` is the access record of a Go map operation. It fires when application code calls a runtime map entry point (`runtime.mapaccess*`, `mapassign*`, `mapdelete*`, `mapclear`, or a map-iterator entry) and the goroutine scheduler is enabled; calls made from inside the map implementation itself are skipped. The event carries the map header pointer (`map`, Go's `m *Map` argument in RBX), the operation (`op`, a `MapOp`: `Read`, `Assign`, `Delete`, `Clear` or `Iterate`, with `MapOp::is_write` for the first three writes), the call site (`pc`), the thread (`tid`), the runtime entry point (`callee`), the key when the entry point takes it by value (`key`, for the `_faststr`, `_fast32` and `_fast64` variants), and the package-level variable holding the map when there is one (`variable`). The runtime's own loads and stores inside the map implementation are then not delivered as `MemRead` / `MemWrite`, so a detector sees `delete(assets, id)` as one write on `assets` rather than a bucket store deep inside `runtime.mapdelete_faststr`. Setting `ZORYA_VOLOS_MAP_INTERNALS=1` delivers those raw accesses as well.
 
 ### `Verdict`
 
@@ -183,6 +182,8 @@ is not on the context is read in the executor and carried on the event itself
 struct.
 
 `EventCtx::path_constraints()` exposes the engine's **current path condition**: the branch constraints over tracked symbolic inputs accumulated on the path that reached this event. Their conjunction is the predicate `φ` under which the current concrete path is taken. In a single-threaded run it is a borrowed view of the executor's `constraint_vector`. Once a thread or goroutine has been spawned, it is the event thread's own path condition: its own branches plus its ancestors' branches up to each spawn point, without the branches that had already rejoined (see [Multi-threading.md](Multi-threading.md#per-thread-path-conditions)). Concurrency-aware detectors couple this with the access events to lift a schedule-specific witness ("these accesses raced on *this* run") into an input-class result ("they race for every input ⊨ φ"); see the volos `InputClass` handling. Plugins must not stash the borrowed slice — clone the `Bool<'ctx>` nodes they need (cheap, valid for `'ctx`).
+
+`EventCtx::call_stack()` is the return-address chain of the event, innermost first, read from the Go frame-pointer chain. It is filled for `MapAccess` and for `MemRead` / `MemWrite` from application code while the goroutine scheduler is enabled, and is empty otherwise, because walking the frame chain on every runtime access would dominate the hot path. Volos resolves it into the source-level frames of a race report (function and source line of each frame). The executor passes it through `EventBus::dispatch_with`, whose last argument is the stack; `ConcolicExecutor::dispatch_event_with_stack` is the executor-side entry point.
 
 ### `Finding`
 
