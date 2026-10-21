@@ -35,6 +35,7 @@ subscribes:
   - HappensBefore
   - SyncRelease
   - SyncAcquire
+  - MapAccess
 
 # Symbols the engine resolves at load time and notifies the plugin
 # about via Event::Call. Unresolved symbols become deferred bindings
@@ -62,4 +63,6 @@ symbols:
   - pthread_spin_unlock
 
 env:
-  VOLOS_VERBOSE: "Set to 1 to enable per-event tracing on stderr."
+  VOLOS_VERBOSE: "Set to 1 to enable per-event tracing on stderr (on by default, except with --analysis)."
+  ZORYA_VOLOS_MAP_INTERNALS: "Set to 1 to also record the Go runtime's raw loads and stores inside map operations."
+  ZORYA_VOLOS_RUNTIME_RACES: "Set to 1 to keep races whose two accesses are both inside the Go runtime."
