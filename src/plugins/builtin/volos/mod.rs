@@ -33,15 +33,17 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use z3::ast::{Ast, Bool, Dynamic, BV};
+use z3::ast::{Ast, Bool};
 use z3::{SatResult, Solver};
 
 use crate::plugins::context::EventCtx;
-use crate::plugins::event::{Event, EventKind, SyncKind};
+use crate::plugins::event::{Event, EventKind, MapOp, SyncKind};
 use crate::plugins::finding::{Finding, Severity};
 use crate::plugins::plugin::Plugin;
 use crate::plugins::verdict::Verdict;
 use crate::plugins::EventBus;
+use crate::state::race_report::{self, Assignment, DetectorStats, RaceAccess, RaceEntry};
+use crate::state::{func_index, run_status};
 use crate::teprintln;
 
 pub mod record;
@@ -108,41 +110,44 @@ fn model_string(solver: &Solver<'_>) -> String {
         .unwrap_or_default()
 }
 
-/// Input-domain constraints for the argv bytes (`argN_byte_M`) that occur in
-/// `parts`, following `ARG_ASCII_PROFILE` (`digits` or `printable`) like the
-/// engine's own SAT reports, so trigger/escape inputs are replayable.
-fn arg_byte_domain<'ctx>(ctx: &'ctx z3::Context, parts: &[&Bool<'ctx>]) -> Vec<Bool<'ctx>> {
-    const MAX_NODES: usize = 100_000;
-    let profile = std::env::var("ARG_ASCII_PROFILE")
-        .unwrap_or_default()
-        .to_lowercase();
-    let (lo, hi) = match profile.as_str() {
-        "digits" => (b'0' as u64, b'9' as u64),
-        "printable" => (32, 126),
-        _ => return Vec::new(),
-    };
-    let mut visited: HashSet<Dynamic<'ctx>> = HashSet::new();
-    let mut stack: Vec<Dynamic<'ctx>> = parts.iter().map(|b| Dynamic::from_ast(*b)).collect();
-    let mut out = Vec::new();
-    while let Some(node) = stack.pop() {
-        if visited.len() >= MAX_NODES || !visited.insert(node.clone()) {
-            continue;
-        }
-        if node.is_const() {
-            let name = node.decl().name();
-            if name.starts_with("arg") && name.contains("_byte_") {
-                if let Some(bv) = node.as_bv() {
-                    let w = bv.get_size();
-                    out.push(
-                        bv.bvuge(&BV::from_u64(ctx, lo, w)) & bv.bvule(&BV::from_u64(ctx, hi, w)),
-                    );
-                }
-            }
-        } else if node.is_app() {
-            stack.extend(node.children());
+/// Source-level view of a map-level access record.
+#[derive(Debug, Clone)]
+struct MapMeta {
+    op: MapOp,
+    map: u64,
+    variable: Option<String>,
+    key: Option<String>,
+    callee: String,
+}
+
+/// Per-record data kept outside [`Volos`] (keyed by record id).
+#[derive(Debug, Clone, Default)]
+struct RecordMeta {
+    /// Return-address chain, innermost first.
+    stack: Vec<u64>,
+    map: Option<MapMeta>,
+}
+
+/// Rendered input gate and solver models of a race pair.
+#[derive(Debug, Clone, Default)]
+struct GateInfo {
+    pretty: Option<String>,
+    smt: Option<String>,
+    trigger: Option<Assignment>,
+    escape: Option<Assignment>,
+}
+
+impl InputClass {
+    fn label(&self) -> &'static str {
+        match self {
+            InputClass::Unconditional => "unconditional",
+            InputClass::InputIndependent { .. } => "input-independent",
+            InputClass::InputDependent { .. } => "input-dependent",
+            InputClass::Reachable { .. } => "reachable",
+            InputClass::Infeasible { .. } => "infeasible",
+            InputClass::Unknown { .. } => "unknown",
         }
     }
-    out
 }
 
 /// Granularity of the per-region map. Volos in the upstream fork tracks
@@ -199,9 +204,13 @@ pub struct VolosPlugin<'ctx> {
     /// fork's behaviour.
     verbose: bool,
 
+    /// Call stacks and map attribution of records, keyed by record id.
+    record_meta: HashMap<u64, RecordMeta>,
+
     /// Counters for diagnostics / smoke tests.
     reads: u64,
     writes: u64,
+    map_ops: u64,
     lock_acquires: u64,
     lock_releases: u64,
     threads_spawned: u64,
@@ -218,9 +227,14 @@ impl<'ctx> VolosPlugin<'ctx> {
             region: VolosRegion::new(0, u64::MAX),
             path_conditions: HashMap::new(),
             next_record_id: 1,
-            verbose: !std::env::var("VOLOS_VERBOSE").is_ok_and(|v| v == "0"),
+            verbose: match std::env::var("VOLOS_VERBOSE") {
+                Ok(v) => v != "0",
+                Err(_) => crate::state::analysis::selected().is_empty(),
+            },
+            record_meta: HashMap::new(),
             reads: 0,
             writes: 0,
+            map_ops: 0,
             lock_acquires: 0,
             lock_releases: 0,
             threads_spawned: 0,
@@ -248,7 +262,12 @@ impl<'ctx> VolosPlugin<'ctx> {
     /// an input-class result ("they race for every input model of
     /// `φ₁ ∧ φ₂`"). It reuses the shared Z3 context already owned by the
     /// engine; no new symbolic machinery is introduced.
-    fn classify_input(&self, ctx: &'ctx z3::Context, rid1: u64, rid2: u64) -> InputClass {
+    fn classify_input(
+        &self,
+        ctx: &'ctx z3::Context,
+        rid1: u64,
+        rid2: u64,
+    ) -> (InputClass, GateInfo) {
         let mut parts: Vec<&Bool<'ctx>> = Vec::new();
         if let Some(p) = self.path_conditions.get(&rid1) {
             parts.extend(p.iter());
@@ -259,7 +278,7 @@ impl<'ctx> VolosPlugin<'ctx> {
         if parts.is_empty() {
             // Neither access was gated by a symbolic branch: the race fires
             // for *any* input that reaches this code.
-            return InputClass::Unconditional;
+            return (InputClass::Unconditional, GateInfo::default());
         }
 
         let phi = parts
@@ -267,9 +286,18 @@ impl<'ctx> VolosPlugin<'ctx> {
             .map(|b| format!("{}", b.simplify()))
             .collect::<Vec<_>>()
             .join(" ∧ ");
+        let mut gate = GateInfo {
+            pretty: Some(
+                race_report::compact_condition(ctx, &parts)
+                    .unwrap_or_else(|| race_report::pretty_condition(&parts)),
+            ),
+            smt: Some(race_report::smt_condition(&parts)),
+            ..GateInfo::default()
+        };
+        let vars = race_report::collect_arg_bytes(&parts);
 
         // Both queries range over the same input domain.
-        let domain = arg_byte_domain(ctx, &parts);
+        let domain = race_report::arg_byte_domain(ctx, &parts);
 
         // Query 1: φ = φ₁ ∧ φ₂. Is there an input that reaches both accesses?
         let solver = Solver::new(ctx);
@@ -280,9 +308,14 @@ impl<'ctx> VolosPlugin<'ctx> {
             solver.assert(p);
         }
         let trigger = match solver.check() {
-            SatResult::Sat => model_string(&solver),
-            SatResult::Unsat => return InputClass::Infeasible { phi },
-            SatResult::Unknown => return InputClass::Unknown { phi },
+            SatResult::Sat => {
+                gate.trigger = solver
+                    .get_model()
+                    .map(|m| race_report::model_assignment(&m, &vars));
+                model_string(&solver)
+            }
+            SatResult::Unsat => return (InputClass::Infeasible { phi }, gate),
+            SatResult::Unknown => return (InputClass::Unknown { phi }, gate),
         };
 
         // Query 2: ¬φ. Can an input *escape* the racing path? This separates
@@ -296,18 +329,97 @@ impl<'ctx> VolosPlugin<'ctx> {
             neg_solver.assert(d);
         }
         neg_solver.assert(&phi_conj.not());
-        match neg_solver.check() {
+        let class = match neg_solver.check() {
             // ¬φ unsatisfiable ⇒ φ valid ⇒ reachable for *every* input.
             SatResult::Unsat => InputClass::InputIndependent { phi, trigger },
             // ¬φ satisfiable ⇒ the race is contingent on the input class φ;
             // `escape` is a concrete input that takes a different path.
-            SatResult::Sat => InputClass::InputDependent {
-                phi,
-                trigger,
-                escape: model_string(&neg_solver),
-            },
+            SatResult::Sat => {
+                gate.escape = neg_solver
+                    .get_model()
+                    .map(|m| race_report::model_assignment(&m, &vars));
+                InputClass::InputDependent {
+                    phi,
+                    trigger,
+                    escape: model_string(&neg_solver),
+                }
+            }
             // Couldn't decide input-dependence; fall back to plain reachable.
             SatResult::Unknown => InputClass::Reachable { phi, trigger },
+        };
+        (class, gate)
+    }
+
+    fn is_map_record(&self, v: &Volos) -> bool {
+        self.record_meta
+            .get(&v.record_id)
+            .is_some_and(|m| m.map.is_some())
+    }
+
+    /// Map-level, or executed by application code.
+    fn is_app_record(&self, v: &Volos) -> bool {
+        self.is_map_record(v)
+            || func_index::function_name_at(v.pc).is_some_and(func_index::is_application_function)
+    }
+
+    /// Both sides execute Go runtime internals (scheduler, allocator,
+    /// `sync` implementation), not application code.
+    fn is_runtime_internal_pair(&self, v1: &Volos, v2: &Volos) -> bool {
+        let internal = |v: &Volos| {
+            !self.is_map_record(v)
+                && func_index::function_name_at(v.pc)
+                    .is_some_and(func_index::is_runtime_internal_function)
+        };
+        internal(v1) && internal(v2)
+    }
+
+    fn race_access(&self, v: &Volos) -> RaceAccess {
+        let meta = self.record_meta.get(&v.record_id);
+        let map = meta.and_then(|m| m.map.as_ref());
+        RaceAccess {
+            kind: if v.access_type == AccessType::Write {
+                "write"
+            } else {
+                "read"
+            },
+            operation: map.map(|m| m.op.label().to_string()),
+            pc: v.pc,
+            tid: v.thread_id,
+            goid: v.go_id,
+            locks: v.locks_held.clone(),
+            stack: meta
+                .map(|m| m.stack.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| vec![v.pc]),
+            map: map.map(|m| m.map),
+            map_name: map.and_then(|m| m.variable.clone()),
+            key: map.and_then(|m| m.key.clone()),
+            callee: map.map(|m| m.callee.clone()),
+        }
+    }
+
+    /// One-line description of an access for finding details.
+    fn describe_access(&self, v: &Volos) -> Option<String> {
+        let function = func_index::function_name_at(v.pc);
+        let map = self
+            .record_meta
+            .get(&v.record_id)
+            .and_then(|m| m.map.as_ref());
+        match (map, function) {
+            (Some(m), f) => Some(format!(
+                "{} of {} (map 0x{:x}{}) via {} in {}",
+                m.op.label(),
+                m.variable.as_deref().unwrap_or("a map"),
+                m.map,
+                m.key
+                    .as_deref()
+                    .map(|k| format!(", key {k}"))
+                    .unwrap_or_default(),
+                m.callee,
+                f.unwrap_or("?")
+            )),
+            (None, Some(f)) => Some(format!("in {f}")),
+            (None, None) => None,
         }
     }
 
@@ -378,6 +490,19 @@ impl<'ctx> VolosPlugin<'ctx> {
             .with_addr_size(addr, size)
             .with_pc(pc)
             .with_go_id(Some(goid))
+    }
+
+    /// Remember the call stack the executor attached to an access.
+    fn capture_stack(&mut self, rid: u64, ctx: &EventCtx<'ctx, '_>) {
+        if !ctx.call_stack().is_empty() {
+            self.record_meta.insert(
+                rid,
+                RecordMeta {
+                    stack: ctx.call_stack().to_vec(),
+                    map: None,
+                },
+            );
+        }
     }
 
     fn vlog(&self, msg: impl AsRef<str>) {
@@ -468,6 +593,7 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
             EventKind::HappensBefore,
             EventKind::SyncRelease,
             EventKind::SyncAcquire,
+            EventKind::MapAccess,
         ]
         .into_iter()
         .collect()
@@ -516,6 +642,7 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                 self.reads += 1;
                 let bytes = (*size as u64).div_ceil(8);
                 let rid = self.capture_path_condition(ctx.path_constraints());
+                self.capture_stack(rid, ctx);
                 let rec = self
                     .build_record(*tid, AccessType::Read, *addr, bytes, *pc, real_goid)
                     .with_record_id(rid);
@@ -540,6 +667,7 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                 self.writes += 1;
                 let bytes = (*size as u64).div_ceil(8);
                 let rid = self.capture_path_condition(ctx.path_constraints());
+                self.capture_stack(rid, ctx);
                 let rec = self
                     .build_record(*tid, AccessType::Write, *addr, bytes, *pc, real_goid)
                     .with_record_id(rid);
@@ -551,6 +679,53 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                     rec.go_id,
                     rec.locks_held,
                     ctx.path_constraints().len()
+                ));
+                self.region.add_record(rec);
+            }
+            Event::MapAccess {
+                map,
+                op,
+                pc,
+                tid,
+                callee,
+                key,
+                variable,
+            } => {
+                // One record per map operation, on the map header: two
+                // goroutines using the same map, one of them writing, race
+                // on the map whatever buckets the runtime touches.
+                self.map_ops += 1;
+                let access = if op.is_write() {
+                    AccessType::Write
+                } else {
+                    AccessType::Read
+                };
+                let rid = self.capture_path_condition(ctx.path_constraints());
+                self.record_meta.insert(
+                    rid,
+                    RecordMeta {
+                        stack: ctx.call_stack().to_vec(),
+                        map: Some(MapMeta {
+                            op: *op,
+                            map: *map,
+                            variable: variable.map(str::to_string),
+                            key: key.map(str::to_string),
+                            callee: callee.to_string(),
+                        }),
+                    },
+                );
+                let rec = self
+                    .build_record(*tid, access, *map, 1, *pc, real_goid)
+                    .with_record_id(rid);
+                self.vlog(format!(
+                    "MAP {} map=0x{:x} ({}) key={} tid={} go={:?} locks_held={:?}",
+                    op.label(),
+                    map,
+                    variable.unwrap_or("?"),
+                    key.unwrap_or("?"),
+                    tid,
+                    rec.go_id,
+                    rec.locks_held
                 ));
                 self.region.add_record(rec);
             }
@@ -712,23 +887,79 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
     }
 
     fn on_finish(&mut self, ctx: &EventCtx<'ctx, '_>) {
-        let pairs = self.region.race_pairs();
+        let (all_pairs, pair_stats) = self
+            .region
+            .race_pairs_with(&|v: &Volos| self.is_app_record(v));
+        let keep_runtime = std::env::var("ZORYA_VOLOS_RUNTIME_RACES").is_ok_and(|v| v == "1");
+        let mut runtime_filtered = 0u64;
+        let mut pairs: Vec<_> = all_pairs
+            .into_iter()
+            .filter(|(_, v1, v2, _)| {
+                let drop = !keep_runtime && self.is_runtime_internal_pair(v1, v2);
+                runtime_filtered += drop as u64;
+                !drop
+            })
+            .collect();
+        // Map-level and application pairs first.
+        pairs.sort_by_key(|(addr, v1, v2, _)| {
+            let score = |v: &Volos| 2 * self.is_map_record(v) as u8 + self.is_app_record(v) as u8;
+            (std::cmp::Reverse(score(v1) + score(v2)), *addr)
+        });
+        race_report::with_store(|s| {
+            s.detector_active = true;
+            s.stats = DetectorStats {
+                reads: self.reads,
+                writes: self.writes,
+                map_ops: self.map_ops,
+                lock_ops: self.lock_acquires + self.lock_releases,
+                conflicting_pairs: pair_stats.conflicting,
+                app_conflicting_pairs: pair_stats.app_conflicting,
+                hb_ordered: pair_stats.hb_ordered,
+                lock_protected: pair_stats.lock_protected,
+                app_hb_ordered: pair_stats.app_hb_ordered,
+                app_lock_protected: pair_stats.app_lock_protected,
+                runtime_internal_filtered: runtime_filtered,
+                reported_pairs: pairs.len() as u64,
+            };
+        });
         if pairs.is_empty() {
             teprintln!(
-                "[VOLOS] No data races found ({} reads, {} writes, {} lock ops observed)",
+                "[VOLOS] No data races found ({} reads, {} writes, {} map operations, {} lock ops observed; {} conflicting pair(s): {} ordered by happens-before, {} lock-protected, {} inside the Go runtime)",
                 self.reads,
                 self.writes,
-                self.lock_acquires + self.lock_releases
+                self.map_ops,
+                self.lock_acquires + self.lock_releases,
+                pair_stats.conflicting,
+                pair_stats.hb_ordered,
+                pair_stats.lock_protected,
+                runtime_filtered
             );
             return;
         }
         let pairs_count = pairs.len();
+        run_status::enter_subphase("smt_solving");
+        // Pairs reached under the same path conditions share one solve.
+        let mut solved: HashMap<Vec<u64>, (InputClass, GateInfo)> = HashMap::new();
+        let mut entries: Vec<RaceEntry> = Vec::new();
         for (addr, v1, v2, reason) in pairs {
             // Couple the race witness to the program inputs: ask whether
             // the two accesses' path conditions are jointly satisfiable and,
             // if so, recover a concrete input model. This is what turns a
             // pure-schedule witness into an input × concurrency finding.
-            let input_class = self.classify_input(ctx.ctx, v1.record_id, v2.record_id);
+            let key: Vec<u64> = [v1.record_id, v2.record_id]
+                .iter()
+                .flat_map(|rid| self.path_conditions.get(rid).into_iter().flatten())
+                .map(|b| {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    b.hash(&mut h);
+                    h.finish()
+                })
+                .collect();
+            let (input_class, gate) = solved
+                .entry(key)
+                .or_insert_with(|| self.classify_input(ctx.ctx, v1.record_id, v2.record_id))
+                .clone();
 
             // Helpers to pick the plain vs input-gated rule id for the
             // detected race reason.
@@ -793,6 +1024,28 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
                     v2.vector_clock,
                 ))
                 .with_detail(format!("Reason: {}", reason));
+            for (n, v) in [(1, &v1), (2, &v2)] {
+                if let Some(d) = self.describe_access(v) {
+                    finding = finding.with_detail(format!("Access {n} operation: {d}"));
+                }
+            }
+            if let Some(g) = &gate.pretty {
+                finding = finding.with_detail(format!("Input gate: {g}"));
+            }
+
+            let map_level = self.is_map_record(&v1) && self.is_map_record(&v2);
+            entries.push(RaceEntry {
+                rule: rule.to_string(),
+                addr,
+                reason: reason.to_string(),
+                input_class: input_class.label().to_string(),
+                gate_smt: gate.smt.clone(),
+                gate: gate.pretty.clone(),
+                trigger: gate.trigger.clone(),
+                escape: gate.escape.clone(),
+                accesses: vec![self.race_access(&v1), self.race_access(&v2)],
+                map_level,
+            });
 
             // Helper: render an optionally-empty model witness.
             fn witness(m: &str) -> &str {
@@ -858,8 +1111,10 @@ impl<'ctx> Plugin<'ctx> for VolosPlugin<'ctx> {
             // into the shared findings buffer.
             ctx.findings.borrow_mut().push(finding);
         }
-        teprintln!("[VOLOS] *** BUG / VULNERABILITY DETECTED: {} data race(s) found ({} reads, {} writes observed) ***",
-            pairs_count, self.reads, self.writes);
+        run_status::leave_subphase();
+        race_report::with_store(|s| s.races.extend(entries));
+        teprintln!("[VOLOS] *** BUG / VULNERABILITY DETECTED: {} data race(s) found ({} reads, {} writes, {} map operations observed) ***",
+            pairs_count, self.reads, self.writes, self.map_ops);
     }
 }
 
@@ -1000,6 +1255,82 @@ mod tests {
             f.iter().any(|x| x.rule == "data-race-unprotected"),
             "expected unprotected-race rule"
         );
+    }
+
+    #[test]
+    fn volos_map_operations_race_on_the_map_header() {
+        let ctx = fresh_ctx();
+        let findings = RefCell::new(Vec::new());
+
+        let mut bus: EventBus<'_> = EventBus::new();
+        bus.add(Box::new(VolosPlugin::new()));
+        let ectx = mk_ctx(&ctx, &findings);
+
+        let (assets, other) = (0xc000_1000u64, 0xc000_2000u64);
+        let ops = [
+            (
+                MapOp::Read,
+                assets,
+                0x300,
+                1,
+                "runtime.mapaccess1_faststr",
+                "\"a\"",
+            ),
+            (
+                MapOp::Read,
+                assets,
+                0x400,
+                2,
+                "runtime.mapaccess1_faststr",
+                "\"b\"",
+            ),
+            (
+                MapOp::Delete,
+                other,
+                0x500,
+                2,
+                "runtime.mapdelete_faststr",
+                "\"a\"",
+            ),
+            (
+                MapOp::Assign,
+                assets,
+                0x600,
+                2,
+                "runtime.mapassign_faststr",
+                "\"b\"",
+            ),
+        ];
+        for (op, map, pc, tid, callee, key) in ops {
+            bus.dispatch(
+                &Event::MapAccess {
+                    map,
+                    op,
+                    pc,
+                    tid,
+                    callee,
+                    key: Some(key),
+                    variable: Some("main.assets"),
+                },
+                &ectx,
+            );
+        }
+        bus.run_finish(&ectx);
+
+        // Only the read on goroutine 1 against the write on goroutine 2 of
+        // the same map races, although the two keys differ.
+        let f = findings.borrow();
+        assert!(!f.is_empty(), "expected a map race");
+        for x in f.iter() {
+            assert!(x.title.contains(&format!("0x{assets:x}")), "{}", x.title);
+            let details = x.details.join("\n");
+            assert!(details.contains("map read of main.assets"), "{details}");
+            assert!(details.contains("map write of main.assets"), "{details}");
+            assert!(
+                details.contains("via runtime.mapassign_faststr"),
+                "{details}"
+            );
+        }
     }
 
     #[test]
