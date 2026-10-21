@@ -87,6 +87,11 @@ pub fn record_sat_entry(entry: Value) -> std::io::Result<()> {
     write_json(SAT_STATE_JSON, &Value::Object(doc))
 }
 
+/// Entries recorded so far in `results/FOUND_SAT_STATE.json`.
+pub fn sat_entries() -> Vec<Value> {
+    SAT_ENTRIES.lock().map(|e| e.clone()).unwrap_or_default()
+}
+
 /// Write `results/plugin_findings.json`.
 pub fn write_findings(findings: &[Finding]) -> std::io::Result<()> {
     let mut doc = header();
