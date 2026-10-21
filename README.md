@@ -79,6 +79,27 @@ Detailed interactive and flag behavior: [doc/Usage.md](doc/Usage.md)
 
 ### B. Basic command-line usage
 
+Say what to look for with `--analysis`. Zorya detects the language and the compiler, and picks the plugins, the thread scheduling and the path exploration the analysis needs. Profiles can be combined, for example `--analysis data-race channel-safety`:
+
+```bash
+zorya <path> --analysis <data-race|channel-safety|toctou|concurrency|panic|memory-safety|arithmetic|recursion|full> \
+  [--arg <arg1> [<arg2> ...]]
+```
+
+- `data-race`: data races between goroutines or pthreads, with the Volos plugin.
+- `channel-safety`: close of a closed channel and send on a closed channel in Go, with the ChanCheck plugin.
+- `toctou`: time-of-check to time-of-use races on files, with the TOCTOU plugin.
+- `concurrency`: `data-race`, `channel-safety` and `toctou` together.
+- `panic`: inputs that reach a panic, with the panic prepass and the AST panic exploration.
+- `memory-safety`: NULL and dangling pointer dereferences (`ZORYA_MEM_SAFETY_ORACLES=1`).
+- `arithmetic`: integer overflows and divisions by zero (`ZORYA_INT_ARITH_ORACLES=1`).
+- `recursion`: unbounded recursion, with the static `--recursion-scan` and no concolic run.
+- `full`: every profile above except `recursion`.
+
+The concurrency profiles run every thread (`--thread-scheduling all-threads`) and, while they have found nothing, rerun the binary with inputs solved from negated branches, up to `--max-input-rounds` times. The flags and environment variables each profile stands for: [doc/Usage.md#what-each-profile-stands-for](doc/Usage.md#what-each-profile-stands-for)
+
+Every setting can also be given explicitly, and explicit flags win over the profile:
+
 ```bash
 zorya <path> --lang <go|c|c++> [--compiler <tinygo|gc>] \
   --mode <start|main|function|advanced> <addr> \
@@ -179,9 +200,7 @@ Zorya detects Time-of-Check-Time-of-Use vulnerabilities through overlay concolic
 
 ```
 zorya tests/programs/toctou-test2-with-input/toctou-test2-with-input \
-  --lang go --compiler gc --mode main \
-  --thread-scheduling all-threads --arg "a" \
-  --negate-path-exploration --plugin "toctou chancheck"
+  --analysis toctou channel-safety --arg "a"
 ```
 
 Output in `results/plugin_findings.txt`:
