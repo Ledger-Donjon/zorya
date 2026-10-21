@@ -2,18 +2,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+pub mod analysis;
 pub mod cpu_state;
 pub mod evaluate_z3;
 pub mod explore_ast;
+pub mod func_index;
 pub mod function_signatures;
 mod futex_manager;
 pub mod gating_stats;
+pub mod go_version;
 pub mod json_report;
 pub mod memory_x86_64;
 pub mod overlay_path_analysis;
 pub mod overlay_state;
 pub mod panic_reach;
+pub mod race_report;
 pub mod recursion_scan;
+pub mod run_status;
 pub mod runtime_info;
 pub mod simplify_z3;
 pub mod state_manager;
