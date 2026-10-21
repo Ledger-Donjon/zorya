@@ -158,6 +158,7 @@ impl<'ctx> EventBus<'ctx> {
         instruction_counter: usize,
         start_time: Instant,
         path_constraints: &[Bool<'ctx>],
+        call_stack: &[u64],
         ev: &Event<'ctx, '_>,
     ) -> Verdict {
         if self.depth.get() > 0 {
@@ -170,7 +171,8 @@ impl<'ctx> EventBus<'ctx> {
 
         let ectx = EventCtx::new(z3, pc, tid, instruction_counter, start_time, &self.findings)
             .with_goid(goid)
-            .with_path_constraints(path_constraints);
+            .with_path_constraints(path_constraints)
+            .with_call_stack(call_stack);
 
         self.depth.set(self.depth.get() + 1);
         let mut worst = Verdict::Continue;
