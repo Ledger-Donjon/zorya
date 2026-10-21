@@ -50,7 +50,7 @@ mod tests;
 
 pub use bus::EventBus;
 pub use context::EventCtx;
-pub use event::{AccessOrigin, Event, EventKind, MemAccessKind};
+pub use event::{AccessOrigin, Event, EventKind, MapOp, MemAccessKind};
 pub use finding::{Finding, Severity};
 pub use plugin::Plugin;
 pub use verdict::Verdict;
