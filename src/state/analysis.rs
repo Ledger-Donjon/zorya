@@ -134,7 +134,7 @@ fn analysis_result(
             let found = race.and_then(|d| d["race_found"].as_bool()) == Some(true);
             json!({
                 "found": found,
-                "done": found || status == "stdlib_fixed",
+                "done": found,
                 "status": status,
                 "races": race.and_then(|d| d["races_total"].as_u64()).unwrap_or(0),
                 "findings": reported("volos"),
@@ -232,10 +232,10 @@ fn print_verdict(doc: &Value) {
         .into_iter()
         .find_map(|(key, unit)| r[key].as_u64().map(|n| (n, unit)))
         .unwrap_or((0, "finding(s)"));
-        let verdict = match (r["found"] == true, r["status"].as_str()) {
-            (true, _) => format!("found, {count} {unit}"),
-            (false, Some("stdlib_fixed")) => "fixed in the toolchain".to_string(),
-            (false, _) => "nothing found".to_string(),
+        let verdict = if r["found"] == true {
+            format!("found, {count} {unit}")
+        } else {
+            "nothing found".to_string()
         };
         crate::teprintln!("[ANALYSIS] {name}: {verdict}");
     }
@@ -296,11 +296,11 @@ mod tests {
         assert_eq!(doc["found"], true);
         assert_eq!(doc["complete"], false);
 
-        let fixed = json!({ "status": "stdlib_fixed", "race_found": false });
+        let found = json!({ "status": "race_found", "race_found": true });
         let doc = summary_json(
             &["data-race", "channel-safety"],
             &[close],
-            Some(&fixed),
+            Some(&found),
             &[],
             None,
         );
