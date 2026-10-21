@@ -135,7 +135,25 @@ thread in the `ThreadManager`.
    synthetic `goid` and host-`M` tid), switches into it, and dispatches `Event::ThreadSpawn` so
    vector-clock-aware detectors fork the parent's clock (the happens-before "fork" rule).
 
-`sync.(*WaitGroup).Wait` is modelled as a no-op *plus a join edge* under this scheme: the spawned workers already ran to completion at their creation point, so the parent has nothing left to block on (the real park path would otherwise dive into `runtime.semacquire1` / `gopark` and burn the whole budget), but the hook still emits a `HappensBefore` edge from each of the waiter's child goroutines so the parent's post-`Wait` accesses are correctly ordered after the workers (see the happens-before section below). Channel receives follow the same model: the `chanrecv` / `chanrecv1` / `chanrecv2` summaries return at once as a successful receive, since the senders already ran and `chansend` is a no-op. The acquire edge is still emitted at the call site. Details: [Go-Binary-Analysis.md](Go-Binary-Analysis.md#go-125-runtime-synctest-bubbles-and-channel-receives).
+The real park path of `sync.(*WaitGroup).Wait` and of channel receives dives into `runtime.semacquire1` / `gopark`, which would burn the whole budget, so their summaries return at once. On their own, those summaries mean "the workers already ran": a worker that runs to completion at its `go` statement has finished before the parent reaches `Wait`. The goroutine scheduler described below adds real blocking on top of them, so a worker that waits on a channel the parent closes later is parked instead. In both cases the hook emits a `HappensBefore` edge from each of the waiter's child goroutines, so the parent's post-`Wait` accesses are ordered after the workers (see the happens-before section below), and the acquire edge of a receive is emitted at the call site. Details: [Go-Binary-Analysis.md](Go-Binary-Analysis.md#go-125-runtime-synctest-bubbles-and-channel-receives).
+
+### Goroutine scheduling model
+
+Without a scheduler, a goroutine runs from its `go` statement to its end before the parent resumes. Real programs often do not allow that: a worker blocks on `<-release` until the parent closes `release`, the parent blocks on `wg.Wait()` until the workers call `Done`, and a worker loops a thousand times over a shared map. `src/concolic/go_sched.rs` makes those programs run, by acting at Go's own scheduling points instead of inside the runtime scheduler.
+
+- **Blocking.** A receive (`runtime.chanrecv1` / `chanrecv2` / `chanrecv`) parks the goroutine until the channel is closed (`runtime.closechan`) or sent to (`runtime.chansend*`). `WaitGroup.Wait` parks it while the counter, the high 32 bits of the `WaitGroup` state word, is positive. A parked goroutine resumes at the entry of the blocking call, so the check runs again with the state its wakers left, and the release/acquire edge is emitted when it finally proceeds.
+- **Defers.** `runtime.deferprocStack` and `runtime.deferproc` record the deferred closure for the deferring frame, and `runtime.deferreturn` calls it with the closure context in `RDX`. A deferred `Unlock` or `Done` therefore really runs, which matters both for the lockset and for `WaitGroup` counters.
+- **Budgets.** A goroutine is retired after `--max-loop-iterations` back-edges (default 3) to the same loop head in application code, or after `--max-goroutine-instructions` instructions (default 2,000,000). Retiring runs its pending defers first, like `runtime.Goexit`, so its `done.Done()` still counts. `--max-goroutines-per-site` (default 2) caps how many goroutines a single `go` statement creates, which keeps a 16-request fan-out to two readers. `--max-goroutine-switches` (default 512) caps context switches. The main goroutine is never retired.
+- **`main.main` returning.** When `main.main` returns, the run continues until every runnable goroutine has finished or blocked, or the budget is reached, instead of stopping at once.
+- **Deadlocks.** When nothing can run because a wake-up was not modelled, the oldest `WaitGroup` waiter, then the oldest receiver, is forced through. This happens for example when `ready.Add(17)` is never brought to zero because the per-site cap only created two of the sixteen readers. The forced wake-up is listed in the race summary (`scheduler.forced_wakes`), because the orderings it implies were not observed.
+- **Schedules.** `--schedule rr` (the default) is a deterministic round-robin over runnable goroutines. `--schedule random` uses a seeded generator to decide whether the parent or the new goroutine runs first after a `go` statement, whether a goroutine yields at a loop back-edge (one in four), and which runnable goroutine runs next. `--schedule-seed N` replays one such schedule exactly, and the seed is recorded in the race summary.
+- **Errors.** A goroutine that hits an execution error, typically in unmodelled runtime code, is retired with the error as its end reason, and the other goroutines keep running.
+
+Goroutine identity is kept through the run. Every access a detector records carries the goroutine's synthetic `goid`, the OS thread (`M`) hosting it and the return-address chain at the access, and the race summary lists every goroutine with its entry function, its `go` statement and how it ended.
+
+### Map accesses
+
+A Go map access compiles to a call into the runtime (`runtime.mapaccess1_faststr`, `runtime.mapassign_faststr`, `runtime.mapdelete_faststr`, and the variants for other key types). The raw loads and stores inside those functions touch buckets, control words and growth state, and two concurrent reads of the same map look like conflicting accesses to internal cells. Instead of reporting those, the executor emits one `Event::MapAccess` per call, with the map header pointer (`RBX`), the operation, the key when it is a printable string, the package-level variable holding the map (found in `.data` / `.bss` pointers) and the caller's PC. Raw accesses from map-internal code are then not dispatched. Volos records a map read or write at the map header, so the report names the application operations: `rewriteCSS(): asset := assets[id]` against `cacheAsset(): delete(assets, id)`. Set `ZORYA_VOLOS_MAP_INTERNALS=1` to keep the raw internal accesses as well.
 
 ### Two-level M↔G model
 
@@ -176,19 +194,32 @@ The executor keeps one `constraint_vector` for the whole run, while the threads 
 
 A branch also stops gating once both of its sides have rejoined. When a tracked CBRANCH's two successors meet again in straight-line code, Zorya records the join point. When the thread reaches it in the same stack frame, the branch is marked resolved, and threads spawned after that point do not inherit it. `pthread_create` / `clone` and the goroutine-spawn hook all record the parent. Runs that never spawn a thread still pass the full `constraint_vector`.
 
+A join only resolves a branch when no value written on the way to it is read after it. Go builds compiled with `-N` (no optimisation) materialise a condition such as `if memory && ops >= 2` as a boolean: both sides store the result in a register or a stack slot, rejoin, and a later branch tests the stored value. The rejoin then says nothing about whether the input still matters, so Zorya scans the code after the join for a read of a register or stack slot written on either side, and keeps the branch gating when it finds one.
+
+With the goroutine scheduler enabled, branches taken inside the Go runtime or the `sync` implementation never enter a thread's path condition. They decide scheduling, not which inputs reach an access: `WaitGroup.Add(n)` with a symbolic `n` branches on the counter, and keeping that branch would narrow a gate such as `ops >= 2` to the value the run happened to use.
+
 ### Enabling it
 
 The hook is active whenever the **round-robin** policy is selected (`--thread-scheduling
-all-threads`), i.e. when concurrency analysis was explicitly requested, and is a no-op under
+all-threads`, which `--analysis data-race`, `channel-safety` and `toctou` select), i.e. when
+concurrency analysis was explicitly requested, and is a no-op under
 `main-only`, so single-threaded analyses are byte-for-byte unaffected. Set
 `ZORYA_GOROUTINE_SCHED=0` to force it off even under round-robin (it then falls back to the
 historical `newproc` stub, a plain caller-return).
 
 ```bash
+zorya <binary> --analysis concurrency
+```
+
+which is the same as:
+
+```bash
 zorya <binary> --lang go --compiler gc \
-  --thread-scheduling all-threads \
+  --thread-scheduling all-threads --negate-path-exploration \
   --mode main "$ADDR" --plugin "volos toctou chancheck"
 ```
+
+except that `--analysis` also skips the panic analyses and reruns the binary with the inputs it solves (see [Usage.md](Usage.md#choosing-what-to-look-for---analysis)).
 
 With the hook active, each `go` / `wg.Go` fan-out spawns a worker the detectors can watch:
 Volos observes real cross-goroutine interleavings (a distinct `go=<goid>` per worker) and
@@ -207,21 +238,21 @@ A TinyGo binary runs every goroutine on a single OS thread, so Zorya follows the
 | Diagram element | Status |
 |---|---|
 | TinyGo: single goroutine, branch exploration | Done |
-| gc: several Gs and Ms, G1 to G3 switch | Done, but the new goroutine always runs to completion at `go f()` |
+| gc: several Gs and Ms, G1 to G3 switch | Done; G3 runs until it blocks, is retired by a budget, or ends |
 | gc: branch exploration inside G3 | Works if the condition depends on tracked inputs; no end-to-end test yet (the volos goroutine test uses synthetic events) |
-| Scheduler switching partway through G1 | Not implemented |
-| Exploring alternative execution orders | Not implemented |
+| Scheduler switching partway through G1 | Done at blocking points (`<-ch`, `WaitGroup.Wait`); with `--schedule random`, also after `go` statements and at loop back-edges |
+| Exploring alternative execution orders | One schedule per run; `--schedule random --schedule-seed N` replays other orders, one run each |
 | Processor (P) layer, goroutines parked in run queues, syscall handoff | Not implemented |
 
 Notes on the gaps:
 
-- **Switch points.** Contexts switch only at `runtime.newproc` (into the new goroutine), when a goroutine or thread finishes (thread-exit sentinel, `sys_exit`), and at `pthread_join`. The per-instruction checkpoint in `main.rs` passes `CheckpointType::FunctionCall`, which `ThreadManager::should_consider_switch` never accepts, and `time_slice_instructions` is not consulted, so G1 is never preempted midway. Blocking operations (channel receive, `Mutex.Lock`, `gopark`) do not park the goroutine, and `WaitGroup.Wait` is a no-op.
-- **One schedule.** The execution order is always G1 up to `go f()`, then G3 to completion, then G1 resumes. Scheduling choices are not forked the way branch conditions are.
+- **Switch points.** Under the goroutine scheduler, contexts switch at `runtime.newproc` (into the new goroutine), at channel receives and `WaitGroup.Wait` that would block, when a goroutine ends or is retired, and, with `--schedule random`, after `go` statements and at loop back-edges in goroutines. `Mutex.Lock` does not park: a contended lock is acquired at once, which keeps the lockset right but can produce an ordering the real runtime would not. OS threads restored from the dump still switch only at their exit, `sys_exit` and `pthread_join`, because the per-instruction checkpoint in `main.rs` passes `CheckpointType::FunctionCall`, which `ThreadManager::should_consider_switch` never accepts.
+- **One schedule per run.** Scheduling choices are not forked the way branch conditions are. A run explores one order, round-robin by default; other orders need other runs with `--schedule random`.
 - **Flattened M:N model.** There is no `P` layer, no `m.curg`, and no per-`M` shared TLS. Goroutines already parked in run queues at dump time (G2, G4 in the diagram) are not reconstructed, and a thread blocked in a syscall (G5) handing its work to another `M` is not modelled.
 
 ## Future Work
 
-- ~~Support for thread scheduling/switching during execution~~: **done** via round-robin OS-thread scheduling plus the goroutine-spawn hook above. Preemptive switching and exploration of alternative interleavings remain open (see [TinyGo vs gc: implementation status](#tinygo-vs-gc-implementation-status)).
+- ~~Support for thread scheduling/switching during execution~~: **done** via round-robin OS-thread scheduling, the goroutine-spawn hook and the goroutine scheduler above. Systematic exploration of alternative interleavings within one run remains open (see [TinyGo vs gc: implementation status](#tinygo-vs-gc-implementation-status)).
 - Goroutine-level state tracking: goroutines now schedule as first-class contexts with a
   synthetic `goid`; deeper `runtime.g` state tracking (real scheduler status, per-`g` stacks)
   remains partial.
