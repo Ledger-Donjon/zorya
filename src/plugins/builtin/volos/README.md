@@ -35,6 +35,7 @@ Declared in `VolosPlugin::wants()` and mirrored in `manifest.yaml`:
 | `HappensBefore` | Merge the source thread's vector clock into the destination's (a join / handoff edge). Emitted by the `sync.(*WaitGroup).Wait` hook: every child goroutine's history happens-before the waiter resumes. |
 | `SyncRelease` | Release half of release/acquire: tick the releaser's clock and fold it into a per-object clock (`object_clocks[obj]`). For a mutex, also pop `obj` from the holder's lockset. |
 | `SyncAcquire` | Acquire half: merge `object_clocks[obj]` into the acquirer's clock. For a mutex, also push `obj` onto the lockset, keyed by object so distinct Go mutexes are distinguishable. |
+| `MapAccess` | Build one record per Go map operation on the map header: a `Read` for a lookup or a range, a `Write` for an assignment, a delete or a clear. The operation, key, map variable and call stack are kept in a side table for the report. See *Go map accesses* below. |
 
 Symbols hooked for `Call` events:
 
@@ -58,6 +59,19 @@ Filter 3 below (the vector-clock partial order) is fed by three edge sources, al
 - **Thread fork:** `ThreadSpawn` seeds a child's clock from its parent, so a spawned goroutine happens-after the spawn point.
 - **Release / acquire on a sync object:** `SyncRelease` folds the releaser's clock into `object_clocks[obj]` (channel send / close, `WaitGroup.Done`, mutex unlock); the matching `SyncAcquire` (channel receive, `WaitGroup.Wait`, mutex lock) merges it back, ordering the acquirer after every prior releaser of that object.
 - **WaitGroup join:** `sync.(*WaitGroup).Wait` additionally emits a `HappensBefore` edge from each of the waiter's child goroutines. Because the cooperative scheduler runs spawned workers to completion before `Wait` returns (and a worker's deferred `Done` is frequently inlined to raw atomics that never reach a hookable symbol), this join edge is what reliably orders the waiter's post-`Wait` accesses after the workers, removing the main-vs-worker false positives while leaving genuine worker-vs-worker races intact.
+
+## Go map accesses
+
+Go's map implementation (`runtime.mapassign_faststr`, `runtime.mapdelete_faststr`, ...) reads and writes buckets, overflow chains and the header's flags with raw loads and stores. Recording those gives races deep inside the runtime that cannot be traced back to the program, and misses the race altogether when two goroutines touch different buckets of the same map. With the goroutine scheduler enabled, the executor instead fires a `MapAccess` event for each call from application code to a runtime map entry point, and stops delivering the map implementation's own loads and stores as `MemRead` / `MemWrite`. Volos records one access per operation at the map header address, so two goroutines using the same map, at least one of them writing, race on the map whatever keys and buckets they touch, exactly as Go's own race detector reports it. `ZORYA_VOLOS_MAP_INTERNALS=1` records the raw accesses as well.
+
+Each map access keeps its call stack (`EventCtx::call_stack`), so a report shows the source-level operation of each side. The access PC (for a map operation, the call site in the program) and every frame of its stack are resolved with `go tool addr2line`, falling back to binutils `addr2line`, and the source line is quoted when the file is readable on the machine running Zorya:
+
+```
+[RACE]   read by goroutine 1001: main.rewriteCSS(): asset := assets[id] // BUG: missing assetsMutex.
+[RACE]   write by goroutine 1003: main.cacheAsset(): delete(assets, id)
+```
+
+Pairs whose two accesses both execute Go runtime internals (scheduler, allocator, `sync` implementation) are dropped, since their ordering comes from synchronisation the detector does not model; `ZORYA_VOLOS_RUNTIME_RACES=1` keeps them. Map-level and application pairs are reported first.
 
 ## Race-detection algorithm
 
@@ -113,6 +127,18 @@ A finding for an input-gated race looks like:
 
 For input-independent races (e.g. the `race-counter` fixtures, whose writes are unconditional) `φ` is empty, so the finding is labelled `input-independent` and keeps its original rule id — existing CI baselines are unaffected.
 
+Once goroutines are spawned, each access carries its own goroutine's path condition: its own branches plus its ancestors' branches up to the spawn point. Branches taken inside the Go runtime or the `sync` implementation are left out, because they decide scheduling rather than input classes (a `WaitGroup.Add(n)` with a symbolic `n` would otherwise add a constraint on `n`). See [Multi-threading.md](../../../../doc/Multi-threading.md#per-thread-path-conditions).
+
+The gate is printed in a compact per-byte form when one exists, for example `argv[1][0] == '1' && argv[2][0] in '2'..'9'`. Volos projects the gate onto each input byte it constrains, renders the allowed values as equalities, ranges or exclusions, and keeps that form only if Z3 proves it equivalent to the gate over the input domain; otherwise the plain constraint is printed. The SMT-LIB form is always kept as `gate_smt` in the summary.
+
+## Race summary, spawn candidates and `--analysis data-race`
+
+At the end of a run the engine writes `results/race_summary.json`, which Volos fills with its races (deduplicated by the pair of call sites, map-level and input-dependent races first), its counters and its gates. The engine adds the goroutines that ran, the schedule that was executed, the Go toolchain version and a status explaining why no race was reported when that is the case (`gate_not_reached`, `gate_reached_schedule_not_explored`, `race_reached_not_reported`, `no_race`, `no_concurrency` or `stdlib_fixed`). The fields and statuses are described in [Usage.md](../../../../doc/Usage.md#input-gated-data-races-go).
+
+A race often needs input that creates the goroutines in the first place, which a benign seed does not do. When an overlay (the exploration of a negated branch, enabled by `--negate-path-exploration`) reaches `runtime.newproc`, the engine solves the overlay's path condition and records the solution as a spawn candidate: an input that takes the branch towards a `go` statement. Branches whose overlay ends before the `go` statement fall back to a static walk of the control-flow graph, which records a candidate only when the negated side reaches a `go` statement and the taken side does not. If the earlier path constraints contradict the negated branch, the conflicting ones are dropped one by one using Z3's unsat core, so the candidate still satisfies the branch. The engine records candidates when Volos is loaded or a concurrency analysis is selected. The best candidate is written as `next_seed`, and the launcher reruns Zorya from it (see `--max-input-rounds` in [Usage.md](../../../../doc/Usage.md#choosing-what-to-look-for---analysis)).
+
+`--analysis data-race` loads Volos and disables the panic prepass and the AST panic exploration, so the run is spent on concurrency. With any `--analysis`, per-event tracing is off unless `VOLOS_VERBOSE` is set. The concurrency analyses also prefer printable argument bytes when solving triggers, escapes and candidates, unless `ARG_ASCII_PROFILE` says otherwise, so the inputs stay readable on the command line.
+
 ## Vector-clock semantics
 
 Pre-tick, then snapshot. `build_record` increments the live thread clock **before** cloning it into the record. Without the pre-tick, a thread's first event would carry `{tid: 0}`, and the partial-order compare against another thread's `{other: 1}` would spuriously report `Some(Less)` because missing components default to 0. Pre-ticking guarantees every record's local component is at least 1, so two unrelated threads' first events compare as concurrent.
@@ -125,7 +151,7 @@ The plugin assigns a monotonic `go_id` (0, 1, 2, …) on first sight of each tid
 
 ## Logging
 
-`VOLOS_VERBOSE=1` enables one stderr line per dispatched event. This mirrors the upstream fork's behaviour. When the per-plugin `Logger` lands on `EventCtx`, `vlog` will route through `ctx.sub_logger("volos")` and write to `results/volos.log` instead.
+Volos prints one stderr line per dispatched event by default, as the upstream fork does. `VOLOS_VERBOSE=0` turns it off, and so does any `--analysis` unless `VOLOS_VERBOSE` is set. When the per-plugin `Logger` lands on `EventCtx`, `vlog` will route through `ctx.sub_logger("volos")` and write to `results/volos.log` instead.
 
 ## Tests
 
@@ -136,6 +162,7 @@ The plugin assigns a monotonic `go_id` (0, 1, 2, …) on first sight of each tid
 | `volos_subscriptions` | The right `EventKind`s are declared in `wants()`. |
 | `volos_records_reads_and_writes_via_bus` | `MemRead` / `MemWrite` events round-trip through the bus into the plugin. |
 | `volos_detects_unprotected_race_at_finish` | Two cross-thread writes with empty locksets produce a `data-race-unprotected` finding. |
+| `volos_map_operations_race_on_the_map_header` | A map read on one goroutine and a map write on another race on the map header although their keys differ; a read-read pair and an operation on another map do not. |
 | `volos_no_race_when_protected_by_shared_lock` | A common lock around both writes suppresses the finding. |
 | `volos_detects_inconsistent_locking` | Disjoint non-empty locksets produce a `data-race-inconsistent-locking` finding. |
 | `volos_hb_filter_suppresses_fork_ordered_accesses` | Parent-write → spawn → child-write is *not* flagged (causally ordered). |
@@ -265,6 +292,9 @@ ZORYA_FORCE_PANIC_XREF=1 ZORYA_AST_PANIC_STRICT=1 zorya "$PWD/vect-model" --lang
 | Executor dispatch — Pass B: `Branch`, `Return`, `Syscall`, `SyscallRet`, `Panic`, `ThreadSwitch` | Deferred — not needed by volos, useful for future plugins. |
 | Per-region sharding (one `VolosRegion` per `MemoryRegion`) | Won't do — design artefact of the upstream fork; `HashMap<u64, CellHistory>` is correct without sharding. |
 | Go `runtime.newproc` goroutine-spawn hook (schedule spawned goroutines as first-class threads so their bodies execute under `--thread-scheduling all-threads`) | Complete. See [Multi-threading.md](../../../../doc/Multi-threading.md#goroutine-aware-scheduling-go). |
+| Source-level Go map accesses (`MapAccess`) with call stacks | Complete. |
+| Race summary (`results/race_summary.json`), compact gates, spawn candidates and reseeding | Complete. |
+| Go `sync.Mutex.Lock` parking a goroutine on a held lock | Not modelled: the lock is taken as a lockset event, and the holder is not waited for. |
 
 ## Attribution
 
