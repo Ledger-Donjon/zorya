@@ -42,8 +42,22 @@ fn spawn_shutdown_watchdog() {
             "\n[SIGNAL] Engine did not reach a safe point within {}s; exiting without findings.",
             grace
         );
+        let (outcome, detail) = signal_outcome();
+        zorya::state::run_status::finish(
+            outcome,
+            Some(&format!("{detail}; no safe point reached within {grace}s")),
+        );
         unsafe { libc::_exit(128 + LAST_SIGNAL.load(Ordering::SeqCst)) };
     });
+}
+
+/// Run outcome for the last signal received: `timeout` sends SIGTERM.
+fn signal_outcome() -> (&'static str, String) {
+    match LAST_SIGNAL.load(Ordering::SeqCst) {
+        libc::SIGTERM => ("timeout", "SIGTERM received".to_string()),
+        libc::SIGHUP => ("signal", "SIGHUP received".to_string()),
+        _ => ("signal", "SIGINT received".to_string()),
+    }
 }
 
 extern "C" fn sigint_handler(sig: libc::c_int) {
@@ -56,11 +70,12 @@ extern "C" fn sigint_handler(sig: libc::c_int) {
     }
 }
 
-use parser::parser::{Inst, Opcode, Var};
+use parser::parser::{Inst, Opcode, Var, Varnode};
 use z3::{
     ast::{Ast, BV},
     Config, Context,
 };
+use zorya::concolic::go_sched::SchedAction as GoSchedAction;
 use zorya::concolic::symbolic_initialization::{
     clear_go_stack_preempt, init_struct_types_cache, initialize_interface_argument,
     initialize_single_register_argument, initialize_single_register_slice,
@@ -87,6 +102,7 @@ use zorya::state::overlay_path_analysis::{
     PLUGIN_MAX_OVERLAY_DEPTH,
 };
 use zorya::state::panic_reach::precompute_panic_reach;
+use zorya::state::run_status;
 use zorya::state::simplify_z3::extract_underlying_condition_from_flag_ast;
 use zorya::state::thread_manager::CheckpointType;
 use zorya::target_info::GLOBAL_TARGET_INFO;
@@ -123,6 +139,12 @@ const IGNORED_TINYGO_FUNCS: &[&str] = &[
 /// this single call keeps the contract "every analysis run produces a
 /// findings report, exactly once" intact.
 fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
+    static SUMMARY_WRITTEN: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    let first_call = !SUMMARY_WRITTEN.swap(true, Ordering::SeqCst);
+    if first_call {
+        run_status::enter_phase("finalize");
+    }
     let pc = executor.current_address.unwrap_or(0);
     let tid = executor
         .state
@@ -176,6 +198,58 @@ fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
             e
         ),
     }
+
+    // 3. Race and analysis summaries and run status, once per run.
+    if first_call {
+        if run_status::termination().is_none() {
+            run_status::finish("completed", None);
+        }
+        let schedule = executor.go_sched.schedule_record();
+        let goroutines = executor.go_sched.goroutine_records();
+        zorya::state::race_report::with_store(|s| {
+            s.schedule = schedule;
+            s.goroutines = goroutines;
+        });
+        let race = zorya::state::race_report::write_summary(run_status::termination());
+        zorya::state::analysis::write_summary(&findings, race.as_ref(), run_status::termination());
+        run_status::write();
+    }
+}
+
+/// Record the Go toolchain that built the binary and warn when it already
+/// contains the fix of a standard-library race the binary links.
+fn check_go_toolchain(elf_data: &[u8]) {
+    use zorya::state::go_version::{check_advisories, read_buildinfo};
+    let Some(info) = read_buildinfo(elf_data) else {
+        tprintln!("[GO] No Go build information found; the toolchain version is unknown.");
+        return;
+    };
+    tprintln!(
+        "[GO] Built with {}{}",
+        info.version,
+        info.main_path
+            .as_deref()
+            .map(|p| format!(" (main module {p})"))
+            .unwrap_or_default()
+    );
+    let index = zorya::state::func_index::get();
+    let advisories = check_advisories(
+        &info.version,
+        |f| index.is_some_and(|i| i.has_function(f)),
+        |p| index.is_some_and(|i| i.has_package_copy(p)),
+    );
+    for a in &advisories {
+        if a.status == "fixed_in_toolchain" {
+            teprintln!("[WARNING] {}", a.message);
+        } else {
+            tprintln!("[GO] {}", a.message);
+        }
+    }
+    run_status::set_field("go_version", serde_json::json!(info.version));
+    zorya::state::race_report::with_store(|s| {
+        s.go_version = Some(info.version.clone());
+        s.advisories = advisories;
+    });
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -315,6 +389,32 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 }
+                "--race-only" => env::set_var("ZORYA_RACE_ONLY", "1"),
+                "--no-panic-prepass" => env::set_var("ZORYA_SKIP_PANIC_PREPASS", "1"),
+                "--max-goroutine-switches"
+                | "--max-loop-iterations"
+                | "--max-goroutines-per-site"
+                | "--max-goroutine-instructions"
+                | "--schedule"
+                | "--schedule-seed" => {
+                    let var = match arg.as_str() {
+                        "--max-goroutine-switches" => "ZORYA_MAX_GOROUTINE_SWITCHES",
+                        "--max-loop-iterations" => "ZORYA_MAX_LOOP_ITERATIONS",
+                        "--max-goroutines-per-site" => "ZORYA_MAX_GOROUTINES_PER_SITE",
+                        "--max-goroutine-instructions" => "ZORYA_MAX_GOROUTINE_INSTRUCTIONS",
+                        "--schedule" => "ZORYA_SCHEDULE",
+                        _ => "ZORYA_SCHEDULE_SEED",
+                    };
+                    if let Some(val) = args_iter.peek() {
+                        if !val.starts_with("--") {
+                            if let Some(v) = args_iter.next() {
+                                if env::var(var).is_err() {
+                                    env::set_var(var, v);
+                                }
+                            }
+                        }
+                    }
+                }
                 _ => {
                     // Ignore other args here
                 }
@@ -443,6 +543,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !trace_by_shell {
         let _ = std::fs::File::create("results/execution_trace.txt");
     }
+    let _ = fs::remove_file(zorya::state::race_report::RACE_SUMMARY_JSON);
+    let _ = fs::remove_file(zorya::state::analysis::ANALYSIS_SUMMARY_JSON);
+    run_status::enter_phase("binary_setup");
 
     let trace_logger = Logger::new_append("results/execution_trace.txt", true)
         .expect("Failed to create trace logger");
@@ -496,6 +599,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         "The symbols table has been populated."
     );
 
+    let analyses = zorya::state::analysis::selected();
+    let panic_analysis = zorya::state::analysis::panic_analysis();
+    let skip_panic_prepass =
+        !panic_analysis || env::var("ZORYA_SKIP_PANIC_PREPASS").is_ok_and(|v| v == "1");
+    zorya::state::race_report::with_store(|s| {
+        s.analyses = analyses.iter().map(|a| a.to_string()).collect();
+        s.binary = binary_path.clone();
+    });
+    run_status::set_field("analyses", serde_json::json!(analyses));
+    if !analyses.is_empty() {
+        tprintln!("[ANALYSIS] Selected analyses: {}", analyses.join(", "));
+        if !panic_analysis {
+            tprintln!("[ANALYSIS] The panic prepass and the AST panic exploration are disabled (add --analysis panic to enable them)");
+        }
+    }
+    if source_lang.eq_ignore_ascii_case("go") {
+        check_go_toolchain(&elf_data);
+    }
+
     // Build and install the runtime thread filter so the scheduler skips
     // threads stuck in Go runtime maintenance functions (sysmon, GC, netpoll).
     let runtime_filter = executor.build_runtime_thread_filter(&elf_data);
@@ -526,9 +648,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Merge VDSO p-code if available
     merge_vdso_pcode(&mut instructions_map, &mut executor);
 
-    tprintln!("Precomputing the tables of cross references of potential panics in the programs (for bug detection)...");
-    // Get the tables of cross references of potential panics in the programs (for bug detection)
-    get_cross_references(&binary_path)?;
+    if skip_panic_prepass {
+        tprintln!("Skipping the panic cross-reference prepass.");
+    } else {
+        run_status::enter_phase("panic_prepass");
+        tprintln!("Precomputing the tables of cross references of potential panics in the programs (for bug detection)...");
+        // Get the tables of cross references of potential panics in the programs (for bug detection)
+        get_cross_references(&binary_path)?;
+    }
+    run_status::enter_phase("symbolic_arg_setup");
 
     let start_address = u64::from_str_radix(main_program_addr.trim_start_matches("0x"), 16)
         .expect("The format of the main program address is invalid.");
@@ -1194,7 +1322,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Precompute reverse panic reachability set (O(V+E)), then O(1) queries
-    let _ = precompute_panic_reach(&binary_path)?;
+    if !skip_panic_prepass {
+        run_status::enter_phase("panic_prepass");
+        let _ = precompute_panic_reach(&binary_path)?;
+    }
+    run_status::enter_phase("execution");
 
     // *****************************
     // CORE COMMAND
@@ -1517,6 +1649,10 @@ fn execute_instructions_from(
         .filter(|&s| s > 0)
         .map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
 
+    executor.go_sched_begin();
+    let overlay_bug_reports = zorya::state::analysis::overlay_bug_reports();
+    let panic_analysis = zorya::state::analysis::panic_analysis();
+
     loop {
         // Graceful shutdown on a signal or the deadline: break out of the loop
         // so finalize_plugin_analysis can run and emit findings.
@@ -1524,22 +1660,47 @@ fn execute_instructions_from(
             SHUTDOWN_ACK.store(true, Ordering::SeqCst);
             zorya::clear_coverage_bar();
             teprintln!("\n[SIGNAL] Graceful shutdown.");
+            let (outcome, detail) = signal_outcome();
+            run_status::finish(outcome, Some(&detail));
             break;
         }
         if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
             zorya::clear_coverage_bar();
             teprintln!("\n[TIMEOUT] ZORYA_TIMEOUT_SECS reached, graceful shutdown.");
+            run_status::finish("timeout", Some("ZORYA_TIMEOUT_SECS reached"));
             break;
         }
 
         // ─── Main-return termination ────────────────────────────────────
         // If RIP has landed on the return address we captured at entry,
-        // main.main has returned. Everything after this is runtime cleanup
-        // (deferred closures, exit syscalls) — no application bugs to find.
+        // main.main has returned. Under goroutine scheduling the remaining
+        // runnable goroutines still run; otherwise everything after this is
+        // runtime cleanup (deferred closures, exit syscalls).
         if main_return_address != 0 && current_rip == main_return_address {
             zorya::clear_coverage_bar();
             teprintln!("\n[ANALYSIS] main.main returned, analysis complete.");
-            break;
+            match executor.go_sched_on_main_return(current_rip) {
+                GoSchedAction::Jump(rip) => {
+                    current_rip = rip;
+                    local_line_number = 0;
+                    continue;
+                }
+                _ => break,
+            }
+        }
+
+        // ─── Goroutine budgets and preemption ───────────────────────────
+        match executor.go_sched_on_instruction(current_rip) {
+            GoSchedAction::Continue => {}
+            GoSchedAction::Jump(rip) => {
+                current_rip = rip;
+                local_line_number = 0;
+                continue;
+            }
+            GoSchedAction::Stop => {
+                teprintln!("\n[SCHED] No runnable goroutine left.");
+                break;
+            }
         }
 
         executor.resolve_branch_joins_at(current_rip);
@@ -1574,6 +1735,19 @@ fn execute_instructions_from(
                 .get(&format!("{:x}", current_rip))
                 .cloned();
             if let Some(ref sym_name) = maybe_sym {
+                // Go blocking points and defers (channel receive, WaitGroup
+                // wait, deferreturn) may park the goroutine or redirect it.
+                match executor.go_sched_before_summary(sym_name, current_rip) {
+                    Some(GoSchedAction::Jump(rip)) => {
+                        current_rip = rip;
+                        continue;
+                    }
+                    Some(GoSchedAction::Stop) => {
+                        teprintln!("\n[SCHED] No runnable goroutine left.");
+                        break;
+                    }
+                    _ => {}
+                }
                 if let Some(effect) = summary_table.lookup(sym_name) {
                     // Go goroutine scheduling: `runtime.newproc` is intercepted
                     // specially because it must touch engine-level state (the
@@ -2172,6 +2346,14 @@ fn execute_instructions_from(
                             );
 
                             match analysis_result {
+                                OverlayPathAnalysisResult::VulnerabilityFound(..)
+                                    if !overlay_bug_reports =>
+                                {
+                                    log!(
+                                        executor.state.logger,
+                                        ">>> No panic, memory-safety or arithmetic analysis selected: not solving for the overlay's bug"
+                                    );
+                                }
                                 OverlayPathAnalysisResult::VulnerabilityFound(
                                     _vuln_type,
                                     vuln_addr,
@@ -2220,8 +2402,8 @@ fn execute_instructions_from(
                         }
 
                         // AST EXPLORATION: For TinyGo and Go GC binaries (detect explicit panic calls)
-                        let use_ast_exploration =
-                            match (source_lang_inner.as_str(), compiler_inner.as_str()) {
+                        let use_ast_exploration = panic_analysis
+                            && match (source_lang_inner.as_str(), compiler_inner.as_str()) {
                                 ("go", _) => true, // All Go binaries
                                 _ => false,        // C/C++ don't have panic infrastructure
                             };
@@ -2347,8 +2529,24 @@ fn execute_instructions_from(
                         finalize_plugin_analysis(executor);
                         return; // Exit the function as execution has terminated
                     } else {
+                        // A goroutine that hits an error is stopped; the
+                        // other goroutines keep running.
+                        match executor.go_sched_on_error(&e.to_string()) {
+                            Some(GoSchedAction::Jump(rip)) => {
+                                current_rip = rip;
+                                local_line_number = 0;
+                                end_of_block = true;
+                                break;
+                            }
+                            Some(_) => {
+                                finalize_plugin_analysis(executor);
+                                return;
+                            }
+                            None => {}
+                        }
                         // Handle other errors as needed
                         log!(executor.state.logger, "Unhandled execution error: {}", e);
+                        run_status::finish("error", Some(&e.to_string()));
                         finalize_plugin_analysis(executor);
                         return; // Exit the function or handle the error appropriately
                     }
@@ -3043,6 +3241,7 @@ pub fn initialize_symbolic_part_args(
     );
 
     // Iterate through each argument
+    let mut seed_args: Vec<String> = Vec::with_capacity(slice_len as usize);
     for i in 0..slice_len {
         let string_struct_addr = slice_ptr + i * 16; // Each Go string struct is 16 bytes
         let str_data_ptr = mem
@@ -3064,11 +3263,13 @@ pub fn initialize_symbolic_part_args(
 
         if str_data_ptr == 0 || str_data_len == 0 {
             // Possibly an empty argument? Just skip or handle specially
+            seed_args.push(String::new());
             continue;
         }
 
         // Read the actual string bytes
         let concrete_str_bytes = mem.read_bytes(str_data_ptr, str_data_len as usize)?;
+        seed_args.push(String::from_utf8_lossy(&concrete_str_bytes).into_owned());
 
         // Create fresh symbolic variables for each byte of this argument
         let mut fresh_symbolic = Vec::with_capacity(str_data_len as usize);
@@ -3092,6 +3293,7 @@ pub fn initialize_symbolic_part_args(
             str_data_len
         );
     }
+    zorya::state::race_report::with_store(|s| s.seed_args = seed_args);
 
     Ok(())
 }
@@ -3253,9 +3455,18 @@ fn note_branch_join_point(
 ) {
     let taken = straight_line_walk(executor, instructions_map, target);
     let not_taken = straight_line_walk(executor, instructions_map, fallthrough);
-    let Some(join) = not_taken.into_iter().find(|a| taken.contains(a)) else {
+    let Some(join) = not_taken.iter().copied().find(|a| taken.contains(a)) else {
         return;
     };
+    if join_carries_branch_data(instructions_map, &taken, &not_taken, join) {
+        log!(
+            executor.state.logger,
+            "[PATH] Branch constraint #{} rejoins at 0x{:x}, but a value set before the join is read after it; it keeps gating",
+            idx,
+            join
+        );
+        return;
+    }
     let tid = executor
         .state
         .thread_manager
@@ -3278,6 +3489,123 @@ fn note_branch_join_point(
         tid
     );
     executor.note_branch_join(idx, tid, join, rsp);
+}
+
+/// Whether a register or stack slot written on either side of a branch,
+/// before the sides rejoin at `join`, is read after `join` before being
+/// overwritten. Go compiles `a || b` into a boolean that each side sets
+/// differently and a later branch tests, so that join does not end the
+/// branch's influence.
+fn join_carries_branch_data(
+    instructions_map: &BTreeMap<u64, Vec<Inst>>,
+    taken: &[u64],
+    not_taken: &[u64],
+    join: u64,
+) -> bool {
+    let mut written: std::collections::HashSet<DataLoc> = std::collections::HashSet::new();
+    for side in [taken, not_taken] {
+        for addr in side.iter().take_while(|&&a| a != join) {
+            for (_, writes) in data_accesses(instructions_map.get(addr).map_or(&[], |v| v)) {
+                written.extend(writes);
+            }
+        }
+    }
+    let mut killed: std::collections::HashSet<DataLoc> = std::collections::HashSet::new();
+    for addr in taken.iter().skip_while(|&&a| a != join) {
+        for (reads, writes) in data_accesses(instructions_map.get(addr).map_or(&[], |v| v)) {
+            if reads
+                .iter()
+                .any(|l| written.contains(l) && !killed.contains(l))
+            {
+                return true;
+            }
+            killed.extend(writes);
+        }
+    }
+    false
+}
+
+/// A register byte (by offset) or an `RSP`-relative stack byte.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum DataLoc {
+    Reg(u64),
+    Stack(u64),
+}
+
+/// Bytes each p-code op of one instruction reads and writes. `RSP` and
+/// `RIP` are left out: every stack access and call touches them.
+fn data_accesses(insts: &[Inst]) -> Vec<(Vec<DataLoc>, Vec<DataLoc>)> {
+    const RSP: u64 = 0x20;
+    const RIP: u64 = 0x288;
+    let bytes = |size: parser::parser::Size| (size.to_bitvector_size() / 8) as u64;
+    let reg = |v: &Var| match v {
+        Var::Register(off, size) if *off != RSP && *off != RIP => {
+            (*off..*off + bytes(*size)).map(DataLoc::Reg).collect()
+        }
+        _ => Vec::new(),
+    };
+    let constant = |v: &Var| match v {
+        Var::Const(s) => u64::from_str_radix(s.trim_start_matches("0x"), 16).ok(),
+        _ => None,
+    };
+    let mut rsp_rel: HashMap<u64, u64> = HashMap::new();
+    let mut out = Vec::new();
+    for inst in insts {
+        let stack_at = |v: &Var, rsp_rel: &HashMap<u64, u64>| match v {
+            Var::Unique(u) => rsp_rel.get(u).copied(),
+            _ => None,
+        };
+        let mut reads: Vec<DataLoc> = inst.inputs.iter().flat_map(|i| reg(&i.var)).collect();
+        let mut writes: Vec<DataLoc> = inst
+            .output
+            .as_ref()
+            .map(|o| reg(&o.var))
+            .unwrap_or_default();
+        match inst.opcode {
+            Opcode::Load if inst.inputs.len() == 2 => {
+                if let (Some(off), Some(o)) =
+                    (stack_at(&inst.inputs[1].var, &rsp_rel), &inst.output)
+                {
+                    reads.extend((off..off + bytes(o.size)).map(DataLoc::Stack));
+                }
+            }
+            Opcode::Store if inst.inputs.len() == 3 => {
+                if let Some(off) = stack_at(&inst.inputs[1].var, &rsp_rel) {
+                    let n = bytes(inst.inputs[2].size);
+                    writes.extend((off..off + n).map(DataLoc::Stack));
+                }
+            }
+            _ => {}
+        }
+        if let Some(Varnode {
+            var: Var::Unique(u),
+            ..
+        }) = &inst.output
+        {
+            let a = inst.inputs.first().map(|i| &i.var);
+            let b = inst.inputs.get(1).map(|i| &i.var);
+            let rel = match (inst.opcode, a, b) {
+                (Opcode::IntAdd, Some(Var::Register(RSP, _)), Some(c))
+                | (Opcode::IntAdd, Some(c), Some(Var::Register(RSP, _))) => constant(c),
+                (Opcode::IntSub, Some(Var::Register(RSP, _)), Some(c)) => {
+                    constant(c).map(u64::wrapping_neg)
+                }
+                (Opcode::Copy, Some(Var::Register(RSP, _)), _) => Some(0),
+                (Opcode::Copy, Some(v), _) => stack_at(v, &rsp_rel),
+                _ => None,
+            };
+            match rel {
+                Some(off) => {
+                    rsp_rel.insert(*u, off);
+                }
+                None => {
+                    rsp_rel.remove(u);
+                }
+            }
+        }
+        out.push((reads, writes));
+    }
+    out
 }
 
 /// Hex sha256 of a file, via coreutils `sha256sum`. `None` if it can't be computed.
