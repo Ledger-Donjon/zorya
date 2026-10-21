@@ -99,7 +99,6 @@ mkdir -p "$INIT_DATA_DIR"
 # The Rust binary appends its own trace (ZORYA_TRACE_BY_SHELL=1 = don't truncate).
 TRACE_FILE="$ZORYA_DIR/results/execution_trace.txt"
 mkdir -p "$ZORYA_DIR/results"
-> "$TRACE_FILE"
 export ZORYA_TRACE_BY_SHELL=1
 
 # Mirror setup output to terminal (with colour) while file gets ANSI-stripped.
@@ -114,6 +113,21 @@ get_entry_point() {
   readelf -h "$1" | awk '/Entry point address:/ {print $NF}'
 }
 
+# Language and Go compiler of a binary: "go gc", "go tinygo", "c++" or "c".
+detect_language() {
+  local syms
+  syms=$(nm "$1" 2>/dev/null)
+  if grep -q 'tinygo_' <<< "$syms"; then
+    echo "go tinygo"
+  elif readelf -S "$1" 2>/dev/null | grep -q '\.go\.buildinfo' || grep -q ' runtime\.goexit' <<< "$syms"; then
+    echo "go gc"
+  elif readelf -d "$1" 2>/dev/null | grep -q 'libstdc++' || grep -q ' _ZNSt' <<< "$syms"; then
+    echo "c++"
+  else
+    echo "c"
+  fi
+}
+
 # Try to find the Go or C-style main symbol address
 get_main_addr() {
   nm "$1" | awk '
@@ -126,12 +140,30 @@ get_main_addr() {
 #                         BASIC ARG PARSER
 ##############################################################################
 
-# Binary must be provided as the first argument
-if [[ -z "$1" || "$1" == -* ]]; then
+VALID_PLUGINS="none volos toctou chancheck all"
+VALID_ANALYSES="data-race channel-safety toctou concurrency panic memory-safety arithmetic recursion full"
+
+print_usage() {
   echo -e "${CYAN}${BOLD}Zorya - Next Generation Concolic Analysis${RESET}"
   echo ""
   echo -e "${BOLD}Usage:${RESET}"
   echo -e "  zorya ${GREEN}<binary>${RESET} [options]"
+  echo ""
+  echo -e "${BOLD}Analyses:${RESET}"
+  echo -e "  ${GREEN}--analysis${RESET} <profile...>           What to look for; repeat the flag or list several"
+  echo -e "                                  profiles, they are merged. The language, compiler,"
+  echo -e "                                  plugins, scheduling and path negation follow from them"
+  echo -e "    data-race       Data races between goroutines or threads (Volos)"
+  echo -e "    channel-safety  Close of a closed channel, send on a closed channel (ChanCheck, Go)"
+  echo -e "    toctou          Time-of-check to time-of-use races on files (TOCTOU)"
+  echo -e "    concurrency     data-race + channel-safety + toctou"
+  echo -e "    panic           Inputs that reach a panic (runtime checks and explicit panic calls)"
+  echo -e "    memory-safety   NULL and dangling pointer dereferences"
+  echo -e "    arithmetic      Integer overflows and divisions by zero"
+  echo -e "    recursion       Static scan for unbounded recursion (no concolic run)"
+  echo -e "    full            Every analysis above except recursion"
+  echo -e "  ${GREEN}--max-input-rounds${RESET} <n>          Concurrency analyses rerun Zorya on the input it solved"
+  echo -e "                                  while an analysis has found nothing (default 4 reruns)"
   echo ""
   echo -e "${BOLD}Options:${RESET}"
   echo -e "  ${GREEN}--lang${RESET} <go|c|c++>              Source language of the binary"
@@ -143,23 +175,43 @@ if [[ -z "$1" || "$1" == -* ]]; then
   echo -e "  ${GREEN}--arg${RESET} <args...>               Binary arguments"
   echo -e "  ${GREEN}--symbolic-registers${RESET} <regs>   (Advanced) Registers to make symbolic (e.g. \"RAX RDI\")"
   echo -e "  ${GREEN}--no-symbolic-registers${RESET}      (Advanced) Skip symbolic registers (no prompt)"
-  echo -e "  ${GREEN}--symbolic-memory${RESET} <ranges>    (Advanced) Memory ranges: \"0xADDR:SIZE ...\" "
+  echo -e "  ${GREEN}--symbolic-memory${RESET} <ranges>    (Advanced) Memory ranges: \"0xADDR:SIZE ...\""
   echo -e "  ${GREEN}--no-symbolic-memory${RESET}          (Advanced) Skip symbolic memory (no prompt)"
   echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
   echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
   echo -e "  ${GREEN}--plugin${RESET} <\"plugin1 plugin2\"|all|none>"
-  echo -e "                                  Plugins to activate (volos, toctou, chancheck, all, none)"
+  echo -e "                                  (Advanced) Plugins to activate (volos, toctou, chancheck,"
+  echo -e "                                  all, none), added to those of --analysis"
   echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
   echo -e "                                  process see a real terminal, e.g. for Go's"
   echo -e "                                  isatty checks in kubectl)"
+  echo -e "  ${GREEN}--race-only${RESET}                   Deprecated: same as --analysis data-race"
+  echo -e "  ${GREEN}--no-panic-prepass${RESET}            Skip the panic cross-reference prepass"
+  echo -e "  ${GREEN}--max-goroutine-switches${RESET} <n>  Goroutine context-switch budget (Go, default 512)"
+  echo -e "  ${GREEN}--max-loop-iterations${RESET} <n>     Loop iterations per goroutine before it is retired (default 3)"
+  echo -e "  ${GREEN}--max-goroutines-per-site${RESET} <n> Goroutines modelled per go statement (default 2)"
+  echo -e "  ${GREEN}--max-goroutine-instructions${RESET} <n> Instruction budget per goroutine (default 2000000)"
+  echo -e "  ${GREEN}--schedule${RESET} <rr|random>        Goroutine schedule (default rr)"
+  echo -e "  ${GREEN}--schedule-seed${RESET} <n>           Seed of the random schedule (replays a run)"
+  echo -e "  ${GREEN}--dry-run${RESET}                     Print the resolved command and settings, run nothing"
+  echo -e "  ${GREEN}--help${RESET}, ${GREEN}-h${RESET}                    Show this help message"
   echo ""
   echo -e "${BOLD}Examples:${RESET}"
+  echo -e "  zorya ./myprogram --analysis data-race --arg 0 0"
+  echo -e "  zorya ./myprogram --analysis data-race channel-safety --arg 0 0"
+  echo -e "  zorya ./myprogram --analysis panic --arg \"input\""
   echo -e "  zorya ./myprogram --lang go --compiler tinygo --mode main --arg \"input\""
   echo -e "  zorya /path/to/binary --lang c --mode function 0x401000"
   echo -e "  zorya /path/to/binary --lang go --mode advanced 0x401000 --symbolic-registers \"RAX RDI\" --no-symbolic-memory"
-  echo -e "  zorya /path/to/binary --lang go --compiler gc --mode main --plugin \"volos toctou\""
   echo ""
-  exit 1
+}
+
+# Binary must be provided as the first argument
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  print_usage; exit 0
+fi
+if [[ -z "$1" || "$1" == -* ]]; then
+  print_usage; exit 1
 fi
 
 BIN_PATH_ORIGINAL="$1"; shift || true
@@ -187,6 +239,16 @@ FORCE_PTY="false"
 SYMBOLIC_REGISTERS=""
 SYMBOLIC_MEMORY=""
 PLUGINS=""
+ANALYSIS_REQUESTS=()
+MAX_INPUT_ROUNDS=""
+DRY_RUN="false"
+NO_PANIC_PREPASS="false"
+MAX_GOROUTINE_SWITCHES=""
+MAX_LOOP_ITERATIONS=""
+MAX_GOROUTINES_PER_SITE=""
+MAX_GOROUTINE_INSTRUCTIONS=""
+SCHEDULE=""
+SCHEDULE_SEED=""
 
 # Argument parsing loop
 while [[ $# -gt 0 ]]; do
@@ -218,9 +280,51 @@ while [[ $# -gt 0 ]]; do
       NEGATE_PATH_FLAG="true"; shift ;;
     --no-negate-path-exploration|--no-negate)
       NEGATE_PATH_FLAG="false"; shift ;;
+    --analysis)
+      shift
+      if [[ $# -eq 0 || "$1" == --* ]]; then
+        echo "ERROR: --analysis expects a profile. Valid profiles: $VALID_ANALYSES"
+        exit 1
+      fi
+      ANALYSIS_REQUESTS+=("$1"); shift
+      # Further profile names may follow without repeating the flag.
+      while [[ $# -gt 0 ]] && [[ " $VALID_ANALYSES " == *" $1 "* ]]; do
+        ANALYSIS_REQUESTS+=("$1"); shift
+      done
+      ;;
+    --max-input-rounds)
+      MAX_INPUT_ROUNDS="$2"; shift 2
+      if [[ ! "$MAX_INPUT_ROUNDS" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: --max-input-rounds expects a non-negative integer, got '$MAX_INPUT_ROUNDS'"
+        exit 1
+      fi
+      ;;
+    --dry-run)
+      DRY_RUN="true"; shift ;;
+    --race-only)
+      echo "NOTE: --race-only is deprecated; use --analysis data-race."
+      ANALYSIS_REQUESTS+=("data-race"); shift ;;
+    --no-panic-prepass)
+      NO_PANIC_PREPASS="true"; shift ;;
+    --max-goroutine-switches)
+      MAX_GOROUTINE_SWITCHES="$2"; shift 2 ;;
+    --max-loop-iterations)
+      MAX_LOOP_ITERATIONS="$2"; shift 2 ;;
+    --max-goroutines-per-site)
+      MAX_GOROUTINES_PER_SITE="$2"; shift 2 ;;
+    --max-goroutine-instructions)
+      MAX_GOROUTINE_INSTRUCTIONS="$2"; shift 2 ;;
+    --schedule)
+      SCHEDULE="$2"; shift 2
+      if [[ "$SCHEDULE" != "rr" && "$SCHEDULE" != "random" ]]; then
+        echo "ERROR: --schedule expects 'rr' or 'random', got '$SCHEDULE'"
+        exit 1
+      fi
+      ;;
+    --schedule-seed)
+      SCHEDULE_SEED="$2"; shift 2 ;;
     --plugin)
       PLUGINS="$2"; shift 2
-      VALID_PLUGINS="none volos toctou chancheck all"
       for p in $PLUGINS; do
         if ! echo "$VALID_PLUGINS" | grep -qw "$p"; then
           echo "ERROR: Unknown plugin '$p'. Valid options: $VALID_PLUGINS"
@@ -245,6 +349,10 @@ while [[ $# -gt 0 ]]; do
           --symbolic-memory|--no-symbolic-memory|\
           --negate-path-exploration|--negate|\
           --no-negate-path-exploration|--no-negate|\
+          --analysis|--max-input-rounds|--dry-run|--race-only|--no-panic-prepass|\
+          --max-goroutine-switches|--max-loop-iterations|\
+          --max-goroutines-per-site|--max-goroutine-instructions|\
+          --schedule|--schedule-seed|\
           --plugin|--arg|--help|-h)
             break
             ;;
@@ -254,6 +362,8 @@ while [[ $# -gt 0 ]]; do
         ARGS_ARR+=("$1")
         if [[ -z "$1" || "$1" =~ ^[[:space:]]+$ ]]; then
           echo "NOTE: --arg entry $(( ${#ARGS_ARR[@]} )) is empty/whitespace-only ('$1'); it is passed verbatim."
+        elif [[ "$1" =~ [[:space:]] ]]; then
+          echo "NOTE: --arg entry $(( ${#ARGS_ARR[@]} )) ('$1') contains whitespace and is passed as ONE argument; write --arg ${1//[[:space:]]/ } (unquoted) for separate arguments."
         fi
         shift
       done
@@ -265,43 +375,116 @@ while [[ $# -gt 0 ]]; do
       fi
       ;;
     --help|-h)
-      echo -e "${CYAN}${BOLD}Zorya - Next Generation Concolic Analysis${RESET}"
-      echo ""
-      echo -e "${BOLD}Usage:${RESET}"
-      echo -e "  zorya ${GREEN}<binary>${RESET} [options]"
-      echo ""
-      echo -e "${BOLD}Options:${RESET}"
-      echo -e "  ${GREEN}--lang${RESET} <go|c|c++>              Source language of the binary"
-      echo -e "  ${GREEN}--compiler${RESET} <tinygo|gc>         Go compiler used (required for Go binaries)"
-      echo -e "  ${GREEN}--mode${RESET} <start|main|function|advanced> [addr]"
-      echo -e "                                  Analysis starting point"
-      echo -e "  ${GREEN}--thread-scheduling${RESET} <all-threads|main-only>"
-      echo -e "                                  Thread scheduling strategy (Go GC only)"
-      echo -e "  ${GREEN}--arg${RESET} <args...>               Binary arguments"
-      echo -e "  ${GREEN}--symbolic-registers${RESET} <regs>   (Advanced) Registers to make symbolic"
-      echo -e "  ${GREEN}--no-symbolic-registers${RESET}      (Advanced) Skip symbolic registers (no prompt)"
-      echo -e "  ${GREEN}--symbolic-memory${RESET} <ranges>    (Advanced) Memory ranges: \"0xADDR:SIZE ...\""
-      echo -e "  ${GREEN}--no-symbolic-memory${RESET}          (Advanced) Skip symbolic memory (no prompt)"
-      echo -e "  ${GREEN}--negate-path-exploration${RESET}     Enable path negation (default: yes)"
-      echo -e "  ${GREEN}--no-negate-path-exploration${RESET}  Disable path negation"
-      echo -e "  ${GREEN}--plugin${RESET} <\"plugin1 plugin2\"|all|none>"
-      echo -e "                                  Plugins to activate (volos, toctou, chancheck, all, none)"
-      echo -e "  ${GREEN}--force-pty${RESET}                   Run GDB inside a PTY (makes the target"
-      echo -e "                                  process see a real terminal)"
-      echo -e "  ${GREEN}--help${RESET}, ${GREEN}-h${RESET}                    Show this help message"
-      echo ""
-      echo -e "${BOLD}Examples:${RESET}"
-      echo -e "  zorya ./myprogram --lang go --compiler tinygo --mode main --arg \"input\""
-      echo -e "  zorya /path/to/binary --lang c --mode function 0x401000"
-      echo -e "  zorya /path/to/binary --lang go --mode advanced 0x401000 --symbolic-registers \"RAX RDI\" --no-symbolic-memory"
-      echo -e "  zorya /path/to/binary --lang go --compiler gc --mode main --plugin \"volos toctou\""
-      echo ""
-      exit 0
-      ;;
+      print_usage; exit 0 ;;
     *)
       echo "Unknown flag: $1"; exit 1 ;;
   esac
 done
+
+##############################################################################
+#                        ANALYSIS PROFILES
+##############################################################################
+# Each profile stands for plugins, scheduling and exploration settings.
+# Profiles are merged; flags given explicitly win, with a warning when they
+# turn off something a requested analysis needs.
+
+ANALYSES=""
+RECURSION_SCAN="false"
+for req in "${ANALYSIS_REQUESTS[@]}"; do
+  for p in ${req//,/ }; do
+    case "$p" in
+      concurrency) ANALYSES+=" data-race channel-safety toctou" ;;
+      full) ANALYSES+=" data-race channel-safety toctou panic memory-safety arithmetic" ;;
+      recursion) RECURSION_SCAN="true" ;;
+      data-race|channel-safety|toctou|panic|memory-safety|arithmetic) ANALYSES+=" $p" ;;
+      *) echo "ERROR: Unknown analysis '$p'. Valid profiles: $VALID_ANALYSES"; exit 1 ;;
+    esac
+  done
+done
+_requested="$ANALYSES"; ANALYSES=""
+for a in data-race channel-safety toctou panic memory-safety arithmetic; do
+  [[ " $_requested " == *" $a "* ]] && ANALYSES+="${ANALYSES:+ }$a"
+done
+has_analysis() { [[ " $ANALYSES " == *" $1 "* ]]; }
+
+if [[ "$RECURSION_SCAN" == "true" ]]; then
+  if [[ -n "$ANALYSES" ]]; then
+    echo "ERROR: --analysis recursion is a static call-graph scan without a concolic run; run it on its own."
+    exit 1
+  fi
+  ZBIN="$ZORYA_DIR/target/release/zorya"
+  [[ -x "$ZBIN" ]] && exec "$ZBIN" --recursion-scan "$BIN_PATH"
+  cd "$ZORYA_DIR" || exit 1
+  exec cargo run --release -- --recursion-scan "$BIN_PATH"
+fi
+
+CONCURRENCY_SELECTED="false"
+for a in data-race channel-safety toctou; do
+  has_analysis "$a" && CONCURRENCY_SELECTED="true"
+done
+INPUT_ROUNDS=0
+
+if [[ -n "$ANALYSES" ]]; then
+  if [[ -z "$SOURCE_LANG" || ( "${SOURCE_LANG,,}" == "go" && -z "$COMPILER" ) ]]; then
+    read -r detected_lang detected_compiler <<< "$(detect_language "$BIN_PATH")"
+    [[ -z "$SOURCE_LANG" ]] && SOURCE_LANG="$detected_lang"
+    if [[ "${SOURCE_LANG,,}" == "go" && -z "$COMPILER" ]]; then
+      COMPILER="${detected_compiler:-gc}"
+    fi
+    echo "[ANALYSIS] Detected language: $SOURCE_LANG${COMPILER:+ (compiler $COMPILER)}"
+  fi
+  [[ -z "$MODE" ]] && MODE="main"
+  ARGS_SET=true
+
+  profile_plugins=""
+  has_analysis data-race && profile_plugins+=" volos"
+  has_analysis channel-safety && profile_plugins+=" chancheck"
+  has_analysis toctou && profile_plugins+=" toctou"
+  profile_plugins="${profile_plugins# }"
+  if [[ -z "$PLUGINS" ]]; then
+    PLUGINS="${profile_plugins:-none}"
+  elif [[ "$PLUGINS" == "none" ]]; then
+    [[ -n "$profile_plugins" ]] && echo "WARNING: --plugin none turns off $profile_plugins, which the selected analyses need; they will find nothing."
+  elif [[ " $PLUGINS " != *" all "* ]]; then
+    for p in $profile_plugins; do
+      [[ " $PLUGINS " == *" $p "* ]] || PLUGINS+=" $p"
+    done
+  fi
+
+  if [[ -z "$THREAD_SCHEDULING" ]]; then
+    if [[ "$CONCURRENCY_SELECTED" == "true" || ( "${SOURCE_LANG,,}" == "go" && "${COMPILER,,}" == "gc" ) ]]; then
+      THREAD_SCHEDULING="all-threads"
+    fi
+  elif [[ "$CONCURRENCY_SELECTED" == "true" && "$THREAD_SCHEDULING" != "all-threads" ]]; then
+    echo "WARNING: --thread-scheduling $THREAD_SCHEDULING runs only the main thread; data-race, channel-safety and toctou need all-threads to see the other goroutines and threads."
+  fi
+
+  if [[ -z "$NEGATE_PATH_FLAG" ]]; then
+    NEGATE_PATH_FLAG="true"
+  elif [[ "$NEGATE_PATH_FLAG" == "false" ]]; then
+    echo "WARNING: --no-negate-path-exploration turns off the exploration of negated branches, which the selected analyses use to solve for inputs; only the path of the given arguments is analysed."
+  fi
+
+  if has_analysis channel-safety && [[ "${SOURCE_LANG,,}" != "go" ]]; then
+    echo "WARNING: channel-safety checks Go channels; it finds nothing in a $SOURCE_LANG binary."
+  fi
+
+  has_analysis memory-safety && export ZORYA_MEM_SAFETY_ORACLES="${ZORYA_MEM_SAFETY_ORACLES:-1}"
+  has_analysis arithmetic && export ZORYA_INT_ARITH_ORACLES="${ZORYA_INT_ARITH_ORACLES:-1}"
+  if ! has_analysis panic && ! has_analysis memory-safety && ! has_analysis arithmetic; then
+    export ZORYA_MEM_SAFETY_ORACLES="${ZORYA_MEM_SAFETY_ORACLES:-0}"
+  fi
+
+  if [[ "$CONCURRENCY_SELECTED" == "true" ]]; then
+    INPUT_ROUNDS="${MAX_INPUT_ROUNDS:-${ZORYA_RACE_RESEED:-4}}"
+  elif [[ -n "$MAX_INPUT_ROUNDS" ]]; then
+    echo "NOTE: --max-input-rounds applies to data-race, channel-safety and toctou; the other analyses solve their inputs within one run."
+  fi
+
+  echo "[ANALYSIS] ${ANALYSES// /, }: plugins $PLUGINS, thread scheduling ${THREAD_SCHEDULING:-default}, negated branches $([[ "$NEGATE_PATH_FLAG" == "true" ]] && echo explored || echo not explored), panic analysis $(has_analysis panic && echo on || echo off), up to $INPUT_ROUNDS input round(s)"
+elif [[ -n "$MAX_INPUT_ROUNDS" ]]; then
+  echo "NOTE: --max-input-rounds has no effect without --analysis."
+fi
 
 ##############################################################################
 #                        INTERACTIVE QUESTIONS (fallback)
@@ -541,7 +724,6 @@ fi
 
 # 5. Plugin selection
 if [[ -z "$PLUGINS" ]]; then
-  VALID_PLUGINS="none volos toctou chancheck all"
   while true; do
     echo ""; echo "Which plugin(s) do you want to activate? (none / volos / toctou / chancheck / all)"
     echo "  - none: No plugins (pure concolic execution)"
@@ -573,6 +755,14 @@ fi
 export MODE ARGS START_POINT="$ADDR" ZORYA_DIR BIN_PATH NEGATE_PATH_FLAG="$NEGATE_PATH_FLAG" FORCE_PTY
 export SYMBOLIC_REGISTERS SYMBOLIC_MEMORY
 export ZORYA_PLUGINS="$PLUGINS"
+export ZORYA_ANALYSES="${ANALYSES// /,}"
+[[ "$NO_PANIC_PREPASS" == "true" ]] && export ZORYA_SKIP_PANIC_PREPASS=1
+[[ -n "$MAX_GOROUTINE_SWITCHES" ]] && export ZORYA_MAX_GOROUTINE_SWITCHES="$MAX_GOROUTINE_SWITCHES"
+[[ -n "$MAX_LOOP_ITERATIONS" ]] && export ZORYA_MAX_LOOP_ITERATIONS="$MAX_LOOP_ITERATIONS"
+[[ -n "$MAX_GOROUTINES_PER_SITE" ]] && export ZORYA_MAX_GOROUTINES_PER_SITE="$MAX_GOROUTINES_PER_SITE"
+[[ -n "$MAX_GOROUTINE_INSTRUCTIONS" ]] && export ZORYA_MAX_GOROUTINE_INSTRUCTIONS="$MAX_GOROUTINE_INSTRUCTIONS"
+[[ -n "$SCHEDULE" ]] && export ZORYA_SCHEDULE="$SCHEDULE"
+[[ -n "$SCHEDULE_SEED" ]] && export ZORYA_SCHEDULE_SEED="$SCHEDULE_SEED"
 
 # Build final command string (using original path for display, but actual execution uses absolute)
 CMD="$ZORYA_DIR/zorya $BIN_PATH_ORIGINAL --mode $MODE"
@@ -594,35 +784,75 @@ fi
 [[ "$NEGATE_PATH_FLAG" == "true" ]] && CMD+=" --negate-path-exploration" || CMD+=" --no-negate-path-exploration"
 [[ -n "$PLUGINS" && "$PLUGINS" != "none" ]] && CMD+=" --plugin \"$PLUGINS\""
 [[ "$FORCE_PTY" == "true" ]] && CMD+=" --force-pty"
+[[ -n "$ANALYSES" ]] && CMD+=" --analysis ${ANALYSES// /,}"
+[[ -n "$MAX_INPUT_ROUNDS" ]] && CMD+=" --max-input-rounds $MAX_INPUT_ROUNDS"
+[[ "$NO_PANIC_PREPASS" == "true" ]] && CMD+=" --no-panic-prepass"
+[[ -n "$MAX_GOROUTINE_SWITCHES" ]] && CMD+=" --max-goroutine-switches $MAX_GOROUTINE_SWITCHES"
+[[ -n "$MAX_LOOP_ITERATIONS" ]] && CMD+=" --max-loop-iterations $MAX_LOOP_ITERATIONS"
+[[ -n "$MAX_GOROUTINES_PER_SITE" ]] && CMD+=" --max-goroutines-per-site $MAX_GOROUTINES_PER_SITE"
+[[ -n "$MAX_GOROUTINE_INSTRUCTIONS" ]] && CMD+=" --max-goroutine-instructions $MAX_GOROUTINE_INSTRUCTIONS"
+[[ -n "$SCHEDULE" ]] && CMD+=" --schedule $SCHEDULE"
+[[ -n "$SCHEDULE_SEED" ]] && CMD+=" --schedule-seed $SCHEDULE_SEED"
 
 export ZORYA_CMD="$CMD"
 
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "Command: $CMD"
+  for v in SOURCE_LANG COMPILER MODE START_POINT ARGS THREAD_SCHEDULING NEGATE_PATH_FLAG \
+           ZORYA_PLUGINS ZORYA_ANALYSES ZORYA_MEM_SAFETY_ORACLES ZORYA_INT_ARITH_ORACLES INPUT_ROUNDS; do
+    echo "$v=${!v}"
+  done
+  exit 0
+fi
+> "$TRACE_FILE"
+
+# Launcher phases (p-code generation, memory dump) are timed here and handed
+# to the engine through ZORYA_LAUNCHER_PHASES for results/run_status.json. A
+# run killed during one of them writes run_status.json itself.
+LAUNCHER_PHASES_FILE="$ZORYA_DIR/results/.launcher_phases"
+mkdir -p "$ZORYA_DIR/results"
+: > "$LAUNCHER_PHASES_FILE"
+rm -f "$ZORYA_DIR/results/run_status.json" "$ZORYA_DIR/results/race_summary.json" \
+  "$ZORYA_DIR/results/analysis_summary.json" "$ZORYA_DIR/results/analysis_rounds.json" \
+  "$ZORYA_DIR"/results/*.round[0-9]*.*
+LAUNCHER_PHASE=""
+LAUNCHER_PHASE_T0=0
+launcher_phase_begin() {
+  LAUNCHER_PHASE="$1"
+  LAUNCHER_PHASE_T0=$(date +%s.%N)
+}
+launcher_phase_end() {
+  [[ -z "$LAUNCHER_PHASE" ]] && return
+  local secs
+  secs=$(awk -v a="$LAUNCHER_PHASE_T0" -v b="$(date +%s.%N)" 'BEGIN { printf "%.3f", b - a }')
+  echo "$LAUNCHER_PHASE:$secs" >> "$LAUNCHER_PHASES_FILE"
+  LAUNCHER_PHASE=""
+}
+launcher_abort_status() {
+  local outcome="$1" label
+  case "$LAUNCHER_PHASE" in
+    pcode_generation) label="p-code generation" ;;
+    memory_dump) label="memory and CPU dump" ;;
+    *) label="${LAUNCHER_PHASE:-launcher setup}" ;;
+  esac
+  printf '{\n  "schema": "zorya.run_status/1",\n  "binary": "%s",\n  "current_phase": {"phase": "%s", "label": "%s"},\n  "termination": {"outcome": "%s", "phase": "%s", "reason": "%s during %s", "detail": "launcher interrupted"}\n}\n' \
+    "$BIN_PATH" "$LAUNCHER_PHASE" "$label" "$outcome" "$LAUNCHER_PHASE" "$outcome" "$label" \
+    > "$ZORYA_DIR/results/run_status.json"
+}
+
 # ── Setup phase (synchronous capture into trace file) ───────────────────────
 # Pipeline flushes before the Rust binary runs; PIPESTATUS[0] propagates errors.
-{
-  echo "*************************************************************************************"
-  echo "Running command: $CMD"
-  echo ""
-
-  # Step 1: Pcode generation
-  cd "$PCODE_GENERATOR_DIR" || exit 1
-  # Pin CARGO_TARGET_DIR to avoid sandbox-injected paths.
-  CARGO_TARGET_DIR="$PCODE_GENERATOR_DIR/target" \
-    RUSTFLAGS="--cap-lints=allow" cargo run --release "$BIN_PATH" --low-pcode
-
-  PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
-  [[ ! -f "$PCODE_FILE" ]] && { echo "Pcode generation failed."; exit 1; }
-
-  # Step 2: Generate dumps
+# Memory/CPU dumps and VDSO for the current ARGS_ARR (re-run for each reseed).
+generate_dumps() {
   echo ""; echo "Generating memory and CPU register dumps…"
   chmod +x "$ZORYA_DIR/scripts/dump_memory.sh"
   if ! "$ZORYA_DIR/scripts/dump_memory.sh" "$BIN_PATH" "$ADDR" "$ENTRY_POINT" "${ARGS_ARR[@]}"; then
     echo ""
     echo -e "\033[31m${BOLD}Zorya cannot continue without valid memory and CPU dumps. Aborting.${RESET}"
-    exit 1
+    return 1
   fi
 
-  # Step 2.5: Extract and analyze VDSO
+  # Extract and analyze VDSO
   echo ""; echo "Extracting VDSO from process memory…"
   chmod +x "$ZORYA_DIR/scripts/extract_vdso.sh"
   "$ZORYA_DIR/scripts/extract_vdso.sh" "$BIN_PATH" "$ADDR" "${ARGS_ARR[@]}"
@@ -639,6 +869,30 @@ export ZORYA_CMD="$CMD"
   else
     echo "⚠ Warning: VDSO extraction failed or produced empty output, continuing without VDSO support"
   fi
+}
+
+{
+  trap 'launcher_abort_status timeout; exit 143' TERM
+  trap 'launcher_abort_status signal; exit 130' INT
+  echo "*************************************************************************************"
+  echo "Running command: $CMD"
+  echo ""
+
+  # Step 1: Pcode generation
+  launcher_phase_begin pcode_generation
+  cd "$PCODE_GENERATOR_DIR" || exit 1
+  # Pin CARGO_TARGET_DIR to avoid sandbox-injected paths.
+  CARGO_TARGET_DIR="$PCODE_GENERATOR_DIR/target" \
+    RUSTFLAGS="--cap-lints=allow" cargo run --release "$BIN_PATH" --low-pcode
+
+  PCODE_FILE="$PCODE_GENERATOR_DIR/results/$(basename "$BIN_PATH")_low_pcode.txt"
+  [[ ! -f "$PCODE_FILE" ]] && { echo "Pcode generation failed."; launcher_abort_status error; exit 1; }
+  launcher_phase_end
+
+  # Step 2: Generate dumps
+  launcher_phase_begin memory_dump
+  generate_dumps || { launcher_abort_status error; exit 1; }
+  launcher_phase_end
 
   # Step 3: Launch banner
   echo ""
@@ -652,9 +906,102 @@ export ZORYA_CMD="$CMD"
 setup_rc=${PIPESTATUS[0]}
 [[ "$setup_rc" -ne 0 ]] && exit "$setup_rc"
 
+ZORYA_LAUNCHER_PHASES=$(paste -sd, "$LAUNCHER_PHASES_FILE")
+export ZORYA_LAUNCHER_PHASES
+
 # Step 4: Run Zorya (appends trace directly to $TRACE_FILE).
 # exec (cargo run also execs the binary) so SIGTERM/SIGINT from `timeout` or the
 # terminal reach the engine itself, which then flushes its findings.
 cd "$ZORYA_DIR" || exit 1
-CARGO_TARGET_DIR="$ZORYA_DIR/target" \
-  RUSTFLAGS="--cap-lints=allow" exec cargo run --release -- --write-args "$ARGS"
+if (( INPUT_ROUNDS <= 0 )); then
+  CARGO_TARGET_DIR="$ZORYA_DIR/target" \
+    RUSTFLAGS="--cap-lints=allow" exec cargo run --release -- --write-args "$ARGS"
+fi
+
+# Input rounds: while a concurrency analysis has found nothing, the summary's
+# next_seed is an input Zorya solved from a negated branch that creates the
+# goroutines the given arguments did not. Re-dump with it and run again, up to
+# INPUT_ROUNDS more times. The engine runs as a child here, so signals are
+# forwarded to it.
+ENGINE_PID=""
+trap '[[ -n "$ENGINE_PID" ]] && kill -TERM "$ENGINE_PID" 2>/dev/null' TERM
+trap '[[ -n "$ENGINE_PID" ]] && kill -INT "$ENGINE_PID" 2>/dev/null' INT
+run_engine() {
+  CARGO_TARGET_DIR="$ZORYA_DIR/target" \
+    RUSTFLAGS="--cap-lints=allow" cargo run --release -- --write-args "$ARGS" &
+  ENGINE_PID=$!
+  local rc
+  wait "$ENGINE_PID"; rc=$?
+  # wait returns early when a trapped signal arrives; let the engine flush.
+  while kill -0 "$ENGINE_PID" 2>/dev/null; do
+    wait "$ENGINE_PID"; rc=$?
+  done
+  ENGINE_PID=""
+  return "$rc"
+}
+ROUND_REPORTS="analysis_summary.json race_summary.json run_status.json plugin_findings.json plugin_findings.txt FOUND_SAT_STATE.json FOUND_SAT_STATE.txt"
+save_round_reports() {
+  local f
+  for f in $ROUND_REPORTS; do
+    [[ -f "$ZORYA_DIR/results/$f" ]] && cp "$ZORYA_DIR/results/$f" "$ZORYA_DIR/results/${f%.*}.round$1.${f##*.}"
+  done
+}
+
+SUMMARY="$ZORYA_DIR/results/analysis_summary.json"
+SEEDS_TRIED="[]"
+round=0
+while :; do
+  export ZORYA_SEEDS_TRIED="$SEEDS_TRIED"
+  run_engine; rc=$?
+  save_round_reports "$round"
+  (( rc >= 128 )) && exit "$rc"
+  (( round >= INPUT_ROUNDS )) && break
+  [[ -f "$SUMMARY" ]] || break
+  [[ "$(jq -r '.complete' "$SUMMARY")" == "true" ]] && break
+  next_json=$(jq -c '.next_seed // empty' "$SUMMARY")
+  [[ -z "$next_json" ]] && break
+  mapfile -d '' -t NEXT_ARGS < <(jq -j '.next_seed[] | (., "\u0000")' "$SUMMARY")
+  [[ ${#NEXT_ARGS[@]} -eq 0 ]] && break
+  # Seeds render bytes outside printable ASCII (and the backslash) as \xHH.
+  for i in "${!NEXT_ARGS[@]}"; do
+    printf -v "NEXT_ARGS[$i]" '%b' "${NEXT_ARGS[$i]}"
+  done
+  pending=$(jq -r '[.results | to_entries[] | select(.value.done != true) | .key] | join(", ")' "$SUMMARY")
+  SEEDS_TRIED=$(jq -c --argjson s "$(jq -c '.seed' "$SUMMARY")" '. + [$s]' <<< "$SEEDS_TRIED")
+  round=$((round + 1))
+  ARGS_ARR=("${NEXT_ARGS[@]}")
+  ARGS="${ARGS_ARR[*]}"
+  export ARGS
+  {
+    echo ""
+    echo "*********************************************************************************************"
+    echo "[ANALYSIS] Round $round: seed $(jq -c '.seed' "$SUMMARY") found nothing for $pending;"
+    echo "[ANALYSIS] re-running with the input Zorya solved: $next_json"
+    echo "*********************************************************************************************"
+    generate_dumps || exit 1
+  } 2>&1 | tee "$TERM_MIRROR" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' >> "$TRACE_FILE"
+  [[ "${PIPESTATUS[0]}" -ne 0 ]] && exit 1
+done
+
+# One verdict per analysis over all rounds: a later round can miss what an
+# earlier one found, since each round follows a different input.
+round_files=()
+for ((i = 0; i <= round; i++)); do
+  [[ -f "$ZORYA_DIR/results/analysis_summary.round$i.json" ]] && round_files+=("$ZORYA_DIR/results/analysis_summary.round$i.json")
+done
+if (( ${#round_files[@]} > 0 )); then
+  jq -s '{schema: "zorya.analysis_rounds/1", rounds: .}' "${round_files[@]}" > "$ZORYA_DIR/results/analysis_rounds.json"
+fi
+if (( ${#round_files[@]} > 1 )); then
+  {
+    echo ""
+    echo "[ANALYSIS] $((round + 1)) round(s), seeds: $(jq -s -r 'map(.seed | tojson) | join(" -> ")' "${round_files[@]}")"
+    jq -s -r '. as $r | $r[0].analyses[] as $a
+      | ([range(0; $r | length)] | map(select($r[.].results[$a].found == true)) | first) as $i
+      | if $i == null then "[ANALYSIS] \($a): nothing found"
+        else "[ANALYSIS] \($a): found in round \($i) with seed \($r[$i].seed | tojson) (results/*.round\($i).*)" end' \
+      "${round_files[@]}"
+    echo "[ANALYSIS] all rounds: results/analysis_rounds.json"
+  } 2>&1 | tee -a "$TRACE_FILE"
+fi
+exit "$rc"
