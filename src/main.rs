@@ -216,10 +216,9 @@ fn finalize_plugin_analysis(executor: &mut ConcolicExecutor) {
     }
 }
 
-/// Record the Go toolchain that built the binary and warn when it already
-/// contains the fix of a standard-library race the binary links.
-fn check_go_toolchain(elf_data: &[u8]) {
-    use zorya::state::go_version::{check_advisories, read_buildinfo};
+/// Record the Go toolchain that built the binary.
+fn record_go_toolchain(elf_data: &[u8]) {
+    use zorya::state::go_version::read_buildinfo;
     let Some(info) = read_buildinfo(elf_data) else {
         tprintln!("[GO] No Go build information found; the toolchain version is unknown.");
         return;
@@ -232,23 +231,9 @@ fn check_go_toolchain(elf_data: &[u8]) {
             .map(|p| format!(" (main module {p})"))
             .unwrap_or_default()
     );
-    let index = zorya::state::func_index::get();
-    let advisories = check_advisories(
-        &info.version,
-        |f| index.is_some_and(|i| i.has_function(f)),
-        |p| index.is_some_and(|i| i.has_package_copy(p)),
-    );
-    for a in &advisories {
-        if a.status == "fixed_in_toolchain" {
-            teprintln!("[WARNING] {}", a.message);
-        } else {
-            tprintln!("[GO] {}", a.message);
-        }
-    }
     run_status::set_field("go_version", serde_json::json!(info.version));
     zorya::state::race_report::with_store(|s| {
         s.go_version = Some(info.version.clone());
-        s.advisories = advisories;
     });
 }
 
@@ -615,7 +600,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
     if source_lang.eq_ignore_ascii_case("go") {
-        check_go_toolchain(&elf_data);
+        record_go_toolchain(&elf_data);
     }
 
     // Build and install the runtime thread filter so the scheduler skips
