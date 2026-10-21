@@ -87,6 +87,13 @@ pub struct EventCtx<'ctx, 's> {
     /// event's `path_constraints` are not a valid condition for it, and the
     /// clean one arrives in `on_overlay_end`.
     pub in_overlay: bool,
+
+    /// Return-address chain of the executing context, innermost first and
+    /// starting with the event PC. Only filled for accesses executed by
+    /// application code and for [`crate::plugins::Event::MapAccess`]; empty
+    /// otherwise (walking the frame-pointer chain on every runtime access
+    /// would dominate the hot path).
+    pub(crate) call_stack: &'s [u64],
 }
 
 impl<'ctx, 's> EventCtx<'ctx, 's> {
@@ -110,7 +117,20 @@ impl<'ctx, 's> EventCtx<'ctx, 's> {
             findings,
             path_constraints: &[],
             in_overlay: false,
+            call_stack: &[],
         }
+    }
+
+    /// Builder: attach the executing context's return-address chain.
+    pub fn with_call_stack(mut self, stack: &'s [u64]) -> Self {
+        self.call_stack = stack;
+        self
+    }
+
+    /// Return-address chain of the event (innermost first), or empty when the
+    /// engine did not capture one for this event.
+    pub fn call_stack(&self) -> &[u64] {
+        self.call_stack
     }
 
     /// Builder: mark this context as belonging to an overlay execution.
