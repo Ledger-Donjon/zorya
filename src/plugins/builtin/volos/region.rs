@@ -92,13 +92,106 @@ impl fmt::Display for VolosState {
     }
 }
 
-/// Per-cell entry: the FSA state, plus the full access history that lead
-/// to that state. Keeping the history is what lets the race-check pass
-/// produce concrete witness pairs in findings.
+/// Accesses kept per cell; further distinct accesses are counted, not kept.
+pub const MAX_CELL_HISTORY: usize = 256;
+
+/// Per-cell entry: the FSA state, plus the access history that lead to that
+/// state. Keeping the history is what lets the race-check pass produce
+/// concrete witness pairs in findings.
+///
+/// Repeated accesses from one site are folded: for each (thread, type, PC,
+/// lockset) only the first and the latest access are kept, so a loop that
+/// touches a cell a million times costs two entries.
 #[derive(Debug, Clone, Default)]
 pub struct CellHistory {
     pub state: VolosState,
     pub accesses: Vec<Volos>,
+    /// Distinct accesses not kept because the history was full.
+    pub dropped: u64,
+}
+
+impl CellHistory {
+    fn push(&mut self, record: Volos) {
+        let same_site = |v: &Volos| {
+            v.thread_id == record.thread_id
+                && v.access_type == record.access_type
+                && v.pc == record.pc
+                && v.locks_held == record.locks_held
+        };
+        let mut sites = self
+            .accesses
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| same_site(v))
+            .map(|(i, _)| i);
+        let first = sites.next();
+        let latest = sites.next_back();
+        let idx = match (first, latest) {
+            (Some(_), Some(latest)) => {
+                self.accesses[latest] = record;
+                latest
+            }
+            _ if self.accesses.len() >= MAX_CELL_HISTORY => {
+                self.dropped += 1;
+                return;
+            }
+            _ => {
+                self.accesses.push(record);
+                self.accesses.len() - 1
+            }
+        };
+        self.reclassify_with(idx);
+    }
+
+    /// Update the state after the access at `idx` was added. Pairs not
+    /// involving it were checked when their later access was added, and
+    /// `Raceable` is sticky, so only pairs with `idx` need checking.
+    fn reclassify_with(&mut self, idx: usize) {
+        if matches!(self.state, VolosState::Raceable | VolosState::Reported) {
+            return;
+        }
+        let new = &self.accesses[idx];
+        let mut other_thread = false;
+        let mut any_write = new.access_type == AccessType::Write;
+        for (i, v) in self.accesses.iter().enumerate() {
+            if i == idx {
+                continue;
+            }
+            any_write |= v.access_type == AccessType::Write;
+            if v.thread_id != new.thread_id {
+                other_thread = true;
+                let one_is_write =
+                    v.access_type == AccessType::Write || new.access_type == AccessType::Write;
+                if one_is_write && !v.shares_lock(new) {
+                    self.state = VolosState::Raceable;
+                    return;
+                }
+            }
+        }
+        let multi =
+            other_thread || matches!(self.state, VolosState::Shared | VolosState::SharedModified);
+        self.state = match (multi, any_write) {
+            (false, _) => VolosState::Exclusive,
+            (true, true) => VolosState::SharedModified,
+            (true, false) => VolosState::Shared,
+        };
+    }
+}
+
+/// Counts of cross-thread conflicting access pairs seen by the race pass,
+/// and why the non-reported ones were dismissed. Pairs of records are
+/// counted once, however many bytes they share.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PairStats {
+    /// Different threads, same cell, at least one write.
+    pub conflicting: u64,
+    pub hb_ordered: u64,
+    pub lock_protected: u64,
+    /// The same counts restricted to pairs whose both sides satisfy the
+    /// caller's `is_app` predicate.
+    pub app_conflicting: u64,
+    pub app_hb_ordered: u64,
+    pub app_lock_protected: u64,
 }
 
 /// A memory region with per-cell access tracking.
@@ -127,12 +220,16 @@ impl VolosRegion {
         for byte in 0..record.size {
             let cell_addr = record.addr.wrapping_add(byte);
             let entry = self.cells.entry(cell_addr).or_default();
-            entry.accesses.push(record.clone());
-            entry.state = VolosState::classify(&entry.accesses);
+            entry.push(record.clone());
             if entry.state as u8 > self.state as u8 {
                 self.state = entry.state;
             }
         }
+    }
+
+    /// Distinct accesses dropped because a cell history was full.
+    pub fn dropped_accesses(&self) -> u64 {
+        self.cells.values().map(|c| c.dropped).sum()
     }
 
     /// Race-check pass: for every cell with two or more accesses, find
@@ -149,9 +246,24 @@ impl VolosRegion {
     /// list of `(addr, v1, v2, reason)` tuples that the plugin lifts to
     /// findings.
     pub fn race_pairs(&self) -> Vec<(u64, Volos, Volos, RaceReason)> {
+        self.race_pairs_with(&|_| false).0
+    }
+
+    /// [`Self::race_pairs`] plus the counts of dismissed pairs. A pair of
+    /// records with ids is reported once, at its lowest shared address.
+    pub fn race_pairs_with(
+        &self,
+        is_app: &dyn Fn(&Volos) -> bool,
+    ) -> (Vec<(u64, Volos, Volos, RaceReason)>, PairStats) {
         use std::cmp::Ordering;
+        use std::collections::HashSet;
         let mut out = Vec::new();
-        for (addr, entry) in self.cells.iter() {
+        let mut stats = PairStats::default();
+        let mut seen: HashSet<(u64, u64)> = HashSet::new();
+        let mut addrs: Vec<&u64> = self.cells.keys().collect();
+        addrs.sort_unstable();
+        for addr in addrs {
+            let entry = &self.cells[addr];
             if entry.accesses.len() < 2 {
                 continue;
             }
@@ -167,6 +279,18 @@ impl VolosRegion {
                     if !either_write {
                         continue;
                     }
+                    if v1.record_id != 0 && v2.record_id != 0 {
+                        let key = (
+                            v1.record_id.min(v2.record_id),
+                            v1.record_id.max(v2.record_id),
+                        );
+                        if !seen.insert(key) {
+                            continue;
+                        }
+                    }
+                    let app = is_app(v1) && is_app(v2);
+                    stats.conflicting += 1;
+                    stats.app_conflicting += app as u64;
                     // Happens-before filter. Only `None` (truly concurrent)
                     // and `Some(Equal)` (clocks coincide — possible on the
                     // very first event of two unrelated threads) survive.
@@ -175,6 +299,8 @@ impl VolosRegion {
                     // channel send/recv...) and therefore cannot race.
                     match v1.vector_clock.partial_cmp(&v2.vector_clock) {
                         Some(Ordering::Less) | Some(Ordering::Greater) => {
+                            stats.hb_ordered += 1;
+                            stats.app_hb_ordered += app as u64;
                             continue;
                         }
                         _ => {}
@@ -185,13 +311,17 @@ impl VolosRegion {
                     let reason = match (l1_empty || l2_empty, shared) {
                         (true, _) => RaceReason::Unprotected,
                         (false, false) => RaceReason::InconsistentLocking,
-                        (false, true) => continue, // protected by shared lock
+                        (false, true) => {
+                            stats.lock_protected += 1;
+                            stats.app_lock_protected += app as u64;
+                            continue;
+                        }
                     };
                     out.push((*addr, v1.clone(), v2.clone(), reason));
                 }
             }
         }
-        out
+        (out, stats)
     }
 }
 
