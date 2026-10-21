@@ -8,7 +8,7 @@
 //! The race detector (volos) records its witness pairs, input gates and
 //! solver models here; the executor records the goroutines it created, the
 //! schedule it ran and how the run ended; the toolchain check records the Go
-//! version and standard-library advisories. [`write_summary`] merges them,
+//! version. [`write_summary`] merges them,
 //! resolves PCs to functions and source lines, decodes solver models back
 //! into argv strings (the seed with the constrained bytes replaced), picks a
 //! status and, when no race was reached, proposes the next seed to try.
@@ -16,8 +16,6 @@
 //! Statuses:
 //!
 //! * `race_found` — a race was reported.
-//! * `stdlib_fixed` — the racy code is in a standard-library package whose
-//!   fix the build toolchain already contains.
 //! * `gate_not_reached` — the explored path did not create the goroutines
 //!   the race needs, but a negated branch does; `next_seed` reaches it.
 //! * `gate_reached_schedule_not_explored` — goroutines ran, but some never
@@ -40,7 +38,6 @@ use z3::ast::{Ast, Bool, Dynamic, BV};
 use z3::DeclKind;
 
 use crate::state::func_index;
-use crate::state::go_version::AdvisoryStatus;
 
 pub const RACE_SUMMARY_JSON: &str = "results/race_summary.json";
 
@@ -171,7 +168,6 @@ pub struct RaceStore {
     /// argv of the run, including argv[0].
     pub seed_args: Vec<String>,
     pub go_version: Option<String>,
-    pub advisories: Vec<AdvisoryStatus>,
     /// Analyses selected with `--analysis`.
     pub analyses: Vec<String>,
     pub binary: String,
@@ -971,13 +967,6 @@ pub fn dedup_races(races: &[RaceEntry]) -> Vec<RaceEntry> {
 
 /// Pick a status for a run that reported no race (see the module docs).
 fn no_race_status(st: &RaceStore) -> (&'static str, String) {
-    if let Some(adv) = st
-        .advisories
-        .iter()
-        .find(|a| a.status == "fixed_in_toolchain")
-    {
-        return ("stdlib_fixed", adv.message.clone());
-    }
     let started = st.goroutines.len();
     let errors: Vec<&GoroutineRecord> = st
         .goroutines
@@ -1197,7 +1186,7 @@ fn build_summary(st: &RaceStore, termination: Option<Value>) -> Value {
         })
         .collect();
     let tried = seeds_tried();
-    let next_seed = (status != "race_found" && status != "stdlib_fixed")
+    let next_seed = (status != "race_found")
         .then(|| best_candidate(st, &tried))
         .flatten();
 
@@ -1227,7 +1216,6 @@ fn build_summary(st: &RaceStore, termination: Option<Value>) -> Value {
         "binary": st.binary,
         "toolchain": {
             "go_version": st.go_version,
-            "advisories": st.advisories.iter().map(AdvisoryStatus::to_json).collect::<Vec<_>>(),
         },
         "analyses": st.analyses,
         "detector_active": st.detector_active,
@@ -1582,13 +1570,6 @@ mod tests {
         st.goroutines[1].end = Some("returned".into());
         st.stats.app_conflicting_pairs = 0;
         assert_eq!(no_race_status(&st).0, "no_race");
-        st.advisories.push(AdvisoryStatus {
-            id: "CVE-X",
-            package: "net/http",
-            status: "fixed_in_toolchain",
-            message: "fixed".into(),
-        });
-        assert_eq!(no_race_status(&st).0, "stdlib_fixed");
     }
 
     #[test]
